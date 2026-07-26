@@ -1,0 +1,4 @@
+# Super AI Assistant Requirements
+# Note: For a true 'super AI', you would add:
+# openai / anthropic / transformers / torch / etc.
+# This framework intentionally avoids heavy dependencies so it runs anywhere.
