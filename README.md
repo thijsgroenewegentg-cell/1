@@ -42,6 +42,9 @@ A fully local, private, Tony Stark-style JARVIS built on **Ollama**. No cloud AP
 1. **CLI** - `python cli.py` - Talk in terminal
 2. **Web UI** - Holographic JARVIS interface at `http://localhost:8000`
 3. **Voice Loop** - Hands-free `python -m jarvis.app --voice`
+4. **Desktop App Python** - Native `customtkinter` + tray + arc reactor `python desktop/python/main.py`
+5. **Desktop Electron** - Slick holographic native app `cd desktop/electron && npm start` (global hotkey `Ctrl+Shift+J`)
+6. **WebView Desktop** - Lightweight native wrapper `python desktop/python/webview_app.py`
 
 ---
 
@@ -105,6 +108,41 @@ uvicorn web.server:app --reload
 # Open http://localhost:8000
 ```
 
+**Python Desktop (Native, Tray, Arc Reactor):**
+```bash
+pip install customtkinter pystray pillow --break-system-packages
+python desktop/python/main.py
+# or
+python cli.py --desktop
+# or
+./run.sh desktop
+# Close = minimize to tray. Real JARVIS stays alive.
+```
+
+**WebView Desktop (Lightweight native, no browser):**
+```bash
+pip install pywebview --break-system-packages
+python desktop/python/webview_app.py
+# or
+./run.sh webview
+```
+
+**Electron Desktop (Slick, Hotkey Ctrl+Shift+J):**
+```bash
+cd desktop/electron
+npm install
+npm start              # dev + auto-start Python backend
+npm run build          # build installer (Win/Mac/Linux)
+# Global hotkey: Ctrl+Shift+J to show/hide like Spotlight
+```
+
+**All Desktops:**
+```bash
+python desktop/launch.py          # auto-picks best
+./run.sh auto                     # same
+./run.sh electron                 # force electron
+```
+
 **Docker (Ollama + App):**
 ```bash
 docker-compose up -d
@@ -136,28 +174,32 @@ WORKSPACE_DIR=./workspace
 ├── Modelfile              # Ollama personality definition
 ├── docker-compose.yml
 ├── requirements.txt
-├── setup.sh
-├── cli.py                 # Main entry
+├── setup.sh / run.sh
+├── cli.py                 # Main entry (cli, web, desktop flags)
 ├── jarvis/
-│   ├── config.py          # All settings
-│   ├── personality.py     # System prompt
-│   ├── brain.py           # Ollama client + tool calling loop
-│   ├── memory.py          # Long & short term memory
-│   ├── tools/             # Skills JARVIS can use
-│   │   ├── system.py
-│   │   ├── web.py
-│   │   ├── files.py
-│   │   ├── code.py
-│   │   └── memory_tools.py
-│   ├── voice/
-│   │   ├── stt.py         # Speech to Text
-│   │   └── tts.py         # Text to Speech
-│   └── app.py             # Main agent loop
-└── web/
-    ├── server.py          # FastAPI backend for UI
-    ├── index.html         # Holographic UI
-    ├── style.css
-    └── app.js
+│   ├── config.py
+│   ├── personality.py
+│   ├── brain.py           # Ollama client + tool loop
+│   ├── memory.py
+│   ├── tools/             # 8 tool modules
+│   ├── voice/             # STT/TTS
+│   └── app.py
+├── web/                   # Holographic UI
+│   ├── server.py (FastAPI)
+│   ├── index.html, style.css, app.js
+│   └── jarvis-hero.png
+└── desktop/               # 🖥️ NEW: Native Desktop Apps
+    ├── icon.png
+    ├── launch.py          # Auto-launcher (best mode)
+    ├── python/
+    │   ├── main.py        # Native CustomTkinter + tray + reactor
+    │   ├── webview_app.py # PyWebView lightweight native
+    │   └── requirements.txt
+    └── electron/
+        ├── main.js        # Electron main (spawns backend, tray, hotkey)
+        ├── preload.js
+        ├── package.json
+        └── assets/icon.png
 ```
 
 ---
@@ -232,11 +274,13 @@ brew install portaudio
 ```
 
 ## Roadmap
+- [x] Electron desktop app ✅ NEW
+- [x] Python native desktop + tray ✅ NEW
+- [x] Global hotkey Ctrl+Shift+J ✅ NEW
 - [ ] Vision (camera + llava model)
 - [ ] Home Assistant / IoT integration
 - [ ] Proactive notifications
 - [ ] Custom wake-word model
-- [ ] Electron desktop app
 
 ---
 
