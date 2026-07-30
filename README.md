@@ -1,289 +1,268 @@
-# J.A.R.V.I.S - Just A Rather Very Intelligent System
-### Ollama-Powered Local AI Assistant
+# J.A.R.V.I.S 2.0 - Minimal • Self-Learning • Ollama
 
 > "At your service, Sir. Always."
 
-A fully local, private, Tony Stark-style JARVIS built on **Ollama**. No cloud APIs. No data leaving your machine. Full voice, memory, tools, and personality.
+A fully local, private, **self-learning** JARVIS built on **Ollama**. Clean minimal UI, no neon clutter, super smart and gets smarter the more you talk.
 
-![Local](https://img.shields.io/badge/100%25%20Local-Private-green) ![Ollama](https://img.shields.io/badge/Brain-Ollama-blue) ![Python](https://img.shields.io/badge/Python-3.10%2B-yellow)
+![Local](https://img.shields.io/badge/100%25%20Local-Private-black) ![Minimal](https://img.shields.io/badge/UI-Minimal-white) ![Self-Learning](https://img.shields.io/badge/Brain-Self_Learning-blue) ![Ollama](https://img.shields.io/badge/Brain-Ollama-blue)
 
 ---
 
-## ✨ Features
+## ✨ What's New in 2.0
+
+**🎨 Minimal UI**
+- Rebuilt from scratch - Linear / ChatGPT style, not Stark circus
+- No grid, no scanlines, just whitespace and typography
+- Centered 720px chat column, floating rounded input
+- Subtle reactor dot that breathes, only glows when thinking
+- Drawer hidden by default (Cmd+K), clean top bar
+
+**🧠 Super Smart + Self-Learning**
+- **Vector memory** with Ollama embeddings (`nomic-embed-text`) + hash fallback
+- **Auto-memory extraction** - No need to say "remember", JARVIS detects facts heuristically + via LLM
+- **User profile** that builds over time: name, location, interests, communication style, routines, goals
+- **Reflection engine** - Every 10 messages JARVIS reflects: mood, satisfaction, what to improve
+- **Adaptive personality** - If you like concise answers, he becomes concise. If satisfaction low, he becomes proactive
+- **Routine detection** - Learns you ask weather at 8am, offers proactively
+- **Learning from feedback** - Thumbs up/down tunes future responses
+- **Semantic search** - Ask "what do you know about my work?" finds relevant memories via cosine similarity
+
+JARVIS doesn't just remember. He **learns**.
+
+---
+
+## Features (Full)
 
 **🧠 Brain**
-- Ollama as the core (supports `llama3.1:8b`, `qwen2.5:7b`, `mistral`, `gemma2`, etc.)
-- Custom `jarvis` Modelfile with personality baked-in
-- Function calling / Tool use
-- Streaming responses
+- Ollama: `qwen2.5:7b` (best tools), `llama3.1:8b`, `mistral-nemo`, `gemma2:9b`
+- Custom `jarvis` Modelfile with personality
+- Function calling + tool loop + learning context injection
 
 **🎙️ Voice**
-- Wake word: "Jarvis"
-- STT: Faster-Whisper (local, offline) + fallback to SpeechRecognition
-- TTS: Edge-TTS (Jarvis-like voice) + pyttsx3 offline fallback
+- Wake word "Jarvis", STT faster-whisper offline, TTS edge-tts `en-GB-RyanNeural`
 
-**🛠️ Tools JARVIS can use autonomously:**
-- `get_time` - Date, time, day
-- `get_system_info` - CPU, RAM, OS, battery
-- `search_web` - DuckDuckGo search
-- `get_weather` - Weather for any city (wttr.in)
-- `remember` / `recall` - Long-term memory
-- `file_manager` - Read/write/list files in allowed workspace
-- `execute_code` / `shell` - Run Python & shell commands safely
-- `control_system` - Volume, open apps/websites
-- `timer` / `reminder`
+**🛠️ Tools (auto-used):** time, system info, web search (DuckDuckGo), weather (wttr.in), memory, files, code exec, shell, timer
 
-**💾 Memory**
-- Short-term: conversation history
-- Long-term: JSON file `data/long_term_memory.json`
-- Vector memory ready (extendable to ChromaDB)
+**💾 Memory 2.0**
+- `data/long_term_memory.json` - old keyword memory (kept for compatibility)
+- `data/vectors.json` - NEW vector memory with embeddings + semantic search
+- `data/user_profile.json` - NEW who you are, preferences, routines
+- `data/reflections.json` - NEW self-reflections
 
 **🖥️ Interfaces**
-1. **CLI** - `python cli.py` - Talk in terminal
-2. **Web UI** - Holographic JARVIS interface at `http://localhost:8000`
-3. **Voice Loop** - Hands-free `python -m jarvis.app --voice`
-4. **Desktop App Python** - Native `customtkinter` + tray + arc reactor `python desktop/python/main.py`
-5. **Desktop Electron** - Slick holographic native app `cd desktop/electron && npm start` (global hotkey `Ctrl+Shift+J`)
-6. **WebView Desktop** - Lightweight native wrapper `python desktop/python/webview_app.py`
+1. CLI - `python cli.py`
+2. Web UI Minimal - `http://localhost:8000` - **New clean**
+3. Python Desktop Minimal - `python desktop/python/main.py` - Native minimal + tray
+4. WebView Desktop - lightweight native
+5. Electron Desktop - holographic + global hotkey `Ctrl+Shift+J`
+6. Voice - hands-free
 
 ---
 
 ## 🚀 Quick Start
 
-### 0. Prerequisites
-- Python 3.10+
-- [Ollama installed](https://ollama.com)
-
-### 1. Install & Setup
 ```bash
 git clone this repo
 cd jarvis-ollama
-./setup.sh
-```
+./setup.sh         # pulls qwen2.5:7b + nomic-embed-text + creates jarvis model
 
-Or manually:
-```bash
-pip install -r requirements.txt
-# Start Ollama (in another terminal)
+# Start Ollama (if needed)
 ollama serve
 
-# Pull a capable model (pick one)
-ollama pull llama3.1:8b
-ollama pull qwen2.5:7b    # best tool calling
-ollama pull mistral-nemo  # fast alternative
-
-# Create JARVIS personality model
-ollama create jarvis -f Modelfile
-
-# Optional: for web search & voice
-pip install -r requirements.txt
-```
-
-### 2. Configure
-```bash
-cp .env.example .env
-# Edit .env to set model, voice, etc.
-```
-
-### 3. Run
-
-**Terminal Chat:**
-```bash
+# Run
+python web/server.py          # Minimal web UI at http://localhost:8000
+# or
+python desktop/python/main.py # Minimal desktop
+# or
 python cli.py
+```
+
+**Manual:**
+```bash
+pip install -r requirements.txt
+ollama pull qwen2.5:7b
+ollama pull nomic-embed-text    # for self-learning embeddings (optional, fallback exists)
+ollama create jarvis -f Modelfile
+```
+
+### Run Modes
+
+```bash
+# CLI
 python cli.py --model jarvis
-```
 
-**Voice Mode (hands-free):**
-```bash
-python -m jarvis.app --voice
-# or
+# Voice
 python cli.py --voice --wake-word
-```
 
-**Web UI (Like Stark's lab):**
-```bash
+# Web minimal (new)
 python web/server.py
-# or
-uvicorn web.server:app --reload
-# Open http://localhost:8000
-```
+./run.sh web
 
-**Python Desktop (Native, Tray, Arc Reactor):**
-```bash
-pip install customtkinter pystray pillow --break-system-packages
-python desktop/python/main.py
-# or
-python cli.py --desktop
-# or
+# Python desktop minimal (new)
 ./run.sh desktop
-# Close = minimize to tray. Real JARVIS stays alive.
-```
+python cli.py --desktop
 
-**WebView Desktop (Lightweight native, no browser):**
-```bash
-pip install pywebview --break-system-packages
-python desktop/python/webview_app.py
-# or
+# WebView
 ./run.sh webview
-```
 
-**Electron Desktop (Slick, Hotkey Ctrl+Shift+J):**
-```bash
-cd desktop/electron
-npm install
-npm start              # dev + auto-start Python backend
-npm run build          # build installer (Win/Mac/Linux)
-# Global hotkey: Ctrl+Shift+J to show/hide like Spotlight
-```
+# Electron (slick + hotkey)
+./run.sh electron
 
-**All Desktops:**
-```bash
-python desktop/launch.py          # auto-picks best
-./run.sh auto                     # same
-./run.sh electron                 # force electron
-```
+# Auto-pick best desktop
+./run.sh auto
+python desktop/launch.py
 
-**Docker (Ollama + App):**
-```bash
+# Docker
 docker-compose up -d
-# Ollama at :11434, Web UI at :8000
 ```
 
 ---
 
-## ⚙️ Configuration (.env)
+## 🧬 How Self-Learning Works
+
+```
+User: "My name is Alex, I live in Berlin and I love robotics"
+  ↓
+[Auto Extractor - Heuristic]
+  → regex detects name=Alex, location=Berlin, interest=robotics (confidence 0.7)
+[Auto Extractor - LLM - background]
+  → LLM prompt extracts structured facts as JSON
+  ↓
+[Vector Store] adds embeddings: "name: Alex", "location: Berlin", "interest: robotics"
+[User Profile] updates facts + interests + stats (hour, topics)
+  ↓
+Next query: "What do you know about me?"
+  ↓
+[Brain.get_context()] vector search for "what do you know about me?" 
+  → finds "name: Alex" (0.79 similarity), "location: Berlin"
+  + profile summary injected into system prompt
+  ↓
+JARVIS answers with learned context
+
+Every 10 messages:
+[Reflection Engine] -> "Mood: focused, Topics: robotics, Satisfaction: 0.8, Learnings: [project: AI startup]"
+  → Updates profile, adds to vector store
+  → Generates adaptive prompt: "User prefers concise"
+```
+
+**Files:**
+
+- `jarvis/learning/vector_store.py` - Embeddings via Ollama `/api/embeddings`, fallback hash embedding 128d, cosine similarity search
+- `jarvis/learning/user_profile.py` - JSON profile with facts, prefs, routines, satisfaction score
+- `jarvis/learning/auto_memory.py` - Regex patterns + LLM extraction
+- `jarvis/learning/reflection.py` - LLM reflection prompt + heuristic fallback
+- `jarvis/learning/engine.py` - Orchestrator, background threading, context injection
+
+**No embedding model?** Falls back to deterministic hash embedding - works offline without `nomic-embed-text`. But pull it for better semantic search.
+
+---
+
+## 🎨 UI Philosophy - Minimal
+
+Old JARVIS UI was cyberpunk circus. New is **Linear + ChatGPT**:
+
+- Background #08090a (almost black)
+- No gradients, no glow, only 1 accent: white text
+- Top bar 52px, border #1e2024
+- Chat max-width 720px centered
+- Bubbles: user = white pill, JARVIS = #15171a border #1e2024, radius 18px
+- Input: floating rounded 24px, centered, shadow subtle
+- Drawer: right slideover 340px, opens with ☰ or Cmd+K
+- Toast for learnings: "🧠 Learned: location: Berlin" - black pill bottom
+- No neon, no grid, no scanline. Content first.
+
+Same for desktop Python - rebuilt with same minimal tokens.
+
+**Key UX:**
+
+- Welcome centered icon + suggestions chips
+- Feedback: copy / ↑ (good) / ↓ (bad) on hover
+- Learning badge shows when new fact learned
+- Insights: Cmd+K drawer shows vectors, satisfaction, profile summary, memory
+
+---
+
+## 🧬 Project Structure 2.0
+
+```
+.
+├── Modelfile
+├── requirements.txt / setup.sh / run.sh / cli.py
+├── jarvis/
+│   ├── brain.py              # Tool loop + learning context injection
+│   ├── config.py             # + EMBEDDING_MODEL, LEARNING_ENABLED, etc
+│   ├── memory.py
+│   ├── learning/             # NEW - Self-learning
+│   │   ├── vector_store.py   # Embeddings + cosine search
+│   │   ├── user_profile.py   # Who you are
+│   │   ├── auto_memory.py    # Regex + LLM extraction
+│   │   ├── reflection.py     # Self-reflection
+│   │   └── engine.py         # Orchestrator
+│   ├── tools/ & voice/
+│   └── app.py
+├── web/                      # Minimal UI 2.0
+│   ├── server.py             # + /api/profile, /api/learnings, /api/feedback, /api/reflect
+│   ├── index.html            # Minimal centered
+│   ├── style.css             # Minimal tokens
+│   └── app.js                # Learning toast, drawer, feedback
+├── desktop/
+│   ├── python/main.py        # Minimal desktop + tray + reactor dot
+│   ├── python/webview_app.py
+│   ├── electron/             # Electron + hotkey
+│   └── launch.py
+└── data/
+    ├── long_term_memory.json
+    ├── vectors.json          # NEW vector memory
+    ├── user_profile.json     # NEW profile
+    └── reflections.json      # NEW reflections
+```
+
+---
+
+## ⚙️ Config (.env)
 
 ```env
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=jarvis
-# or llama3.1:8b, qwen2.5:7b, etc
+EMBEDDING_MODEL=nomic-embed-text
+
+LEARNING_ENABLED=true
+AUTO_MEMORY=true
+REFLECTION_INTERVAL=10
+
 VOICE_ENABLED=false
-WAKE_WORD=jarvis
-TTS_ENGINE=edge       # edge or pyttsx3
-STT_ENGINE=faster-whisper # faster-whisper or google
-MEMORY_FILE=data/long_term_memory.json
-WORKSPACE_DIR=./workspace
+UI_MODE=minimal
 ```
 
 ---
 
-## 🧬 Project Structure
+## 🛠️ Adding Tools
 
-```
-.
-├── Modelfile              # Ollama personality definition
-├── docker-compose.yml
-├── requirements.txt
-├── setup.sh / run.sh
-├── cli.py                 # Main entry (cli, web, desktop flags)
-├── jarvis/
-│   ├── config.py
-│   ├── personality.py
-│   ├── brain.py           # Ollama client + tool loop
-│   ├── memory.py
-│   ├── tools/             # 8 tool modules
-│   ├── voice/             # STT/TTS
-│   └── app.py
-├── web/                   # Holographic UI
-│   ├── server.py (FastAPI)
-│   ├── index.html, style.css, app.js
-│   └── jarvis-hero.png
-└── desktop/               # 🖥️ NEW: Native Desktop Apps
-    ├── icon.png
-    ├── launch.py          # Auto-launcher (best mode)
-    ├── python/
-    │   ├── main.py        # Native CustomTkinter + tray + reactor
-    │   ├── webview_app.py # PyWebView lightweight native
-    │   └── requirements.txt
-    └── electron/
-        ├── main.js        # Electron main (spawns backend, tray, hotkey)
-        ├── preload.js
-        ├── package.json
-        └── assets/icon.png
-```
-
----
-
-## 🎨 Customizing Personality
-
-Edit `jarvis/personality.py` or `Modelfile`. Default prompt:
-
-> You are J.A.R.V.I.S. You are witty, British, loyal, concise. You address user as Sir unless told otherwise. You have full access to system tools. You are helpful but have dry humor.
-
-Want FRIDAY instead? Change the voice and system prompt.
-
----
-
-## 🛠️ Adding New Tools
-
-1. Create a function in `jarvis/tools/`
-2. Add its schema to `TOOLS_SCHEMA` in `jarvis/tools/__init__.py`
-3. Register it in `TOOL_MAP`
-4. JARVIS will automatically discover it via Ollama tool calling.
-
-Example:
-```python
-def brew_coffee():
-    return "Coffee brewing... Sir, it's 3 AM. Are we building another suit?"
-
-# In tools/__init__.py
-{
-  "type": "function",
-  "function": {
-    "name": "brew_coffee",
-    "description": "Brew coffee",
-    "parameters": {"type": "object", "properties": {}}
-  }
-}
-```
-
----
-
-## 🧠 Which Model to Use?
-
-| Model | Tool Calling | Speed | Personality | Recommend |
-|-------|-------------|-------|-------------|-----------|
-| `qwen2.5:7b` | ★★★★★ | Fast | Great | **BEST** |
-| `llama3.1:8b` | ★★★★☆ | Medium | Great | Good |
-| `mistral-nemo:12b` | ★★★★☆ | Fast | Good | Good |
-| `gemma2:9b` | ★★★☆☆ | Fast | Good | Fast |
-
-For best JARVIS experience: `qwen2.5:7b` or `llama3.1:8b`
-
-```bash
-ollama pull qwen2.5:7b
-ollama create jarvis -f Modelfile
-```
+Same as before - add function in `jarvis/tools/`, schema in `TOOLS_SCHEMA`, register in `TOOL_MAP`.
 
 ---
 
 ## 🔒 Privacy
 
-- 100% offline after model download
-- No API keys required
-- Memory stays in `data/` folder
-- No telemetry
+100% offline after pull. No keys. All learnings in `data/`. You can `cat data/user_profile.json` to see exactly what JARVIS knows about you.
 
-## Voice Not Working?
-```bash
-# Linux deps
-sudo apt install portaudio19-dev espeak -y
-
-# Mac
-brew install portaudio
-```
-
-## Roadmap
-- [x] Electron desktop app ✅ NEW
-- [x] Python native desktop + tray ✅ NEW
-- [x] Global hotkey Ctrl+Shift+J ✅ NEW
-- [ ] Vision (camera + llava model)
-- [ ] Home Assistant / IoT integration
-- [ ] Proactive notifications
-- [ ] Custom wake-word model
+Clear learnings: `/clear` in chat clears conversation, API `/api/clear?clear_learnings=true` or button in drawer clears profile + vectors.
 
 ---
 
-Built with ❤️ for Stark fans. "Sometimes you gotta run before you can walk."
+## Roadmap
 
-> Configure Ollama -> Run `cli.py` -> Say "Jarvis, what time is it?" -> You're Iron Man.
+- [x] Minimal clean UI
+- [x] Self-learning: vector memory, auto-extract, profile, reflection
+- [x] Electron + Python desktop with tray
+- [x] Global hotkey Ctrl+Shift+J
+- [ ] Vision (llava) - see your desk
+- [ ] Proactive: morning briefing from routines
+- [ ] Home Assistant
+- [ ] Voice wake word always-on in tray
+
+---
+
+Built with bare metal and obsession. "Sometimes you gotta run before you can walk."
+
+> `ollama serve` -> `./run.sh web` -> Say "My name is Alex" -> Ask "What do you know about me?" -> Watch him learn.

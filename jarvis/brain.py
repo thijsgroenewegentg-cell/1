@@ -1,6 +1,7 @@
 """
-JARVIS Brain - Ollama client with tool calling support
+JARVIS Brain - Ollama client with tool calling + self-learning
 """
+
 import json
 import time
 import requests
@@ -10,31 +11,113 @@ from .personality import JARVIS_SYSTEM_PROMPT
 from .tools import TOOLS_SCHEMA, TOOL_MAP
 from .memory import MemoryManager, ConversationManager
 
+# Self-learning
+try:
+    from .learning import LearningEngine
+    LEARNING_AVAILABLE = True
+except Exception as e:
+    print(f"Learning engine not available: {e}")
+    LEARNING_AVAILABLE = False
+    LearningEngine = None
+
 try:
     import ollama
     OLLAMA_LIB = True
 except ImportError:
     OLLAMA_LIB = False
 
+
 class JarvisBrain:
-    def __init__(self, model: str = None, system_prompt: str = None):
+    def __init__(self, model: str = None, system_prompt: str = None, enable_learning: bool = True):
         self.model = model or config.OLLAMA_MODEL
         self.fallback_models = config.FALLBACK_MODELS
-        self.system_prompt = system_prompt or JARVIS_SYSTEM_PROMPT
+        self.base_system_prompt = system_prompt or JARVIS_SYSTEM_PROMPT
+        self.system_prompt = self.base_system_prompt
         self.host = config.OLLAMA_HOST
         self.memory = MemoryManager()
         self.conversation = ConversationManager()
         self.messages: List[Dict] = []
+        
+        # Self-learning
+        self.learning_enabled = enable_learning and LEARNING_AVAILABLE
+        self.learning_engine = None
+        if self.learning_enabled:
+            try:
+                self.learning_engine = LearningEngine(use_llm_extraction=True)
+                print("🧠 Self-learning enabled, Sir.")
+            except Exception as e:
+                print(f"Learning init failed: {e}")
+                self.learning_enabled = False
+        
         self._init_messages()
         self._check_ollama()
     
     def _init_messages(self):
+        # Build system prompt with adaptive additions if learning enabled
+        full_prompt = self.base_system_prompt
+        
+        if self.learning_enabled and self.learning_engine:
+            try:
+                # Add learned context placeholder - will be injected per query
+                # For init, add profile summary
+                profile_ctx = self.learning_engine.user_profile.get_summary_for_prompt()
+                adaptive = self.learning_engine.user_profile.get_adaptive_prompt_addition()
+                if profile_ctx:
+                    full_prompt += f"\n\n{profile_ctx}"
+                if adaptive:
+                    full_prompt += f"\n\n{adaptive}"
+            except:
+                pass
+        
+        self.system_prompt = full_prompt
         self.messages = [{"role": "system", "content": self.system_prompt}]
         # Load recent history
         history = self.conversation.load_history(limit=10)
         for msg in history:
             if msg["role"] in ["user", "assistant"]:
                 self.messages.append({"role": msg["role"], "content": msg["content"]})
+    
+    def _build_messages_with_context(self, user_input: str) -> List[Dict]:
+        """Inject relevant learning context into messages"""
+        if not self.learning_enabled or not self.learning_engine:
+            return self.messages
+        
+        try:
+            context = self.learning_engine.get_context(user_input, k=5)
+            if not context:
+                return self.messages
+            
+            # Inject context as a hidden system-like message before user message
+            # Or append to system prompt temporarily
+            # We'll create a new list with context injected
+            enhanced = self.messages.copy()
+            # Find last user message index (should be last)
+            # Insert context as additional system message just before it? Actually after system
+            # Better: replace system prompt with enhanced version for this call only
+            
+            # Rebuild system prompt with context
+            adaptive_system = self.base_system_prompt
+            profile_summary = self.learning_engine.user_profile.get_summary_for_prompt()
+            adaptive_add = self.learning_engine.user_profile.get_adaptive_prompt_addition()
+            
+            if profile_summary:
+                adaptive_system += f"\n\n{profile_summary}"
+            if adaptive_add:
+                adaptive_system += f"\n\n{adaptive_add}"
+            if context:
+                # Context already includes profile, but we add retrieved memories
+                # To avoid duplication, only add if not already in profile
+                if "Relevant memories" in context:
+                    adaptive_system += f"\n\nContext from memory (use if relevant):\n{context}"
+            
+            # Replace first message if system
+            if enhanced and enhanced[0]["role"] == "system":
+                enhanced[0] = {"role": "system", "content": adaptive_system}
+            
+            return enhanced
+        except Exception as e:
+            print(f"Context injection failed: {e}")
+            return self.messages
     
     def _check_ollama(self):
         """Check Ollama connection and model availability"""
@@ -48,7 +131,6 @@ class JarvisBrain:
                 resp.raise_for_status()
                 available = [m["name"] for m in resp.json().get("models", [])]
             
-            # If primary model not available, try fallbacks
             all_models_str = " ".join(available).lower()
             if self.model not in all_models_str and not any(self.model in a for a in available):
                 print(f"⚠️ Model {self.model} not found. Available: {available}")
@@ -84,11 +166,9 @@ class JarvisBrain:
                     return client.chat(**kwargs)
                 else:
                     response = client.chat(**kwargs)
-                    # Normalize response to dict like API
                     if hasattr(response, 'model_dump'):
                         response = response.model_dump()
                     elif not isinstance(response, dict):
-                        # Convert ollama response object
                         msg = response.get('message', {}) if isinstance(response, dict) else getattr(response, 'message', {})
                         if not isinstance(msg, dict):
                             msg = {"role": getattr(msg, 'role', 'assistant'), "content": getattr(msg, 'content', ''), "tool_calls": getattr(msg, 'tool_calls', None)}
@@ -97,7 +177,6 @@ class JarvisBrain:
             except Exception as e:
                 print(f"Ollama library call failed: {e}, falling back to requests")
         
-        # Fallback to requests
         payload = {
             "model": self.model,
             "messages": messages,
@@ -127,7 +206,6 @@ class JarvisBrain:
             except Exception as e:
                 print(f"Stream failed via lib: {e}")
         
-        # Requests streaming
         payload = {
             "model": self.model,
             "messages": messages,
@@ -150,22 +228,29 @@ class JarvisBrain:
     
     def think(self, user_input: str, use_tools: bool = True) -> str:
         """
-        Main thinking loop: chat + tool execution loop (up to 5 iterations)
+        Main thinking loop: chat + tool execution + self-learning
         """
+        # Inject learning context
+        messages_with_context = self._build_messages_with_context(user_input)
+        # Also keep original self.messages in sync for history, but use enhanced for API call
+        # Append user message to both
         self.messages.append({"role": "user", "content": user_input})
+        messages_with_context.append({"role": "user", "content": user_input})
         self.conversation.add_message("user", user_input)
         
         max_tool_iterations = 5
         iteration = 0
         final_response = ""
         
+        # Current working messages for this inference (with context)
+        working_messages = messages_with_context
+        
         while iteration < max_tool_iterations:
             iteration += 1
             
             try:
-                # Call Ollama
                 response = self._call_ollama_chat(
-                    messages=self.messages,
+                    messages=working_messages,
                     tools=TOOLS_SCHEMA if use_tools else None,
                     stream=False
                 )
@@ -174,20 +259,17 @@ class JarvisBrain:
                 content = message.get("content", "")
                 tool_calls = message.get("tool_calls", [])
                 
-                # If no tool calls, we're done
                 if not tool_calls:
                     final_response = content
                     self.messages.append({"role": "assistant", "content": content})
                     self.conversation.add_message("assistant", content)
                     break
                 
-                # Handle tool calls
                 print(f"🔧 JARVIS uses tools: {[tc.get('function', {}).get('name') for tc in tool_calls]}")
                 
-                # Add assistant message with tool calls
                 self.messages.append(message)
+                working_messages.append(message)
                 
-                # Execute each tool
                 for tool_call in tool_calls:
                     func_info = tool_call.get("function", {})
                     func_name = func_info.get("name")
@@ -199,7 +281,6 @@ class JarvisBrain:
                         except:
                             func_args = {}
                     
-                    # Execute
                     tool_func = TOOL_MAP.get(func_name)
                     if tool_func:
                         try:
@@ -209,24 +290,19 @@ class JarvisBrain:
                     else:
                         result = f"Tool {func_name} not found, Sir."
                     
-                    # Add tool result
                     tool_result_msg = {
                         "role": "tool",
                         "content": str(result)
                     }
                     self.messages.append(tool_result_msg)
+                    working_messages.append(tool_result_msg)
                 
-                # If after tool calls, we want to loop again to get final answer
-                # If this was last iteration, create final response from tool results
                 if iteration == max_tool_iterations:
-                    # One final call to synthesize
-                    response = self._call_ollama_chat(messages=self.messages, tools=None, stream=False)
+                    response = self._call_ollama_chat(messages=working_messages, tools=None, stream=False)
                     final_response = response.get("message", {}).get("content", "I've completed the tasks, Sir.")
                     self.messages.append({"role": "assistant", "content": final_response})
                     self.conversation.add_message("assistant", final_response)
                     break
-                
-                # Continue loop - next iteration will get final response
                 
             except Exception as e:
                 error_msg = f"I encountered an issue with my neural pathways, Sir: {e}"
@@ -235,22 +311,37 @@ class JarvisBrain:
                 self.messages.append({"role": "assistant", "content": final_response})
                 break
         
+        # Trigger self-learning in background
+        if self.learning_enabled and self.learning_engine:
+            try:
+                self.learning_engine.learn_from_interaction(
+                    user_message=user_input,
+                    assistant_response=final_response,
+                    conversation=self.messages[-10:]
+                )
+            except Exception as e:
+                print(f"Learning trigger failed: {e}")
+        
         return final_response
     
     def think_stream(self, user_input: str) -> Generator[str, None, None]:
-        """Streaming version without tool loop for UI"""
+        """Streaming version with learning"""
+        messages_with_context = self._build_messages_with_context(user_input)
         self.messages.append({"role": "user", "content": user_input})
+        messages_with_context.append({"role": "user", "content": user_input})
         self.conversation.add_message("user", user_input)
         
         full_response = ""
         try:
-            # First check if tools needed (non-streaming check)
-            check_resp = self._call_ollama_chat(messages=self.messages, tools=TOOLS_SCHEMA, stream=False)
+            check_resp = self._call_ollama_chat(messages=messages_with_context, tools=TOOLS_SCHEMA, stream=False)
             msg = check_resp.get("message", {})
             tool_calls = msg.get("tool_calls", [])
             
             if tool_calls:
-                # Tool path - non-streaming but execute tools then stream final
+                working = messages_with_context
+                working.append(msg)
+                self.messages.append(msg)
+                
                 for tc in tool_calls:
                     func_info = tc.get("function", {})
                     func_name = func_info.get("name")
@@ -261,43 +352,58 @@ class JarvisBrain:
                         except:
                             func_args = {}
                     
-                    self.messages.append(msg)
-                    
                     tool_func = TOOL_MAP.get(func_name)
                     if tool_func:
                         try:
                             result = tool_func(**func_args)
-                            yield f"\n[Using tool: {func_name} -> {result[:100]}...]\n"
+                            yield f"\n[Using tool: {func_name}]\n"
                         except Exception as e:
                             result = f"Error: {e}"
                             yield f"\n[Tool error: {e}]\n"
                     else:
                         result = f"Tool {func_name} not found"
                     
-                    self.messages.append({"role": "tool", "content": str(result)})
+                    tool_msg = {"role": "tool", "content": str(result)}
+                    working.append(tool_msg)
+                    self.messages.append(tool_msg)
                     
-                    # Now stream final answer
-                    for chunk in self._call_ollama_chat_stream(self.messages, tools=None):
+                    for chunk in self._call_ollama_chat_stream(working, tools=None):
                         full_response += chunk
                         yield chunk
                     
                     self.messages.append({"role": "assistant", "content": full_response})
                     self.conversation.add_message("assistant", full_response)
+                    
+                    # Learning
+                    if self.learning_enabled and self.learning_engine:
+                        self.learning_engine.learn_from_interaction(user_message=user_input, assistant_response=full_response, conversation=self.messages[-10:])
                     return
             
-            # No tools, just stream
-            for chunk in self._call_ollama_chat_stream(self.messages, tools=None):
+            for chunk in self._call_ollama_chat_stream(messages_with_context, tools=None):
                 full_response += chunk
                 yield chunk
             
             self.messages.append({"role": "assistant", "content": full_response})
             self.conversation.add_message("assistant", full_response)
             
+            if self.learning_enabled and self.learning_engine:
+                self.learning_engine.learn_from_interaction(user_message=user_input, assistant_response=full_response, conversation=self.messages[-10:])
+            
         except Exception as e:
             err = f"Neural link disrupted, Sir: {e}"
             yield err
     
+    def add_feedback(self, feedback: str, message_text: str = None):
+        if self.learning_enabled and self.learning_engine:
+            self.learning_engine.add_feedback(feedback=feedback, message_text=message_text)
+    
+    def get_learnings(self):
+        if self.learning_enabled and self.learning_engine:
+            return self.learning_engine.get_insights()
+        return {}
+    
     def set_personality(self, prompt: str):
+        self.base_system_prompt = prompt
         self.system_prompt = prompt
         if self.messages and self.messages[0]["role"] == "system":
             self.messages[0]["content"] = prompt
@@ -307,15 +413,33 @@ class JarvisBrain:
     def clear_memory(self):
         self._init_messages()
         self.conversation.clear()
+        if self.learning_enabled and self.learning_engine:
+            # Optionally keep learnings? For clear we keep profile but clear convo
+            pass
+    
+    def clear_all(self):
+        self.clear_memory()
+        if self.learning_enabled and self.learning_engine:
+            self.learning_engine.clear_all_learnings()
     
     def get_status(self) -> Dict:
-        return {
+        status = {
             "model": self.model,
             "host": self.host,
             "ollama_connected": self._is_ollama_up(),
             "conversation_length": len(self.messages),
-            "memory_count": len(self.memory.get_all_memories())
+            "memory_count": len(self.memory.get_all_memories()),
+            "learning_enabled": self.learning_enabled
         }
+        if self.learning_enabled and self.learning_engine:
+            try:
+                status["vector_count"] = len(self.learning_engine.vector_store.vectors)
+                status["profile"] = self.learning_engine.user_profile.get()
+                status["learnings_count"] = len(self.learning_engine.vector_store.vectors)
+                status["satisfaction"] = self.learning_engine.user_profile.profile["interaction_stats"].get("satisfaction_score", 0.5)
+            except:
+                pass
+        return status
     
     def _is_ollama_up(self) -> bool:
         try:

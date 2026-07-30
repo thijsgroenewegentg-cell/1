@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env
 load_dotenv()
 
 BASE_DIR = Path(__file__).parent.parent
@@ -12,18 +11,25 @@ class Config:
     OLLAMA_HOST: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "jarvis")
     FALLBACK_MODELS: list = os.getenv("FALLBACK_MODELS", "qwen2.5:7b,llama3.1:8b,mistral-nemo,gemma2:9b").split(",")
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
     # Voice
     VOICE_ENABLED: bool = os.getenv("VOICE_ENABLED", "false").lower() == "true"
     WAKE_WORD: str = os.getenv("WAKE_WORD", "jarvis")
-    TTS_ENGINE: str = os.getenv("TTS_ENGINE", "edge")  # edge, pyttsx3
-    TTS_VOICE: str = os.getenv("TTS_VOICE", "en-GB-RyanNeural")  # Jarvis-like British male
+    TTS_ENGINE: str = os.getenv("TTS_ENGINE", "edge")
+    TTS_VOICE: str = os.getenv("TTS_VOICE", "en-GB-RyanNeural")
     STT_ENGINE: str = os.getenv("STT_ENGINE", "faster-whisper")
 
-    # Memory
+    # Memory & Learning
     MEMORY_FILE: Path = BASE_DIR / os.getenv("MEMORY_FILE", "data/long_term_memory.json")
     CONVERSATION_FILE: Path = BASE_DIR / os.getenv("CONVERSATION_FILE", "data/conversations.json")
     WORKSPACE_DIR: Path = BASE_DIR / os.getenv("WORKSPACE_DIR", "workspace")
+    LEARNING_ENABLED: bool = os.getenv("LEARNING_ENABLED", "true").lower() == "true"
+    AUTO_MEMORY: bool = os.getenv("AUTO_MEMORY", "true").lower() == "true"
+    REFLECTION_INTERVAL: int = int(os.getenv("REFLECTION_INTERVAL", "10"))
+    VECTOR_STORE: Path = BASE_DIR / os.getenv("VECTOR_STORE", "data/vectors.json")
+    USER_PROFILE: Path = BASE_DIR / os.getenv("USER_PROFILE", "data/user_profile.json")
+    UI_MODE: str = os.getenv("UI_MODE", "minimal")
 
     # Security
     ALLOW_SHELL: bool = os.getenv("ALLOW_SHELL", "true").lower() == "true"
@@ -41,6 +47,8 @@ class Config:
         self.MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
         self.CONVERSATION_FILE.parent.mkdir(parents=True, exist_ok=True)
         self.WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+        self.VECTOR_STORE.parent.mkdir(parents=True, exist_ok=True)
+        self.USER_PROFILE.parent.mkdir(parents=True, exist_ok=True)
 
 config = Config()
 config.__post_init__()

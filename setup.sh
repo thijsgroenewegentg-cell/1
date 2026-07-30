@@ -2,7 +2,8 @@
 set -e
 
 echo "========================================="
-echo "  J.A.R.V.I.S  - Ollama Setup"
+echo "  J.A.R.V.I.S 2.0 - Ollama Setup"
+echo "  Minimal + Self-Learning"
 echo "  At your service, Sir."
 echo "========================================="
 
@@ -54,17 +55,28 @@ mkdir -p data workspace
 touch data/long_term_memory.json
 touch data/conversations.json
 echo "[]" > data/long_term_memory.json 2>/dev/null || echo '{"memories":[]}' > data/long_term_memory.json
+echo "[]" > data/vectors.json 2>/dev/null || echo '[]' > data/vectors.json
+echo "{}" > data/user_profile.json 2>/dev/null || echo '{}' > data/user_profile.json
+echo "[]" > data/reflections.json 2>/dev/null || true
 
 if [ ! -f ".env" ]; then
     cp .env.example .env
     echo "✓ Created .env from example"
 fi
 
-# Pull model
-MODEL="qwen2.5:7b"
+# Pull models
 echo ""
-echo "🧠 Pulling brain model: $MODEL (this may take a few minutes)..."
+echo "🧠 Pulling brain models (this may take a few minutes)..."
+
+# Main LLM
+MODEL="qwen2.5:7b"
+echo "-> Pulling $MODEL..."
 ollama pull $MODEL || echo "Failed to pull $MODEL, trying llama3.1:8b" && ollama pull llama3.1:8b
+
+# Embedding model for self-learning (optional but recommended)
+echo ""
+echo "-> Pulling embedding model for self-learning: nomic-embed-text"
+ollama pull nomic-embed-text || echo "⚠️ Embedding model pull failed, JARVIS will use hash fallback (still works)"
 
 # Try to create jarvis model
 echo ""
@@ -77,19 +89,24 @@ fi
 
 echo ""
 echo "========================================="
-echo "  Setup Complete, Sir."
+echo "  Setup Complete, Sir. JARVIS 2.0"
 echo "========================================="
+echo ""
+echo "What's new:"
+echo "  - Minimal clean UI (Linear/ChatGPT style)"
+echo "  - Self-learning: auto-memory, vector search, reflection"
+echo "  - Desktop apps: python native + electron"
 echo ""
 echo "Try it now:"
 echo "  source venv/bin/activate"
-echo "  python cli.py"
+echo "  python cli.py                              # CLI"
+echo "  python web/server.py                       # Minimal Web UI -> http://localhost:8000"
+echo "  python desktop/python/main.py              # Minimal Desktop"
+echo "  python desktop/launch.py                   # Auto desktop"
+echo "  cd desktop/electron && npm install && npm start  # Electron"
 echo ""
 echo "Voice mode:"
 echo "  python cli.py --voice"
-echo ""
-echo "Web UI:"
-echo "  python web/server.py"
-echo "  -> http://localhost:8000"
 echo ""
 echo "Available models:"
 ollama list

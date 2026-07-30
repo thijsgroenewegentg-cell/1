@@ -1,81 +1,112 @@
+/* JARVIS 2.0 - Minimal Clean UI + Self-Learning */
+
 const chatEl = document.getElementById('chat');
-const inputEl = document.getElementById('user-input');
-const sendBtn = document.getElementById('send-btn');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const welcomeEl = document.getElementById('welcome');
+const drawer = document.getElementById('drawer');
+const drawerOverlay = document.getElementById('drawer-overlay');
 const modelSelect = document.getElementById('model-select');
-const bootStatusEl = document.getElementById('boot-status');
+const modelPill = document.getElementById('model-pill');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
 
 let ws = null;
 let currentModel = 'jarvis';
 let messageCount = 0;
 let startTime = Date.now();
 let voiceEnabled = false;
-let synth = window.speechSynthesis;
+let lastJarvisMsgEl = null;
 
+// Auto-resize textarea
+inputEl.addEventListener('input', () => {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+});
+
+// Connect WS
 function connectWS() {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${location.host}/ws`;
-  console.log('Connecting to', wsUrl);
-  ws = new WebSocket(wsUrl);
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
 
   ws.onopen = () => {
-    console.log('WS connected');
-    updateStatus('online', 'Connected');
-    bootStatusEl.textContent = '✓ Connected';
+    setStatus(true, 'online');
+    modelPill.textContent = currentModel + ' • online';
   };
-
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      handleWSMessage(data);
-    } catch(e) {
-      console.error(e);
-    }
+  ws.onmessage = (e) => {
+    try { handleWS(JSON.parse(e.data)); } catch(err){ console.error(err); }
   };
-
   ws.onclose = () => {
-    console.log('WS closed');
-    updateStatus('offline', 'Disconnected - Reconnecting...');
+    setStatus(false, 'offline — reconnecting');
     setTimeout(connectWS, 2000);
   };
-
-  ws.onerror = (err) => {
-    console.error('WS error', err);
-    updateStatus('offline', 'Connection error');
-  };
+  ws.onerror = () => setStatus(false, 'error');
 }
 
-function handleWSMessage(msg) {
+function handleWS(msg) {
   const { type, data } = msg;
   switch(type) {
     case 'status':
-      document.getElementById('model-name').textContent = data.model || currentModel;
-      document.getElementById('ollama-status').textContent = data.ollama_connected ? 'Ollama ✓' : 'Ollama ✗';
-      document.getElementById('memory-count').textContent = data.memory_count || 0;
-      document.getElementById('stat-model').textContent = data.model;
-      currentModel = data.model;
+      const s = data;
+      currentModel = s.model || currentModel;
+      modelPill.textContent = currentModel + (s.ollama_connected ? ' • online' : ' • ollama offline');
+      document.getElementById('stat-vectors').textContent = s.vector_count || s.memory_count || 0;
+      document.getElementById('stat-msgs').textContent = s.conversation_length || 0;
+      document.getElementById('stat-satisfaction').textContent = s.satisfaction ? (s.satisfaction*100|0)+'%' : '—';
+      document.getElementById('learning-count').textContent = s.vector_count || s.learnings_count || 0;
+      if (s.profile) updateProfileBox(s.profile);
+      setStatus(s.ollama_connected, s.ollama_connected ? 'online' : 'ollama offline');
       break;
+
     case 'message':
-      addMessage('jarvis', data);
-      speakIfEnabled(data);
+      if (data && data !== 'Online, Sir.') addMessage('jarvis', data);
       hideThinking();
       break;
+
     case 'stream':
-      appendToLastJarvisMessage(data);
+      if (!lastJarvisMsgEl || lastJarvisMsgEl.dataset.done === 'true') {
+        lastJarvisMsgEl = addMessage('jarvis', '', true);
+      }
+      appendToLast(data);
       break;
+
+    case 'learned':
+      if (Array.isArray(data) && data.length) {
+        showToast(`🧠 Learned: ${data[0].slice(0, 60)}`);
+        document.getElementById('learning-badge').style.display = 'flex';
+        document.getElementById('learning-text').textContent = data[0].slice(0, 80);
+        setTimeout(() => {
+          document.getElementById('learning-badge').style.display = 'none';
+        }, 6000);
+        loadLearnings();
+      }
+      break;
+
     case 'tool':
-      addMessage('tool', data, 'TOOL');
+      addMessage('tool', data);
       break;
+
     case 'thinking':
       showThinking();
       break;
+
+    case 'reflection':
+      addMessage('system', `Reflection: ${JSON.stringify(data, null, 2)}`);
+      hideThinking();
+      break;
+
     case 'done':
       hideThinking();
+      if (lastJarvisMsgEl) lastJarvisMsgEl.dataset.done = 'true';
+      lastJarvisMsgEl = null;
       messageCount++;
-      document.getElementById('stat-tokens').textContent = data.length;
       break;
+
     case 'clear':
       chatEl.innerHTML = '';
+      welcomeEl.style.display = 'flex';
       break;
+
     case 'error':
       addMessage('system', 'Error: ' + data);
       hideThinking();
@@ -83,216 +114,310 @@ function handleWSMessage(msg) {
   }
 }
 
-// UI Helpers
-function addMessage(role, text, label) {
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  const now = new Date().toLocaleTimeString();
-  const avatarText = role === 'user' ? 'YOU' : role === 'jarvis' ? 'JAR' : role === 'tool' ? '🔧' : 'SYS';
-  const metaLabel = label || (role === 'user' ? `YOU • ${now}` : role === 'jarvis' ? `J.A.R.V.I.S • ${now} • ${currentModel}` : `SYSTEM • ${now}`);
-
-  div.innerHTML = `
-    <div class="avatar">${avatarText}</div>
-    <div class="content">
-      <div class="meta">${metaLabel}</div>
-      <div class="text"></div>
-    </div>
-  `;
-  const textEl = div.querySelector('.text');
-  // Basic markdown-like rendering
-  textEl.innerHTML = formatText(text);
-  chatEl.appendChild(div);
-  chatEl.scrollTop = chatEl.scrollHeight;
-  return div;
+function setStatus(online, text) {
+  statusText.textContent = text;
+  statusDot.classList.toggle('offline', !online);
+  document.querySelector('#status-dot .dot').style.background = online ? 'var(--green)' : 'var(--orange)';
 }
 
-let lastJarvisDiv = null;
-function appendToLastJarvisMessage(chunk) {
-  if (!lastJarvisDiv || !lastJarvisDiv.classList.contains('jarvis') || lastJarvisDiv.dataset.done === "true") {
-    lastJarvisDiv = addMessage('jarvis', '', 'J.A.R.V.I.S • Streaming...');
-    lastJarvisDiv.dataset.streaming = "true";
+// Messages - Minimal bubbles
+function addMessage(role, text, isStreaming = false) {
+  if (welcomeEl) welcomeEl.style.display = 'none';
+
+  const msg = document.createElement('div');
+  msg.className = `msg ${role}`;
+  if (isStreaming) msg.dataset.streaming = 'true';
+
+  const meta = role === 'user' ? 'You' : role === 'jarvis' ? 'JARVIS' : role === 'tool' ? 'TOOL' : 'SYSTEM';
+  const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+  msg.innerHTML = `
+    <div class="meta">${meta} • ${time}</div>
+    <div class="bubble">${formatText(text)}</div>
+    ${role === 'jarvis' ? `
+    <div class="msg-actions">
+      <button onclick="copyText(this)" title="Copy">⎙</button>
+      <button onclick="feedback(this, 'positive')" title="Good">↑</button>
+      <button onclick="feedback(this, 'negative')" title="Bad">↓</button>
+    </div>` : ''}
+  `;
+
+  chatEl.appendChild(msg);
+  chatEl.scrollTo({ top: chatEl.scrollHeight, behavior: 'smooth' });
+  return msg;
+}
+
+function appendToLast(chunk) {
+  if (!lastJarvisMsgEl) {
+    lastJarvisMsgEl = addMessage('jarvis', '', true);
   }
-  const textEl = lastJarvisDiv.querySelector('.text');
-  // Append raw then format incrementally? simple append
-  textEl.textContent += chunk;
-  chatEl.scrollTop = chatEl.scrollHeight;
+  const bubble = lastJarvisMsgEl.querySelector('.bubble');
+  // Streaming raw append, keep formatting minimal
+  bubble.textContent += chunk;
+  chatEl.scrollTo({ top: chatEl.scrollHeight });
 }
 
 function formatText(t) {
-  // Escape HTML
-  let escaped = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  if (!t) return '';
+  let e = t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   // Code blocks
-  escaped = escaped.replace(/```([\s\S]*?)```/g, '<pre style="background:#000;padding:8px;border-radius:4px;overflow:auto;margin:8px 0"><code>$1</code></pre>');
+  e = e.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+  // Inline code
+  e = e.replace(/`([^`]+)`/g, '<code>$1</code>');
   // Bold
-  escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--cyan)">$1</strong>');
+  e = e.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   // Line breaks
-  escaped = escaped.replace(/\n/g, '<br>');
-  return escaped;
+  e = e.replace(/\n/g, '<br>');
+  return e;
 }
 
 let thinkingEl = null;
 function showThinking() {
   hideThinking();
-  thinkingEl = addMessage('system', '<div class="thinking"><span>JARVIS is processing</span><span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span></div>', 'NEURAL LINK');
-  document.getElementById('model-name').textContent = currentModel + ' • Thinking...';
-  const dot = document.querySelector('.dot');
-  if(dot) dot.className = 'dot busy';
+  thinkingEl = document.createElement('div');
+  thinkingEl.className = 'msg jarvis';
+  thinkingEl.innerHTML = `<div class="meta">JARVIS • thinking</div><div class="bubble" style="padding:10px 16px"><div class="thinking"><span></span><span></span><span></span></div></div>`;
+  chatEl.appendChild(thinkingEl);
+  chatEl.scrollTo({ top: chatEl.scrollHeight });
 }
-
 function hideThinking() {
-  if(thinkingEl) {
-    thinkingEl.remove();
-    thinkingEl = null;
-  }
-  const dot = document.querySelector('.dot');
-  if(dot) dot.className = 'dot online';
-}
-
-function updateStatus(state, text) {
-  const ollamaEl = document.getElementById('ollama-status');
-  ollamaEl.textContent = text;
-  const dot = document.querySelector('.status-panel .dot');
-  if(dot) {
-    dot.className = state === 'online' ? 'dot online' : 'dot';
-  }
+  if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
 }
 
 // Send
 function sendMessage() {
   const text = inputEl.value.trim();
-  if(!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-  
+  if (!text || !ws || ws.readyState !== 1) return;
+
   addMessage('user', text);
   ws.send(JSON.stringify({ message: text, model: currentModel }));
+
   inputEl.value = '';
+  inputEl.style.height = 'auto';
   inputEl.focus();
-  
-  // Waveform effect
-  triggerWaveform();
 }
 
 sendBtn.onclick = sendMessage;
 inputEl.addEventListener('keydown', e => {
-  if(e.key === 'Enter') sendMessage();
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
 });
 
-function quick(text) {
-  inputEl.value = text;
-  sendMessage();
+// Suggestions quick
+document.querySelectorAll('.suggestions button').forEach(btn => {
+  btn.onclick = () => {
+    inputEl.value = btn.dataset.q;
+    sendMessage();
+  };
+});
+
+// Drawer
+function openDrawer() {
+  drawer.classList.add('open');
+  drawerOverlay.classList.add('open');
+  loadMemories();
+  loadProfile();
+}
+function closeDrawer() {
+  drawer.classList.remove('open');
+  drawerOverlay.classList.remove('open');
+}
+document.getElementById('drawer-btn').onclick = openDrawer;
+document.getElementById('drawer-close').onclick = closeDrawer;
+drawerOverlay.onclick = closeDrawer;
+
+// Model change
+modelSelect.onchange = () => {
+  currentModel = modelSelect.value;
+  modelPill.textContent = currentModel;
+};
+
+// Voice toggle
+let synth = window.speechSynthesis;
+document.getElementById('voice-toggle').onclick = (e) => {
+  voiceEnabled = !voiceEnabled;
+  e.target.textContent = `Voice: ${voiceEnabled ? 'On' : 'Off'}`;
+};
+
+function copyText(btn) {
+  const bubble = btn.closest('.msg').querySelector('.bubble');
+  navigator.clipboard.writeText(bubble.textContent);
+  showToast('Copied');
+}
+
+function feedback(btn, type) {
+  const bubble = btn.closest('.msg').querySelector('.bubble');
+  const text = bubble.textContent;
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'feedback', feedback: type, text }));
+  } else {
+    fetch('/api/feedback', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ feedback: type, message_text: text })
+    });
+  }
+  showToast(type === 'positive' ? 'Thanks for feedback, Sir.' : 'Noted. I will improve, Sir.');
 }
 
 function clearChat() {
-  if(ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ message: '/clear' }));
-  }
+  if (ws) ws.send(JSON.stringify({ message: '/clear' }));
   chatEl.innerHTML = '';
-}
-
-function changeModel() {
-  currentModel = modelSelect.value;
-  document.getElementById('model-name').textContent = currentModel;
-  addMessage('system', `Model switched to ${currentModel}, Sir.`);
-}
-
-function toggleVoice() {
-  voiceEnabled = !voiceEnabled;
-  document.getElementById('voice-btn').textContent = `VOICE: ${voiceEnabled ? 'ON' : 'OFF'}`;
-  document.getElementById('voice-status').textContent = voiceEnabled ? 'browser TTS' : 'offline';
-  if(voiceEnabled) {
-    addMessage('system', 'Voice enabled, Sir. Using browser synthesis.');
+  if (welcomeEl) {
+    chatEl.appendChild(welcomeEl);
+    welcomeEl.style.display = 'flex';
   }
 }
 
-function speakIfEnabled(text) {
-  if(!voiceEnabled || !synth) return;
-  // Clean text
-  let clean = text.replace(/```[\s\S]*?```/g, '').replace(/\*\*/g, '').replace(/\[.*?\]/g, '').slice(0, 500);
-  let utter = new SpeechSynthesisUtterance(clean);
-  // Try to find British male voice
-  let voices = synth.getVoices();
-  let british = voices.find(v => v.name.includes('Google UK English Male') || v.name.includes('Ryan') || v.lang === 'en-GB');
-  if(british) utter.voice = british;
-  utter.rate = 0.95;
-  utter.pitch = 0.9;
-  synth.speak(utter);
+function clearLearnings() {
+  if (!confirm('Clear all learnings? This resets JARVIS memory of you, Sir.')) return;
+  fetch('/api/clear?clear_learnings=true', { method: 'POST' }).then(() => {
+    showToast('Learnings cleared');
+    loadLearnings();
+  });
 }
 
-// Waveform
-const canvas = document.getElementById('waveform');
-const ctx = canvas.getContext('2d');
-let waveformActive = false;
-let waveformTime = 0;
-
-function drawWaveform() {
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.strokeStyle = waveformActive ? '#00d4ff' : '#1c2a3a';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  for(let x=0; x<canvas.width; x++) {
-    let y = canvas.height/2;
-    if(waveformActive) {
-      y += Math.sin((x + waveformTime)/10) * 20 * Math.sin(waveformTime/20) + (Math.random()-0.5)*5;
-    } else {
-      y += Math.sin((x+waveformTime)/30) * 2;
-    }
-    if(x===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-  }
-  ctx.stroke();
-  waveformTime++;
-  if(waveformActive && waveformTime > 100) {
-    waveformActive = false;
-    waveformTime = 0;
-  }
-  requestAnimationFrame(drawWaveform);
+// Toast
+function showToast(text) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = text;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(10px)';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
 }
-function triggerWaveform() {
-  waveformActive = true;
-  waveformTime = 0;
-}
-drawWaveform();
 
-// Clock & uptime
-setInterval(() => {
-  document.getElementById('footer-time').textContent = new Date().toLocaleString();
-  let diff = Math.floor((Date.now()-startTime)/1000);
-  let h = String(Math.floor(diff/3600)).padStart(2,'0');
-  let m = String(Math.floor((diff%3600)/60)).padStart(2,'0');
-  let s = String(diff%60).padStart(2,'0');
-  document.getElementById('uptime').textContent = `${h}:${m}:${s}`;
-  document.getElementById('stat-latency').textContent = Math.floor(Math.random()*40+20)+'ms';
-}, 1000);
-
-// Memories
+// Load memories
 async function loadMemories() {
   try {
-    let resp = await fetch('/api/memories');
-    let data = await resp.json();
-    let list = document.getElementById('memory-list');
-    if(!data.memories || data.memories.length===0) {
-      list.innerHTML = '<div style="opacity:0.5">No memories yet</div>';
+    const resp = await fetch('/api/memories');
+    const data = await resp.json();
+    const list = document.getElementById('memory-list');
+    if (!data.memories || !data.memories.length) {
+      list.innerHTML = '<small style="opacity:0.5">No memories yet</small>';
       return;
     }
-    list.innerHTML = data.memories.slice(-10).reverse().map(m => 
-      `<div class="memory-item"><strong>${m.key}</strong>: ${m.value.slice(0,80)}</div>`
+    list.innerHTML = data.memories.slice(-8).reverse().map(m =>
+      `<div class="memory-item"><strong>${m.key}</strong> ${m.value.slice(0,80)}</div>`
     ).join('');
-  } catch(e) {
-    console.error(e);
-  }
+  } catch {}
 }
+
+async function loadProfile() {
+  try {
+    const resp = await fetch('/api/profile');
+    const data = await resp.json();
+    if (data && !data.error) updateProfileBox(data);
+  } catch {}
+}
+
+function updateProfileBox(profile) {
+  const box = document.getElementById('profile-summary');
+  if (!profile) return;
+  let lines = [];
+  if (profile.preferred_name) lines.push(`Name: ${profile.preferred_name}`);
+  if (profile.facts && profile.facts.length) {
+    profile.facts.slice(-4).forEach(f => lines.push(`${f.key}: ${f.value}`));
+  }
+  if (profile.preferences) {
+    const prefs = profile.preferences;
+    if (prefs.communication_style) lines.push(`Style: ${prefs.communication_style}`);
+    if (prefs.topics_of_interest && prefs.topics_of_interest.length) lines.push(`Interests: ${prefs.topics_of_interest.slice(0,3).join(', ')}`);
+  }
+  if (!lines.length) box.textContent = 'Learning about you, Sir...';
+  else box.textContent = lines.join('\n');
+}
+
+async function loadLearnings() {
+  try {
+    const resp = await fetch('/api/learnings?limit=20');
+    const data = await resp.json();
+    const count = data.learnings?.length || 0;
+    document.getElementById('learning-count').textContent = count;
+    document.getElementById('stat-vectors').textContent = count;
+  } catch {}
+}
+
+// Learnings modal
+document.getElementById('learning-btn').onclick = async () => {
+  document.getElementById('learnings-modal').classList.add('open');
+  const body = document.getElementById('learnings-body');
+  body.innerHTML = 'Loading...';
+  try {
+    const resp = await fetch('/api/learnings?limit=50');
+    const data = await resp.json();
+    if (!data.learnings || !data.learnings.length) {
+      body.innerHTML = '<p style="opacity:0.6">No learnings yet, Sir. Talk to me and I will learn automatically.</p>';
+      return;
+    }
+    body.innerHTML = data.learnings.map(l =>
+      `<div class="memory-item"><small>${new Date(l.timestamp).toLocaleString()}</small><br><strong>${l.metadata?.type || 'memory'}</strong>: ${l.text}</div>`
+    ).join('');
+
+    if (data.insights) {
+      const insp = data.insights;
+      body.innerHTML += `<hr style="margin:16px 0; border-color: var(--border)"><h4 style="font-size:12px; text-transform:uppercase; opacity:0.6; margin-bottom:8px">Insights</h4><div class="profile-box">${JSON.stringify(insp, null, 2)}</div>`;
+    }
+  } catch (e) {
+    body.innerHTML = 'Failed to load: ' + e;
+  }
+};
+document.getElementById('learnings-close').onclick = () => {
+  document.getElementById('learnings-modal').classList.remove('open');
+};
+document.getElementById('learnings-modal').onclick = (e) => {
+  if (e.target.id === 'learnings-modal') e.target.classList.remove('open');
+};
+
+// Reflect
+document.getElementById('btn-reflect').onclick = async () => {
+  showToast('Reflecting, Sir...');
+  try {
+    const resp = await fetch('/api/reflect', { method: 'POST' });
+    const data = await resp.json();
+    showToast('Reflection done');
+    addMessage('system', `Reflection: ${JSON.stringify(data.insights || data, null, 2)}`);
+  } catch { showToast('Reflection failed'); }
+};
+document.getElementById('btn-learnings').onclick = () => {
+  document.getElementById('learning-btn').click();
+};
+
+// Footer time
+setInterval(() => {
+  const diff = Math.floor((Date.now() - startTime)/1000);
+  const h = String(Math.floor(diff/3600)).padStart(2,'0');
+  const m = String(Math.floor((diff%3600)/60)).padStart(2,'0');
+  const s = String(diff%60).padStart(2,'0');
+  const upEl = document.getElementById('uptime');
+  if (upEl) upEl.textContent = `${h}:${m}:${s}`;
+}, 1000);
 
 // Init
 connectWS();
-loadMemories();
-setTimeout(() => synth.getVoices(), 500);
-
-// Random boot status
+loadLearnings();
 setTimeout(() => {
-  fetch('/api/status').then(r=>r.json()).then(s => {
-    document.getElementById('model-name').textContent = s.model || 'jarvis';
-    document.getElementById('ollama-status').textContent = s.ollama_connected ? 'Ollama ✓' : 'Ollama ✗ Connect';
-    document.getElementById('memory-count').textContent = s.memory_count || 0;
-    bootStatusEl.textContent = s.ollama_connected ? '✓ Online' : '✗ Offline - run ollama serve';
-  }).catch(() => {
-    bootStatusEl.textContent = '✗ Cannot reach ' + location.host;
-  });
-}, 1000);
+  fetch('/api/status').then(r=>r.json()).then(s=>{
+    if (s.model) {
+      currentModel = s.model;
+      modelPill.textContent = s.model + (s.ollama_connected ? ' • online' : ' • offline');
+      modelSelect.value = s.model;
+      setStatus(s.ollama_connected, s.ollama_connected ? 'online' : 'ollama offline');
+    }
+  }).catch(()=> setStatus(false, 'cannot reach server'));
+}, 800);
+
+// Keyboard shortcut to open drawer: Cmd+K / Ctrl+K
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    if (drawer.classList.contains('open')) closeDrawer(); else openDrawer();
+  }
+  if (e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
+});
