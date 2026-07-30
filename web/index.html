@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>J.A.R.V.I.S - Just A Rather Very Intelligent System</title>
+<link rel="stylesheet" href="style.css">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Orbitron:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<!-- Background effects -->
+<div class="bg-grid"></div>
+<div class="scanline"></div>
+
+<div class="container">
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">
+      <div class="arc-reactor">
+        <div class="ring ring-1"></div>
+        <div class="ring ring-2"></div>
+        <div class="ring ring-3"></div>
+        <div class="core"></div>
+      </div>
+      <div>
+        <h1>J.A.R.V.I.S</h1>
+        <p>Just A Rather Very Intelligent System</p>
+      </div>
+    </div>
+    <div class="status-panel">
+      <div class="status-item"><span class="dot online"></span> <span id="model-name">jarvis: checking...</span></div>
+      <div class="status-item"><span class="dot"></span> <span id="ollama-status">Connecting...</span></div>
+      <div class="status-item">MEM: <span id="memory-count">0</span></div>
+      <div class="status-item">UP: <span id="uptime">00:00:00</span></div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Left: Console -->
+    <div class="console-panel">
+      <div class="panel-header">
+        <span>◉ CONSOLE</span>
+        <div class="controls">
+          <button onclick="clearChat()">CLEAR</button>
+          <button onclick="toggleVoice()" id="voice-btn">VOICE: OFF</button>
+        </div>
+      </div>
+      <div id="chat" class="chat">
+        <div class="msg system">
+          <div class="avatar">SYS</div>
+          <div class="content">
+            <div class="meta">SYSTEM • BOOT SEQUENCE</div>
+            <div>Initializing JARVIS protocols...<br>
+            Loading personality matrix... ✓<br>
+            Connecting to Ollama brain... <span id="boot-status">...</span><br>
+            Voice synthesis: <span id="voice-status">offline</span><br>
+            <br><span class="highlight">At your service, Sir.</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="input-area">
+        <input id="user-input" type="text" placeholder="Talk to JARVIS, Sir..." autocomplete="off" />
+        <button id="send-btn">SEND</button>
+      </div>
+      <div class="quick-actions">
+        <button onclick="quick('What time is it, Jarvis?')">TIME</button>
+        <button onclick="quick('What is your system status?')">STATUS</button>
+        <button onclick="quick('Search web for latest AI news')">SEARCH</button>
+        <button onclick="quick('What is the weather in London?')">WEATHER</button>
+        <button onclick="quick('List files in workspace')">FILES</button>
+        <button onclick="quick('Tell me a joke')">JOKE</button>
+      </div>
+    </div>
+
+    <!-- Right: Info -->
+    <div class="side-panel">
+      <div class="widget">
+        <div class="widget-header">NEURAL ACTIVITY</div>
+        <canvas id="waveform" width="300" height="80"></canvas>
+        <div class="stats">
+          <div><small>MODEL</small><span id="stat-model">jarvis</span></div>
+          <div><small>TOKENS</small><span id="stat-tokens">0</span></div>
+          <div><small>LATENCY</small><span id="stat-latency">0ms</span></div>
+        </div>
+      </div>
+
+      <div class="widget">
+        <div class="widget-header">MEMORY CORE <button onclick="loadMemories()" style="float:right;font-size:10px">REFRESH</button></div>
+        <div id="memory-list" class="memory-list">Loading...</div>
+      </div>
+
+      <div class="widget">
+        <div class="widget-header">TOOLS</div>
+        <div class="tools-grid">
+          <div class="tool">🕒 Time</div>
+          <div class="tool">🌤️ Weather</div>
+          <div class="tool">🔍 Web Search</div>
+          <div class="tool">💾 Memory</div>
+          <div class="tool">📁 Files</div>
+          <div class="tool">🐍 Code Exec</div>
+          <div class="tool">🖥️ System</div>
+          <div class="tool">⏱️ Timer</div>
+        </div>
+      </div>
+
+      <div class="widget" style="opacity:0.7">
+        <div class="widget-header">OLLAMA MODELS</div>
+        <select id="model-select" onchange="changeModel()" class="model-select">
+          <option>jarvis</option>
+          <option>qwen2.5:7b</option>
+          <option>llama3.1:8b</option>
+          <option>mistral-nemo</option>
+          <option>gemma2:9b</option>
+        </select>
+        <div style="font-size:11px;margin-top:8px;opacity:0.7">
+          Best: qwen2.5:7b for tool calling<br>
+          Create: <code>ollama create jarvis -f Modelfile</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <span>STARK INDUSTRIES • MARK XLII • LOCAL ONLY • 100% PRIVATE • OLLAMA BRAIN</span>
+    <span id="footer-time"></span>
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

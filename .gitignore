@@ -1,0 +1,14 @@
+# JARVIS ignores
+data/
+*.log
+__pycache__/
+*.pyc
+venv/
+.env
+workspace/*
+!workspace/README.md
+models/
+*.mp3
+*.wav
+.DS_Store
+node_modules/
