@@ -22,6 +22,7 @@
         <span class="dot"></span>
         <span id="status-text">connecting</span>
       </div>
+      <button class="icon-btn" id="evolution-btn" title="Evolution">🧬 <span id="evolution-count">0</span></button>
       <button class="icon-btn" id="learning-btn" title="Learnings">◐ <span id="learning-count">0</span></button>
       <button class="icon-btn" id="drawer-btn" title="Menu">☰</button>
     </div>
@@ -38,12 +39,12 @@
           </div>
         </div>
         <h1>Good evening, Sir.</h1>
-        <p>I'm JARVIS. Private, local, and learning.</p>
+        <p>I'm JARVIS. Private, local, learning, and self-evolving.</p>
         <div class="suggestions" id="suggestions">
           <button data-q="What time is it?">Time</button>
-          <button data-q="What do you remember about me?">Remember</button>
-          <button data-q="Show my profile">Profile</button>
-          <button data-q="What's your system status?">Status</button>
+          <button data-q="Improve yourself">Evolve</button>
+          <button data-q="Analyze your performance">Analyze</button>
+          <button data-q="What have you learned about me?">Remember</button>
         </div>
         <div class="learning-badge" id="learning-badge" style="display:none">
           <span>🧠 Learning: <span id="learning-text"></span></span>
@@ -61,7 +62,7 @@
       </button>
     </div>
     <div class="input-footer">
-      <span>JARVIS runs locally on Ollama • 100% private • Self-learning enabled</span>
+      <span>JARVIS runs locally • Private • Self-learning • Self-evolving <span id="evo-badge" style="opacity:0.5"></span></span>
       <span id="token-count"></span>
     </div>
   </div>
@@ -93,9 +94,17 @@
           <div class="stat"><span id="stat-satisfaction">—</span><small>satisfaction</small></div>
           <div class="stat"><span id="stat-msgs">0</span><small>interactions</small></div>
         </div>
+        <div class="stat-grid" style="margin-top:8px">
+          <div class="stat"><span id="stat-evolutions">0</span><small>evolutions</small></div>
+          <div class="stat"><span id="stat-critic">—</span><small>critic /10</small></div>
+          <div class="stat"><span id="stat-trend">—</span><small>trend</small></div>
+        </div>
         <div id="profile-summary" class="profile-box">No profile yet, Sir. Talk to me and I'll learn.</div>
         <button class="btn-minimal" id="btn-reflect">Reflect now</button>
         <button class="btn-minimal secondary" id="btn-learnings">View all learnings</button>
+        <button class="btn-minimal" id="btn-evolve" style="background:#e6e8eb; color:#08090a; margin-top:8px">🧬 Improve yourself</button>
+        <button class="btn-minimal secondary" id="btn-evolution-history">Evolution history</button>
+        <button class="btn-minimal secondary" id="btn-analyze">Analyze performance</button>
       </div>
 
       <div class="section">
@@ -129,6 +138,17 @@
       <button class="icon-btn" id="learnings-close">✕</button>
     </div>
     <div class="modal-body" id="learnings-body">Loading...</div>
+  </div>
+</div>
+
+<!-- Evolution Modal -->
+<div class="modal-overlay" id="evolution-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Self-Evolution History</h3>
+      <button class="icon-btn" id="evolution-close">✕</button>
+    </div>
+    <div class="modal-body" id="evolution-body">Loading...</div>
   </div>
 </div>
 

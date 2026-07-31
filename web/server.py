@@ -1,6 +1,5 @@
 """
-JARVIS Web Server - Minimal + Self-Learning
-FastAPI backend for clean minimal UI
+JARVIS Web Server - Minimal + Self-Learning + Self-Evolution
 """
 
 import sys
@@ -22,7 +21,7 @@ from jarvis.brain import JarvisBrain
 from jarvis.config import config
 from jarvis.memory import MemoryManager
 
-app = FastAPI(title="J.A.R.V.I.S", version="2.0.0")
+app = FastAPI(title="J.A.R.V.I.S", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,7 +37,7 @@ memory_manager = MemoryManager()
 def get_brain():
     global brain
     if brain is None:
-        brain = JarvisBrain(enable_learning=True)
+        brain = JarvisBrain(enable_learning=True, enable_evolution=True)
     return brain
 
 class ChatRequest(BaseModel):
@@ -54,8 +53,11 @@ class ChatResponse(BaseModel):
 
 class FeedbackRequest(BaseModel):
     message_id: Optional[str] = None
-    feedback: str  # positive / negative
+    feedback: str
     message_text: Optional[str] = None
+
+class EvolutionRequest(BaseModel):
+    instruction: str = ""
 
 @app.get("/")
 async def serve_ui():
@@ -97,6 +99,34 @@ async def get_insights():
         return b.learning_engine.get_insights()
     return {"error": "Learning disabled"}
 
+@app.get("/api/evolution/status")
+async def get_evolution_status():
+    b = get_brain()
+    if b.evolution_enabled and b.evolution_engine:
+        return b.evolution_engine.get_status()
+    return {"error": "Evolution disabled"}
+
+@app.get("/api/evolution/history")
+async def get_evolution_history(limit: int = 20):
+    b = get_brain()
+    if b.evolution_enabled and b.evolution_engine:
+        return {"history": b.evolution_engine.get_history(limit=limit)}
+    # Fallback via editor
+    try:
+        from jarvis.evolution import SelfEditor
+        editor = SelfEditor()
+        return editor.get_evolution_history()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/evolution/improve")
+async def trigger_evolution(req: EvolutionRequest):
+    b = get_brain()
+    if b.evolution_enabled and b.evolution_engine:
+        result = b.improve_self(req.instruction)
+        return result
+    return {"error": "Evolution not enabled"}
+
 @app.post("/api/feedback")
 async def post_feedback(req: FeedbackRequest):
     b = get_brain()
@@ -131,10 +161,8 @@ async def chat_endpoint(req: ChatRequest):
         b.model = req.model
     try:
         response = b.think(req.message)
-        # Get recent learnings that may have been added
         learnings = []
         if b.learning_enabled and b.learning_engine:
-            # Check if something was learned from this interaction
             recent = b.learning_engine.vector_store.get_all(limit=3)
             learnings = [r["text"] for r in recent]
         return ChatResponse(response=response, model=b.model, status=b.get_status(), learnings=learnings[:2])
@@ -150,7 +178,7 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         await websocket.send_json({"type": "status", "data": b.get_status()})
-        await websocket.send_json({"type": "message", "data": "Online, Sir."})
+        await websocket.send_json({"type": "message", "data": "Online, Sir. Evolution enabled."})
         
         while True:
             data = await websocket.receive_text()
@@ -163,6 +191,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     if msg_type == "feedback":
                         b.add_feedback(feedback=payload.get("feedback", "positive"), message_text=payload.get("text"))
                         await websocket.send_json({"type": "feedback_ok", "data": payload.get("feedback")})
+                        continue
+                    
+                    if msg_type == "evolve":
+                        instruction = payload.get("instruction", "")
+                        await websocket.send_json({"type": "thinking", "data": True})
+                        result = b.improve_self(instruction)
+                        await websocket.send_json({"type": "evolution", "data": result})
+                        await websocket.send_json({"type": "done", "data": ""})
                         continue
                     
                     model = payload.get("model")
@@ -182,6 +218,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "message", "data": "Cleared, Sir."})
                 continue
             
+            if user_msg.lower() in ["/evolve", "improve yourself", "make yourself better"]:
+                await websocket.send_json({"type": "thinking", "data": True})
+                result = b.improve_self("General self-improvement as requested by Sir")
+                await websocket.send_json({"type": "evolution", "data": result})
+                await websocket.send_json({"type": "message", "data": f"Evolution started, Sir. {result.get('message','')}"})
+                await websocket.send_json({"type": "done", "data": ""})
+                await websocket.send_json({"type": "status", "data": b.get_status()})
+                continue
+            
             if user_msg.lower() == "/reflect":
                 await websocket.send_json({"type": "thinking", "data": True})
                 insights = b.learning_engine.reflect() if b.learning_enabled else {}
@@ -192,10 +237,6 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 await websocket.send_json({"type": "thinking", "data": True})
                 
-                full = ""
-                learned = []
-                
-                # Run think in thread to not block
                 q = []
                 def target():
                     try:
@@ -212,7 +253,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 full = q[0] if q else "No response, Sir."
                 
-                # Check if new learnings appeared
+                learned = []
+                evolved = False
                 if b.learning_enabled:
                     try:
                         recent_learnings = b.learning_engine.vector_store.search(user_msg, k=1)
@@ -221,17 +263,24 @@ async def websocket_endpoint(websocket: WebSocket):
                     except:
                         pass
                 
-                # Stream with typewriter effect - minimal
+                # Check if evolution happened
+                if b.evolution_enabled and b.evolution_engine:
+                    status = b.evolution_engine.get_status()
+                    if status.get("should_evolve") and status.get("reasons"):
+                        evolved = True
+                
+                # Stream
                 words = full.split(" ")
                 for i, word in enumerate(words):
                     chunk = word + (" " if i < len(words)-1 else "")
-                    full_chunk = chunk
-                    await websocket.send_json({"type": "stream", "data": full_chunk})
+                    await websocket.send_json({"type": "stream", "data": chunk})
                     await asyncio.sleep(0.02)
                 
-                # Send learnings as toast if any
                 if learned:
                     await websocket.send_json({"type": "learned", "data": learned})
+                
+                if evolved:
+                    await websocket.send_json({"type": "evolved", "data": {"message": "I evolved myself, Sir. Check evolution history."}})
                 
                 await websocket.send_json({"type": "done", "data": full})
                 await websocket.send_json({"type": "status", "data": b.get_status()})
@@ -248,7 +297,6 @@ async def websocket_endpoint(websocket: WebSocket):
         except:
             pass
 
-# Static
 web_dir = Path(__file__).parent
 if web_dir.exists():
     app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
@@ -256,10 +304,10 @@ if web_dir.exists():
 if __name__ == "__main__":
     print(f"""
     ╔════════════════════════════════════╗
-    ║  J.A.R.V.I.S 2.0 - Minimal + Self-Learning
+    ║  J.A.R.V.I.S 3.0 - Self-Evolving
     ║  http://{config.WEB_HOST}:{config.WEB_PORT}
     ║  Brain: {config.OLLAMA_MODEL}
-    ║  Learning: Enabled
+    ║  Learning: Enabled | Evolution: Enabled
     ╚════════════════════════════════════╝
     """)
     uvicorn.run("server:app", host=config.WEB_HOST, port=config.WEB_PORT, reload=True, reload_dirs=[str(web_dir.parent)])

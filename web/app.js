@@ -53,7 +53,12 @@ function handleWS(msg) {
       document.getElementById('stat-vectors').textContent = s.vector_count || s.memory_count || 0;
       document.getElementById('stat-msgs').textContent = s.conversation_length || 0;
       document.getElementById('stat-satisfaction').textContent = s.satisfaction ? (s.satisfaction*100|0)+'%' : '—';
+      document.getElementById('stat-evolutions').textContent = s.evolution_count || 0;
+      document.getElementById('stat-critic').textContent = s.avg_critic_score ? s.avg_critic_score : '—';
+      document.getElementById('stat-trend').textContent = s.trend || '—';
       document.getElementById('learning-count').textContent = s.vector_count || s.learnings_count || 0;
+      document.getElementById('evolution-count').textContent = s.evolution_count || 0;
+      document.getElementById('evo-badge').textContent = s.evolution_count ? `• v${s.evolution_count} evolved` : '';
       if (s.profile) updateProfileBox(s.profile);
       setStatus(s.ollama_connected, s.ollama_connected ? 'online' : 'ollama offline');
       break;
@@ -84,6 +89,16 @@ function handleWS(msg) {
 
     case 'tool':
       addMessage('tool', data);
+      break;
+
+    case 'evolution':
+      addMessage('system', `Evolution: ${JSON.stringify(data, null, 2)}`);
+      showToast(`🧬 Evolved: ${data.message || 'Improvement done'}`);
+      break;
+
+    case 'evolved':
+      showToast(`🧬 ${data.message || 'I made myself better, Sir.'}`);
+      loadEvolutionCount();
       break;
 
     case 'thinking':
@@ -375,6 +390,52 @@ document.getElementById('learnings-modal').onclick = (e) => {
   if (e.target.id === 'learnings-modal') e.target.classList.remove('open');
 };
 
+// Evolution modal
+async function loadEvolutionCount() {
+  try {
+    const resp = await fetch('/api/evolution/status');
+    const data = await resp.json();
+    document.getElementById('evolution-count').textContent = data.evolution_count || 0;
+    document.getElementById('stat-evolutions').textContent = data.evolution_count || 0;
+  } catch {}
+}
+document.getElementById('evolution-btn').onclick = async () => {
+  document.getElementById('evolution-modal').classList.add('open');
+  const body = document.getElementById('evolution-body');
+  body.innerHTML = 'Loading evolution history, Sir...';
+  try {
+    const resp = await fetch('/api/evolution/history?limit=20');
+    const data = await resp.json();
+    const history = data.history || data.prompt_evolutions || [];
+    if (!history.length && !data.tool_forges) {
+      body.innerHTML = '<p style="opacity:0.6">No evolutions yet, Sir. I will evolve when I detect I can be better, or say "Improve yourself".<br><br>Capabilities:<br>- Self-critique (scores own responses)<br>- Prompt evolution<br>- Tool forging<br>- Memory optimization<br>- Performance tracking</p>';
+      return;
+    }
+    let html = '';
+    if (data.history) {
+      html += data.history.map(h => `<div class="memory-item"><small>${h.timestamp?.slice(0,16)} • ${h.type}</small><br><strong>${h.description?.slice(0,100)}</strong><br><small>${JSON.stringify(h.details || {}).slice(0,200)}</small></div>`).join('');
+    } else {
+      if (data.prompt_evolutions) {
+        html += '<h4 style="font-size:11px;opacity:0.6;margin:12px 0 6px">PROMPT EVOLUTIONS</h4>';
+        html += data.prompt_evolutions.map(p => `<div class="memory-item"><small>${p.timestamp?.slice(0,16)}</small><br>${p.prompt}</div>`).join('');
+      }
+      if (data.tool_forges) {
+        html += '<h4 style="font-size:11px;opacity:0.6;margin:12px 0 6px">TOOL FORGES</h4>';
+        html += data.tool_forges.map(t => `<div class="memory-item"><small>${t.timestamp?.slice(0,16)}</small><br><strong>${t.tool_name}</strong>: ${t.reason?.slice(0,80)}</div>`).join('');
+      }
+    }
+    body.innerHTML = html || 'No evolutions yet';
+  } catch (e) {
+    body.innerHTML = 'Failed: ' + e;
+  }
+};
+document.getElementById('evolution-close').onclick = () => {
+  document.getElementById('evolution-modal').classList.remove('open');
+};
+document.getElementById('evolution-modal').onclick = (e) => {
+  if (e.target.id === 'evolution-modal') e.target.classList.remove('open');
+};
+
 // Reflect
 document.getElementById('btn-reflect').onclick = async () => {
   showToast('Reflecting, Sir...');
@@ -387,6 +448,34 @@ document.getElementById('btn-reflect').onclick = async () => {
 };
 document.getElementById('btn-learnings').onclick = () => {
   document.getElementById('learning-btn').click();
+};
+document.getElementById('btn-evolve').onclick = async () => {
+  showToast('🧬 Evolving myself, Sir...');
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'evolve', instruction: 'General self-improvement' }));
+  } else {
+    try {
+      const resp = await fetch('/api/evolution/improve', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ instruction: 'General self-improvement' })
+      });
+      const data = await resp.json();
+      showToast('Evolution started');
+      addMessage('system', `Evolution: ${JSON.stringify(data, null, 2)}`);
+    } catch { showToast('Evolution failed'); }
+  }
+};
+document.getElementById('btn-evolution-history').onclick = () => {
+  document.getElementById('evolution-btn').click();
+};
+document.getElementById('btn-analyze').onclick = async () => {
+  showToast('Analyzing performance, Sir...');
+  try {
+    const resp = await fetch('/api/evolution/status');
+    const data = await resp.json();
+    addMessage('system', `Performance Analysis:\n${JSON.stringify(data, null, 2)}`);
+  } catch { showToast('Analyze failed'); }
 };
 
 // Footer time

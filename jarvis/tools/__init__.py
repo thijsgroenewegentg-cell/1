@@ -7,6 +7,7 @@ from .files import file_read, file_write, file_list, file_delete
 from .code import execute_python, shell_command
 from .memory_tools import remember, recall, forget, get_memories
 from .timer import set_timer, set_reminder
+from .evolution_tools import improve_self, create_new_tool, analyze_performance, get_evolution_history, self_reflect
 
 # Map name -> function for execution
 TOOL_MAP = {
@@ -29,6 +30,11 @@ TOOL_MAP = {
     "get_memories": get_memories,
     "set_timer": set_timer,
     "set_reminder": set_reminder,
+    "improve_self": improve_self,
+    "create_new_tool": create_new_tool,
+    "analyze_performance": analyze_performance,
+    "get_evolution_history": get_evolution_history,
+    "self_reflect": self_reflect,
 }
 
 # Ollama compatible tool schemas (OpenAI format)
@@ -288,6 +294,66 @@ TOOLS_SCHEMA = [
                 },
                 "required": ["message", "time"]
             }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "improve_self",
+            "description": "Self-improvement: JARVIS analyzes own performance and evolves - improves prompt, optimizes memory, forges tools. Use when asked to improve yourself, or when performance is low. This is how JARVIS makes himself better.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instruction": {"type": "string", "description": "What to improve, e.g. 'be more concise', 'learn to control spotify', 'improve tool use'", "default": ""}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_new_tool",
+            "description": "Create a new tool capability when existing tools insufficient. JARVIS forges new Python tool autonomously. Use when user asks for something you can't do with current tools.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tool_name": {"type": "string", "description": "Snake_case name for new tool, e.g. spotify_control, gmail_check"},
+                    "description": {"type": "string", "description": "Short description of tool"},
+                    "purpose": {"type": "string", "description": "Full purpose and what user asked, e.g. User wants to control Spotify playback"}
+                },
+                "required": ["tool_name", "description", "purpose"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_performance",
+            "description": "Analyze own performance - latency, tool success, satisfaction, trend. Identify if self-evolution needed.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_evolution_history",
+            "description": "Get history of self-improvements and tool forges",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Number of recent evolutions to show", "default": 5}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "self_reflect",
+            "description": "Self-reflection - JARVIS reflects on recent conversations, learns about user, identifies improvements",
+            "parameters": {"type": "object", "properties": {}, "required": []}
         }
     }
 ]

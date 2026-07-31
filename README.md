@@ -1,33 +1,35 @@
-# J.A.R.V.I.S 2.0 - Minimal • Self-Learning • Ollama
+# J.A.R.V.I.S 3.0 - Self-Evolving • Minimal • Local
 
-> "At your service, Sir. Always."
+> "Now I make myself better, Sir."
 
-A fully local, private, **self-learning** JARVIS built on **Ollama**. Clean minimal UI, no neon clutter, super smart and gets smarter the more you talk.
+Fully local, private, **self-learning + self-evolving** JARVIS built on Ollama. Minimal UI, super smart, and he rewrites his own mind to get better.
 
-![Local](https://img.shields.io/badge/100%25%20Local-Private-black) ![Minimal](https://img.shields.io/badge/UI-Minimal-white) ![Self-Learning](https://img.shields.io/badge/Brain-Self_Learning-blue) ![Ollama](https://img.shields.io/badge/Brain-Ollama-blue)
+![Local](https://img.shields.io/badge/100%25%20Local-Private-black) ![Minimal](https://img.shields.io/badge/UI-Minimal-white) ![Self-Learning](https://img.shields.io/badge/Brain-Self_Learning-blue) ![Self-Evolving](https://img.shields.io/badge/Brain-Self_Evolving-cyan)
 
 ---
 
-## ✨ What's New in 2.0
+## ✨ What's New in 3.0 - Self-Evolution
 
-**🎨 Minimal UI**
-- Rebuilt from scratch - Linear / ChatGPT style, not Stark circus
-- No grid, no scanlines, just whitespace and typography
-- Centered 720px chat column, floating rounded input
-- Subtle reactor dot that breathes, only glows when thinking
-- Drawer hidden by default (Cmd+K), clean top bar
+**JARVIS makes himself better. Automatically.**
 
-**🧠 Super Smart + Self-Learning**
-- **Vector memory** with Ollama embeddings (`nomic-embed-text`) + hash fallback
-- **Auto-memory extraction** - No need to say "remember", JARVIS detects facts heuristically + via LLM
-- **User profile** that builds over time: name, location, interests, communication style, routines, goals
-- **Reflection engine** - Every 10 messages JARVIS reflects: mood, satisfaction, what to improve
-- **Adaptive personality** - If you like concise answers, he becomes concise. If satisfaction low, he becomes proactive
-- **Routine detection** - Learns you ask weather at 8am, offers proactively
-- **Learning from feedback** - Thumbs up/down tunes future responses
-- **Semantic search** - Ask "what do you know about my work?" finds relevant memories via cosine similarity
+Previous 2.0: He learned about *you*.
+Now 3.0: He learns about *himself* and improves.
 
-JARVIS doesn't just remember. He **learns**.
+**The Self-Improvement Loop:**
+
+1. **Performance Tracker** - Every response: latency, tool success, satisfaction
+2. **Self-Critic** - Scores own response 0-10 via heuristic + LLM: "Too verbose, should have used tool"
+3. **Should Evolve?** Triggers if satisfaction <0.5, success <80%, trend declining, critic <6, or every 50 msgs, or user says "improve yourself"
+4. **Evolution Engine** (background):
+   - **Prompt Evolution**: LLM proposes better prompt: "Be concise for short questions" → saved to `data/evolution/prompt_additions.json` → injected next turn. Personality evolves.
+   - **Tool Forging**: Detects missing capability (Spotify, email, calendar...). LLM generates Python tool code, syntax checks, saves to `jarvis/tools/`, registers in `TOOL_MAP`. New ability forged.
+   - **Memory Optimization**: Prunes low-value vectors if >800
+
+All evolutions logged + backed up to `data/backups/`. Safe whitelist.
+
+See `EVOLUTION.md` for full architecture.
+
+**You can say:** "JARVIS, improve yourself", "Analyze your performance", "You need a Spotify tool" - and he will.
 
 ---
 
@@ -182,39 +184,42 @@ Same for desktop Python - rebuilt with same minimal tokens.
 
 ---
 
-## 🧬 Project Structure 2.0
+## 🧬 Project Structure 3.0
 
 ```
 .
 ├── Modelfile
+├── EVOLUTION.md              # How self-evolution works
 ├── requirements.txt / setup.sh / run.sh / cli.py
 ├── jarvis/
-│   ├── brain.py              # Tool loop + learning context injection
-│   ├── config.py             # + EMBEDDING_MODEL, LEARNING_ENABLED, etc
-│   ├── memory.py
-│   ├── learning/             # NEW - Self-learning
-│   │   ├── vector_store.py   # Embeddings + cosine search
-│   │   ├── user_profile.py   # Who you are
-│   │   ├── auto_memory.py    # Regex + LLM extraction
-│   │   ├── reflection.py     # Self-reflection
-│   │   └── engine.py         # Orchestrator
-│   ├── tools/ & voice/
-│   └── app.py
-├── web/                      # Minimal UI 2.0
-│   ├── server.py             # + /api/profile, /api/learnings, /api/feedback, /api/reflect
-│   ├── index.html            # Minimal centered
-│   ├── style.css             # Minimal tokens
-│   └── app.js                # Learning toast, drawer, feedback
+│   ├── brain.py              # Tool loop + learning + evolution injection
+│   ├── config.py             # + LEARNING_ENABLED, EVOLUTION_ENABLED
+│   ├── learning/             # Self-learning
+│   │   ├── vector_store.py, user_profile.py, auto_memory.py, reflection.py, engine.py
+│   ├── evolution/            # NEW 3.0 - Self-evolving
+│   │   ├── self_critic.py    # Scores own responses 0-10
+│   │   ├── performance_tracker.py # Latency, success, trend
+│   │   ├── self_editor.py    # Safe file edits with backups
+│   │   ├── tool_forger.py    # LLM forges new tools
+│   │   └── evolution_engine.py # Orchestrator
+│   ├── tools/                # + evolution_tools.py (improve_self, create_new_tool...)
+│   └── voice/ & app.py
+├── web/                      # Minimal UI 3.0 + evolution
+│   ├── server.py             # + /api/evolution/status, history, improve
+│   ├── index.html            # + 🧬 evolution count, improve button
+│   ├── style.css
+│   └── app.js                # + evolution modal, toasts
 ├── desktop/
-│   ├── python/main.py        # Minimal desktop + tray + reactor dot
-│   ├── python/webview_app.py
-│   ├── electron/             # Electron + hotkey
-│   └── launch.py
+│   ├── python/main.py        # Minimal + evolution stats
+│   └── electron/
 └── data/
-    ├── long_term_memory.json
-    ├── vectors.json          # NEW vector memory
-    ├── user_profile.json     # NEW profile
-    └── reflections.json      # NEW reflections
+    ├── vectors.json, user_profile.json, reflections.json
+    └── evolution/
+        ├── prompt_additions.json  # Evolved prompts
+        ├── tool_forge_log.json
+        ├── performance.json
+        ├── evolution_log.json
+    └── backups/              # Backups of edited files
 ```
 
 ---
@@ -252,14 +257,16 @@ Clear learnings: `/clear` in chat clears conversation, API `/api/clear?clear_lea
 
 ## Roadmap
 
-- [x] Minimal clean UI
+- [x] Minimal clean UI 2.0
 - [x] Self-learning: vector memory, auto-extract, profile, reflection
+- [x] Self-evolution 3.0: self-critic, prompt evolution, tool forging, performance tracking
 - [x] Electron + Python desktop with tray
 - [x] Global hotkey Ctrl+Shift+J
 - [ ] Vision (llava) - see your desk
-- [ ] Proactive: morning briefing from routines
+- [ ] Proactive: morning briefing from routines + evolution
 - [ ] Home Assistant
 - [ ] Voice wake word always-on in tray
+- [ ] Full self-code evolution (edit brain.py itself)
 
 ---
 

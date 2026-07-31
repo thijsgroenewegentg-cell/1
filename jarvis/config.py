@@ -30,6 +30,10 @@ class Config:
     VECTOR_STORE: Path = BASE_DIR / os.getenv("VECTOR_STORE", "data/vectors.json")
     USER_PROFILE: Path = BASE_DIR / os.getenv("USER_PROFILE", "data/user_profile.json")
     UI_MODE: str = os.getenv("UI_MODE", "minimal")
+    # Evolution - Self-Improvement
+    EVOLUTION_ENABLED: bool = os.getenv("EVOLUTION_ENABLED", "true").lower() == "true"
+    SELF_EDIT_ENABLED: bool = os.getenv("SELF_EDIT_ENABLED", "false").lower() == "true"  # auto apply code edits? false = propose only
+    EVOLUTION_INTERVAL: int = int(os.getenv("EVOLUTION_INTERVAL", "50"))
 
     # Security
     ALLOW_SHELL: bool = os.getenv("ALLOW_SHELL", "true").lower() == "true"
