@@ -1,0 +1,65 @@
+{
+  "name": "jarvis-desktop",
+  "version": "1.0.0",
+  "description": "J.A.R.V.I.S - Just A Rather Very Intelligent System - Ollama Desktop",
+  "main": "main.js",
+  "author": "Stark Industries",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:linux": "electron-builder --linux --publish never",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.stark.jarvis",
+    "productName": "JARVIS",
+    "copyright": "Stark Industries",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "assets/**/*",
+      "../../web/**/*",
+      "!../../web/jarvis-hero.png"
+    ],
+    "extraResources": [
+      {
+        "from": "../../",
+        "to": "app",
+        "filter": [
+          "jarvis/**/*",
+          "requirements.txt",
+          "Modelfile",
+          ".env.example"
+        ]
+      }
+    ],
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility",
+      "icon": "assets/icon.png"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png"
+    }
+  }
+}

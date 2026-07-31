@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  # Ollama CPU fallback
+  ollama-cpu:
+    image: ollama/ollama:latest
+    container_name: jarvis-ollama-cpu
+    profiles: ["cpu"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./Modelfile:/Modelfile
+    restart: unless-stopped
+    command: bash -c "ollama serve & sleep 5 && ollama pull qwen2.5:7b && ollama create jarvis -f /Modelfile 2>/dev/null || true && wait"
+
+  # Ollama NVIDIA GPU
+  ollama-nvidia:
+    image: ollama/ollama:latest
+    container_name: jarvis-ollama
+    profiles: ["nvidia"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./Modelfile:/Modelfile
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: bash -c "ollama serve & sleep 5 && ollama pull qwen2.5:7b && ollama create jarvis -f /Modelfile 2>/dev/null || true && wait"
+
+  # Ollama AMD ROCm - For RX 9070 XT 16GB and other AMD GPUs - 100% FREE
+  ollama-amd:
+    image: ollama/ollama:rocm
+    container_name: jarvis-ollama-amd
+    profiles: ["amd", "9070xt"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./Modelfile.9070xt:/Modelfile
+    restart: unless-stopped
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=12.0.0
+      - HCC_AMDGPU_TARGET=gfx1200
+    group_add:
+      - video
+    command: bash -c "ollama serve & sleep 8 && ollama pull qwen2.5:14b && ollama pull nomic-embed-text && ollama create jarvis -f /Modelfile 2>/dev/null || ollama create jarvis -f /Modelfile.9070xt 2>/dev/null || true && wait"
+
+  # JARVIS App - Singular app with everything
+  jarvis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jarvis-app
+    profiles: ["app", "cpu", "nvidia", "amd", "9070xt"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./workspace:/app/workspace
+      - ./.env:/app/.env
+    depends_on:
+      - ollama-amd
+    environment:
+      - OLLAMA_HOST=http://ollama-amd:11434
+      - OLLAMA_MODEL=jarvis
+      - TTS_ENGINE=edge
+      - PREMIUM_VOICE_STYLE=manina_premium
+      - PROACTIVE_ENABLED=true
+      - TEAM_ENABLED=true
+      - EVOLUTION_ENABLED=true
+      - SELF_EDIT_ENABLED=true
+    restart: unless-stopped
+
+  # Singular app profile - 9070 XT optimized
+  jarvis-9070xt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jarvis-9070xt
+    profiles: ["9070xt"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./workspace:/app/workspace
+      - ./data/voices:/app/data/voices
+      - ./data/piper_models:/app/data/piper_models
+      - ./.env:/app/.env
+    environment:
+      - OLLAMA_HOST=http://ollama-amd:11434
+      - OLLAMA_MODEL=jarvis
+      - TTS_ENGINE=edge
+      - PREMIUM_VOICE_STYLE=manina_premium
+      - EMBEDDING_MODEL=nomic-embed-text
+      - PROACTIVE_ENABLED=true
+      - TEAM_ENABLED=true
+      - EVOLUTION_ENABLED=true
+      - SELF_EDIT_ENABLED=true
+      - ALWAYS_ON_ENABLED=false
+    depends_on:
+      - ollama-amd
+    restart: unless-stopped
+    command: python JARVIS.py --web
+
+volumes:
+  ollama_data:
