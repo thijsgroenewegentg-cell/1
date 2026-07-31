@@ -248,6 +248,68 @@ async def get_goals_api(include_completed: bool = False):
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/productivity/overview")
+async def productivity_overview():
+    try:
+        from jarvis.productivity import ProductivityHub
+        hub = ProductivityHub()
+        return hub.get_productivity_overview()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/calendar/today")
+async def calendar_today():
+    try:
+        from jarvis.productivity import CalendarHub
+        cal = CalendarHub()
+        events = cal.get_today_events()
+        return {"count": len(events), "events": [{"summary": e.get("summary"), "start": e.get("start").isoformat() if hasattr(e.get("start"), "isoformat") else str(e.get("start")), "location": e.get("location","")} for e in events[:10]]}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/calendar/overview")
+async def calendar_overview():
+    try:
+        from jarvis.productivity import CalendarHub
+        cal = CalendarHub()
+        return cal.get_overview()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/email/overview")
+async def email_overview():
+    try:
+        from jarvis.productivity import EmailHub
+        hub = EmailHub()
+        return hub.get_overview()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/media/overview")
+async def media_overview():
+    try:
+        from jarvis.media import MusicPlayer, SmartSpeakerZones
+        from jarvis.media.media_metadata import MediaMetadata
+        player = MusicPlayer()
+        zones = SmartSpeakerZones()
+        meta = MediaMetadata()
+        return {
+            "music": player.get_overview(),
+            "zones": zones.get_overview(),
+            "metadata": meta.get_overview()
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/media/zones")
+async def media_zones():
+    try:
+        from jarvis.media import SmartSpeakerZones
+        zones = SmartSpeakerZones()
+        return zones.get_overview()
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/git/status")
 async def git_status():
     agent = get_coding_agent()

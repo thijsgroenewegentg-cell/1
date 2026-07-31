@@ -46,6 +46,15 @@ class Config:
     # Multi-Agent Team
     TEAM_ENABLED: bool = os.getenv("TEAM_ENABLED", "true").lower() == "true"
 
+    # Productivity Hub - 100% FREE local
+    CALENDAR_DIRS: str = os.getenv("CALENDAR_DIRS", "workspace/calendar,data/calendar")
+    EMAIL_IMAP_HOST: str = os.getenv("EMAIL_IMAP_HOST", "")
+    EMAIL_SMTP_HOST: str = os.getenv("EMAIL_SMTP_HOST", "")
+
+    # Media & Entertainment - 100% FREE local
+    MUSIC_DIRS: str = os.getenv("MUSIC_DIRS", "workspace/music,~/Music")
+    PIPER_MODELS_DIR: Path = BASE_DIR / os.getenv("PIPER_MODELS_DIR", "data/piper_models")
+
     # Security
     ALLOW_SHELL: bool = os.getenv("ALLOW_SHELL", "true").lower() == "true"
     SAFE_MODE: bool = os.getenv("SAFE_MODE", "false").lower() == "true"

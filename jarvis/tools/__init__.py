@@ -13,6 +13,8 @@ from .self_edit_tools import read_self_code, edit_self_code, propose_self_edit, 
 from .knowledge_tools import search_knowledge, search_everything, index_documents, read_document, get_knowledge_overview
 from .browser_tools import browser_start, browser_navigate, browser_get_content, browser_click, browser_type, browser_screenshot, browser_search, browser_execute_js, browser_get_url, browser_stop
 from .goals_tools import add_goal, list_goals, update_goal_progress, complete_milestone, complete_goal, check_goals, delete_goal
+from .productivity_tools import get_calendar_events, get_today_events, get_tomorrow_events, sync_calendars, get_calendar_overview, fetch_emails, search_emails, read_email, send_email, get_email_overview, get_productivity_overview
+from .media_tools import play_music, pause_music, stop_music, next_track, previous_track, set_volume, list_music, get_music_status, list_speaker_zones, set_zone_volume, mute_zone, unmute_zone, play_in_zone, get_media_metadata, search_media_metadata, get_media_overview
 
 # Map name -> function for execution
 TOOL_MAP = {
@@ -78,6 +80,33 @@ TOOL_MAP = {
     "complete_goal": complete_goal,
     "check_goals": check_goals,
     "delete_goal": delete_goal,
+    "get_calendar_events": get_calendar_events,
+    "get_today_events": get_today_events,
+    "get_tomorrow_events": get_tomorrow_events,
+    "sync_calendars": sync_calendars,
+    "get_calendar_overview": get_calendar_overview,
+    "fetch_emails": fetch_emails,
+    "search_emails": search_emails,
+    "read_email": read_email,
+    "send_email": send_email,
+    "get_email_overview": get_email_overview,
+    "get_productivity_overview": get_productivity_overview,
+    "play_music": play_music,
+    "pause_music": pause_music,
+    "stop_music": stop_music,
+    "next_track": next_track,
+    "previous_track": previous_track,
+    "set_volume": set_volume,
+    "list_music": list_music,
+    "get_music_status": get_music_status,
+    "list_speaker_zones": list_speaker_zones,
+    "set_zone_volume": set_zone_volume,
+    "mute_zone": mute_zone,
+    "unmute_zone": unmute_zone,
+    "play_in_zone": play_in_zone,
+    "get_media_metadata": get_media_metadata,
+    "search_media_metadata": search_media_metadata,
+    "get_media_overview": get_media_overview,
 }
 
 # Ollama compatible tool schemas (OpenAI format)
@@ -912,6 +941,320 @@ TOOLS_SCHEMA = [
                 },
                 "required": ["goal_id"]
             }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_calendar_events",
+            "description": "Get upcoming calendar events in next N days - parses local ICS files in workspace/calendar/, data/calendar/. 100% free local, no API keys, no Google API needed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {"type": "integer", "description": "Days ahead to look, default 7", "default": 7},
+                    "limit": {"type": "integer", "description": "Max events", "default": 10}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_today_events",
+            "description": "Get today's calendar events - local ICS files. Free local.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_tomorrow_events",
+            "description": "Get tomorrow's calendar events",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sync_calendars",
+            "description": "Sync local calendars - parse all ICS files in workspace/calendar/, data/calendar/, ~/Calendar/. Finds events.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_calendar_overview",
+            "description": "Get calendar overview - total events, today/tomorrow/week counts, files found",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_emails",
+            "description": "Fetch latest emails via IMAP SSL - secure, 100% free, local, no third-party APIs except your own provider. Requires EMAIL_IMAP_HOST, USER, PASS in .env (use app password). For Gmail: imap.gmail.com, app password from myaccount.google.com/apppasswords",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Number of emails", "default": 5},
+                    "folder": {"type": "string", "description": "Folder e.g. INBOX", "default": "INBOX"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_emails",
+            "description": "Search emails by query via IMAP - searches subject, from, body. Secure local.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query, e.g. 'invoice', 'from:client'"},
+                    "limit": {"type": "integer", "description": "Max results", "default": 5},
+                    "folder": {"type": "string", "description": "Folder", "default": "INBOX"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_email",
+            "description": "Read single email by ID via IMAP - full body",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "email_id": {"type": "string", "description": "Email ID from fetch_emails/search"},
+                    "folder": {"type": "string", "description": "Folder", "default": "INBOX"}
+                },
+                "required": ["email_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_email",
+            "description": "Send email securely via SMTP SSL/TLS - 100% free, local, uses your own SMTP. Requires EMAIL_SMTP_HOST, USER, PASS in .env. For Gmail: smtp.gmail.com:587 with app password. Secure.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "description": "Recipient email"},
+                    "subject": {"type": "string", "description": "Subject"},
+                    "body": {"type": "string", "description": "Body text"},
+                    "cc": {"type": "string", "description": "CC comma-separated optional"}
+                },
+                "required": ["to", "subject", "body"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_email_overview",
+            "description": "Get email overview - config status, instructions for Gmail/Outlook app passwords. No fetching.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_productivity_overview",
+            "description": "Get productivity hub overview - calendar + email + goals combined, morning briefing context. Unified productivity status.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "play_music",
+            "description": "Play music - local files in workspace/music/, ~/Music/ via pygame mixer 100% free local. Search by query or file path, optional zone. Use for 'play jazz', 'play my song.mp3'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query e.g. 'jazz', 'beatles'"},
+                    "file_path": {"type": "string", "description": "Specific file path"},
+                    "zone": {"type": "string", "description": "Smart speaker zone e.g. living_room, lab, bedroom, all"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "pause_music",
+            "description": "Pause/resume music playback",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_music",
+            "description": "Stop music playback",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "next_track",
+            "description": "Next track in playlist",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "previous_track",
+            "description": "Previous track",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_volume",
+            "description": "Set music volume 0-100",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "volume": {"type": "integer", "description": "Volume 0-100"}
+                },
+                "required": ["volume"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_music",
+            "description": "List music library - local files in workspace/music/, ~/Music/. Search by query.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search filter optional"},
+                    "limit": {"type": "integer", "description": "Max results", "default": 10}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_music_status",
+            "description": "Get music player status - playing/paused, current track, volume, playlist length",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_speaker_zones",
+            "description": "List smart speaker zones - living_room, bedroom, lab, kitchen, office, all - with volume and muted status. Config file based, 100% free, extensible to Home Assistant/Snapcast.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_zone_volume",
+            "description": "Set smart speaker zone volume 0-100",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "zone": {"type": "string", "description": "Zone e.g. living_room, bedroom, lab, all"},
+                    "volume": {"type": "integer", "description": "Volume 0-100"}
+                },
+                "required": ["zone", "volume"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mute_zone",
+            "description": "Mute smart speaker zone",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "zone": {"type": "string", "description": "Zone"}
+                },
+                "required": ["zone"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unmute_zone",
+            "description": "Unmute smart speaker zone",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "zone": {"type": "string", "description": "Zone"}
+                },
+                "required": ["zone"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "play_in_zone",
+            "description": "Play music in specific smart speaker zone - uses zone volume, respects mute",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "zone": {"type": "string", "description": "Zone e.g. living_room, lab"},
+                    "query": {"type": "string", "description": "Search query for music"},
+                    "file_path": {"type": "string", "description": "Specific file"}
+                },
+                "required": ["zone"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_media_metadata",
+            "description": "Get media metadata for local file via mutagen (free) - title, artist, album, genre, duration, etc",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "File path to music file"}
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_media_metadata",
+            "description": "Search MusicBrainz (free, no API key, open music database) for metadata - artist, title, album. No key needed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query e.g. 'Bohemian Rhapsody Queen'"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_media_overview",
+            "description": "Get media & entertainment overview - music library stats, speaker zones, metadata status. What JARVIS knows about media.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
         }
     }
 ]
