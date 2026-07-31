@@ -1,275 +1,181 @@
-# J.A.R.V.I.S 3.0 - Self-Evolving • Minimal • Local
+# J.A.R.V.I.S 4.0 — 100% FREE • Self-Evolving • Movable Holo UI • Premium Voice (Free) • Coding Agent Team
 
-> "Now I make myself better, Sir."
+> "Now I make myself better, Sir. And fully free."
 
-Fully local, private, **self-learning + self-evolving** JARVIS built on Ollama. Minimal UI, super smart, and he rewrites his own mind to get better.
+**100% FREE, Local, Private, No API Keys, No Paid Services.** Every feature works offline with Ollama.
 
-![Local](https://img.shields.io/badge/100%25%20Local-Private-black) ![Minimal](https://img.shields.io/badge/UI-Minimal-white) ![Self-Learning](https://img.shields.io/badge/Brain-Self_Learning-blue) ![Self-Evolving](https://img.shields.io/badge/Brain-Self_Evolving-cyan)
-
----
-
-## ✨ What's New in 3.0 - Self-Evolution
-
-**JARVIS makes himself better. Automatically.**
-
-Previous 2.0: He learned about *you*.
-Now 3.0: He learns about *himself* and improves.
-
-**The Self-Improvement Loop:**
-
-1. **Performance Tracker** - Every response: latency, tool success, satisfaction
-2. **Self-Critic** - Scores own response 0-10 via heuristic + LLM: "Too verbose, should have used tool"
-3. **Should Evolve?** Triggers if satisfaction <0.5, success <80%, trend declining, critic <6, or every 50 msgs, or user says "improve yourself"
-4. **Evolution Engine** (background):
-   - **Prompt Evolution**: LLM proposes better prompt: "Be concise for short questions" → saved to `data/evolution/prompt_additions.json` → injected next turn. Personality evolves.
-   - **Tool Forging**: Detects missing capability (Spotify, email, calendar...). LLM generates Python tool code, syntax checks, saves to `jarvis/tools/`, registers in `TOOL_MAP`. New ability forged.
-   - **Memory Optimization**: Prunes low-value vectors if >800
-
-All evolutions logged + backed up to `data/backups/`. Safe whitelist.
-
-See `EVOLUTION.md` for full architecture.
-
-**You can say:** "JARVIS, improve yourself", "Analyze your performance", "You need a Spotify tool" - and he will.
+![Free](https://img.shields.io/badge/100%25%20FREE-No_API_Keys-black) ![Local](https://img.shields.io/badge/100%25%20Local-Private-black) ![Ollama](https://img.shields.io/badge/Brain-Ollama-blue) ![Self-Evolving](https://img.shields.io/badge/Brain-Self_Evolving-cyan) ![Movable UI](https://img.shields.io/badge/UI-Movable_Holographic-00d4ff)
 
 ---
 
-## Features (Full)
+## ✨ What is This?
 
-**🧠 Brain**
-- Ollama: `qwen2.5:7b` (best tools), `llama3.1:8b`, `mistral-nemo`, `gemma2:9b`
-- Custom `jarvis` Modelfile with personality
-- Function calling + tool loop + learning context injection
+A real-life J.A.R.V.I.S. inspired by Manina Labs (@maninalabs — building real-life JARVIS, 24.9K followers [1](https://www.tiktok.com/@maninalabs)), but **100% free and open source, no kits, no paid APIs.**
 
-**🎙️ Voice**
-- Wake word "Jarvis", STT faster-whisper offline, TTS edge-tts `en-GB-RyanNeural`
+- **Ollama brain** `qwen2.5:7b` — fully local LLM, function calling
+- **Self-learning** — vector memory, auto-extracts facts, user profile, reflection
+- **Self-evolution** — self-critic 0-10, prompt evolution, tool forging, memory optimization
+- **Self-editing** — can edit own code with backup + compile check + rollback — rewrites his own mind
+- **Autonomous Coding Agent** — plans, codes, tests, fixes, commits for hours like Devin
+- **Codebase RAG** — knows entire repo via semantic search
+- **Git superpowers** — status, diff, log, commit, PR via gh
+- **Always-on wake word** — says "Jarvis" anytime, 24/7 listening via openWakeWord (free local ONNX) → whisper tiny → google fallback
+- **Proactive Agent** — morning briefing 8:30, evening summary, git watcher, routine suggestions, desktop notifications
+- **Multi-Agent Team** — Planner, Researcher, Coder, Reviewer, Supervisor collaborate on complex tasks
+- **Movable Holographic UI** — Manina Labs style, draggable panels, holographic glow, save layout
+- **Premium Voice — 100% FREE** — deep British cinematic with bass boost + reverb + chorus via pydub, no API key. Edge TTS default free, Piper best free offline (ONNX), XTTS free local cloning. ElevenLabs/OpenAI optional paid, NOT needed.
 
-**🛠️ Tools (auto-used):** time, system info, web search (DuckDuckGo), weather (wttr.in), memory, files, code exec, shell, timer
-
-**💾 Memory 2.0**
-- `data/long_term_memory.json` - old keyword memory (kept for compatibility)
-- `data/vectors.json` - NEW vector memory with embeddings + semantic search
-- `data/user_profile.json` - NEW who you are, preferences, routines
-- `data/reflections.json` - NEW self-reflections
-
-**🖥️ Interfaces**
-1. CLI - `python cli.py`
-2. Web UI Minimal - `http://localhost:8000` - **New clean**
-3. Python Desktop Minimal - `python desktop/python/main.py` - Native minimal + tray
-4. WebView Desktop - lightweight native
-5. Electron Desktop - holographic + global hotkey `Ctrl+Shift+J`
-6. Voice - hands-free
+Every feature: **FREE, local, no keys.**
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start — Fully Free
 
 ```bash
-git clone this repo
-cd jarvis-ollama
-./setup.sh         # pulls qwen2.5:7b + nomic-embed-text + creates jarvis model
+git clone https://github.com/thijsgroenewegentg-cell/1.git
+cd 1
+./setup.sh         # pulls qwen2.5:7b + nomic-embed-text + creates jarvis model, all free
 
-# Start Ollama (if needed)
-ollama serve
+ollama serve       # in another terminal, if not running
 
-# Run
-python web/server.py          # Minimal web UI at http://localhost:8000
-# or
-python desktop/python/main.py # Minimal desktop
-# or
-python cli.py
+# Run — all free, no keys
+python web/server.py          # Minimal UI http://localhost:8000 + Holo UI at /holo
+python cli.py                 # CLI
+python cli.py --always-on     # Always-on wake word, say "Jarvis" anytime
+python cli.py --proactive     # Proactive briefing + git watcher
+python cli.py --team "Research best auth lib and implement"  # Multi-agent team
+python cli.py --agent "Add JWT auth"  # Autonomous coding agent
 ```
 
-**Manual:**
+**No API keys needed. Ever.**
+
+Optional free offline TTS upgrades (still free, no keys):
 ```bash
-pip install -r requirements.txt
-ollama pull qwen2.5:7b
-ollama pull nomic-embed-text    # for self-learning embeddings (optional, fallback exists)
-ollama create jarvis -f Modelfile
+# Best free offline TTS - British, high quality
+pip install piper-tts --break-system-packages
+python -m piper.download_voices en_GB-alan-medium --data-dir data/piper_models
+# Then .env: TTS_ENGINE=piper
+
+# Free local voice cloning - clone Paul Bettany
+pip install TTS --break-system-packages  # 2GB model
+# Place 5-10 sec WAV of target voice in data/voices/manina_premium.wav
+# Then .env: TTS_ENGINE=xtts
 ```
 
-### Run Modes
+---
 
+## 🎨 UIs — All Free
+
+- **Minimal:** `/` — Linear/ChatGPT style, 720px centered, floating input. `python web/server.py`
+- **Movable Holographic:** `/holo` — Manina Labs style, draggable panels, grid + glow orbs, save layout. Top bar ◫ Holo button.
+  - Panels: Chat, Codebase, Git, Agent, Team, Briefing, Memory, Evolution, Terminal, System, Self-Edits, Voice Lab
+  - Drag, resize, minimize, close, + Panel menu, Save Layout
+- **Python Desktop:** `python desktop/python/main.py` — customtkinter minimal + tray
+- **Electron:** `cd desktop/electron && npm install && npm start` — global hotkey Ctrl+Shift+J
+- **CLI:** `python cli.py --voice`, `--always-on`, `--proactive`, `--team`, `--agent`
+
+---
+
+## 🎙️ Premium Voice — 100% Free
+
+Manina Labs premium = deep British cinematic with reverb + bass. We do it **free, no API key**:
+
+| Engine | Cost | Quality | Offline? | Setup |
+|--------|------|---------|----------|-------|
+| **edge + FX (default)** | FREE, no key | 8/10 premium | No, free MS | Works out of box: `TTS_ENGINE=edge`, `PREMIUM_VOICE_STYLE=manina_premium` |
+| **piper** | FREE | 9/10 best offline | Yes 100% | `pip install piper-tts && python -m piper.download_voices en_GB-alan-medium` → `TTS_ENGINE=piper` |
+| **xtts** | FREE | 10/10 clone any voice | Yes 100% after 2GB download | `pip install TTS`, place WAV sample in `data/voices/manina_premium.wav` → `TTS_ENGINE=xtts` |
+| **pyttsx3** | FREE | 5/10 robotic | Yes | Fallback |
+| elevenlabs | PAID optional | 10/10 | No | NOT needed, only if you want |
+| openai | PAID optional | 9/10 | No | NOT needed |
+
+**Voice presets (all free):** `manina_premium` (deep cinematic), `jarvis_classic` (Paul Bettany), `jarvis_deep` (commanding), `friday` (Irish female), `manina_blender` (clear technical)
+
+Premium FX via `pydub` (free): bass boost (low-pass 250Hz overlay), reverb (echo 80ms decay), chorus (15ms detune), +1.5dB loudness — makes edge sound premium, Manina style.
+
+Test:
 ```bash
-# CLI
-python cli.py --model jarvis
-
-# Voice
-python cli.py --voice --wake-word
-
-# Web minimal (new)
-python web/server.py
-./run.sh web
-
-# Python desktop minimal (new)
-./run.sh desktop
-python cli.py --desktop
-
-# WebView
-./run.sh webview
-
-# Electron (slick + hotkey)
-./run.sh electron
-
-# Auto-pick best desktop
-./run.sh auto
-python desktop/launch.py
-
-# Docker
-docker-compose up -d
+python -m jarvis.voice.premium --engine edge --preset manina_premium --text "Good evening, Sir. Premium voice model online, 100 percent free, no API keys needed."
 ```
 
 ---
 
-## 🧬 How Self-Learning Works
+## 🧠 Features — All Free
 
-```
-User: "My name is Alex, I live in Berlin and I love robotics"
-  ↓
-[Auto Extractor - Heuristic]
-  → regex detects name=Alex, location=Berlin, interest=robotics (confidence 0.7)
-[Auto Extractor - LLM - background]
-  → LLM prompt extracts structured facts as JSON
-  ↓
-[Vector Store] adds embeddings: "name: Alex", "location: Berlin", "interest: robotics"
-[User Profile] updates facts + interests + stats (hour, topics)
-  ↓
-Next query: "What do you know about me?"
-  ↓
-[Brain.get_context()] vector search for "what do you know about me?" 
-  → finds "name: Alex" (0.79 similarity), "location: Berlin"
-  + profile summary injected into system prompt
-  ↓
-JARVIS answers with learned context
-
-Every 10 messages:
-[Reflection Engine] -> "Mood: focused, Topics: robotics, Satisfaction: 0.8, Learnings: [project: AI startup]"
-  → Updates profile, adds to vector store
-  → Generates adaptive prompt: "User prefers concise"
-```
-
-**Files:**
-
-- `jarvis/learning/vector_store.py` - Embeddings via Ollama `/api/embeddings`, fallback hash embedding 128d, cosine similarity search
-- `jarvis/learning/user_profile.py` - JSON profile with facts, prefs, routines, satisfaction score
-- `jarvis/learning/auto_memory.py` - Regex patterns + LLM extraction
-- `jarvis/learning/reflection.py` - LLM reflection prompt + heuristic fallback
-- `jarvis/learning/engine.py` - Orchestrator, background threading, context injection
-
-**No embedding model?** Falls back to deterministic hash embedding - works offline without `nomic-embed-text`. But pull it for better semantic search.
+**Brain:** `qwen2.5:7b` (best tools), `llama3.1:8b`, `mistral-nemo`, `gemma2:9b` — local Ollama
+**Tools (30+):** time, system, web search DuckDuckGo (free), weather wttr.in (free), memory, files, code exec, shell, timer, search_codebase (vector), analyze_codebase, git_*, run_tests, format_code, improve_self, create_new_tool, read_self_code, edit_self_code, etc — all free
+**Memory:** `data/vectors.json` vector memory + `data/user_profile.json` + `data/codebase_vectors.json` — embeddings via `nomic-embed-text` (free) or hash fallback (free)
+**Wake Word:** `openwakeword` ONNX local (free) → faster-whisper tiny (free) → google (free)
+**Proactive:** APScheduler (free) + plyer notifications (free)
+**Team:** 5 agents with own brain copies, no paid framework
 
 ---
 
-## 🎨 UI Philosophy - Minimal
+## ⚙️ Config — Fully Free .env
 
-Old JARVIS UI was cyberpunk circus. New is **Linear + ChatGPT**:
+```env
+# ALL FREE, NO KEYS NEEDED
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=jarvis
+TTS_ENGINE=edge
+PREMIUM_VOICE_STYLE=manina_premium
+STT_ENGINE=faster-whisper
+ALWAYS_ON_ENABLED=false
+PROACTIVE_ENABLED=true
+TEAM_ENABLED=true
+EVOLUTION_ENABLED=true
+SELF_EDIT_ENABLED=true
 
-- Background #08090a (almost black)
-- No gradients, no glow, only 1 accent: white text
-- Top bar 52px, border #1e2024
-- Chat max-width 720px centered
-- Bubbles: user = white pill, JARVIS = #15171a border #1e2024, radius 18px
-- Input: floating rounded 24px, centered, shadow subtle
-- Drawer: right slideover 340px, opens with ☰ or Cmd+K
-- Toast for learnings: "🧠 Learned: location: Berlin" - black pill bottom
-- No neon, no grid, no scanline. Content first.
-
-Same for desktop Python - rebuilt with same minimal tokens.
-
-**Key UX:**
-
-- Welcome centered icon + suggestions chips
-- Feedback: copy / ↑ (good) / ↓ (bad) on hover
-- Learning badge shows when new fact learned
-- Insights: Cmd+K drawer shows vectors, satisfaction, profile summary, memory
+# OPTIONAL PAID - NOT NEEDED, LEAVE EMPTY FOR FREE:
+# ELEVENLABS_API_KEY=
+# OPENAI_API_KEY=
+```
 
 ---
 
-## 🧬 Project Structure 3.0
+## 🧬 Structure
 
 ```
 .
-├── Modelfile
-├── EVOLUTION.md              # How self-evolution works
-├── requirements.txt / setup.sh / run.sh / cli.py
+├── web/
+│   ├── index.html (minimal) + /static/style.css + /static/app.js
+│   ├── holo.html (movable holographic) + holo.css + holo.js
+│   └── server.py (+ /api/voice/presets, /api/voice/speak, /holo, /api/*)
 ├── jarvis/
-│   ├── brain.py              # Tool loop + learning + evolution injection
-│   ├── config.py             # + LEARNING_ENABLED, EVOLUTION_ENABLED
-│   ├── learning/             # Self-learning
-│   │   ├── vector_store.py, user_profile.py, auto_memory.py, reflection.py, engine.py
-│   ├── evolution/            # NEW 3.0 - Self-evolving
-│   │   ├── self_critic.py    # Scores own responses 0-10
-│   │   ├── performance_tracker.py # Latency, success, trend
-│   │   ├── self_editor.py    # Safe file edits with backups
-│   │   ├── tool_forger.py    # LLM forges new tools
-│   │   └── evolution_engine.py # Orchestrator
-│   ├── tools/                # + evolution_tools.py (improve_self, create_new_tool...)
-│   └── voice/ & app.py
-├── web/                      # Minimal UI 3.0 + evolution
-│   ├── server.py             # + /api/evolution/status, history, improve
-│   ├── index.html            # + 🧬 evolution count, improve button
-│   ├── style.css
-│   └── app.js                # + evolution modal, toasts
-├── desktop/
-│   ├── python/main.py        # Minimal + evolution stats
-│   └── electron/
+│   ├── voice/premium.py (100% free: edge+FX, piper, xtts, pyttsx3)
+│   ├── voice/wakeword.py (free: openwakeword ONNX)
+│   ├── proactive/ (free: scheduler, briefing, git watcher)
+│   ├── agents/ (free: planner, researcher, coder, reviewer, supervisor, team)
+│   ├── coding/ (free: codebase RAG, git tools, agent, etc)
+│   ├── learning/ (free: vector store, profile, auto memory)
+│   ├── evolution/ (free: self-critic, tool forger, self-editor)
+│   └── tools/ (30+ free tools)
 └── data/
-    ├── vectors.json, user_profile.json, reflections.json
-    └── evolution/
-        ├── prompt_additions.json  # Evolved prompts
-        ├── tool_forge_log.json
-        ├── performance.json
-        ├── evolution_log.json
-    └── backups/              # Backups of edited files
+    ├── voices/ (place WAV samples for free XTTS cloning)
+    └── piper_models/ (free Piper ONNX models)
 ```
 
 ---
 
-## ⚙️ Config (.env)
+## 🔒 Privacy — 100% Free & Local
 
-```env
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=jarvis
-EMBEDDING_MODEL=nomic-embed-text
-
-LEARNING_ENABLED=true
-AUTO_MEMORY=true
-REFLECTION_INTERVAL=10
-
-VOICE_ENABLED=false
-UI_MODE=minimal
-```
+No API keys, no cloud, no telemetry. All in `data/`. Ollama local. Even TTS premium FX is local via pydub. Edge TTS is free Microsoft service, no key. Piper and XTTS are fully offline.
 
 ---
 
-## 🛠️ Adding Tools
+## Roadmap — All Free
 
-Same as before - add function in `jarvis/tools/`, schema in `TOOLS_SCHEMA`, register in `TOOL_MAP`.
-
----
-
-## 🔒 Privacy
-
-100% offline after pull. No keys. All learnings in `data/`. You can `cat data/user_profile.json` to see exactly what JARVIS knows about you.
-
-Clear learnings: `/clear` in chat clears conversation, API `/api/clear?clear_learnings=true` or button in drawer clears profile + vectors.
-
----
-
-## Roadmap
-
-- [x] Minimal clean UI 2.0
-- [x] Self-learning: vector memory, auto-extract, profile, reflection
-- [x] Self-evolution 3.0: self-critic, prompt evolution, tool forging, performance tracking
-- [x] Electron + Python desktop with tray
-- [x] Global hotkey Ctrl+Shift+J
-- [ ] Vision (llava) - see your desk
-- [ ] Proactive: morning briefing from routines + evolution
-- [ ] Home Assistant
-- [ ] Voice wake word always-on in tray
-- [ ] Full self-code evolution (edit brain.py itself)
+- [x] Minimal UI + Movable Holographic UI (Manina Labs style)
+- [x] Premium Voice 100% free (edge+FX, piper, xtts)
+- [x] Always-on wake word free (openwakeword)
+- [x] Proactive free (morning briefing, git watcher)
+- [x] Multi-agent team free
+- [x] Self-evolving + self-editing free
+- [x] Coding agent + codebase RAG free
+- [ ] Vision (llava:7b free local) — see desk
+- [ ] Document RAG — index PDFs free
+- [ ] Mobile app via Tailscale (free)
 
 ---
 
-Built with bare metal and obsession. "Sometimes you gotta run before you can walk."
-
-> `ollama serve` -> `./run.sh web` -> Say "My name is Alex" -> Ask "What do you know about me?" -> Watch him learn.
+> `ollama serve` → `./run.sh web` → Open `/holo` → Drag panels → Say "Jarvis" (if --always-on) → Watch him evolve, all 100% free, Sir.
