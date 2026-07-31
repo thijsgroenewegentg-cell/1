@@ -101,19 +101,90 @@ class AgentRequest(BaseModel):
     task: str
     model: Optional[str] = None
 
+def _get_resource_path(relative_path: str) -> Path:
+    """Get resource path, handles PyInstaller frozen exe _MEIPASS"""
+    try:
+        # PyInstaller creates temp folder and stores path in _MEIPASS
+        base_path = Path(getattr(sys, '_MEIPASS', Path(__file__).parent))
+        # Try multiple locations
+        possible = [
+            base_path / relative_path,
+            base_path / "web" / relative_path,
+            Path(__file__).parent / relative_path,
+            Path(__file__).parent.parent / "web" / relative_path,
+            Path.cwd() / "web" / relative_path,
+            Path.cwd() / relative_path,
+        ]
+        for p in possible:
+            if p.exists():
+                return p
+        # Fallback to first
+        return possible[0]
+    except Exception as e:
+        return Path(__file__).parent / relative_path
+
 @app.get("/")
 async def serve_ui():
-    ui_path = Path(__file__).parent / "index.html"
-    if ui_path.exists():
-        return FileResponse(str(ui_path))
-    return HTMLResponse("<h1>JARVIS UI not found</h1>")
+    # Try multiple locations for index.html, including PyInstaller bundle
+    possible_paths = [
+        Path(__file__).parent / "index.html",
+        _get_resource_path("index.html"),
+        _get_resource_path("web/index.html"),
+        Path.cwd() / "web" / "index.html",
+        Path.cwd() / "index.html",
+    ]
+    # Also check for _MEIPASS
+    try:
+        if hasattr(sys, '_MEIPASS'):
+            possible_paths.insert(0, Path(sys._MEIPASS) / "web" / "index.html")
+            possible_paths.insert(0, Path(sys._MEIPASS) / "index.html")
+    except:
+        pass
+    
+    for ui_path in possible_paths:
+        if ui_path.exists():
+            return FileResponse(str(ui_path))
+    
+    # Fallback inline minimal UI if no file found (for exe)
+    return HTMLResponse("""
+    <html>
+    <head><title>JARVIS - UI not found but running</title>
+    <style>body{background:#08090a;color:#e6e8eb;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center}</style>
+    </head>
+    <body>
+    <div>
+    <h1>JARVIS Running, Sir.</h1>
+    <p>UI files not found in bundle, but API is running.</p>
+    <p>Try: <a href="/api/health/" style="color:#00d4ff">/api/health/</a> | <a href="/docs" style="color:#00d4ff">/docs</a></p>
+    <p>Web server at http://localhost:8000 is running. Check web/ folder exists.</p>
+    <p>Brain + Evolution + Team + Agent + Proactive all active.</p>
+    <script>setTimeout(()=>{fetch('/api/health/').then(r=>r.json()).then(d=>{document.body.innerHTML+='<pre>'+JSON.stringify(d,null,2)+'</pre>'})},1000)</script>
+    </div>
+    </body>
+    </html>
+    """)
 
 @app.get("/holo")
 async def serve_holo():
-    holo_path = Path(__file__).parent / "holo.html"
-    if holo_path.exists():
-        return FileResponse(str(holo_path))
-    return HTMLResponse("<h1>Holo UI not found</h1><a href='/'>Back to minimal</a>")
+    possible_paths = [
+        Path(__file__).parent / "holo.html",
+        _get_resource_path("holo.html"),
+        _get_resource_path("web/holo.html"),
+        Path.cwd() / "web" / "holo.html",
+        Path.cwd() / "holo.html",
+    ]
+    try:
+        if hasattr(sys, '_MEIPASS'):
+            possible_paths.insert(0, Path(sys._MEIPASS) / "web" / "holo.html")
+            possible_paths.insert(0, Path(sys._MEIPASS) / "holo.html")
+    except:
+        pass
+    
+    for holo_path in possible_paths:
+        if holo_path.exists():
+            return FileResponse(str(holo_path))
+    
+    return HTMLResponse("<h1>Holo UI not found</h1><a href='/'>Back to minimal</a><p>Check web/holo.html exists. API running at /api/health/</p>")
 
 @app.get("/api/status")
 async def get_status():
@@ -700,9 +771,35 @@ async def websocket_endpoint(websocket: WebSocket):
         except:
             pass
 
-web_dir = Path(__file__).parent
+def _get_web_dir():
+    """Get web dir, handles PyInstaller _MEIPASS"""
+    possible = [
+        Path(__file__).parent,
+        Path.cwd() / "web",
+        Path(__file__).parent.parent / "web",
+    ]
+    try:
+        if hasattr(sys, '_MEIPASS'):
+            possible.insert(0, Path(sys._MEIPASS) / "web")
+            possible.insert(0, Path(sys._MEIPASS))
+    except:
+        pass
+    for p in possible:
+        if p.exists() and (p / "index.html").exists():
+            return p
+    # Fallback to file parent
+    return Path(__file__).parent
+
+web_dir = _get_web_dir()
 if web_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
+    try:
+        app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
+        # Also mount orb static if exists
+        orb_static = web_dir.parent / "orb" / "api" / "static"
+        if orb_static.exists():
+            app.mount("/orb-static", StaticFiles(directory=str(orb_static)), name="orb-static")
+    except Exception as e:
+        print(f"Static mount failed: {e}")
 
 if __name__ == "__main__":
     print(f"""
