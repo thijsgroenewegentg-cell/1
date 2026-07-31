@@ -32,7 +32,7 @@ class Config:
     UI_MODE: str = os.getenv("UI_MODE", "minimal")
     # Evolution - Self-Improvement
     EVOLUTION_ENABLED: bool = os.getenv("EVOLUTION_ENABLED", "true").lower() == "true"
-    SELF_EDIT_ENABLED: bool = os.getenv("SELF_EDIT_ENABLED", "false").lower() == "true"  # auto apply code edits? false = propose only
+    SELF_EDIT_ENABLED: bool = os.getenv("SELF_EDIT_ENABLED", "true").lower() == "true"  # true = JARVIS can edit own code autonomously with backup+compile check
     EVOLUTION_INTERVAL: int = int(os.getenv("EVOLUTION_INTERVAL", "50"))
 
     # Security

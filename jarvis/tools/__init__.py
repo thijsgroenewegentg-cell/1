@@ -9,6 +9,7 @@ from .memory_tools import remember, recall, forget, get_memories
 from .timer import set_timer, set_reminder
 from .evolution_tools import improve_self, create_new_tool, analyze_performance, get_evolution_history, self_reflect
 from .code_tools import search_codebase, analyze_codebase, git_status, git_diff, git_log, git_commit, git_branch, run_tests, format_code, index_codebase, read_code_file
+from .self_edit_tools import read_self_code, edit_self_code, propose_self_edit, rollback_self_edit, list_self_edits
 
 # Map name -> function for execution
 TOOL_MAP = {
@@ -47,6 +48,11 @@ TOOL_MAP = {
     "format_code": format_code,
     "index_codebase": index_codebase,
     "read_code_file": read_code_file,
+    "read_self_code": read_self_code,
+    "edit_self_code": edit_self_code,
+    "propose_self_edit": propose_self_edit,
+    "rollback_self_edit": rollback_self_edit,
+    "list_self_edits": list_self_edits,
 }
 
 # Ollama compatible tool schemas (OpenAI format)
@@ -511,6 +517,80 @@ TOOLS_SCHEMA = [
                     "file_path": {"type": "string", "description": "File path relative to project root"}
                 },
                 "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_self_code",
+            "description": "Read JARVIS's own source code - introspection. JARVIS can read his own mind. Use to understand own code before editing self. Can read jarvis/, web/, desktop/ files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to own code file, e.g. jarvis/brain.py, jarvis/evolution/self_critic.py, web/app.js"}
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_self_code",
+            "description": "JARVIS edits his own code file - self-modification with backup, compile check, auto-rollback on failure. This is how JARVIS rewrites his own mind to become better. Use when improving self, fixing bugs in self, adding capabilities. Creates backup in data/backups/self_edit/. If SELF_EDIT_ENABLED=false, core files require approval.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to file to edit, e.g. jarvis/personality.py, jarvis/tools/my_tool.py"},
+                    "new_content": {"type": "string", "description": "Full new file content"},
+                    "reason": {"type": "string", "description": "Why editing self - reason for evolution log"}
+                },
+                "required": ["file_path", "new_content", "reason"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_self_edit",
+            "description": "JARVIS proposes improved version of his own code based on instruction using LLM. Reads file, LLM generates improved version, then applies via edit_self_code with backup and compile check. Use for 'improve your self_critic to be more accurate' etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "File to improve, e.g. jarvis/evolution/self_critic.py"},
+                    "instruction": {"type": "string", "description": "How to improve, e.g. 'make scoring more accurate, add more heuristics, improve prompt'"}
+                },
+                "required": ["file_path", "instruction"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rollback_self_edit",
+            "description": "Rollback self-edit from backup. If self-edit broke something, rollback to latest backup.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "File to rollback, e.g. jarvis/brain.py"},
+                    "backup_file": {"type": "string", "description": "Specific backup file path (optional), else latest"}
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_self_edits",
+            "description": "List recent self-edits with timestamp, file, reason, success, backup location. Audit trail of how JARVIS rewrote himself.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Number to show", "default": 10}
+                },
+                "required": []
             }
         }
     }

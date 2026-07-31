@@ -196,6 +196,30 @@ async def git_log(limit: int = 10):
         return {"error": "Git not available"}
     return {"log": agent.git.log(limit=limit)}
 
+@app.get("/api/self-edit/history")
+async def self_edit_history(limit: int = 10):
+    try:
+        from jarvis.tools.self_edit_tools import list_self_edits
+        return {"history": list_self_edits(limit=limit)}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/self-edit/list-backups")
+async def list_backups(file_path: str = None):
+    try:
+        from pathlib import Path
+        from jarvis.config import config
+        backup_dir = config.MEMORY_FILE.parent / "backups" / "self_edit"
+        if not backup_dir.exists():
+            return {"backups": []}
+        if file_path:
+            backups = sorted(backup_dir.rglob(f"{Path(file_path).name}.*.bak"), key=lambda x: x.stat().st_mtime, reverse=True)[:20]
+        else:
+            backups = sorted(backup_dir.rglob("*.bak"), key=lambda x: x.stat().st_mtime, reverse=True)[:20]
+        return {"backups": [{"path": str(b), "file": b.name, "mtime": b.stat().st_mtime, "size": b.stat().st_size} for b in backups]}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.post("/api/agent/plan")
 async def agent_plan(req: AgentRequest):
     agent = get_coding_agent()
