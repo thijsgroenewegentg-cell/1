@@ -34,6 +34,8 @@ app.add_middleware(
 brain = None
 memory_manager = MemoryManager()
 coding_agent = None
+proactive_engine = None
+agent_team = None
 
 def get_brain():
     global brain
@@ -51,6 +53,30 @@ def get_coding_agent():
             print(f"Coding agent init failed: {e}")
             coding_agent = None
     return coding_agent
+
+def get_proactive():
+    global proactive_engine
+    if proactive_engine is None:
+        try:
+            from jarvis.proactive import get_proactive_engine
+            proactive_engine = get_proactive_engine(brain=get_brain())
+            # Auto-start if enabled
+            if config.PROACTIVE_ENABLED and not proactive_engine.is_active:
+                proactive_engine.start()
+        except Exception as e:
+            print(f"Proactive init failed: {e}")
+    return proactive_engine
+
+def get_team():
+    global agent_team
+    if agent_team is None:
+        try:
+            from jarvis.agents import AgentTeam
+            agent_team = AgentTeam(brain=get_brain())
+        except Exception as e:
+            print(f"Team init failed: {e}")
+            agent_team = None
+    return agent_team
 
 class ChatRequest(BaseModel):
     message: str
@@ -220,6 +246,71 @@ async def list_backups(file_path: str = None):
     except Exception as e:
         return {"error": str(e)}
 
+# Proactive Endpoints
+@app.get("/api/proactive/status")
+async def proactive_status():
+    engine = get_proactive()
+    if not engine:
+        return {"error": "Proactive not available"}
+    return engine.get_status()
+
+@app.post("/api/proactive/briefing")
+async def proactive_briefing(type: str = "morning"):
+    engine = get_proactive()
+    if not engine:
+        return {"error": "Proactive not available"}
+    try:
+        if type == "morning":
+            text = engine.briefing.generate_morning_briefing()
+        else:
+            text = engine.briefing.generate_evening_summary()
+        return {"type": type, "text": text}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/proactive/trigger")
+async def proactive_trigger(type: str = "morning"):
+    engine = get_proactive()
+    if not engine:
+        return {"error": "Proactive not available"}
+    msg = engine.trigger_briefing_now(type=type)
+    return {"status": msg, "full_status": engine.get_status()}
+
+# Team Endpoints
+@app.get("/api/team/status")
+async def team_status():
+    team = get_team()
+    if not team:
+        return {"error": "Team not available"}
+    return team.get_status()
+
+@app.post("/api/team/execute")
+async def team_execute(req: AgentRequest):
+    team = get_team()
+    if not team:
+        return {"error": "Team not available"}
+    # Non-streaming, final result
+    final = None
+    for event in team.execute(req.task):
+        if event["type"] == "team_done":
+            final = event["data"]
+    return final or {"error": "No result"}
+
+# Always-On Wake Word
+@app.get("/api/wakeword/status")
+async def wakeword_status():
+    try:
+        from jarvis.voice.wakeword import get_wake_listener
+        listener = get_wake_listener()
+        return {
+            "engine": listener.engine,
+            "wake_words": listener.wake_words,
+            "is_running": listener.is_running(),
+            "sensitivity": listener.sensitivity
+        }
+    except Exception as e:
+        return {"error": str(e), "is_running": False}
+
 @app.post("/api/agent/plan")
 async def agent_plan(req: AgentRequest):
     agent = get_coding_agent()
@@ -329,10 +420,40 @@ async def websocket_endpoint(websocket: WebSocket):
                         try:
                             for event in agent.execute(task):
                                 await websocket.send_json({"type": f"agent_{event['type']}", "data": event["data"]})
-                                # Small delay to allow UI to render
                                 await asyncio.sleep(0.01)
                         except Exception as e:
                             await websocket.send_json({"type": "error", "data": f"Agent error: {e}"})
+                        continue
+                    
+                    if msg_type == "team":
+                        task = payload.get("task", user_msg)
+                        team = get_team()
+                        if not team:
+                            await websocket.send_json({"type": "error", "data": "Team not available"})
+                            continue
+                        await websocket.send_json({"type": "team_start", "data": {"task": task}})
+                        try:
+                            for event in team.execute(task):
+                                await websocket.send_json({"type": f"team_{event['type']}", "data": event["data"]})
+                                await asyncio.sleep(0.01)
+                        except Exception as e:
+                            await websocket.send_json({"type": "error", "data": f"Team error: {e}"})
+                        continue
+                    
+                    if msg_type == "proactive_briefing":
+                        btype = payload.get("briefing_type", "morning")
+                        engine = get_proactive()
+                        if not engine:
+                            await websocket.send_json({"type": "error", "data": "Proactive not available"})
+                            continue
+                        try:
+                            if btype == "morning":
+                                text = engine.briefing.generate_morning_briefing()
+                            else:
+                                text = engine.briefing.generate_evening_summary()
+                            await websocket.send_json({"type": "briefing", "data": {"type": btype, "text": text}})
+                        except Exception as e:
+                            await websocket.send_json({"type": "error", "data": f"Briefing error: {e}"})
                         continue
                     
                     model = payload.get("model")

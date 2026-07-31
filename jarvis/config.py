@@ -32,8 +32,19 @@ class Config:
     UI_MODE: str = os.getenv("UI_MODE", "minimal")
     # Evolution - Self-Improvement
     EVOLUTION_ENABLED: bool = os.getenv("EVOLUTION_ENABLED", "true").lower() == "true"
-    SELF_EDIT_ENABLED: bool = os.getenv("SELF_EDIT_ENABLED", "true").lower() == "true"  # true = JARVIS can edit own code autonomously with backup+compile check
+    SELF_EDIT_ENABLED: bool = os.getenv("SELF_EDIT_ENABLED", "true").lower() == "true"
     EVOLUTION_INTERVAL: int = int(os.getenv("EVOLUTION_INTERVAL", "50"))
+    # Always-On Wake Word
+    ALWAYS_ON_ENABLED: bool = os.getenv("ALWAYS_ON_ENABLED", "false").lower() == "true"
+    WAKEWORD_ENGINE: str = os.getenv("WAKEWORD_ENGINE", "auto")  # auto, openwakeword, whisper, google
+    WAKEWORD_SENSITIVITY: float = float(os.getenv("WAKEWORD_SENSITIVITY", "0.5"))
+    # Proactive Agent
+    PROACTIVE_ENABLED: bool = os.getenv("PROACTIVE_ENABLED", "true").lower() == "true"
+    MORNING_BRIEF_HOUR: int = int(os.getenv("MORNING_BRIEF_HOUR", "8"))
+    MORNING_BRIEF_MINUTE: int = int(os.getenv("MORNING_BRIEF_MINUTE", "30"))
+    EVENING_BRIEF_HOUR: int = int(os.getenv("EVENING_BRIEF_HOUR", "18"))
+    # Multi-Agent Team
+    TEAM_ENABLED: bool = os.getenv("TEAM_ENABLED", "true").lower() == "true"
 
     # Security
     ALLOW_SHELL: bool = os.getenv("ALLOW_SHELL", "true").lower() == "true"

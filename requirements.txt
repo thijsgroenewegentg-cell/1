@@ -24,11 +24,19 @@ pyaudio>=0.2.13; sys_platform != "win32"
 # faster-whisper is optional but recommended for offline STT
 faster-whisper>=1.0.0
 openai-whisper>=20231117; sys_platform == "win32"
+# Always-on wake word
+openwakeword>=0.6.0
+webrtcvad>=2.0.10
+onnxruntime>=1.16.0
 
 # Voice - TTS
 pyttsx3>=2.90
 edge-tts>=6.1.10
 pygame>=2.5.0
+
+# Proactive Agent
+apscheduler>=3.10.0
+plyer>=2.1.0
 
 # Desktop - Python Native
 customtkinter>=5.2.0
@@ -41,4 +49,4 @@ pywebview>=5.0.0
 # Optional enhancements
 chromadb>=0.5.0; python_version >= "3.10"
 python-multipart>=0.0.9
-plyer>=2.1.0
+

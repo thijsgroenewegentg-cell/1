@@ -1,4 +1,4 @@
-/* JARVIS 2.0 - Minimal Clean UI + Self-Learning */
+/* JARVIS 4.0 - Always-On + Proactive + Multi-Agent + Evolution + Agent */
 
 const chatEl = document.getElementById('chat');
 const inputEl = document.getElementById('input');
@@ -13,22 +13,17 @@ const statusText = document.getElementById('status-text');
 
 let ws = null;
 let currentModel = 'jarvis';
-let messageCount = 0;
 let startTime = Date.now();
-let voiceEnabled = false;
 let lastJarvisMsgEl = null;
 
-// Auto-resize textarea
 inputEl.addEventListener('input', () => {
   inputEl.style.height = 'auto';
   inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
 });
 
-// Connect WS
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}/ws`);
-
   ws.onopen = () => {
     setStatus(true, 'online');
     modelPill.textContent = currentModel + ' • online';
@@ -47,61 +42,54 @@ function handleWS(msg) {
   const { type, data } = msg;
   switch(type) {
     case 'status':
-      const s = data;
-      currentModel = s.model || currentModel;
-      modelPill.textContent = currentModel + (s.ollama_connected ? ' • online' : ' • ollama offline');
-      document.getElementById('stat-vectors').textContent = s.vector_count || s.memory_count || 0;
-      document.getElementById('stat-msgs').textContent = s.conversation_length || 0;
-      document.getElementById('stat-satisfaction').textContent = s.satisfaction ? (s.satisfaction*100|0)+'%' : '—';
-      document.getElementById('stat-evolutions').textContent = s.evolution_count || 0;
-      document.getElementById('stat-critic').textContent = s.avg_critic_score ? s.avg_critic_score : '—';
-      document.getElementById('stat-trend').textContent = s.trend || '—';
-      document.getElementById('learning-count').textContent = s.vector_count || s.learnings_count || 0;
-      document.getElementById('evolution-count').textContent = s.evolution_count || 0;
-      document.getElementById('evo-badge').textContent = s.evolution_count ? `• v${s.evolution_count} evolved` : '';
-      if (s.profile) updateProfileBox(s.profile);
-      setStatus(s.ollama_connected, s.ollama_connected ? 'online' : 'ollama offline');
+      currentModel = data.model || currentModel;
+      modelPill.textContent = currentModel + (data.ollama_connected ? ' • online' : ' • ollama offline');
+      document.getElementById('stat-vectors').textContent = data.vector_count || data.memory_count || 0;
+      document.getElementById('stat-msgs').textContent = data.conversation_length || 0;
+      document.getElementById('stat-satisfaction').textContent = data.satisfaction ? (data.satisfaction*100|0)+'%' : '—';
+      document.getElementById('stat-evolutions').textContent = data.evolution_count || 0;
+      document.getElementById('stat-critic').textContent = data.avg_critic_score ? data.avg_critic_score : '—';
+      document.getElementById('stat-trend').textContent = data.trend || '—';
+      document.getElementById('learning-count') && (document.getElementById('learning-count').textContent = data.vector_count || data.learnings_count || 0);
+      document.getElementById('evolution-count').textContent = data.evolution_count || 0;
+      document.getElementById('evo-badge').textContent = data.evolution_count ? `• v${data.evolution_count} evolved` : '';
+      if (data.profile) updateProfileBox(data.profile);
+      setStatus(data.ollama_connected, data.ollama_connected ? 'online' : 'ollama offline');
       break;
-
     case 'message':
-      if (data && data !== 'Online, Sir.') addMessage('jarvis', data);
+      if (data && !data.includes('Online, Sir')) addMessage('jarvis', data);
       hideThinking();
       break;
-
     case 'stream':
       if (!lastJarvisMsgEl || lastJarvisMsgEl.dataset.done === 'true') {
         lastJarvisMsgEl = addMessage('jarvis', '', true);
       }
       appendToLast(data);
       break;
-
     case 'learned':
       if (Array.isArray(data) && data.length) {
         showToast(`🧠 Learned: ${data[0].slice(0, 60)}`);
-        document.getElementById('learning-badge').style.display = 'flex';
-        document.getElementById('learning-text').textContent = data[0].slice(0, 80);
-        setTimeout(() => {
-          document.getElementById('learning-badge').style.display = 'none';
-        }, 6000);
+        const badge = document.getElementById('learning-badge');
+        const txt = document.getElementById('learning-text');
+        if (badge && txt) {
+          badge.style.display = 'flex';
+          txt.textContent = data[0].slice(0, 80);
+          setTimeout(() => badge.style.display = 'none', 6000);
+        }
         loadLearnings();
       }
       break;
-
     case 'tool':
       addMessage('tool', data);
       break;
-
     case 'evolution':
       addMessage('system', `Evolution: ${JSON.stringify(data, null, 2)}`);
       showToast(`🧬 Evolved: ${data.message || 'Improvement done'}`);
       break;
-
     case 'evolved':
       showToast(`🧬 ${data.message || 'I made myself better, Sir.'}`);
       loadEvolutionCount();
       break;
-
-    // Agent events
     case 'agent_start':
       addMessage('system', `⚡ Agent started: ${data.task}`);
       showToast(`⚡ Agent: ${data.task.slice(0,60)}`);
@@ -128,7 +116,7 @@ function handleWS(msg) {
       appendAgentLog(`${data.result?.summary || data.message || 'Tests'}`, data.result?.success ? 'success' : 'error');
       break;
     case 'agent_git_commit':
-      appendAgentLog(`Committed: ${data.result?.slice(0,100) || 'changes'}`, 'success');
+      appendAgentLog(`Committed: ${String(data.result||'').slice(0,100) || 'changes'}`, 'success');
       break;
     case 'agent_done':
       handleAgentDone(data);
@@ -136,28 +124,78 @@ function handleWS(msg) {
     case 'agent_error':
       appendAgentLog(`Error: ${data.error || data.message}`, 'error');
       break;
-
+    case 'team_start':
+      addMessage('system', `👥 Team started: ${data.task}`);
+      appendTeamLog(`Team started: ${data.task}`, 'supervisor', 'info');
+      showToast(`👥 Team: ${data.task.slice(0,50)}`);
+      break;
+    case 'team_supervisor_decision':
+      appendTeamLog(`Supervisor: ${data.routing?.strategy} - ${data.routing?.reason}`, 'supervisor', 'info');
+      break;
+    case 'team_plan':
+      handleTeamPlan(data);
+      addMessage('system', `Team plan: ${data.todos?.length} steps`);
+      break;
+    case 'team_agent_start':
+      appendTeamLog(`→ ${data.todo?.title || data.message}`, data.todo?.agent || data.agent || 'agent', 'info');
+      // also update todo UI
+      if (data.todo) {
+        const el = document.getElementById(`team-todo-${data.todo.id}`);
+        if (el) {
+          el.classList.add('in_progress');
+          const check = el.querySelector('.todo-check');
+          if (check) check.textContent = '◐';
+        }
+      }
+      break;
+    case 'team_agent_result':
+      appendTeamLog(`✓ ${(data.todo?.title||'Result')}: ${String(data.result||'').slice(0,200)}`, data.todo?.agent || 'agent', 'success');
+      if (data.todo) {
+        const el = document.getElementById(`team-todo-${data.todo.id}`);
+        if (el) {
+          el.classList.remove('in_progress');
+          el.classList.add('done');
+          const check = el.querySelector('.todo-check');
+          if (check) check.textContent = '✓';
+        }
+      }
+      break;
+    case 'team_agent_error':
+      appendTeamLog(`✗ Error: ${data.error}`, 'error', 'error');
+      break;
+    case 'team_team_done':
+      appendTeamLog(`Team done in ${data.elapsed_seconds}s: ${data.message}`, 'supervisor', 'success');
+      showToast(`👥 Team done in ${data.elapsed_seconds}s`);
+      addMessage('system', `Team finished: ${data.message}\nAgents: ${(data.agents_used||[]).join(', ')}`);
+      break;
+    case 'briefing':
+      const preview = document.getElementById('briefing-preview');
+      if (preview) {
+        preview.style.display = 'block';
+        preview.textContent = data.text;
+      }
+      addMessage('system', `🌅 ${data.type} briefing:\n${data.text}`);
+      showToast(`${data.type} briefing ready`);
+      break;
     case 'thinking':
       showThinking();
       break;
-
     case 'reflection':
       addMessage('system', `Reflection: ${JSON.stringify(data, null, 2)}`);
       hideThinking();
       break;
-
     case 'done':
       hideThinking();
       if (lastJarvisMsgEl) lastJarvisMsgEl.dataset.done = 'true';
       lastJarvisMsgEl = null;
-      messageCount++;
       break;
-
     case 'clear':
       chatEl.innerHTML = '';
-      welcomeEl.style.display = 'flex';
+      if (welcomeEl) {
+        chatEl.appendChild(welcomeEl);
+        welcomeEl.style.display = 'flex';
+      }
       break;
-
     case 'error':
       addMessage('system', 'Error: ' + data);
       hideThinking();
@@ -168,20 +206,17 @@ function handleWS(msg) {
 function setStatus(online, text) {
   statusText.textContent = text;
   statusDot.classList.toggle('offline', !online);
-  document.querySelector('#status-dot .dot').style.background = online ? 'var(--green)' : 'var(--orange)';
+  const dot = document.querySelector('#status-dot .dot');
+  if (dot) dot.style.background = online ? 'var(--green)' : 'var(--orange)';
 }
 
-// Messages - Minimal bubbles
 function addMessage(role, text, isStreaming = false) {
   if (welcomeEl) welcomeEl.style.display = 'none';
-
   const msg = document.createElement('div');
   msg.className = `msg ${role}`;
   if (isStreaming) msg.dataset.streaming = 'true';
-
   const meta = role === 'user' ? 'You' : role === 'jarvis' ? 'JARVIS' : role === 'tool' ? 'TOOL' : 'SYSTEM';
   const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-
   msg.innerHTML = `
     <div class="meta">${meta} • ${time}</div>
     <div class="bubble">${formatText(text)}</div>
@@ -192,18 +227,14 @@ function addMessage(role, text, isStreaming = false) {
       <button onclick="feedback(this, 'negative')" title="Bad">↓</button>
     </div>` : ''}
   `;
-
   chatEl.appendChild(msg);
   chatEl.scrollTo({ top: chatEl.scrollHeight, behavior: 'smooth' });
   return msg;
 }
 
 function appendToLast(chunk) {
-  if (!lastJarvisMsgEl) {
-    lastJarvisMsgEl = addMessage('jarvis', '', true);
-  }
+  if (!lastJarvisMsgEl) lastJarvisMsgEl = addMessage('jarvis', '', true);
   const bubble = lastJarvisMsgEl.querySelector('.bubble');
-  // Streaming raw append, keep formatting minimal
   bubble.textContent += chunk;
   chatEl.scrollTo({ top: chatEl.scrollHeight });
 }
@@ -211,13 +242,9 @@ function appendToLast(chunk) {
 function formatText(t) {
   if (!t) return '';
   let e = t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  // Code blocks
   e = e.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-  // Inline code
   e = e.replace(/`([^`]+)`/g, '<code>$1</code>');
-  // Bold
   e = e.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  // Line breaks
   e = e.replace(/\n/g, '<br>');
   return e;
 }
@@ -231,18 +258,32 @@ function showThinking() {
   chatEl.appendChild(thinkingEl);
   chatEl.scrollTo({ top: chatEl.scrollHeight });
 }
-function hideThinking() {
-  if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
-}
+function hideThinking() { if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; } }
 
-// Send
 function sendMessage() {
   const text = inputEl.value.trim();
   if (!text || !ws || ws.readyState !== 1) return;
-
+  if (text.startsWith('/agent ')) {
+    const task = text.slice(7).trim();
+    if (!task) return;
+    document.getElementById('agent-modal').classList.add('open');
+    document.getElementById('agent-task-input').value = task;
+    document.getElementById('agent-start-btn').click();
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+    return;
+  }
+  if (text.startsWith('/team ')) {
+    const task = text.slice(6).trim();
+    if (!task) return;
+    document.getElementById('team-modal').classList.add('open');
+    document.getElementById('team-task-input').value = task;
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+    return;
+  }
   addMessage('user', text);
   ws.send(JSON.stringify({ message: text, model: currentModel }));
-
   inputEl.value = '';
   inputEl.style.height = 'auto';
   inputEl.focus();
@@ -250,26 +291,19 @@ function sendMessage() {
 
 sendBtn.onclick = sendMessage;
 inputEl.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 
-// Suggestions quick
 document.querySelectorAll('.suggestions button').forEach(btn => {
-  btn.onclick = () => {
-    inputEl.value = btn.dataset.q;
-    sendMessage();
-  };
+  btn.onclick = () => { inputEl.value = btn.dataset.q; sendMessage(); };
 });
 
-// Drawer
 function openDrawer() {
   drawer.classList.add('open');
   drawerOverlay.classList.add('open');
   loadMemories();
   loadProfile();
+  loadProactiveStatus();
 }
 function closeDrawer() {
   drawer.classList.remove('open');
@@ -279,17 +313,12 @@ document.getElementById('drawer-btn').onclick = openDrawer;
 document.getElementById('drawer-close').onclick = closeDrawer;
 drawerOverlay.onclick = closeDrawer;
 
-// Model change
-modelSelect.onchange = () => {
-  currentModel = modelSelect.value;
-  modelPill.textContent = currentModel;
-};
+modelSelect.onchange = () => { currentModel = modelSelect.value; modelPill.textContent = currentModel; };
 
-// Voice toggle
 let synth = window.speechSynthesis;
 document.getElementById('voice-toggle').onclick = (e) => {
-  voiceEnabled = !voiceEnabled;
-  e.target.textContent = `Voice: ${voiceEnabled ? 'On' : 'Off'}`;
+  const enabled = e.target.textContent.includes('Off');
+  e.target.textContent = `Voice: ${enabled ? 'On' : 'Off'}`;
 };
 
 function copyText(btn) {
@@ -297,69 +326,39 @@ function copyText(btn) {
   navigator.clipboard.writeText(bubble.textContent);
   showToast('Copied');
 }
-
 function feedback(btn, type) {
   const bubble = btn.closest('.msg').querySelector('.bubble');
   const text = bubble.textContent;
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: 'feedback', feedback: type, text }));
-  } else {
-    fetch('/api/feedback', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ feedback: type, message_text: text })
-    });
-  }
-  showToast(type === 'positive' ? 'Thanks for feedback, Sir.' : 'Noted. I will improve, Sir.');
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'feedback', feedback: type, text }));
+  else fetch('/api/feedback', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ feedback: type, message_text: text }) });
+  showToast(type === 'positive' ? 'Thanks, Sir.' : 'Noted, will improve.');
 }
-
 function clearChat() {
   if (ws) ws.send(JSON.stringify({ message: '/clear' }));
   chatEl.innerHTML = '';
-  if (welcomeEl) {
-    chatEl.appendChild(welcomeEl);
-    welcomeEl.style.display = 'flex';
-  }
+  if (welcomeEl) { chatEl.appendChild(welcomeEl); welcomeEl.style.display = 'flex'; }
 }
-
 function clearLearnings() {
-  if (!confirm('Clear all learnings? This resets JARVIS memory of you, Sir.')) return;
-  fetch('/api/clear?clear_learnings=true', { method: 'POST' }).then(() => {
-    showToast('Learnings cleared');
-    loadLearnings();
-  });
+  if (!confirm('Clear all learnings? Resets memory of you, Sir.')) return;
+  fetch('/api/clear?clear_learnings=true', { method: 'POST' }).then(() => { showToast('Learnings cleared'); loadLearnings(); });
 }
-
-// Toast
 function showToast(text) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = 'toast';
   toast.textContent = text;
   container.appendChild(toast);
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(10px)';
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(10px)'; setTimeout(() => toast.remove(), 300); }, 3000);
 }
-
-// Load memories
 async function loadMemories() {
   try {
     const resp = await fetch('/api/memories');
     const data = await resp.json();
     const list = document.getElementById('memory-list');
-    if (!data.memories || !data.memories.length) {
-      list.innerHTML = '<small style="opacity:0.5">No memories yet</small>';
-      return;
-    }
-    list.innerHTML = data.memories.slice(-8).reverse().map(m =>
-      `<div class="memory-item"><strong>${m.key}</strong> ${m.value.slice(0,80)}</div>`
-    ).join('');
+    if (!data.memories || !data.memories.length) { list.innerHTML = '<small style="opacity:0.5">No memories yet</small>'; return; }
+    list.innerHTML = data.memories.slice(-8).reverse().map(m => `<div class="memory-item"><strong>${m.key}</strong> ${m.value.slice(0,80)}</div>`).join('');
   } catch {}
 }
-
 async function loadProfile() {
   try {
     const resp = await fetch('/api/profile');
@@ -367,31 +366,38 @@ async function loadProfile() {
     if (data && !data.error) updateProfileBox(data);
   } catch {}
 }
-
 function updateProfileBox(profile) {
   const box = document.getElementById('profile-summary');
   if (!profile) return;
   let lines = [];
   if (profile.preferred_name) lines.push(`Name: ${profile.preferred_name}`);
-  if (profile.facts && profile.facts.length) {
-    profile.facts.slice(-4).forEach(f => lines.push(`${f.key}: ${f.value}`));
-  }
+  if (profile.facts && profile.facts.length) profile.facts.slice(-4).forEach(f => lines.push(`${f.key}: ${f.value}`));
   if (profile.preferences) {
     const prefs = profile.preferences;
     if (prefs.communication_style) lines.push(`Style: ${prefs.communication_style}`);
     if (prefs.topics_of_interest && prefs.topics_of_interest.length) lines.push(`Interests: ${prefs.topics_of_interest.slice(0,3).join(', ')}`);
   }
-  if (!lines.length) box.textContent = 'Learning about you, Sir...';
-  else box.textContent = lines.join('\n');
+  box.textContent = lines.length ? lines.join('\n') : 'Learning about you, Sir...';
 }
-
 async function loadLearnings() {
   try {
     const resp = await fetch('/api/learnings?limit=20');
     const data = await resp.json();
     const count = data.learnings?.length || 0;
-    document.getElementById('learning-count').textContent = count;
-    document.getElementById('stat-vectors').textContent = count;
+    const el = document.getElementById('learning-count');
+    if (el) el.textContent = count;
+    const stat = document.getElementById('stat-vectors');
+    if (stat) stat.textContent = count;
+  } catch {}
+}
+async function loadEvolutionCount() {
+  try {
+    const resp = await fetch('/api/evolution/status');
+    const data = await resp.json();
+    const ec = document.getElementById('evolution-count');
+    if (ec) ec.textContent = data.evolution_count || 0;
+    const es = document.getElementById('stat-evolutions');
+    if (es) es.textContent = data.evolution_count || 0;
   } catch {}
 }
 
@@ -403,38 +409,14 @@ document.getElementById('learning-btn').onclick = async () => {
   try {
     const resp = await fetch('/api/learnings?limit=50');
     const data = await resp.json();
-    if (!data.learnings || !data.learnings.length) {
-      body.innerHTML = '<p style="opacity:0.6">No learnings yet, Sir. Talk to me and I will learn automatically.</p>';
-      return;
-    }
-    body.innerHTML = data.learnings.map(l =>
-      `<div class="memory-item"><small>${new Date(l.timestamp).toLocaleString()}</small><br><strong>${l.metadata?.type || 'memory'}</strong>: ${l.text}</div>`
-    ).join('');
-
-    if (data.insights) {
-      const insp = data.insights;
-      body.innerHTML += `<hr style="margin:16px 0; border-color: var(--border)"><h4 style="font-size:12px; text-transform:uppercase; opacity:0.6; margin-bottom:8px">Insights</h4><div class="profile-box">${JSON.stringify(insp, null, 2)}</div>`;
-    }
-  } catch (e) {
-    body.innerHTML = 'Failed to load: ' + e;
-  }
+    if (!data.learnings || !data.learnings.length) { body.innerHTML = '<p style="opacity:0.6">No learnings yet, Sir. Talk to me and I will learn.</p>'; return; }
+    body.innerHTML = data.learnings.map(l => `<div class="memory-item"><small>${new Date(l.timestamp).toLocaleString()}</small><br><strong>${l.metadata?.type || 'memory'}</strong>: ${l.text}</div>`).join('');
+  } catch (e) { body.innerHTML = 'Failed: ' + e; }
 };
-document.getElementById('learnings-close').onclick = () => {
-  document.getElementById('learnings-modal').classList.remove('open');
-};
-document.getElementById('learnings-modal').onclick = (e) => {
-  if (e.target.id === 'learnings-modal') e.target.classList.remove('open');
-};
+document.getElementById('learnings-close').onclick = () => document.getElementById('learnings-modal').classList.remove('open');
+document.getElementById('learnings-modal').onclick = (e) => { if (e.target.id === 'learnings-modal') e.target.classList.remove('open'); };
 
 // Evolution modal
-async function loadEvolutionCount() {
-  try {
-    const resp = await fetch('/api/evolution/status');
-    const data = await resp.json();
-    document.getElementById('evolution-count').textContent = data.evolution_count || 0;
-    document.getElementById('stat-evolutions').textContent = data.evolution_count || 0;
-  } catch {}
-}
 document.getElementById('evolution-btn').onclick = async () => {
   document.getElementById('evolution-modal').classList.add('open');
   const body = document.getElementById('evolution-body');
@@ -442,37 +424,15 @@ document.getElementById('evolution-btn').onclick = async () => {
   try {
     const resp = await fetch('/api/evolution/history?limit=20');
     const data = await resp.json();
-    const history = data.history || data.prompt_evolutions || [];
-    if (!history.length && !data.tool_forges) {
-      body.innerHTML = '<p style="opacity:0.6">No evolutions yet, Sir. I will evolve when I detect I can be better, or say "Improve yourself".<br><br>Capabilities:<br>- Self-critique (scores own responses)<br>- Prompt evolution<br>- Tool forging<br>- Memory optimization<br>- Performance tracking</p>';
-      return;
-    }
-    let html = '';
-    if (data.history) {
-      html += data.history.map(h => `<div class="memory-item"><small>${h.timestamp?.slice(0,16)} • ${h.type}</small><br><strong>${h.description?.slice(0,100)}</strong><br><small>${JSON.stringify(h.details || {}).slice(0,200)}</small></div>`).join('');
-    } else {
-      if (data.prompt_evolutions) {
-        html += '<h4 style="font-size:11px;opacity:0.6;margin:12px 0 6px">PROMPT EVOLUTIONS</h4>';
-        html += data.prompt_evolutions.map(p => `<div class="memory-item"><small>${p.timestamp?.slice(0,16)}</small><br>${p.prompt}</div>`).join('');
-      }
-      if (data.tool_forges) {
-        html += '<h4 style="font-size:11px;opacity:0.6;margin:12px 0 6px">TOOL FORGES</h4>';
-        html += data.tool_forges.map(t => `<div class="memory-item"><small>${t.timestamp?.slice(0,16)}</small><br><strong>${t.tool_name}</strong>: ${t.reason?.slice(0,80)}</div>`).join('');
-      }
-    }
-    body.innerHTML = html || 'No evolutions yet';
-  } catch (e) {
-    body.innerHTML = 'Failed: ' + e;
-  }
+    const history = data.history || [];
+    if (!history.length) { body.innerHTML = '<p style="opacity:0.6">No evolutions yet. I will evolve when I detect I can be better, or say "Improve yourself".</p>'; return; }
+    body.innerHTML = history.map(h => `<div class="memory-item"><small>${(h.timestamp||'').slice(0,16)} • ${h.type}</small><br><strong>${(h.description||'').slice(0,100)}</strong></div>`).join('');
+  } catch (e) { body.innerHTML = 'Failed: ' + e; }
 };
-document.getElementById('evolution-close').onclick = () => {
-  document.getElementById('evolution-modal').classList.remove('open');
-};
-document.getElementById('evolution-modal').onclick = (e) => {
-  if (e.target.id === 'evolution-modal') e.target.classList.remove('open');
-};
+document.getElementById('evolution-close').onclick = () => document.getElementById('evolution-modal').classList.remove('open');
+document.getElementById('evolution-modal').onclick = (e) => { if (e.target.id === 'evolution-modal') e.target.classList.remove('open'); };
 
-// Reflect
+// Reflect etc
 document.getElementById('btn-reflect').onclick = async () => {
   showToast('Reflecting, Sir...');
   try {
@@ -482,31 +442,22 @@ document.getElementById('btn-reflect').onclick = async () => {
     addMessage('system', `Reflection: ${JSON.stringify(data.insights || data, null, 2)}`);
   } catch { showToast('Reflection failed'); }
 };
-document.getElementById('btn-learnings').onclick = () => {
-  document.getElementById('learning-btn').click();
-};
+document.getElementById('btn-learnings').onclick = () => document.getElementById('learning-btn').click();
 document.getElementById('btn-evolve').onclick = async () => {
   showToast('🧬 Evolving myself, Sir...');
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: 'evolve', instruction: 'General self-improvement' }));
-  } else {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'evolve', instruction: 'General self-improvement' }));
+  else {
     try {
-      const resp = await fetch('/api/evolution/improve', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ instruction: 'General self-improvement' })
-      });
+      const resp = await fetch('/api/evolution/improve', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ instruction: 'General self-improvement' }) });
       const data = await resp.json();
       showToast('Evolution started');
       addMessage('system', `Evolution: ${JSON.stringify(data, null, 2)}`);
     } catch { showToast('Evolution failed'); }
   }
 };
-document.getElementById('btn-evolution-history').onclick = () => {
-  document.getElementById('evolution-btn').click();
-};
+document.getElementById('btn-evolution-history').onclick = () => document.getElementById('evolution-btn').click();
 document.getElementById('btn-analyze').onclick = async () => {
-  showToast('Analyzing performance, Sir...');
+  showToast('Analyzing, Sir...');
   try {
     const resp = await fetch('/api/evolution/status');
     const data = await resp.json();
@@ -514,68 +465,42 @@ document.getElementById('btn-analyze').onclick = async () => {
   } catch { showToast('Analyze failed'); }
 };
 
-// Agent Mode Handlers
-let agentTodos = [];
+// Agent handlers
 function handleAgentPlan(data) {
-  const todos = data.todos || data.data?.todos || [];
-  agentTodos = todos;
+  const todos = data.todos || [];
   const planEl = document.getElementById('agent-plan');
   const todosEl = document.getElementById('agent-todos');
   if (planEl) planEl.style.display = 'block';
   if (!todosEl) return;
-  todosEl.innerHTML = todos.map(t => `
-    <div class="agent-todo" id="todo-${t.id}" data-status="${t.status}">
-      <div class="todo-check">${t.status === 'done' ? '✓' : t.id}</div>
-      <div>
-        <div class="todo-title">${t.title}</div>
-        <div class="todo-desc">${t.description}</div>
-      </div>
-    </div>
-  `).join('');
+  todosEl.innerHTML = todos.map(t => `<div class="agent-todo" id="todo-${t.id}"><div class="todo-check">${t.id}</div><div><div class="todo-title">${t.title}</div><div class="todo-desc">${t.description}</div></div></div>`).join('');
   appendAgentLog(`Plan: ${todos.length} steps`, 'info');
 }
-
 function handleAgentTodoStart(data) {
   const todo = data.todo || data;
   const el = document.getElementById(`todo-${todo.id}`);
-  if (el) {
-    el.classList.add('in_progress');
-    el.querySelector('.todo-check').textContent = '◐';
-  }
-  appendAgentLog(`→ ${todo.title}: ${todo.description?.slice(0,80)}`, 'info');
+  if (el) { el.classList.add('in_progress'); const c = el.querySelector('.todo-check'); if (c) c.textContent = '◐'; }
+  appendAgentLog(`→ ${todo.title}`, 'info');
 }
-
 function handleAgentTodoDone(data) {
   const todo = data.todo || data;
   const el = document.getElementById(`todo-${todo.id}`);
-  if (el) {
-    el.classList.remove('in_progress');
-    el.classList.add('done');
-    el.querySelector('.todo-check').textContent = '✓';
-  }
+  if (el) { el.classList.remove('in_progress'); el.classList.add('done'); const c = el.querySelector('.todo-check'); if (c) c.textContent = '✓'; }
   appendAgentLog(`✓ ${todo.title} done`, 'success');
 }
-
 function handleAgentTodoFailed(data) {
   const todo = data.todo || data;
   const el = document.getElementById(`todo-${todo.id}`);
-  if (el) {
-    el.style.borderColor = '#ff6b6b';
-    el.querySelector('.todo-check').textContent = '✗';
-  }
-  appendAgentLog(`✗ ${todo.title} failed: ${data.result?.error || ''}`, 'error');
+  if (el) { el.style.borderColor = '#ff6b6b'; const c = el.querySelector('.todo-check'); if (c) c.textContent = '✗'; }
+  appendAgentLog(`✗ ${todo.title} failed`, 'error');
 }
-
 function handleAgentDone(data) {
-  appendAgentLog(`Agent done: ${data.completed}/${data.todos_total} in ${data.elapsed_seconds}s - ${data.message}`, data.failed ? 'error' : 'success');
-  showToast(`⚡ Agent done: ${data.completed}/${data.todos_total} in ${data.elapsed_seconds}s`);
-  addMessage('system', `Agent finished: ${data.message}\nCompleted: ${data.completed}/${data.todos_total}, Tests: ${data.test_success ? 'passed' : 'failed'}`);
+  appendAgentLog(`Agent done: ${data.completed}/${data.todos_total} in ${data.elapsed_seconds}s`, data.failed ? 'error' : 'success');
+  showToast(`⚡ Agent done: ${data.completed}/${data.todos_total}`);
+  addMessage('system', `Agent finished: ${data.message}`);
 }
-
 function appendAgentLog(text, type='info') {
   const logEl = document.getElementById('agent-log');
   if (!logEl) return;
-  // Clear initial placeholder
   if (logEl.textContent.includes('Awaiting task')) logEl.innerHTML = '';
   const line = document.createElement('div');
   line.className = `agent-log-line ${type}`;
@@ -583,76 +508,124 @@ function appendAgentLog(text, type='info') {
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
 }
-
-// Agent modal open
-document.getElementById('agent-btn').onclick = () => {
-  document.getElementById('agent-modal').classList.add('open');
-};
-document.getElementById('agent-close').onclick = () => {
-  document.getElementById('agent-modal').classList.remove('open');
-};
-document.getElementById('agent-modal').onclick = (e) => {
-  if (e.target.id === 'agent-modal') e.target.classList.remove('open');
-};
-
+document.getElementById('agent-btn').onclick = () => document.getElementById('agent-modal').classList.add('open');
+document.getElementById('agent-close').onclick = () => document.getElementById('agent-modal').classList.remove('open');
+document.getElementById('agent-modal').onclick = (e) => { if (e.target.id === 'agent-modal') e.target.classList.remove('open'); };
 document.getElementById('agent-start-btn').onclick = () => {
   const taskInput = document.getElementById('agent-task-input');
   const task = taskInput.value.trim();
   if (!task) return;
-  
-  // Reset UI
   document.getElementById('agent-plan').style.display = 'none';
   document.getElementById('agent-todos').innerHTML = '';
   document.getElementById('agent-log').innerHTML = '';
-  document.getElementById('agent-result').style.display = 'none';
-  
   appendAgentLog(`Starting agent: ${task}`, 'info');
-  
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: 'agent', task: task }));
-  } else {
-    appendAgentLog('WebSocket not connected, Sir.', 'error');
-  }
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'agent', task: task }));
 };
 
-// Also allow /agent command in main input
-let originalSendRef = sendMessage;
-function sendMessage() {
-  const text = inputEl.value.trim();
-  if (text.startsWith('/agent ')) {
-    const task = text.slice(7).trim();
-    if (!task) return;
-    document.getElementById('agent-modal').classList.add('open');
-    document.getElementById('agent-task-input').value = task;
-    document.getElementById('agent-start-btn').click();
-    inputEl.value = '';
-    inputEl.style.height = 'auto';
-    return;
-  }
-  // Call original logic
-  const rawText = inputEl.value.trim();
-  if (!rawText || !ws || ws.readyState !== 1) return;
-  addMessage('user', rawText);
-  ws.send(JSON.stringify({ message: rawText, model: currentModel }));
-  inputEl.value = '';
-  inputEl.style.height = 'auto';
-  inputEl.focus();
+// Team handlers
+function handleTeamPlan(data) {
+  const todos = data.todos || [];
+  const planEl = document.getElementById('team-plan');
+  const todosEl = document.getElementById('team-todos');
+  if (planEl) planEl.style.display = 'block';
+  if (!todosEl) return;
+  todosEl.innerHTML = todos.map(t => `<div class="agent-todo" id="team-todo-${t.id}"><div class="todo-check">${t.id}</div><div><div class="todo-title">[${t.agent}] ${t.title}</div><div class="todo-desc">${t.description}</div></div></div>`).join('');
 }
-sendBtn.onclick = sendMessage;
+function appendTeamLog(text, agent='supervisor', type='info') {
+  const logEl = document.getElementById('team-log');
+  if (!logEl) return;
+  if (logEl.textContent.includes('Team awaiting')) logEl.innerHTML = '';
+  const line = document.createElement('div');
+  line.className = `agent-log-line ${type}`;
+  line.innerHTML = `<span style="opacity:0.5">[${new Date().toLocaleTimeString()}] [${agent}]</span> ${text}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+document.getElementById('team-btn').onclick = () => { document.getElementById('team-modal').classList.add('open'); loadProactiveStatus(); };
+document.getElementById('team-close').onclick = () => document.getElementById('team-modal').classList.remove('open');
+document.getElementById('team-modal').onclick = (e) => { if (e.target.id === 'team-modal') e.target.classList.remove('open'); };
+document.getElementById('team-start-btn').onclick = () => {
+  const taskInput = document.getElementById('team-task-input');
+  const task = taskInput.value.trim();
+  if (!task) return;
+  document.getElementById('team-plan').style.display = 'none';
+  document.getElementById('team-todos').innerHTML = '';
+  document.getElementById('team-log').innerHTML = '';
+  appendTeamLog(`Starting team for: ${task}`, 'supervisor', 'info');
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'team', task: task }));
+};
 
-// Footer time
-setInterval(() => {
-  const diff = Math.floor((Date.now() - startTime)/1000);
-  const h = String(Math.floor(diff/3600)).padStart(2,'0');
-  const m = String(Math.floor((diff%3600)/60)).padStart(2,'0');
-  const s = String(diff%60).padStart(2,'0');
-  const upEl = document.getElementById('uptime');
-  if (upEl) upEl.textContent = `${h}:${m}:${s}`;
-}, 1000);
+// Proactive
+document.getElementById('proactive-btn').onclick = () => { document.getElementById('proactive-modal').classList.add('open'); loadProactiveStatus(); };
+document.getElementById('proactive-close').onclick = () => document.getElementById('proactive-modal').classList.remove('open');
+document.getElementById('proactive-modal').onclick = (e) => { if (e.target.id === 'proactive-modal') e.target.classList.remove('open'); };
+
+async function loadProactiveStatus() {
+  try {
+    const resp = await fetch('/api/proactive/status');
+    const data = await resp.json();
+    const statusEl = document.getElementById('proactive-status');
+    if (data.error) { statusEl.innerHTML = `<small style="opacity:0.5">Proactive error: ${data.error}</small>`; return; }
+    statusEl.innerHTML = `
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:12px">
+        <div>Active: ${data.active ? '✓' : '✗'}</div>
+        <div>Morning: ${data.morning_time}</div>
+        <div>Evening: ${data.evening_time}</div>
+        <div>Git watcher: ${data.git_watcher_active ? '✓' : '✗'}</div>
+        <div>Dirty: ${data.git_status?.changed_files || 0}</div>
+        <div>Jobs: ${data.jobs?.length || 0}</div>
+      </div>
+    `;
+    const wStatus = document.getElementById('wakeword-status');
+    if (wStatus) wStatus.textContent = data.active ? 'active' : 'idle';
+    const pStatus = document.getElementById('proactive-status-text');
+    if (pStatus) pStatus.textContent = data.active ? 'active' : 'offline';
+    if (data.last_briefing) {
+      const preview = document.getElementById('briefing-preview');
+      if (preview) { preview.style.display = 'block'; preview.textContent = data.last_briefing.slice(0,400) + '...'; }
+    }
+  } catch {}
+  try {
+    const resp = await fetch('/api/wakeword/status');
+    const data = await resp.json();
+    const wStatus = document.getElementById('wakeword-status');
+    if (wStatus) wStatus.textContent = data.is_running ? `running (${data.engine})` : 'offline';
+    const wEng = document.getElementById('wakeword-engine');
+    if (wEng) wEng.textContent = data.engine || '-';
+    const resp2 = await fetch('/api/codebase/overview');
+    const data2 = await resp2.json();
+    if (!data2.error) {
+      const cs = document.getElementById('codebase-status');
+      if (cs) cs.textContent = `${data2.total_files || 0} files`;
+    }
+  } catch {}
+}
+
+function triggerBriefing(type) {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'proactive_briefing', briefing_type: type }));
+    showToast(`Generating ${type} briefing...`);
+  } else {
+    fetch('/api/proactive/briefing?type=' + type, { method: 'POST' })
+      .then(r=>r.json()).then(data=>{
+        const preview = document.getElementById('briefing-preview');
+        if (preview) { preview.style.display = 'block'; preview.textContent = data.text || JSON.stringify(data); }
+        showToast(`${type} briefing ready`);
+      });
+  }
+}
+document.getElementById('btn-morning-brief').onclick = () => triggerBriefing('morning');
+document.getElementById('btn-evening-summary').onclick = () => triggerBriefing('evening');
+document.getElementById('btn-trigger-briefing').onclick = () => triggerBriefing('morning');
+document.getElementById('btn-always-on-test').onclick = () => {
+  showToast('Check wake word: /api/wakeword/status');
+  fetch('/api/wakeword/status').then(r=>r.json()).then(d=> addMessage('system', `Wakeword: ${JSON.stringify(d, null, 2)}`));
+};
 
 // Init
 connectWS();
 loadLearnings();
+loadEvolutionCount();
 setTimeout(() => {
   fetch('/api/status').then(r=>r.json()).then(s=>{
     if (s.model) {
@@ -662,13 +635,31 @@ setTimeout(() => {
       setStatus(s.ollama_connected, s.ollama_connected ? 'online' : 'ollama offline');
     }
   }).catch(()=> setStatus(false, 'cannot reach server'));
+  loadProactiveStatus();
 }, 800);
 
-// Keyboard shortcut to open drawer: Cmd+K / Ctrl+K
+setInterval(() => {
+  const diff = Math.floor((Date.now() - startTime)/1000);
+  const h = String(Math.floor(diff/3600)).padStart(2,'0');
+  const m = String(Math.floor((diff%3600)/60)).padStart(2,'0');
+  const s = String(diff%60).padStart(2,'0');
+  const upEl = document.getElementById('uptime');
+  if (upEl) upEl.textContent = `${h}:${m}:${s}`;
+}, 1000);
+
 document.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-    e.preventDefault();
-    if (drawer.classList.contains('open')) closeDrawer(); else openDrawer();
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); if (drawer.classList.contains('open')) closeDrawer(); else openDrawer(); }
+  if (e.key === 'Escape') {
+    if (drawer.classList.contains('open')) closeDrawer();
+    document.querySelectorAll('.modal-overlay.open').forEach(m=> m.classList.remove('open'));
   }
-  if (e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
 });
+
+function loadEvolutionCount() {
+  fetch('/api/evolution/status').then(r=>r.json()).then(d=>{
+    const ec = document.getElementById('evolution-count');
+    if (ec) ec.textContent = d.evolution_count || 0;
+    const es = document.getElementById('stat-evolutions');
+    if (es) es.textContent = d.evolution_count || 0;
+  }).catch(()=>{});
+}

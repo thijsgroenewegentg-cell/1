@@ -22,9 +22,11 @@
         <span class="dot"></span>
         <span id="status-text">connecting</span>
       </div>
-      <button class="icon-btn" id="agent-btn" title="Agent Mode" style="border-color:#e6e8eb; color:#e6e8eb">⚡ Agent</button>
+      <button class="icon-btn" id="team-btn" title="Multi-Agent Team" style="border-color:#a3e635">👥</button>
+      <button class="icon-btn" id="proactive-btn" title="Proactive Briefing">🌅</button>
+      <button class="icon-btn" id="agent-btn" title="Agent Mode" style="border-color:#e6e8eb; color:#e6e8eb">⚡</button>
       <button class="icon-btn" id="evolution-btn" title="Evolution">🧬 <span id="evolution-count">0</span></button>
-      <button class="icon-btn" id="learning-btn" title="Learnings">◐ <span id="learning-count">0</span></button>
+      <button class="icon-btn" id="learning-btn" title="Learnings">◐</button>
       <button class="icon-btn" id="drawer-btn" title="Menu">☰</button>
     </div>
   </header>
@@ -40,16 +42,19 @@
           </div>
         </div>
         <h1>Good evening, Sir.</h1>
-        <p>I'm JARVIS. Private, self-learning, self-evolving, autonomous coding agent.</p>
+        <p>Always-on, proactive, multi-agent team. Say "Jarvis" anytime.</p>
         <div class="suggestions" id="suggestions">
-          <button data-q="Analyze codebase">Analyze Code</button>
-          <button data-q="/agent Add JWT auth to web server">⚡ Agent: JWT Auth</button>
-          <button data-q="Improve yourself">Evolve</button>
-          <button data-q="What have you learned?">Memory</button>
+          <button data-q="/team Research best JWT library and implement auth">👥 Team: Research + Build Auth</button>
+          <button data-q="/agent Add rate limiting to web server">⚡ Agent: Rate Limit</button>
+          <button data-q="Give me morning briefing">🌅 Briefing</button>
+          <button data-q="Improve yourself and analyze performance">🧬 Evolve</button>
         </div>
-        <div style="margin-top:12px; display:flex; gap:8px; justify-content:center">
-          <button class="icon-btn" style="width:auto; padding:0 14px; border-radius:20px; border-color:var(--border2)" onclick="document.getElementById('agent-btn').click()">⚡ Enter Agent Mode</button>
+        <div style="margin-top:12px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap">
+          <button class="icon-btn" style="width:auto; padding:0 14px; border-radius:20px; border-color:var(--border2)" onclick="document.getElementById('team-btn').click()">👥 Team Mode</button>
+          <button class="icon-btn" style="width:auto; padding:0 14px; border-radius:20px; border-color:var(--border2)" onclick="document.getElementById('agent-btn').click()">⚡ Agent Mode</button>
+          <button class="icon-btn" style="width:auto; padding:0 14px; border-radius:20px; border-color:var(--border2)" onclick="triggerBriefing('morning')">🌅 Briefing</button>
         </div>
+        <div id="briefing-preview" style="margin-top:20px; max-width:600px; text-align:left; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; display:none; font-size:13px; line-height:1.5"></div>
         <div class="learning-badge" id="learning-badge" style="display:none">
           <span>🧠 Learning: <span id="learning-text"></span></span>
         </div>
@@ -123,9 +128,21 @@
         <button class="btn-minimal secondary" id="voice-toggle">Voice: Off</button>
       </div>
 
+      <div class="section">
+        <h4>Always-On & Proactive</h4>
+        <div style="display:flex; flex-direction:column; gap:6px">
+          <div style="display:flex; justify-content:space-between; font-size:12px"><span>Wake Word</span><span id="wakeword-status" style="opacity:0.6">checking...</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:12px"><span>Proactive</span><span id="proactive-status-text" style="opacity:0.6">checking...</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:12px"><span>Team</span><span id="team-status-text" style="opacity:0.6">ready</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:12px"><span>Codebase</span><span id="codebase-status" style="opacity:0.6">0 files</span></div>
+        </div>
+        <button class="btn-minimal secondary" id="btn-trigger-briefing" style="margin-top:8px">Trigger Morning Briefing Now</button>
+        <button class="btn-minimal secondary" id="btn-always-on-test">Test Wake Word</button>
+      </div>
+
       <div class="section small">
-        <p>Stark Industries • Local only • Ollama brain<br>
-        <span id="uptime">00:00:00</span> uptime</p>
+        <p>Stark Industries • Local • Ollama • Self-Evolving<br>
+        <span id="uptime">00:00:00</span> uptime • <span id="wakeword-engine">-</span></p>
       </div>
     </div>
   </aside>
@@ -179,6 +196,52 @@
         <div style="padding:20px; opacity:0.5">Awaiting task, Sir...</div>
       </div>
       <div id="agent-result" style="padding:16px 20px; display:none"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Team Modal -->
+<div class="modal-overlay" id="team-modal">
+  <div class="modal" style="max-width:850px; width:95%; max-height:90vh">
+    <div class="modal-header">
+      <h3>👥 Multi-Agent Team — Planner • Researcher • Coder • Reviewer</h3>
+      <button class="icon-btn" id="team-close">✕</button>
+    </div>
+    <div class="modal-body" id="team-body" style="padding:0">
+      <div style="padding:20px; border-bottom:1px solid var(--border)">
+        <div style="display:flex; gap:10px">
+          <input id="team-task-input" placeholder="Complex task: e.g. Research best auth lib and implement JWT auth with tests..." style="flex:1; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:12px 14px; border-radius:8px; font-family:inherit"/>
+          <button id="team-start-btn" class="btn-minimal" style="width:auto; padding:0 20px; background:#a3e635; color:#08090a">Start Team</button>
+        </div>
+        <small style="opacity:0.5; margin-top:8px; display:block">Supervisor → Planner → Researcher → Coder → Reviewer collaborate. For complex tasks that need research + planning + coding + review.</small>
+      </div>
+      <div id="team-status" style="padding:12px 20px; font-size:12px; font-family:'JetBrains Mono', monospace; opacity:0.7; background:var(--panel); border-bottom:1px solid var(--border); display:none"></div>
+      <div id="team-plan" style="padding:16px 20px; display:none">
+        <h4 style="font-size:11px; opacity:0.6; text-transform:uppercase; margin-bottom:10px">Team Plan</h4>
+        <div id="team-todos"></div>
+      </div>
+      <div id="team-log" style="padding:0 20px 20px; max-height:400px; overflow-y:auto; font-family:'JetBrains Mono', monospace; font-size:12px; background:#0a0a0a; margin:0 20px; border-radius:8px; border:1px solid var(--border)">
+        <div style="padding:20px; opacity:0.5">Team awaiting task, Sir... Try: "Research best rate limiting lib for FastAPI and implement"</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Proactive Modal -->
+<div class="modal-overlay" id="proactive-modal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h3>🌅 Proactive Agent — Morning Briefing & Git Watcher</h3>
+      <button class="icon-btn" id="proactive-close">✕</button>
+    </div>
+    <div class="modal-body" id="proactive-body">
+      <div style="display:flex; gap:8px; margin-bottom:16px">
+        <button class="btn-minimal" id="btn-morning-brief" style="flex:1">🌅 Morning Briefing</button>
+        <button class="btn-minimal secondary" id="btn-evening-summary" style="flex:1">🌙 Evening Summary</button>
+      </div>
+      <div id="proactive-status">Loading status, Sir...</div>
+      <div id="proactive-briefing" style="margin-top:16px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px; font-size:13px; line-height:1.6; display:none"></div>
+      <div id="proactive-notifications" style="margin-top:16px"></div>
     </div>
   </div>
 </div>
