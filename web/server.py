@@ -1,5 +1,5 @@
 """
-JARVIS Web Server - Minimal + Self-Learning + Self-Evolution
+JARVIS Web Server - Minimal + Self-Learning + Self-Evolution + Coding Agent
 """
 
 import sys
@@ -21,7 +21,7 @@ from jarvis.brain import JarvisBrain
 from jarvis.config import config
 from jarvis.memory import MemoryManager
 
-app = FastAPI(title="J.A.R.V.I.S", version="3.0.0")
+app = FastAPI(title="J.A.R.V.I.S", version="4.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,12 +33,24 @@ app.add_middleware(
 
 brain = None
 memory_manager = MemoryManager()
+coding_agent = None
 
 def get_brain():
     global brain
     if brain is None:
         brain = JarvisBrain(enable_learning=True, enable_evolution=True)
     return brain
+
+def get_coding_agent():
+    global coding_agent
+    if coding_agent is None:
+        try:
+            from jarvis.coding import CodingAgent
+            coding_agent = CodingAgent(brain=get_brain())
+        except Exception as e:
+            print(f"Coding agent init failed: {e}")
+            coding_agent = None
+    return coding_agent
 
 class ChatRequest(BaseModel):
     message: str
@@ -59,6 +71,10 @@ class FeedbackRequest(BaseModel):
 class EvolutionRequest(BaseModel):
     instruction: str = ""
 
+class AgentRequest(BaseModel):
+    task: str
+    model: Optional[str] = None
+
 @app.get("/")
 async def serve_ui():
     ui_path = Path(__file__).parent / "index.html"
@@ -69,7 +85,16 @@ async def serve_ui():
 @app.get("/api/status")
 async def get_status():
     b = get_brain()
-    return b.get_status()
+    status = b.get_status()
+    # Add coding agent status
+    agent = get_coding_agent()
+    if agent:
+        try:
+            overview = agent.rag.get_overview()
+            status["codebase"] = overview
+        except:
+            pass
+    return status
 
 @app.get("/api/memories")
 async def get_memories():
@@ -111,7 +136,6 @@ async def get_evolution_history(limit: int = 20):
     b = get_brain()
     if b.evolution_enabled and b.evolution_engine:
         return {"history": b.evolution_engine.get_history(limit=limit)}
-    # Fallback via editor
     try:
         from jarvis.evolution import SelfEditor
         editor = SelfEditor()
@@ -126,6 +150,74 @@ async def trigger_evolution(req: EvolutionRequest):
         result = b.improve_self(req.instruction)
         return result
     return {"error": "Evolution not enabled"}
+
+# Coding Agent Endpoints
+@app.get("/api/codebase/overview")
+async def codebase_overview():
+    agent = get_coding_agent()
+    if not agent:
+        return {"error": "Coding agent not available"}
+    return agent.rag.get_overview()
+
+@app.get("/api/codebase/search")
+async def codebase_search(query: str, k: int = 5):
+    agent = get_coding_agent()
+    if not agent:
+        return {"error": "Coding agent not available"}
+    results = agent.rag.search(query, k=k)
+    return {"query": query, "results": results}
+
+@app.post("/api/codebase/index")
+async def codebase_index(force: bool = False):
+    agent = get_coding_agent()
+    if not agent:
+        return {"error": "Coding agent not available"}
+    result = agent.rag.index_workspace(force=force)
+    return result
+
+@app.get("/api/git/status")
+async def git_status():
+    agent = get_coding_agent()
+    if not agent:
+        return {"error": "Git not available"}
+    return {"status": agent.git.status()}
+
+@app.get("/api/git/diff")
+async def git_diff(file: str = None, staged: bool = False):
+    agent = get_coding_agent()
+    if not agent:
+        return {"error": "Git not available"}
+    return {"diff": agent.git.diff(file_path=file, staged=staged)}
+
+@app.get("/api/git/log")
+async def git_log(limit: int = 10):
+    agent = get_coding_agent()
+    if not agent:
+        return {"error": "Git not available"}
+    return {"log": agent.git.log(limit=limit)}
+
+@app.post("/api/agent/plan")
+async def agent_plan(req: AgentRequest):
+    agent = get_coding_agent()
+    if not agent:
+        return {"error": "Coding agent not available"}
+    todos = agent.plan(req.task)
+    return {"task": req.task, "todos": todos}
+
+@app.post("/api/agent/execute")
+async def agent_execute(req: AgentRequest):
+    """Non-streaming execute - returns final summary"""
+    agent = get_coding_agent()
+    if not agent:
+        return {"error": "Coding agent not available"}
+    
+    # Run in thread to avoid blocking, but for simplicity run sync here
+    # For streaming, use websocket
+    summary = None
+    for event in agent.execute(req.task):
+        if event["type"] == "done":
+            summary = event["data"]
+    return summary or {"error": "No summary"}
 
 @app.post("/api/feedback")
 async def post_feedback(req: FeedbackRequest):
@@ -178,7 +270,7 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         await websocket.send_json({"type": "status", "data": b.get_status()})
-        await websocket.send_json({"type": "message", "data": "Online, Sir. Evolution enabled."})
+        await websocket.send_json({"type": "message", "data": "Online, Sir. Agent + Evolution enabled."})
         
         while True:
             data = await websocket.receive_text()
@@ -199,6 +291,24 @@ async def websocket_endpoint(websocket: WebSocket):
                         result = b.improve_self(instruction)
                         await websocket.send_json({"type": "evolution", "data": result})
                         await websocket.send_json({"type": "done", "data": ""})
+                        continue
+                    
+                    if msg_type == "agent":
+                        # Coding agent streaming
+                        task = payload.get("task", user_msg)
+                        agent = get_coding_agent()
+                        if not agent:
+                            await websocket.send_json({"type": "error", "data": "Coding agent not available"})
+                            continue
+                        
+                        await websocket.send_json({"type": "agent_start", "data": {"task": task}})
+                        try:
+                            for event in agent.execute(task):
+                                await websocket.send_json({"type": f"agent_{event['type']}", "data": event["data"]})
+                                # Small delay to allow UI to render
+                                await asyncio.sleep(0.01)
+                        except Exception as e:
+                            await websocket.send_json({"type": "error", "data": f"Agent error: {e}"})
                         continue
                     
                     model = payload.get("model")
@@ -225,6 +335,21 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "message", "data": f"Evolution started, Sir. {result.get('message','')}"})
                 await websocket.send_json({"type": "done", "data": ""})
                 await websocket.send_json({"type": "status", "data": b.get_status()})
+                continue
+            
+            if user_msg.lower().startswith("/agent "):
+                task = user_msg[7:].strip()
+                agent = get_coding_agent()
+                if not agent:
+                    await websocket.send_json({"type": "error", "data": "Coding agent not available"})
+                    continue
+                await websocket.send_json({"type": "agent_start", "data": {"task": task}})
+                try:
+                    for event in agent.execute(task):
+                        await websocket.send_json({"type": f"agent_{event['type']}", "data": event["data"]})
+                        await asyncio.sleep(0.01)
+                except Exception as e:
+                    await websocket.send_json({"type": "error", "data": f"Agent error: {e}"})
                 continue
             
             if user_msg.lower() == "/reflect":
@@ -254,7 +379,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 full = q[0] if q else "No response, Sir."
                 
                 learned = []
-                evolved = False
                 if b.learning_enabled:
                     try:
                         recent_learnings = b.learning_engine.vector_store.search(user_msg, k=1)
@@ -263,13 +387,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     except:
                         pass
                 
-                # Check if evolution happened
-                if b.evolution_enabled and b.evolution_engine:
-                    status = b.evolution_engine.get_status()
-                    if status.get("should_evolve") and status.get("reasons"):
-                        evolved = True
-                
-                # Stream
                 words = full.split(" ")
                 for i, word in enumerate(words):
                     chunk = word + (" " if i < len(words)-1 else "")
@@ -278,9 +395,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 if learned:
                     await websocket.send_json({"type": "learned", "data": learned})
-                
-                if evolved:
-                    await websocket.send_json({"type": "evolved", "data": {"message": "I evolved myself, Sir. Check evolution history."}})
                 
                 await websocket.send_json({"type": "done", "data": full})
                 await websocket.send_json({"type": "status", "data": b.get_status()})
@@ -304,10 +418,10 @@ if web_dir.exists():
 if __name__ == "__main__":
     print(f"""
     ╔════════════════════════════════════╗
-    ║  J.A.R.V.I.S 3.0 - Self-Evolving
+    ║  J.A.R.V.I.S 4.0 - Agent + Evolution
     ║  http://{config.WEB_HOST}:{config.WEB_PORT}
     ║  Brain: {config.OLLAMA_MODEL}
-    ║  Learning: Enabled | Evolution: Enabled
+    ║  Learning | Evolution | Coding Agent
     ╚════════════════════════════════════╝
     """)
     uvicorn.run("server:app", host=config.WEB_HOST, port=config.WEB_PORT, reload=True, reload_dirs=[str(web_dir.parent)])

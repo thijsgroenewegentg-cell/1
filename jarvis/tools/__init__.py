@@ -8,6 +8,7 @@ from .code import execute_python, shell_command
 from .memory_tools import remember, recall, forget, get_memories
 from .timer import set_timer, set_reminder
 from .evolution_tools import improve_self, create_new_tool, analyze_performance, get_evolution_history, self_reflect
+from .code_tools import search_codebase, analyze_codebase, git_status, git_diff, git_log, git_commit, git_branch, run_tests, format_code, index_codebase, read_code_file
 
 # Map name -> function for execution
 TOOL_MAP = {
@@ -35,6 +36,17 @@ TOOL_MAP = {
     "analyze_performance": analyze_performance,
     "get_evolution_history": get_evolution_history,
     "self_reflect": self_reflect,
+    "search_codebase": search_codebase,
+    "analyze_codebase": analyze_codebase,
+    "git_status": git_status,
+    "git_diff": git_diff,
+    "git_log": git_log,
+    "git_commit": git_commit,
+    "git_branch": git_branch,
+    "run_tests": run_tests,
+    "format_code": format_code,
+    "index_codebase": index_codebase,
+    "read_code_file": read_code_file,
 }
 
 # Ollama compatible tool schemas (OpenAI format)
@@ -354,6 +366,152 @@ TOOLS_SCHEMA = [
             "name": "self_reflect",
             "description": "Self-reflection - JARVIS reflects on recent conversations, learns about user, identifies improvements",
             "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_codebase",
+            "description": "Semantic search over entire codebase using vector embeddings. JARVIS knows your repo. Use for 'where is auth logic?', 'find payment code', etc. This is how JARVIS understands codebase.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Natural language query, e.g. 'authentication logic', 'API routes', 'database models'"},
+                    "file_pattern": {"type": "string", "description": "Optional file pattern filter, e.g. '.py' or 'auth'"},
+                    "max_results": {"type": "integer", "description": "Max results", "default": 5}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_codebase",
+            "description": "Analyze codebase overview - languages, tech stack, file structure, main files. Auto-indexes if needed. Use to understand project before coding.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Path to analyze, default '.'", "default": "."}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_status",
+            "description": "Get git status - shows modified, staged, untracked files, branch. Use before committing.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_diff",
+            "description": "Get git diff - shows changes. Can filter by file or show staged changes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Specific file to diff, or empty for all"},
+                    "staged": {"type": "boolean", "description": "Show staged diff vs unstaged", "default": False}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_log",
+            "description": "Get git log - recent commits. Understand history.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Number of commits", "default": 10}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_commit",
+            "description": "Git commit changes with message. Use after completing coding task. Commits all staged or specified files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "Commit message, e.g. 'feat: add JWT auth'"},
+                    "files": {"type": "string", "description": "Files to add, default '.' for all", "default": "."}
+                },
+                "required": ["message"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_branch",
+            "description": "List git branches. See all branches.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_tests",
+            "description": "Run tests - auto-detects pytest, npm test, jest. Captures output, success/failure. Use to verify code works.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "test_command": {"type": "string", "description": "Custom test command, or empty to auto-detect"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "format_code",
+            "description": "Auto-format code file with black/ruff/prettier. Use after writing code to keep style clean.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "File path to format"}
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "index_codebase",
+            "description": "Index/re-index entire codebase into vector store for semantic search. Run if codebase changed a lot or search returns nothing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "force": {"type": "boolean", "description": "Force re-index all files even if unchanged", "default": False}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_code_file",
+            "description": "Read a code file safely (with path checks). Use to understand file before editing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "File path relative to project root"}
+                },
+                "required": ["file_path"]
+            }
         }
     }
 ]

@@ -101,6 +101,42 @@ function handleWS(msg) {
       loadEvolutionCount();
       break;
 
+    // Agent events
+    case 'agent_start':
+      addMessage('system', `⚡ Agent started: ${data.task}`);
+      showToast(`⚡ Agent: ${data.task.slice(0,60)}`);
+      break;
+    case 'agent_plan':
+      handleAgentPlan(data);
+      break;
+    case 'agent_todo_start':
+      handleAgentTodoStart(data);
+      break;
+    case 'agent_todo_done':
+      handleAgentTodoDone(data);
+      break;
+    case 'agent_todo_failed':
+      handleAgentTodoFailed(data);
+      break;
+    case 'agent_status':
+      appendAgentLog(data.message || '', 'info');
+      break;
+    case 'agent_file_edit':
+      appendAgentLog(`Edited: ${data.file || data.path || 'file'}`, 'file');
+      break;
+    case 'agent_test_result':
+      appendAgentLog(`${data.result?.summary || data.message || 'Tests'}`, data.result?.success ? 'success' : 'error');
+      break;
+    case 'agent_git_commit':
+      appendAgentLog(`Committed: ${data.result?.slice(0,100) || 'changes'}`, 'success');
+      break;
+    case 'agent_done':
+      handleAgentDone(data);
+      break;
+    case 'agent_error':
+      appendAgentLog(`Error: ${data.error || data.message}`, 'error');
+      break;
+
     case 'thinking':
       showThinking();
       break;
@@ -477,6 +513,132 @@ document.getElementById('btn-analyze').onclick = async () => {
     addMessage('system', `Performance Analysis:\n${JSON.stringify(data, null, 2)}`);
   } catch { showToast('Analyze failed'); }
 };
+
+// Agent Mode Handlers
+let agentTodos = [];
+function handleAgentPlan(data) {
+  const todos = data.todos || data.data?.todos || [];
+  agentTodos = todos;
+  const planEl = document.getElementById('agent-plan');
+  const todosEl = document.getElementById('agent-todos');
+  if (planEl) planEl.style.display = 'block';
+  if (!todosEl) return;
+  todosEl.innerHTML = todos.map(t => `
+    <div class="agent-todo" id="todo-${t.id}" data-status="${t.status}">
+      <div class="todo-check">${t.status === 'done' ? '✓' : t.id}</div>
+      <div>
+        <div class="todo-title">${t.title}</div>
+        <div class="todo-desc">${t.description}</div>
+      </div>
+    </div>
+  `).join('');
+  appendAgentLog(`Plan: ${todos.length} steps`, 'info');
+}
+
+function handleAgentTodoStart(data) {
+  const todo = data.todo || data;
+  const el = document.getElementById(`todo-${todo.id}`);
+  if (el) {
+    el.classList.add('in_progress');
+    el.querySelector('.todo-check').textContent = '◐';
+  }
+  appendAgentLog(`→ ${todo.title}: ${todo.description?.slice(0,80)}`, 'info');
+}
+
+function handleAgentTodoDone(data) {
+  const todo = data.todo || data;
+  const el = document.getElementById(`todo-${todo.id}`);
+  if (el) {
+    el.classList.remove('in_progress');
+    el.classList.add('done');
+    el.querySelector('.todo-check').textContent = '✓';
+  }
+  appendAgentLog(`✓ ${todo.title} done`, 'success');
+}
+
+function handleAgentTodoFailed(data) {
+  const todo = data.todo || data;
+  const el = document.getElementById(`todo-${todo.id}`);
+  if (el) {
+    el.style.borderColor = '#ff6b6b';
+    el.querySelector('.todo-check').textContent = '✗';
+  }
+  appendAgentLog(`✗ ${todo.title} failed: ${data.result?.error || ''}`, 'error');
+}
+
+function handleAgentDone(data) {
+  appendAgentLog(`Agent done: ${data.completed}/${data.todos_total} in ${data.elapsed_seconds}s - ${data.message}`, data.failed ? 'error' : 'success');
+  showToast(`⚡ Agent done: ${data.completed}/${data.todos_total} in ${data.elapsed_seconds}s`);
+  addMessage('system', `Agent finished: ${data.message}\nCompleted: ${data.completed}/${data.todos_total}, Tests: ${data.test_success ? 'passed' : 'failed'}`);
+}
+
+function appendAgentLog(text, type='info') {
+  const logEl = document.getElementById('agent-log');
+  if (!logEl) return;
+  // Clear initial placeholder
+  if (logEl.textContent.includes('Awaiting task')) logEl.innerHTML = '';
+  const line = document.createElement('div');
+  line.className = `agent-log-line ${type}`;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// Agent modal open
+document.getElementById('agent-btn').onclick = () => {
+  document.getElementById('agent-modal').classList.add('open');
+};
+document.getElementById('agent-close').onclick = () => {
+  document.getElementById('agent-modal').classList.remove('open');
+};
+document.getElementById('agent-modal').onclick = (e) => {
+  if (e.target.id === 'agent-modal') e.target.classList.remove('open');
+};
+
+document.getElementById('agent-start-btn').onclick = () => {
+  const taskInput = document.getElementById('agent-task-input');
+  const task = taskInput.value.trim();
+  if (!task) return;
+  
+  // Reset UI
+  document.getElementById('agent-plan').style.display = 'none';
+  document.getElementById('agent-todos').innerHTML = '';
+  document.getElementById('agent-log').innerHTML = '';
+  document.getElementById('agent-result').style.display = 'none';
+  
+  appendAgentLog(`Starting agent: ${task}`, 'info');
+  
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'agent', task: task }));
+  } else {
+    appendAgentLog('WebSocket not connected, Sir.', 'error');
+  }
+};
+
+// Also allow /agent command in main input
+let originalSendRef = sendMessage;
+function sendMessage() {
+  const text = inputEl.value.trim();
+  if (text.startsWith('/agent ')) {
+    const task = text.slice(7).trim();
+    if (!task) return;
+    document.getElementById('agent-modal').classList.add('open');
+    document.getElementById('agent-task-input').value = task;
+    document.getElementById('agent-start-btn').click();
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+    return;
+  }
+  // Call original logic
+  const rawText = inputEl.value.trim();
+  if (!rawText || !ws || ws.readyState !== 1) return;
+  addMessage('user', rawText);
+  ws.send(JSON.stringify({ message: rawText, model: currentModel }));
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+  inputEl.focus();
+}
+sendBtn.onclick = sendMessage;
 
 // Footer time
 setInterval(() => {

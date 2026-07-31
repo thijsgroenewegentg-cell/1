@@ -588,6 +588,47 @@ body {
 .thinking span:nth-child(3){ animation-delay:0.4s; }
 @keyframes thinking { 0%,60%,100%{ opacity:0.3; transform:translateY(0);} 30%{ opacity:1; transform:translateY(-4px);} }
 
+/* Agent Mode */
+.agent-todo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.agent-todo.done { opacity: 0.6; border-color: var(--green); }
+.agent-todo.done .todo-title { text-decoration: line-through; }
+.agent-todo .todo-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.agent-todo.done .todo-check { background: var(--green); color: white; border-color: var(--green); }
+.agent-todo.in_progress .todo-check { border-color: var(--text); animation: pulse 1s infinite; }
+.todo-title { font-weight: 500; }
+.todo-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+.agent-log-line {
+  padding: 2px 0;
+  border-left: 2px solid transparent;
+  padding-left: 10px;
+  margin: 4px 0;
+}
+.agent-log-line.info { color: var(--text-dim); }
+.agent-log-line.success { color: var(--green); border-left-color: var(--green); }
+.agent-log-line.error { color: #ff6b6b; border-left-color: #ff6b6b; }
+.agent-log-line.file { color: #8fbc8f; }
+
 /* Mobile */
 @media (max-width: 768px) {
   .chat-container { padding: 20px 14px; }
