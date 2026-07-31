@@ -208,6 +208,46 @@ async def codebase_index(force: bool = False):
     result = agent.rag.index_workspace(force=force)
     return result
 
+@app.get("/api/knowledge/overview")
+async def knowledge_overview():
+    try:
+        from jarvis.knowledge import SecondBrain
+        sb = SecondBrain()
+        return sb.get_overview()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/knowledge/search")
+async def knowledge_search(query: str, k: int = 5):
+    try:
+        from jarvis.knowledge import DocumentRAG
+        rag = DocumentRAG()
+        results = rag.search(query, k=k)
+        return {"query": query, "results": results}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/second-brain/search")
+async def second_brain_search(query: str, k: int = 5):
+    try:
+        from jarvis.knowledge import SecondBrain
+        sb = SecondBrain()
+        results = sb.search_everything(query, k=k)
+        return results
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/goals")
+async def get_goals_api(include_completed: bool = False):
+    try:
+        from jarvis.proactive.goals import GoalsTracker
+        gt = GoalsTracker()
+        goals = gt.get_goals(include_completed=include_completed)
+        check = gt.check_goals()
+        return {"goals": goals, "check": check}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/git/status")
 async def git_status():
     agent = get_coding_agent()

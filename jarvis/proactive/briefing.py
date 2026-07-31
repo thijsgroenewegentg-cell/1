@@ -93,6 +93,19 @@ class BriefingGenerator:
             except:
                 pass
             
+            # Goals - Proactive 2.0
+            try:
+                from .goals import GoalsTracker
+                gt = GoalsTracker()
+                goals_summary = gt.get_summary_for_briefing()
+                context_parts.append(f"Goals: {goals_summary}")
+                # Add accountability if needed
+                accountability = gt.generate_accountability_message()
+                if accountability:
+                    context_parts.append(accountability)
+            except Exception as e:
+                print(f"Goals briefing context failed: {e}")
+            
             # Evolution status
             try:
                 from ..evolution import EvolutionEngine
@@ -108,16 +121,16 @@ class BriefingGenerator:
             prompt = f"""You are JARVIS. Generate a morning briefing for Sir in your British, witty, concise style.
 
 Context:
-{context[:3000]}
+{context[:3500]}
 
 Generate briefing with sections:
 - Good morning greeting with current day/time
 - Weather in {location}
 - Git / Project status
-- Goals / routines reminder if any
+- Goals / routines / accountability reminder
 - Proactive suggestion for today based on context
 
-Keep it concise, 4-6 sentences, JARVIS style. Don't hallucinate calendar if no data. Mention you run locally on Ollama.
+Keep it concise, 5-7 sentences, JARVIS style. Don't hallucinate calendar if no data. Mention you run locally on Ollama. Include goals accountability if overdue.
 
 Briefing:"""
             

@@ -10,6 +10,9 @@ from .timer import set_timer, set_reminder
 from .evolution_tools import improve_self, create_new_tool, analyze_performance, get_evolution_history, self_reflect
 from .code_tools import search_codebase, analyze_codebase, git_status, git_diff, git_log, git_commit, git_branch, run_tests, format_code, index_codebase, read_code_file
 from .self_edit_tools import read_self_code, edit_self_code, propose_self_edit, rollback_self_edit, list_self_edits
+from .knowledge_tools import search_knowledge, search_everything, index_documents, read_document, get_knowledge_overview
+from .browser_tools import browser_start, browser_navigate, browser_get_content, browser_click, browser_type, browser_screenshot, browser_search, browser_execute_js, browser_get_url, browser_stop
+from .goals_tools import add_goal, list_goals, update_goal_progress, complete_milestone, complete_goal, check_goals, delete_goal
 
 # Map name -> function for execution
 TOOL_MAP = {
@@ -53,6 +56,28 @@ TOOL_MAP = {
     "propose_self_edit": propose_self_edit,
     "rollback_self_edit": rollback_self_edit,
     "list_self_edits": list_self_edits,
+    "search_knowledge": search_knowledge,
+    "search_everything": search_everything,
+    "index_documents": index_documents,
+    "read_document": read_document,
+    "get_knowledge_overview": get_knowledge_overview,
+    "browser_start": browser_start,
+    "browser_navigate": browser_navigate,
+    "browser_get_content": browser_get_content,
+    "browser_click": browser_click,
+    "browser_type": browser_type,
+    "browser_screenshot": browser_screenshot,
+    "browser_search": browser_search,
+    "browser_execute_js": browser_execute_js,
+    "browser_get_url": browser_get_url,
+    "browser_stop": browser_stop,
+    "add_goal": add_goal,
+    "list_goals": list_goals,
+    "update_goal_progress": update_goal_progress,
+    "complete_milestone": complete_milestone,
+    "complete_goal": complete_goal,
+    "check_goals": check_goals,
+    "delete_goal": delete_goal,
 }
 
 # Ollama compatible tool schemas (OpenAI format)
@@ -591,6 +616,301 @@ TOOLS_SCHEMA = [
                     "limit": {"type": "integer", "description": "Number to show", "default": 10}
                 },
                 "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_knowledge",
+            "description": "Search knowledge base - PDFs, markdown, Notion, Obsidian, docs. Second brain that remembers everything. Use for 'what was in that PDF?', 'find note about project X'. 100% free local vector search.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Query, e.g. 'machine learning notes', 'contract details'"},
+                    "max_results": {"type": "integer", "description": "Max results", "default": 5}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_everything",
+            "description": "Search EVERYTHING - codebase + documents + learnings + memories + profile. Unified second brain search. Use for 'what do you know about my project?', 'find everything about auth'. Most powerful search.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Query across all brains"},
+                    "max_results": {"type": "integer", "description": "Max results per category", "default": 3}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "index_documents",
+            "description": "Index documents for second brain - PDFs, markdown, Notion export, Obsidian vault. Scans workspace/docs/, Documents, etc. Builds vector store for semantic search. Use after adding new docs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Path to file or directory to index, or empty for default knowledge dirs"},
+                    "force": {"type": "boolean", "description": "Force re-index even if unchanged", "default": False}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_document",
+            "description": "Read document content - PDF, markdown, docx, etc. Extracts text from document.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "File path to document"}
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_knowledge_overview",
+            "description": "Get overview of second brain - how many files indexed, types, recent files, knowledge dirs. Shows what JARVIS knows.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_start",
+            "description": "Start browser for computer use - Playwright Chromium, headless by default, 100% free local. Like Claude Computer Use but free. Use before navigate/click/type.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "headless": {"type": "boolean", "description": "Headless mode", "default": True}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_navigate",
+            "description": "Navigate browser to URL - Computer use, 100% free local via Playwright. Can open any website.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL, e.g. https://github.com, youtube.com"}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_get_content",
+            "description": "Get page content or element content from browser - for scraping, reading docs, checking page after navigate/click.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "description": "Optional CSS selector, e.g. 'h1', '.content', or empty for full page"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_click",
+            "description": "Click element in browser by selector - Computer use, e.g. click button, link. Uses CSS selector or text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "description": "CSS selector or text to click, e.g. 'button#submit', 'text=Login'"}
+                },
+                "required": ["selector"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_type",
+            "description": "Type text into browser element - Fill forms, search boxes, etc. Computer use.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "description": "CSS selector for input, e.g. 'input[name=q]', '#search'"},
+                    "text": {"type": "string", "description": "Text to type"},
+                    "press_enter": {"type": "boolean", "description": "Press Enter after typing", "default": False}
+                },
+                "required": ["selector", "text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_screenshot",
+            "description": "Take screenshot of current browser page - useful for vision, debugging, seeing what browser sees.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Optional path to save, default data/screenshots/screenshot_TIMESTAMP.png"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_search",
+            "description": "Search via browser - navigates to DuckDuckGo/Google and gets results. Computer use search, more powerful than search_web API.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "engine": {"type": "string", "enum": ["duckduckgo", "google"], "description": "Search engine", "default": "duckduckgo"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_execute_js",
+            "description": "Execute JavaScript in browser page - powerful computer use, can extract data, manipulate page, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "js_code": {"type": "string", "description": "JavaScript code to execute, e.g. 'document.title' or 'return document.body.innerHTML.slice(0,1000)'"}
+                },
+                "required": ["js_code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_get_url",
+            "description": "Get current browser URL and title",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_stop",
+            "description": "Stop browser - close browser after computer use tasks done",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_goal",
+            "description": "Add long-term goal with deadline and milestones - JARVIS tracks and holds you accountable. Proactive 2.0 accountability. Use for 'Build SaaS to $1k MRR by Dec 2025' etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string", "description": "Goal description, e.g. 'Build SaaS to $1k MRR'"},
+                    "deadline": {"type": "string", "description": "Deadline e.g. '2026-12-31' or 'in 2 weeks' or 'next month'"},
+                    "milestones": {"type": "string", "description": "Comma-separated milestones, e.g. 'Design, MVP, Launch, Marketing'"}
+                },
+                "required": ["goal"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_goals",
+            "description": "List goals - active goals with progress, deadline, milestones. Accountability check.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "include_completed": {"type": "boolean", "description": "Include completed goals", "default": False}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_goal_progress",
+            "description": "Update goal progress 0-100% with optional note",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal_id": {"type": "integer", "description": "Goal ID from list_goals"},
+                    "progress": {"type": "integer", "description": "Progress 0-100"},
+                    "note": {"type": "string", "description": "Optional note about progress"}
+                },
+                "required": ["goal_id", "progress"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_milestone",
+            "description": "Complete milestone for a goal - updates progress based on milestones",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal_id": {"type": "integer", "description": "Goal ID"},
+                    "milestone_id": {"type": "integer", "description": "Milestone ID (1,2,3...)"}
+                },
+                "required": ["goal_id", "milestone_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_goal",
+            "description": "Complete goal - marks 100% and celebrates",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal_id": {"type": "integer", "description": "Goal ID"}
+                },
+                "required": ["goal_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_goals",
+            "description": "Check goals for accountability - overdue, due soon, stalled, on track. Proactive 2.0 accountability report. JARVIS holds you accountable, Sir.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_goal",
+            "description": "Delete goal by ID",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal_id": {"type": "integer", "description": "Goal ID"}
+                },
+                "required": ["goal_id"]
             }
         }
     }

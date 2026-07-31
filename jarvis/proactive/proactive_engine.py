@@ -142,6 +142,17 @@ class ProactiveEngine:
                     )
                     if suggestion:
                         self.notifier.notify_proactive(suggestion)
+            
+            # Check goals for accountability - Proactive 2.0
+            try:
+                from .goals import GoalsTracker
+                gt = GoalsTracker()
+                accountability = gt.generate_accountability_message()
+                if accountability:
+                    self.notifier.notify_proactive(accountability)
+            except Exception as e:
+                print(f"Goals accountability check failed: {e}")
+        
         except Exception as e:
             print(f"Routine check failed: {e}")
     
@@ -152,6 +163,19 @@ class ProactiveEngine:
             if status.get("is_dirty") and status.get("changed_files", 0) > 10:
                 # If many files dirty for long time, suggest commit
                 self.notifier.notify_proactive(f"{status['changed_files']} files dirty, Sir. Consider committing? Git status shows changes.")
+            
+            # Check goals overdue - proactive accountability
+            try:
+                from .goals import GoalsTracker
+                gt = GoalsTracker()
+                check = gt.check_goals()
+                if check["overdue"]:
+                    overdue_goals = check["overdue"][:2]
+                    msg = f"Overdue goals, Sir: {', '.join([g['goal'][:60] for g in overdue_goals])}. {len(check['overdue'])} total overdue."
+                    self.notifier.notify_proactive(msg)
+            except Exception as e:
+                print(f"Goals overdue check failed: {e}")
+        
         except Exception as e:
             print(f"Git check failed: {e}")
     

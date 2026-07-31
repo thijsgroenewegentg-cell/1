@@ -25,7 +25,11 @@ const DEFAULT_LAYOUT = [
 const PANEL_DEFS = {
   chat: { icon: '💬', title: 'Chat — JARVIS', defaultW: 420, defaultH: 520, render: renderChatPanel },
   codebase: { icon: '🧠', title: 'Codebase RAG', defaultW: 380, defaultH: 260, render: renderCodebasePanel },
+  knowledge: { icon: '📚', title: 'Knowledge Base', defaultW: 380, defaultH: 300, render: renderKnowledgePanel },
+  everything: { icon: '🔍', title: 'Second Brain — Everything', defaultW: 420, defaultH: 320, render: renderEverythingPanel },
   git: { icon: '📦', title: 'Git Status', defaultW: 380, defaultH: 240, render: renderGitPanel },
+  browser: { icon: '🌐', title: 'Browser — Computer Use', defaultW: 480, defaultH: 360, render: renderBrowserPanel },
+  goals: { icon: '🎯', title: 'Goals & Accountability', defaultW: 400, defaultH: 300, render: renderGoalsPanel },
   agent: { icon: '⚡', title: 'Coding Agent', defaultW: 400, defaultH: 320, render: renderAgentPanel },
   team: { icon: '👥', title: 'Multi-Agent Team', defaultW: 400, defaultH: 320, render: renderTeamPanel },
   proactive: { icon: '🌅', title: 'Proactive Briefing', defaultW: 400, defaultH: 200, render: renderProactivePanel },
@@ -410,21 +414,224 @@ function renderEvolutionPanel(el) { el.innerHTML = `<small>Loading evolution, Si
 function renderTerminalPanel(el) { el.innerHTML = `<div style="display:flex; gap:6px"><input id="term-cmd" placeholder="ls, git status, etc" style="flex:1; background:rgba(0,0,0,0.5); border:1px solid var(--panel-border); color:var(--text); padding:8px; border-radius:6px; font-family:'JetBrains Mono'; font-size:12px"/><button id="term-run" class="holo-btn">Run</button></div><pre id="term-out" style="margin-top:10px; background:rgba(0,0,0,0.5); padding:10px; border-radius:8px; max-height:150px; overflow:auto; font-size:11px">Terminal ready, Sir.</pre>`; const input = el.querySelector('#term-cmd'); const btn = el.querySelector('#term-run'); const out = el.querySelector('#term-out'); async function run(){ const cmd = input.value.trim(); if(!cmd) return; out.textContent = `> ${cmd}\nRunning...`; const resp = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: `Execute shell command: ${cmd} using shell_command tool`})}); const data = await resp.json(); out.textContent = data.response?.slice(0,2000) || data.error || 'No output'; }; btn.onclick = run; input.onkeydown = (e)=>{ if(e.key==='Enter') run(); }; }
 function renderSystemPanel(el) { el.innerHTML = `<small>Loading system, Sir...</small>`; fetch('/api/status').then(r=>r.json()).then(d=>{ el.innerHTML = `<div style="font-size:12px; font-family:'JetBrains Mono'">Model: ${d.model}<br>Ollama: ${d.ollama_connected?'✓':'✗'}<br>Conversations: ${d.conversation_length}<br>Vectors: ${d.vector_count||0}<br>Memories: ${d.memory_count||0}<br>Evolution: ${d.evolution_count||0}<br>Learning: ${d.learning_enabled?'✓':'✗'}</div>`; }); }
 function renderSelfEditPanel(el) { el.innerHTML = `<small>Loading self-edits, Sir...</small>`; fetch('/api/self-edit/history?limit=5').then(r=>r.json()).then(d=>{ const h = d.history||[]; if(!h.length){ el.innerHTML='<small>No self-edits yet</small>'; return;} el.innerHTML = h.slice(-5).reverse().map(e=>`<div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:8px; margin-bottom:6px; font-size:11px"><strong>${e.file_path||''}</strong><br>${e.reason||''}<br><small style="opacity:0.5">${e.timestamp?.slice(0,16)} • ${e.success?'✓':'✗'}</small></div>`).join(''); }); }
+function renderKnowledgePanel(el) {
+  el.innerHTML = `
+    <div style="font-size:12px">
+      <div style="margin-bottom:8px">📚 Document Second Brain — PDFs, Notion, Obsidian</div>
+      <div style="display:flex; gap:6px; margin-bottom:10px">
+        <input id="knowledge-search" placeholder="Search knowledge: e.g. machine learning notes" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--panel-border); color:var(--text); padding:8px; border-radius:6px; font-size:12px"/>
+        <button id="knowledge-search-btn" class="holo-btn">Search</button>
+      </div>
+      <div id="knowledge-results" style="max-height:180px; overflow-y:auto; font-size:11px; background:rgba(0,0,0,0.3); padding:8px; border-radius:6px">Enter query, Sir. Indexes workspace/docs/, ~/Documents, etc. 100% free local.</div>
+      <div style="display:flex; gap:6px; margin-top:8px">
+        <button id="knowledge-index-btn" class="holo-btn secondary" style="flex:1">Index Docs</button>
+        <button id="knowledge-overview-btn" class="holo-btn secondary" style="flex:1">Overview</button>
+      </div>
+    </div>
+  `;
+  const input = el.querySelector('#knowledge-search');
+  const btn = el.querySelector('#knowledge-search-btn');
+  const results = el.querySelector('#knowledge-results');
+  const indexBtn = el.querySelector('#knowledge-index-btn');
+  const overviewBtn = el.querySelector('#knowledge-overview-btn');
+  
+  async function doSearch() {
+    const q = input.value.trim();
+    if (!q) return;
+    results.innerHTML = '<small style="opacity:0.5">Searching knowledge, Sir...</small>';
+    try {
+      const resp = await fetch(`/api/knowledge/search?query=${encodeURIComponent(q)}&k=3`);
+      const data = await resp.json();
+      if (!data.results || !data.results.length) { results.innerHTML = '<small>No knowledge found</small>'; return; }
+      results.innerHTML = data.results.map(r=>`<div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:6px; margin-bottom:6px"><small style="opacity:0.6">${r.metadata?.file_path} • ${r.score?.toFixed(2)}</small><br>${r.text.slice(0,200)}...</div>`).join('');
+    } catch (e) { results.innerHTML = `<small>Error: ${e}</small>`; }
+  }
+  btn.onclick = doSearch;
+  input.onkeydown = (e)=>{ if(e.key==='Enter') doSearch(); };
+  indexBtn.onclick = async () => {
+    results.innerHTML = '<small>Indexing docs, Sir... may take a moment</small>';
+    const resp = await fetch('/api/codebase/index?force=false', {method:'POST'}); // reuse
+    // Actually knowledge index endpoint
+    const resp2 = await fetch('/api/knowledge/search?query=test&k=1'); // dummy
+    // Call document index via chat tool? Simplified:
+    const chatResp = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: "Index documents using index_documents tool"})});
+    const d = await chatResp.json();
+    results.innerHTML = `<small>${d.response?.slice(0,500) || 'Indexing triggered'}</small>`;
+  };
+  overviewBtn.onclick = async () => {
+    const resp = await fetch('/api/knowledge/overview');
+    const data = await resp.json();
+    results.innerHTML = `<pre style="font-size:10px; white-space:pre-wrap">${JSON.stringify(data, null, 2).slice(0,1000)}</pre>`;
+  };
+}
+
+function renderEverythingPanel(el) {
+  el.innerHTML = `
+    <div style="font-size:12px">
+      <div style="margin-bottom:8px">🔍 Second Brain — Search EVERYTHING: Code + Docs + Memory</div>
+      <div style="display:flex; gap:6px; margin-bottom:10px">
+        <input id="everything-search" placeholder="Search everything: e.g. what do you know about auth?" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--panel-border); color:var(--text); padding:8px; border-radius:6px; font-size:12px"/>
+        <button id="everything-search-btn" class="holo-btn" style="background:#e6e8eb; color:#08090a">Search</button>
+      </div>
+      <div id="everything-results" style="max-height:200px; overflow-y:auto; font-size:11px; background:rgba(0,0,0,0.3); padding:8px; border-radius:6px">Search across codebase, knowledge docs, learnings, memories, Sir. Most powerful search.</div>
+    </div>
+  `;
+  const input = el.querySelector('#everything-search');
+  const btn = el.querySelector('#everything-search-btn');
+  const results = el.querySelector('#everything-results');
+  async function doSearch() {
+    const q = input.value.trim();
+    if (!q) return;
+    results.innerHTML = '<small>Searching everything, Sir... codebase + docs + memory</small>';
+    try {
+      const resp = await fetch(`/api/second-brain/search?query=${encodeURIComponent(q)}&k=3`);
+      const data = await resp.json();
+      if (data.error) { results.innerHTML = `<small>Error: ${data.error}</small>`; return; }
+      let html = `<small>Query: ${data.query}</small><br><br>`;
+      if (data.code && data.code.length) {
+        html += `<strong>📦 Code (${data.code.length}):</strong><br>` + data.code.map(r=>`<div style="opacity:0.8; margin-bottom:4px">- ${r.metadata?.file_path}: ${r.text.slice(0,100)}...</div>`).join('') + '<br>';
+      }
+      if (data.documents && data.documents.length) {
+        html += `<strong>📚 Docs (${data.documents.length}):</strong><br>` + data.documents.map(r=>`<div style="opacity:0.8; margin-bottom:4px">- ${r.metadata?.file_path}: ${r.text.slice(0,100)}...</div>`).join('') + '<br>';
+      }
+      if (data.learnings && data.learnings.length) {
+        html += `<strong>🧠 Learnings:</strong><br>` + data.learnings.map(r=>`<div style="opacity:0.8">- ${r.text.slice(0,100)}...</div>`).join('') + '<br>';
+      }
+      if (data.memories && data.memories.length) {
+        html += `<strong>💾 Memories:</strong><br>` + data.memories.map(m=>`<div>- ${m.key}: ${m.value.slice(0,80)}</div>`).join('');
+      }
+      results.innerHTML = html || '<small>Nothing found</small>';
+    } catch (e) { results.innerHTML = `<small>Error: ${e}</small>`; }
+  }
+  btn.onclick = doSearch;
+  input.onkeydown = (e)=>{ if(e.key==='Enter') doSearch(); };
+}
+
+function renderBrowserPanel(el) {
+  el.innerHTML = `
+    <div style="font-size:12px">
+      <div style="margin-bottom:8px">🌐 Browser — Computer Use (Playwright, 100% free local)</div>
+      <div style="display:flex; gap:6px; margin-bottom:8px">
+        <input id="browser-url" placeholder="https://github.com" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--panel-border); color:var(--text); padding:8px; border-radius:6px; font-size:12px"/>
+        <button id="browser-go" class="holo-btn">Go</button>
+      </div>
+      <div style="display:flex; gap:6px; margin-bottom:8px">
+        <input id="browser-selector" placeholder="Selector e.g. button, input[name=q]" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--panel-border); color:var(--text); padding:6px; border-radius:6px; font-size:11px"/>
+        <button id="browser-click" class="holo-btn secondary">Click</button>
+        <button id="browser-screenshot" class="holo-btn secondary">📸</button>
+      </div>
+      <div id="browser-content" style="max-height:150px; overflow-y:auto; font-size:11px; background:rgba(0,0,0,0.4); padding:8px; border-radius:6px; font-family:'JetBrains Mono'">Browser idle, Sir. Start with URL. Can control like Claude Computer Use but free local. Test your own localhost:8000, scrape docs, fill forms.</div>
+    </div>
+  `;
+  const urlInput = el.querySelector('#browser-url');
+  const goBtn = el.querySelector('#browser-go');
+  const selectorInput = el.querySelector('#browser-selector');
+  const clickBtn = el.querySelector('#browser-click');
+  const shotBtn = el.querySelector('#browser-screenshot');
+  const content = el.querySelector('#browser-content');
+  
+  goBtn.onclick = async () => {
+    const url = urlInput.value.trim();
+    if (!url) return;
+    content.textContent = `Navigating to ${url}, Sir...`;
+    try {
+      const resp = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: `Use browser_navigate tool to navigate to ${url}`})});
+      const data = await resp.json();
+      content.textContent = data.response?.slice(0,1000) || 'Navigated';
+    } catch (e) { content.textContent = `Error: ${e}`; }
+  };
+  clickBtn.onclick = async () => {
+    const sel = selectorInput.value.trim();
+    if (!sel) return;
+    content.textContent = `Clicking ${sel}...`;
+    try {
+      const resp = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: `Use browser_click tool to click selector ${sel}`})});
+      const data = await resp.json();
+      content.textContent = data.response?.slice(0,1000) || 'Clicked';
+    } catch (e) { content.textContent = `Error: ${e}`; }
+  };
+  shotBtn.onclick = async () => {
+    content.textContent = 'Taking screenshot, Sir...';
+    try {
+      const resp = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: `Use browser_screenshot tool to take screenshot`})});
+      const data = await resp.json();
+      content.textContent = data.response?.slice(0,1000) || 'Screenshot taken';
+    } catch (e) { content.textContent = `Error: ${e}`; }
+  };
+}
+
+function renderGoalsPanel(el) {
+  el.innerHTML = `
+    <div style="font-size:12px">
+      <div style="margin-bottom:8px">🎯 Goals & Accountability — Proactive 2.0</div>
+      <div style="display:flex; gap:6px; margin-bottom:8px">
+        <input id="goal-input" placeholder="New goal: e.g. Build SaaS to $1k MRR" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--panel-border); color:var(--text); padding:8px; border-radius:6px; font-size:11px"/>
+        <button id="goal-add" class="holo-btn">Add</button>
+      </div>
+      <div id="goals-list" style="max-height:180px; overflow-y:auto; font-size:11px; background:rgba(0,0,0,0.3); padding:8px; border-radius:6px">Loading goals, Sir...</div>
+      <div style="display:flex; gap:6px; margin-top:8px">
+        <button id="goals-check" class="holo-btn secondary" style="flex:1">Check Accountability</button>
+        <button id="goals-brief" class="holo-btn secondary" style="flex:1">Briefing Include</button>
+      </div>
+    </div>
+  `;
+  const input = el.querySelector('#goal-input');
+  const addBtn = el.querySelector('#goal-add');
+  const list = el.querySelector('#goals-list');
+  const checkBtn = el.querySelector('#goals-check');
+  const briefBtn = el.querySelector('#goals-brief');
+  
+  async function loadGoals() {
+    try {
+      const resp = await fetch('/api/goals');
+      const data = await resp.json();
+      if (data.error) { list.innerHTML = `<small>Error: ${data.error}</small>`; return; }
+      const goals = data.goals || [];
+      if (!goals.length) { list.innerHTML = '<small>No goals yet, Sir. Add one — I will hold you accountable.</small>'; return; }
+      list.innerHTML = goals.slice(0,5).map(g=>`<div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:6px; margin-bottom:6px"><strong>${g.progress}%</strong> ${g.goal.slice(0,60)}<br><small style="opacity:0.6">ID ${g.id} • Deadline ${g.deadline||'none'} • ${g.milestones?.length||0} milestones</small></div>`).join('');
+    } catch (e) { list.innerHTML = `<small>Error: ${e}</small>`; }
+  }
+  
+  addBtn.onclick = async () => {
+    const goal = input.value.trim();
+    if (!goal) return;
+    list.innerHTML = '<small>Adding goal, Sir...</small>';
+    try {
+      const resp = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: `Add goal using add_goal tool: goal="${goal}", deadline="", milestones=""`})});
+      const data = await resp.json();
+      list.innerHTML = `<small>${data.response?.slice(0,500) || 'Added'}</small>`;
+      setTimeout(loadGoals, 1000);
+      input.value = '';
+    } catch (e) { list.innerHTML = `<small>Error: ${e}</small>`; }
+  };
+  checkBtn.onclick = async () => {
+    list.innerHTML = '<small>Checking goals accountability, Sir...</small>';
+    try {
+      const resp = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: `Check goals using check_goals tool for accountability`})});
+      const data = await resp.json();
+      list.innerHTML = `<pre style="font-size:10px; white-space:pre-wrap">${data.response?.slice(0,800) || 'Checked'}</pre>`;
+    } catch (e) { list.innerHTML = `<small>Error: ${e}</small>`; }
+  };
+  briefBtn.onclick = () => { loadGoals(); };
+  
+  loadGoals();
+}
+
 function renderVoicePanel(el) {
   el.innerHTML = `
     <div style="font-size:12px">
-      <div style="margin-bottom:8px">Premium Voice Lab — Manina Labs Style</div>
+      <div style="margin-bottom:8px">Premium Voice Lab — Manina Labs Style — 100% FREE</div>
       <select id="voice-preset-mini" style="width:100%; background:rgba(255,255,255,0.05); border:1px solid var(--panel-border); color:var(--text); padding:8px; border-radius:6px; font-size:12px">
-        <option value="manina_premium">Manina Premium — Deep British Cinematic</option>
-        <option value="jarvis_classic">Jarvis Classic — Paul Bettany</option>
-        <option value="jarvis_deep">Jarvis Deep — Commanding</option>
-        <option value="friday">FRIDAY — Irish Female</option>
+        <option value="manina_premium">Manina Premium — Deep British Cinematic (FREE)</option>
+        <option value="jarvis_classic">Jarvis Classic — Paul Bettany (FREE)</option>
+        <option value="jarvis_deep">Jarvis Deep — Commanding (FREE)</option>
+        <option value="friday">FRIDAY — Irish Female (FREE)</option>
       </select>
       <div style="display:flex; gap:6px; margin-top:8px">
-        <input id="voice-text-mini" placeholder="Text to speak..." style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--panel-border); color:var(--text); padding:8px; border-radius:6px; font-size:12px" value="Good evening, Sir. Premium voice model online."/>
+        <input id="voice-text-mini" placeholder="Text to speak..." style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--panel-border); color:var(--text); padding:8px; border-radius:6px; font-size:12px" value="Good evening, Sir. Premium voice 100 percent free."/>
         <button id="voice-speak-mini" class="holo-btn">Speak</button>
       </div>
-      <small style="opacity:0.5; display:block; margin-top:8px">Edge + premium FX is free, close to Manina. ElevenLabs best quality needs API key.</small>
+      <small style="opacity:0.5; display:block; margin-top:8px">Edge + premium FX = free, no key. Piper = best free offline. XTTS = free clone.</small>
     </div>
   `;
   const btn = el.querySelector('#voice-speak-mini');
@@ -438,7 +645,6 @@ function renderVoicePanel(el) {
     try {
       const resp = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: `Speak with premium voice preset ${pre}: ${text} using edge TTS. Just say the text.`})});
       const data = await resp.json();
-      // In real implementation, would call /api/tts endpoint, for now just show response
       btn.textContent = 'Speak';
     } catch { btn.textContent = 'Speak'; }
   };
