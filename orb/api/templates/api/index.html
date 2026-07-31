@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>JARVIS Orb — Piper Voice</title>
+<link rel="icon" href="/static/api/favicon.png">
+<style>
+/* ORB - Minimal, Clean, Single Visual Element, No Chrome
+   Design focused entirely on orb, background simple
+   Idle: gentle breathing/slow rotation floating
+   Speaking: pulses grows/shrinks rhythmically with intensity based on speech
+   100% FREE, Piper TTS British premium, Manina Labs style
+*/
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: #040506;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: radial-gradient(ellipse at center, #0a0e14 0%, #040506 70%);
+}
+
+/* Hidden transparent input - always present but invisible */
+#hidden-input {
+  position: fixed;
+  bottom: 8%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 420px;
+  max-width: 85vw;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 24px;
+  padding: 14px 20px;
+  color: rgba(230,238,242,0.9);
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  backdrop-filter: blur(12px);
+  opacity: 0.02; /* invisible/visually hidden but always present */
+  transition: opacity 0.3s, border-color 0.3s, background 0.3s;
+  z-index: 10;
+}
+
+#hidden-input::placeholder {
+  color: rgba(230,238,242,0.3);
+}
+
+#hidden-input:focus {
+  opacity: 0.15; /* slightly visible on focus, still minimal transparent */
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(0,212,255,0.15);
+}
+
+#hidden-input:hover {
+  opacity: 0.06;
+}
+
+/* Orb container - only visual element */
+#orb-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* Canvas for orb rendering */
+#orb-canvas {
+  display: block;
+  width: 400px;
+  height: 400px;
+  max-width: 85vmin;
+  max-height: 85vmin;
+}
+
+/* Status tiny dot - minimal, not chrome, just to show listening */
+#status-dot {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #7a8a9a;
+  opacity: 0.3;
+  transition: all 0.3s;
+  z-index: 5;
+}
+#status-dot.listening { background: #00d4ff; opacity: 0.8; box-shadow: 0 0 12px #00d4ff; }
+#status-dot.speaking { background: #e6e8eb; opacity: 0.9; box-shadow: 0 0 16px rgba(230,232,235,0.6); }
+#status-dot.error { background: #ff6b6b; opacity: 0.8; }
+
+/* Minimal error message - user-facing, not chrome */
+#error-msg {
+  position: fixed;
+  bottom: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20,10,10,0.9);
+  border: 1px solid rgba(255,100,100,0.2);
+  color: #ff9a9a;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+  z-index: 20;
+  max-width: 80vw;
+  text-align: center;
+}
+#error-msg.show { opacity: 1; pointer-events: auto; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  #orb-canvas { width: 300px; height: 300px; }
+  #hidden-input { width: 90vw; bottom: 5%; }
+}
+</style>
+</head>
+<body>
+
+<!-- Single orb as only visual element - no panels, controls, menus, UI chrome -->
+<div id="orb-container">
+  <canvas id="orb-canvas" width="400" height="400"></canvas>
+</div>
+
+<!-- Minimal, transparent input box - always present but invisible/visually hidden -->
+<input id="hidden-input" type="text" placeholder="Message JARVIS... (invisible, type anytime)" autocomplete="off" spellcheck="false" />
+
+<!-- Tiny status dot - minimal, not chrome, just shows listening/speaking -->
+<div id="status-dot" title="Idle - click orb or type, say Jarvis"></div>
+
+<!-- Minimal error message -->
+<div id="error-msg"></div>
+
+<script>
+/*
+OR B J.S - Minimal JARVIS Orb with Piper TTS (100% FREE)
+
+Animation Logic:
+- Idle: gentle breathing (scale sin wave 0.98-1.02) + slow rotation/floating (translate y sin wave + rotation)
+  - Smooth, continuous, never completely still, like living orb
+- Speaking: pulses grows/shrinks rhythmically with intensity varying based on speech intensity
+  - Uses Web Audio API AnalyserNode to get real-time volume/frequency data from TTS audio
+  - Intensity = average volume 0-1, scales orb size: 1.0 + intensity * 0.4
+  - Pulsing: additional rapid sin wave scaled by intensity
+
+Speech Input/Output Integration:
+- Text mode: user types in invisible transparent input box (always present, opacity 0.02). On Enter, send to /api/chat/ backend, get reply, then call /api/tts/ (Piper MUST BE) to get audio, play via Web Audio API, animate orb based on intensity
+- Voice mode: backend listens in background continuously via Web Speech API SpeechRecognition continuous (if available) OR MediaRecorder sending to /api/stt/ fallback. User speaks, transcript sent to /api/chat/, reply -> TTS -> orb animates
+
+Intensity-based animation scaling:
+- AnalyzerNode.getByteFrequencyData -> average volume -> intensity 0-1
+- Orb scale = baseBreathingScale + pulsingScale * intensity
+- Base breathing: 0.98 + sin(time*0.001)*0.02 (gentle)
+- Speaking pulse: sin(time*0.01) * intensity * 0.15
+- Floating: translateY sin(time*0.0005)*10px
+
+Non-obvious backend processing:
+- /api/chat/ uses JARVIS brain if available (Ollama), else fallback rule-based JARVIS style
+- /api/tts/ uses Piper (MUST BE, 100% free offline British) with premium FX (bass+reverb via pydub free) or edge fallback
+- /api/stt/ uses faster-whisper free offline, fallback google/sphinx
+
+Edge cases handled:
+- Empty messages, invalid JSON, network timeouts, unsupported audio formats, STT failures, TTS failures -> user-facing error messages via showError()
+*/
+
+// Canvas setup
+const canvas = document.getElementById('orb-canvas');
+const ctx = canvas.getContext('2d');
+const input = document.getElementById('hidden-input');
+const statusDot = document.getElementById('status-dot');
+const errorMsg = document.getElementById('error-msg');
+
+// Orb state
+let isSpeaking = false;
+let isListening = false;
+let idleTime = 0;
+let speakIntensity = 0; // 0-1 based on speech volume
+let targetIntensity = 0;
+let audioContext = null;
+let analyser = null;
+let audioSource = null;
+let currentAudio = null;
+
+// Idle animation params
+let breathPhase = 0;
+let floatPhase = 0;
+let rotation = 0;
+
+// Orb position (center)
+let orbX, orbY, baseRadius;
+
+// Initialize canvas size
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  orbX = rect.width / 2;
+  orbY = rect.height / 2;
+  baseRadius = Math.min(rect.width, rect.height) * 0.32;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// Orb rendering - Canvas/WebGL minimal, focus on orb
+function drawOrb(intensity) {
+  const rect = canvas.getBoundingClientRect();
+  const width = rect.width;
+  const height = rect.height;
+  ctx.clearRect(0, 0, width, height);
+
+  // Idle animation: gentle breathing (scale sin wave) + slow floating + rotation
+  if (!isSpeaking) {
+    breathPhase += 0.015; // slow breathing
+    floatPhase += 0.005;  // slower floating
+    rotation += 0.002;    // slow rotation
+  } else {
+    // Speaking: faster breathing + pulsing
+    breathPhase += 0.04;
+    floatPhase += 0.01;
+    rotation += 0.005;
+  }
+
+  const breathingScale = 0.98 + Math.sin(breathPhase) * 0.02; // gentle 0.98-1.02
+  const floatingY = Math.sin(floatPhase) * 10; // 10px floating
+  const currentRadius = baseRadius * breathingScale * (1 + intensity * 0.4); // intensity scales size
+
+  // Additional pulsing when speaking: rapid sin scaled by intensity
+  const pulseScale = isSpeaking ? Math.sin(Date.now() * 0.015) * intensity * 0.12 : 0;
+  const finalRadius = currentRadius * (1 + pulseScale);
+
+  const centerY = orbY + floatingY;
+
+  // Outer glow - cyan, Manina Labs style, intensity based
+  const glowIntensity = 0.15 + intensity * 0.35;
+  const glowRadius = finalRadius * (2.2 + intensity * 0.8);
+  const glowGradient = ctx.createRadialGradient(orbX, centerY, finalRadius * 0.8, orbX, centerY, glowRadius);
+  glowGradient.addColorStop(0, `rgba(0, 212, 255, ${glowIntensity})`);
+  glowGradient.addColorStop(0.4, `rgba(0, 212, 255, ${glowIntensity * 0.3})`);
+  glowGradient.addColorStop(1, 'rgba(0, 212, 255, 0)');
+  ctx.fillStyle = glowGradient;
+  ctx.beginPath();
+  ctx.arc(orbX, centerY, glowRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Inner outer glow second layer - softer
+  const glow2 = ctx.createRadialGradient(orbX, centerY, finalRadius * 0.5, orbX, centerY, finalRadius * 1.8);
+  glow2.addColorStop(0, `rgba(124, 58, 237, ${0.08 + intensity * 0.15})`);
+  glow2.addColorStop(1, 'rgba(124, 58, 237, 0)');
+  ctx.fillStyle = glow2;
+  ctx.beginPath();
+  ctx.arc(orbX, centerY, finalRadius * 1.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Main orb body - radial gradient for 3D effect, with rotation
+  ctx.save();
+  ctx.translate(orbX, centerY);
+  ctx.rotate(rotation * 0.3);
+
+  // Core gradient - from light center to deep edge
+  const coreGradient = ctx.createRadialGradient(-finalRadius * 0.2, -finalRadius * 0.2, finalRadius * 0.1, 0, 0, finalRadius);
+  // Color shifts slightly with intensity - more white when speaking loud
+  const intensityWhite = Math.min(0.9, 0.6 + intensity * 0.4);
+  coreGradient.addColorStop(0, `rgba(255,255,255,${intensityWhite})`);
+  coreGradient.addColorStop(0.2, `rgba(230,240,255,${0.8 + intensity * 0.2})`);
+  coreGradient.addColorStop(0.4, `rgba(120,180,255,0.7)`);
+  coreGradient.addColorStop(0.7, `rgba(0,120,200,0.5)`);
+  coreGradient.addColorStop(1, `rgba(0,40,80,0.8)`);
+
+  ctx.fillStyle = coreGradient;
+  ctx.beginPath();
+  ctx.arc(0, 0, finalRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Inner highlight - small white spot for 3D
+  const highlightGrad = ctx.createRadialGradient(-finalRadius * 0.3, -finalRadius * 0.3, 0, -finalRadius * 0.3, -finalRadius * 0.3, finalRadius * 0.4);
+  highlightGrad.addColorStop(0, `rgba(255,255,255,${0.8 + intensity * 0.2})`);
+  highlightGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = highlightGrad;
+  ctx.beginPath();
+  ctx.arc(0, 0, finalRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+
+  // Outer ring - thin cyan border that pulses with intensity
+  ctx.strokeStyle = `rgba(0, 212, 255, ${0.3 + intensity * 0.5})`;
+  ctx.lineWidth = 1 + intensity * 2;
+  ctx.beginPath();
+  ctx.arc(orbX, centerY, finalRadius * 1.02, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Inner core - bright center that grows with intensity
+  const coreSize = finalRadius * (0.15 + intensity * 0.1);
+  const coreGrad = ctx.createRadialGradient(orbX, centerY, 0, orbX, centerY, coreSize);
+  coreGrad.addColorStop(0, `rgba(255,255,255,${0.95})`);
+  coreGrad.addColorStop(0.5, `rgba(180,220,255,${0.6 + intensity * 0.4})`);
+  coreGrad.addColorStop(1, 'rgba(180,220,255,0)');
+  ctx.fillStyle = coreGrad;
+  ctx.beginPath();
+  ctx.arc(orbX, centerY, coreSize, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Animation loop - smooth and continuous
+function animate() {
+  // Smooth intensity interpolation for natural pulse decay
+  if (isSpeaking) {
+    // Intensity already set by audio analyser
+  } else {
+    // When not speaking, decay intensity to 0 smoothly
+    targetIntensity = 0;
+  }
+  // Lerp intensity
+  speakIntensity += (targetIntensity - speakIntensity) * 0.15;
+
+  drawOrb(speakIntensity);
+  requestAnimationFrame(animate);
+}
+animate();
+
+// Idle animation is always running via animate() - gentle breathing even when not speaking, never still
+// Speaking animation overrides with intensity-based pulsing
+
+// Web Audio API setup for intensity analysis
+function setupAudioContext() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+  }
+}
+
+async function playTTSAndAnimate(text) {
+  /**
+   * TTS playback with intensity-based orb animation
+   * Calls backend /api/tts/ (Piper MUST BE, 100% free) to get audio, then plays via Web Audio API with analyser for intensity
+   */
+  try {
+    isSpeaking = true;
+    statusDot.className = 'speaking';
+    targetIntensity = 0.3; // initial
+
+    // Call backend TTS - Piper MUST BE British premium free
+    const resp = await fetch('/api/tts/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text, engine: 'piper', preset: 'manina_premium' })
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({error: 'TTS failed'}));
+      throw new Error(err.error || `TTS failed ${resp.status}`);
+    }
+
+    const audioBlob = await resp.blob();
+    const audioUrl = URL.createObjectURL(audioBlob);
+
+    // Play via Web Audio API for intensity analysis
+    setupAudioContext();
+    
+    const audio = new Audio(audioUrl);
+    audio.crossOrigin = "anonymous";
+    currentAudio = audio;
+
+    // Connect to analyser for intensity
+    const source = audioContext.createMediaElementSource(audio);
+    source.connect(analyser);
+    analyser.connect(audioContext.destination);
+    audioSource = source;
+
+    // Intensity analysis loop
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    function analyzeVolume() {
+      if (!isSpeaking) return;
+      analyser.getByteFrequencyData(dataArray);
+      // Average volume 0-255 -> 0-1 intensity
+      let sum = 0;
+      for (let i=0; i<dataArray.length; i++) sum += dataArray[i];
+      const avg = sum / dataArray.length;
+      // Map 0-128 avg to 0-1 intensity with some curve
+      targetIntensity = Math.min(1, Math.max(0, (avg / 90) * 1.2));
+      if (isSpeaking) requestAnimationFrame(analyzeVolume);
+    }
+    analyzeVolume();
+
+    // Play
+    await audio.play();
+
+    // Wait for audio to finish
+    await new Promise((resolve, reject) => {
+      audio.onended = () => resolve();
+      audio.onerror = (e) => reject(e);
+    });
+
+    // Cleanup
+    URL.revokeObjectURL(audioUrl);
+    if (audioSource) {
+      try { audioSource.disconnect(); } catch {}
+      audioSource = null;
+    }
+    isSpeaking = false;
+    targetIntensity = 0;
+    statusDot.className = '';
+    
+  } catch (err) {
+    console.error('TTS play failed:', err);
+    showError(`TTS failed: ${err.message.slice(0,100)} - Trying Web Speech API fallback`);
+    // Fallback to Web Speech API TTS (free, built-in browser)
+    try {
+      await speakWithWebSpeechAPI(text);
+    } catch (e2) {
+      console.error('Fallback TTS also failed', e2);
+      showError(`Voice failed: ${e2.message}`);
+      isSpeaking = false;
+      targetIntensity = 0;
+      statusDot.className = '';
+    }
+  }
+}
+
+function speakWithWebSpeechAPI(text) {
+  /**
+   * Fallback TTS using Web Speech API SpeechSynthesis (free, built-in browser)
+   * Used when backend Piper fails
+   * Also animates orb with fake intensity based on time
+   */
+  return new Promise((resolve, reject) => {
+    if (!('speechSynthesis' in window)) {
+      reject(new Error('Web Speech API not supported'));
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    // Try British voice
+    const voices = speechSynthesis.getVoices();
+    let british = voices.find(v => v.name.includes('Google UK English Male') || v.name.includes('Ryan') || v.lang === 'en-GB');
+    if (british) utterance.voice = british;
+    utterance.rate = 0.92;
+    utterance.pitch = 0.9;
+    utterance.volume = 1;
+
+    isSpeaking = true;
+    statusDot.className = 'speaking';
+    // Fake intensity pulsing for Web Speech API (no analyser)
+    let fakeIntensityInterval = setInterval(() => {
+      targetIntensity = 0.3 + Math.random() * 0.6;
+    }, 120);
+
+    utterance.onend = () => {
+      clearInterval(fakeIntensityInterval);
+      isSpeaking = false;
+      targetIntensity = 0;
+      statusDot.className = '';
+      resolve();
+    };
+    utterance.onerror = (e) => {
+      clearInterval(fakeIntensityInterval);
+      isSpeaking = false;
+      targetIntensity = 0;
+      statusDot.className = '';
+      reject(e);
+    };
+
+    speechSynthesis.speak(utterance);
+  });
+}
+
+// Text mode: minimal transparent input box always present but invisible
+input.addEventListener('keydown', async (e) => {
+  if (e.key === 'Enter') {
+    const message = input.value.trim();
+    if (!message) return;
+
+    // Edge case: empty handled by trim above, but double-check
+    if (message.length === 0) {
+      showError('Empty message, Sir. Please say something.');
+      return;
+    }
+
+    input.value = '';
+    // Keep input focused but invisible (opacity 0.02)
+    input.blur();
+    setTimeout(() => input.focus(), 100);
+
+    try {
+      // Backend processing - text mode
+      const resp = await fetch('/api/chat/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: message })
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({error: `Chat failed ${resp.status}`}));
+        throw new Error(errData.error || `Chat failed ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      const reply = data.reply || "I'm here, Sir.";
+
+      // Orb animates while speaking response via TTS
+      await playTTSAndAnimate(reply);
+
+    } catch (err) {
+      console.error('Chat failed:', err);
+      showError(`Chat failed: ${err.message.slice(0,120)}`);
+    }
+  }
+});
+
+// Always focus invisible input - so user can type anytime without clicking
+// Minimal transparent input box that is always present but invisible/visually hidden
+function keepInputFocused() {
+  if (document.activeElement !== input) {
+    // Only auto-focus if not typing elsewhere and not on mobile where keyboard pops
+    const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
+    if (!isMobile) {
+      input.focus();
+    }
+  }
+}
+setInterval(keepInputFocused, 2000);
+input.focus();
+
+// Voice mode: backend listens in background continuously
+// Use Web Speech API SpeechRecognition continuous if available, else fallback to manual press
+let recognition = null;
+let isVoiceMode = false;
+
+function setupVoiceRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.log('Web Speech API SpeechRecognition not supported, using backend STT via MediaRecorder fallback');
+    statusDot.title = 'Voice: Web Speech API not supported, type to chat. For voice, allow mic and use Chrome.';
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = true; // backend listens in background continuously
+  recognition.interimResults = false;
+  recognition.lang = 'en-US';
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => {
+    isListening = true;
+    isVoiceMode = true;
+    statusDot.className = 'listening';
+    statusDot.title = 'Listening continuously, Sir. Say something.';
+    console.log('Voice recognition started - continuous listening');
+  };
+
+  recognition.onend = () => {
+    isListening = false;
+    if (isVoiceMode) {
+      // Auto-restart for continuous listening (with delay)
+      setTimeout(() => {
+        try { recognition.start(); } catch {}
+      }, 500);
+    }
+    statusDot.className = '';
+  };
+
+  recognition.onerror = (e) => {
+    console.error('Speech recognition error:', e);
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      showError('Microphone permission denied, Sir. Allow mic to use voice mode.');
+      isVoiceMode = false;
+      statusDot.className = 'error';
+    } else {
+      // Other errors, try restart
+      if (isVoiceMode) {
+        setTimeout(() => { try { recognition.start(); } catch {} }, 1000);
+      }
+    }
+  };
+
+  recognition.onresult = async (event) => {
+    const lastResult = event.results[event.results.length - 1];
+    if (!lastResult.isFinal) return;
+    const transcript = lastResult[0].transcript.trim();
+    if (!transcript) return;
+
+    console.log('Voice transcript:', transcript);
+    // Show as if typed? But input is invisible, so we process directly
+    try {
+      // Send to backend chat
+      const resp = await fetch('/api/chat/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: transcript })
+      });
+      const data = await resp.json();
+      const reply = data.reply || "I heard you, Sir.";
+      await playTTSAndAnimate(reply);
+    } catch (err) {
+      console.error('Voice chat failed:', err);
+      showError(`Voice processing failed: ${err.message.slice(0,100)}`);
+    }
+  };
+
+  // Start continuous listening
+  try {
+    recognition.start();
+    isVoiceMode = true;
+  } catch (e) {
+    console.error('Failed to start recognition:', e);
+  }
+}
+
+// Try to setup voice recognition for continuous background listening
+setupVoiceRecognition();
+
+// Fallback: Click orb to toggle voice listening if Web Speech API not working or user prefers tap
+document.getElementById('orb-container').addEventListener('click', () => {
+  // Focus invisible input for text mode
+  input.focus();
+  
+  // If voice recognition not running, try start
+  if (recognition && !isListening) {
+    try { recognition.start(); } catch {}
+  } else if (!recognition) {
+    // No Web Speech API, use MediaRecorder to send to backend STT
+    startMediaRecorderSTT();
+  }
+});
+
+// MediaRecorder fallback for STT via backend /api/stt/ (100% free local faster-whisper)
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+
+async function startMediaRecorderSTT() {
+  if (isRecording) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+    isRecording = true;
+    statusDot.className = 'listening';
+    
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      isRecording = false;
+      statusDot.className = '';
+      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      audioChunks = [];
+      stream.getTracks().forEach(t => t.stop());
+      
+      if (audioBlob.size < 1000) {
+        showError('Audio too short, Sir. Speak longer.');
+        return;
+      }
+      
+      // Send to backend STT
+      try {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        const resp = await fetch('/api/stt/', { method: 'POST', body: formData });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({error: `STT failed ${resp.status}`}));
+          throw new Error(err.error || 'STT failed');
+        }
+        const data = await resp.json();
+        const transcript = data.transcript;
+        if (!transcript) throw new Error('Empty transcript');
+        
+        // Now chat
+        const chatResp = await fetch('/api/chat/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: transcript })
+        });
+        const chatData = await chatResp.json();
+        await playTTSAndAnimate(chatData.reply || "I heard you, Sir.");
+      } catch (err) {
+        console.error('MediaRecorder STT failed:', err);
+        showError(`Voice STT failed: ${err.message.slice(0,100)}`);
+      }
+    };
+    
+    mediaRecorder.start();
+    // Auto-stop after 5 seconds of recording for continuous-like behavior
+    setTimeout(() => { if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop(); }, 5000);
+    
+  } catch (err) {
+    console.error('MediaRecorder failed:', err);
+    showError(`Microphone access failed: ${err.message}. Allow mic, Sir.`);
+    statusDot.className = 'error';
+  }
+}
+
+// Long-press orb for MediaRecorder STT (mobile friendly)
+let pressTimer = null;
+const orbContainer = document.getElementById('orb-container');
+orbContainer.addEventListener('mousedown', () => {
+  pressTimer = setTimeout(() => { startMediaRecorderSTT(); }, 600);
+});
+orbContainer.addEventListener('mouseup', () => { clearTimeout(pressTimer); });
+orbContainer.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  pressTimer = setTimeout(() => { startMediaRecorderSTT(); }, 600);
+}, { passive: false });
+orbContainer.addEventListener('touchend', () => { clearTimeout(pressTimer); });
+
+// Error handling - user-facing messages
+function showError(msg) {
+  errorMsg.textContent = msg;
+  errorMsg.classList.add('show');
+  setTimeout(() => { errorMsg.classList.remove('show'); }, 4000);
+  statusDot.className = 'error';
+  setTimeout(() => { if (!isSpeaking && !isListening) statusDot.className = ''; }, 2000);
+}
+
+// Handle page visibility - pause/resume voice to save battery
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (recognition && isListening) {
+      try { recognition.stop(); } catch {}
+    }
+  } else {
+    if (recognition && isVoiceMode) {
+      setTimeout(() => { try { recognition.start(); } catch {} }, 500);
+    }
+  }
+});
+
+// Initial load - focus hidden input for text mode always present
+window.addEventListener('load', () => {
+  setTimeout(() => input.focus(), 500);
+  // Preload voices for Web Speech API fallback
+  if ('speechSynthesis' in window) {
+    speechSynthesis.getVoices();
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+    }
+  }
+});
+
+// Network error handling - show user-friendly message if backend down
+window.addEventListener('offline', () => showError('Offline, Sir. Check internet - but Piper TTS is offline, so voice still works locally.'));
+window.addEventListener('online', () => showError('Back online, Sir.'));
+
+// Prevent context menu on orb (clean, no chrome)
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+console.log('JARVIS Orb ready - Minimal, single visual element, no chrome, Piper MUST BE free British premium');
+console.log('Text mode: type in invisible transparent input box always present (opacity 0.02, focused)');
+console.log('Voice mode: backend listens continuously via Web Speech API continuous + MediaRecorder fallback to /api/stt/');
+console.log('Orb: idle gentle breathing + floating, speaking pulses with intensity from audio analyser');
+</script>
+</body>
+</html>

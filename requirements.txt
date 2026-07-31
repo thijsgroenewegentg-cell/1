@@ -1,0 +1,73 @@
+# JARVIS - 100% FREE, No API Keys Needed, Fully Local
+# Every feature works fully free and offline (except edge-tts which is free online but no key)
+
+# Core Brain - Ollama - FREE LOCAL LLM
+ollama>=0.3.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# FastAPI for Web UI - FREE
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+
+# Tools - FREE, no keys
+duckduckgo-search>=5.0.0
+psutil>=5.9.0
+beautifulsoup4>=4.12.0
+
+# Memory / Utils - FREE
+rich>=13.7.0
+typer>=0.12.0
+pydantic>=2.6.0
+
+# Voice - STT - FREE OFFLINE
+SpeechRecognition>=3.10.0
+pyaudio>=0.2.13; sys_platform != "win32"
+faster-whisper>=1.0.0
+openai-whisper>=20231117; sys_platform == "win32"
+
+# Always-on wake word - FREE LOCAL ONNX
+openwakeword>=0.6.0
+webrtcvad>=2.0.10
+onnxruntime>=1.16.0
+
+# Voice - TTS - FULLY FREE
+pyttsx3>=2.90
+edge-tts>=6.1.10
+pygame>=2.5.0
+pydub>=0.25.1
+
+# Document Second Brain - FREE (PDFs, markdown, Notion, Obsidian)
+pypdf>=4.0.0
+python-docx>=1.1.0
+
+# Browser + Computer Use - FREE LOCAL (Playwright)
+playwright>=1.40.0
+# Install browser: playwright install chromium (free)
+
+# Proactive Agent - FREE
+apscheduler>=3.10.0
+plyer>=2.1.0
+
+# Desktop - Python Native - FREE
+customtkinter>=5.2.0
+pillow>=10.0.0
+pystray>=0.19.0
+
+# Desktop - WebView - FREE
+pywebview>=5.0.0
+
+# Optional enhancements - FREE
+chromadb>=0.5.0; python_version >= "3.10"
+python-multipart>=0.0.9
+mss>=9.0.0
+pyautogui>=0.9.54
+
+# Optional FREE offline TTS (high quality, no keys, 100% local):
+# piper-tts>=1.2.0
+# TTS>=0.22.0
+
+# OPTIONAL PAID - NOT NEEDED, ONLY IF YOU WANT BETTER QUALITY
+# elevenlabs>=1.0.0
+# openai>=1.12.0

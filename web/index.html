@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS</title>
+<link rel="icon" href="/static/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <!-- Top Bar - Minimal -->
+  <header class="topbar">
+    <div class="left">
+      <div class="logo-dot"></div>
+      <span class="logo-text">JARVIS</span>
+      <span class="model-pill" id="model-pill">jarvis • checking</span>
+    </div>
+    <div class="right">
+      <div class="status" id="status-dot" title="Ollama">
+        <span class="dot"></span>
+        <span id="status-text">connecting</span>
+      </div>
+      <button class="icon-btn" id="holo-btn" title="Movable Holographic UI - Manina Labs Style" onclick="location.href='/holo'" style="border-color:#00d4ff; color:#00d4ff">◫ Holo</button>
+      <button class="icon-btn" id="team-btn" title="Multi-Agent Team" style="border-color:#a3e635">👥</button>
+      <button class="icon-btn" id="proactive-btn" title="Proactive Briefing">🌅</button>
+      <button class="icon-btn" id="agent-btn" title="Agent Mode" style="border-color:#e6e8eb; color:#e6e8eb">⚡</button>
+      <button class="icon-btn" id="evolution-btn" title="Evolution">🧬 <span id="evolution-count">0</span></button>
+      <button class="icon-btn" id="learning-btn" title="Learnings">◐</button>
+      <button class="icon-btn" id="drawer-btn" title="Menu">☰</button>
+    </div>
+  </header>
+
+  <!-- Main Chat - Centered Minimal Column -->
+  <main class="main">
+    <div class="chat-container" id="chat">
+      <!-- Welcome -->
+      <div class="welcome" id="welcome">
+        <div class="welcome-icon">
+          <div class="reactor-mini">
+            <div class="reactor-core"></div>
+          </div>
+        </div>
+        <h1>Good evening, Sir.</h1>
+        <p>Always-on, proactive, multi-agent team. Say "Jarvis" anytime.</p>
+        <div class="suggestions" id="suggestions">
+          <button data-q="/team Research best JWT library and implement auth">👥 Team: Research + Build Auth</button>
+          <button data-q="/agent Add rate limiting to web server">⚡ Agent: Rate Limit</button>
+          <button data-q="Give me morning briefing">🌅 Briefing</button>
+          <button data-q="Improve yourself and analyze performance">🧬 Evolve</button>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap">
+          <button class="icon-btn" style="width:auto; padding:0 14px; border-radius:20px; border-color:var(--border2)" onclick="document.getElementById('team-btn').click()">👥 Team Mode</button>
+          <button class="icon-btn" style="width:auto; padding:0 14px; border-radius:20px; border-color:var(--border2)" onclick="document.getElementById('agent-btn').click()">⚡ Agent Mode</button>
+          <button class="icon-btn" style="width:auto; padding:0 14px; border-radius:20px; border-color:var(--border2)" onclick="triggerBriefing('morning')">🌅 Briefing</button>
+        </div>
+        <div id="briefing-preview" style="margin-top:20px; max-width:600px; text-align:left; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; display:none; font-size:13px; line-height:1.5"></div>
+        <div class="learning-badge" id="learning-badge" style="display:none">
+          <span>🧠 Learning: <span id="learning-text"></span></span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Input - Minimal Floating -->
+  <div class="input-wrap">
+    <div class="input-container">
+      <textarea id="input" placeholder="Message JARVIS..." rows="1" autocomplete="off"></textarea>
+      <button id="send" class="send-btn" aria-label="Send">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+      </button>
+    </div>
+    <div class="input-footer">
+      <span>JARVIS runs locally • Private • Self-learning • Self-evolving <span id="evo-badge" style="opacity:0.5"></span></span>
+      <span id="token-count"></span>
+    </div>
+  </div>
+
+  <!-- Drawer - Hidden by default, slides from right -->
+  <div class="drawer-overlay" id="drawer-overlay"></div>
+  <aside class="drawer" id="drawer">
+    <div class="drawer-header">
+      <h3>System</h3>
+      <button class="icon-btn" id="drawer-close">✕</button>
+    </div>
+    <div class="drawer-content">
+      <div class="section">
+        <h4>Model</h4>
+        <select id="model-select" class="select-minimal">
+          <option value="jarvis">jarvis (custom)</option>
+          <option value="qwen2.5:7b">qwen2.5:7b — best tools</option>
+          <option value="llama3.1:8b">llama3.1:8b</option>
+          <option value="mistral-nemo">mistral-nemo</option>
+          <option value="gemma2:9b">gemma2:9b — fast</option>
+        </select>
+        <small>Best: qwen2.5:7b for self-learning</small>
+      </div>
+
+      <div class="section">
+        <h4>Learning • Self-Evolving</h4>
+        <div class="stat-grid">
+          <div class="stat"><span id="stat-vectors">0</span><small>memories</small></div>
+          <div class="stat"><span id="stat-satisfaction">—</span><small>satisfaction</small></div>
+          <div class="stat"><span id="stat-msgs">0</span><small>interactions</small></div>
+        </div>
+        <div class="stat-grid" style="margin-top:8px">
+          <div class="stat"><span id="stat-evolutions">0</span><small>evolutions</small></div>
+          <div class="stat"><span id="stat-critic">—</span><small>critic /10</small></div>
+          <div class="stat"><span id="stat-trend">—</span><small>trend</small></div>
+        </div>
+        <div id="profile-summary" class="profile-box">No profile yet, Sir. Talk to me and I'll learn.</div>
+        <button class="btn-minimal" id="btn-reflect">Reflect now</button>
+        <button class="btn-minimal secondary" id="btn-learnings">View all learnings</button>
+        <button class="btn-minimal" id="btn-evolve" style="background:#e6e8eb; color:#08090a; margin-top:8px">🧬 Improve yourself</button>
+        <button class="btn-minimal secondary" id="btn-evolution-history">Evolution history</button>
+        <button class="btn-minimal secondary" id="btn-analyze">Analyze performance</button>
+      </div>
+
+      <div class="section">
+        <h4>Memory</h4>
+        <div id="memory-list" class="memory-minimal">Loading...</div>
+      </div>
+
+      <div class="section">
+        <h4>Actions</h4>
+        <button class="btn-minimal secondary" onclick="clearChat()">Clear chat</button>
+        <button class="btn-minimal secondary" onclick="clearLearnings()">Clear learnings</button>
+        <button class="btn-minimal secondary" id="voice-toggle">Voice: Off</button>
+      </div>
+
+      <div class="section">
+        <h4>Always-On & Proactive</h4>
+        <div style="display:flex; flex-direction:column; gap:6px">
+          <div style="display:flex; justify-content:space-between; font-size:12px"><span>Wake Word</span><span id="wakeword-status" style="opacity:0.6">checking...</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:12px"><span>Proactive</span><span id="proactive-status-text" style="opacity:0.6">checking...</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:12px"><span>Team</span><span id="team-status-text" style="opacity:0.6">ready</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:12px"><span>Codebase</span><span id="codebase-status" style="opacity:0.6">0 files</span></div>
+        </div>
+        <button class="btn-minimal secondary" id="btn-trigger-briefing" style="margin-top:8px">Trigger Morning Briefing Now</button>
+        <button class="btn-minimal secondary" id="btn-always-on-test">Test Wake Word</button>
+      </div>
+
+      <div class="section small">
+        <p>Stark Industries • Local • Ollama • Self-Evolving<br>
+        <span id="uptime">00:00:00</span> uptime • <span id="wakeword-engine">-</span></p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Toast for learnings -->
+  <div class="toast-container" id="toast-container"></div>
+</div>
+
+<!-- Learnings Modal -->
+<div class="modal-overlay" id="learnings-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>What I've Learned</h3>
+      <button class="icon-btn" id="learnings-close">✕</button>
+    </div>
+    <div class="modal-body" id="learnings-body">Loading...</div>
+  </div>
+</div>
+
+<!-- Evolution Modal -->
+<div class="modal-overlay" id="evolution-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Self-Evolution History</h3>
+      <button class="icon-btn" id="evolution-close">✕</button>
+    </div>
+    <div class="modal-body" id="evolution-body">Loading...</div>
+  </div>
+</div>
+
+<!-- Agent Modal -->
+<div class="modal-overlay" id="agent-modal">
+  <div class="modal" style="max-width:800px; width:95%; max-height:90vh">
+    <div class="modal-header">
+      <h3>⚡ Autonomous Coding Agent</h3>
+      <button class="icon-btn" id="agent-close">✕</button>
+    </div>
+    <div class="modal-body" id="agent-body" style="padding:0">
+      <div style="padding:20px; border-bottom:1px solid var(--border)">
+        <div style="display:flex; gap:10px">
+          <input id="agent-task-input" placeholder="Describe task: e.g. Add unit tests for brain.py, Implement dark mode toggle, Fix auth bug..." style="flex:1; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:12px 14px; border-radius:8px; font-family:inherit"/>
+          <button id="agent-start-btn" class="btn-minimal" style="width:auto; padding:0 20px; background:#e6e8eb; color:#08090a">Start Agent</button>
+        </div>
+        <small style="opacity:0.5; margin-top:8px; display:block">Agent will plan → code → test → fix → commit autonomously. Takes 1-10 minutes. You can watch live.</small>
+      </div>
+      <div id="agent-plan" style="padding:16px 20px; display:none">
+        <h4 style="font-size:11px; opacity:0.6; text-transform:uppercase; margin-bottom:10px">Plan</h4>
+        <div id="agent-todos"></div>
+      </div>
+      <div id="agent-log" style="padding:0 20px 20px; max-height:400px; overflow-y:auto; font-family:'JetBrains Mono', monospace; font-size:12px; background:#0a0a0a; margin:0 20px; border-radius:8px; border:1px solid var(--border)">
+        <div style="padding:20px; opacity:0.5">Awaiting task, Sir...</div>
+      </div>
+      <div id="agent-result" style="padding:16px 20px; display:none"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Team Modal -->
+<div class="modal-overlay" id="team-modal">
+  <div class="modal" style="max-width:850px; width:95%; max-height:90vh">
+    <div class="modal-header">
+      <h3>👥 Multi-Agent Team — Planner • Researcher • Coder • Reviewer</h3>
+      <button class="icon-btn" id="team-close">✕</button>
+    </div>
+    <div class="modal-body" id="team-body" style="padding:0">
+      <div style="padding:20px; border-bottom:1px solid var(--border)">
+        <div style="display:flex; gap:10px">
+          <input id="team-task-input" placeholder="Complex task: e.g. Research best auth lib and implement JWT auth with tests..." style="flex:1; background:var(--panel); border:1px solid var(--border); color:var(--text); padding:12px 14px; border-radius:8px; font-family:inherit"/>
+          <button id="team-start-btn" class="btn-minimal" style="width:auto; padding:0 20px; background:#a3e635; color:#08090a">Start Team</button>
+        </div>
+        <small style="opacity:0.5; margin-top:8px; display:block">Supervisor → Planner → Researcher → Coder → Reviewer collaborate. For complex tasks that need research + planning + coding + review.</small>
+      </div>
+      <div id="team-status" style="padding:12px 20px; font-size:12px; font-family:'JetBrains Mono', monospace; opacity:0.7; background:var(--panel); border-bottom:1px solid var(--border); display:none"></div>
+      <div id="team-plan" style="padding:16px 20px; display:none">
+        <h4 style="font-size:11px; opacity:0.6; text-transform:uppercase; margin-bottom:10px">Team Plan</h4>
+        <div id="team-todos"></div>
+      </div>
+      <div id="team-log" style="padding:0 20px 20px; max-height:400px; overflow-y:auto; font-family:'JetBrains Mono', monospace; font-size:12px; background:#0a0a0a; margin:0 20px; border-radius:8px; border:1px solid var(--border)">
+        <div style="padding:20px; opacity:0.5">Team awaiting task, Sir... Try: "Research best rate limiting lib for FastAPI and implement"</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Proactive Modal -->
+<div class="modal-overlay" id="proactive-modal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h3>🌅 Proactive Agent — Morning Briefing & Git Watcher</h3>
+      <button class="icon-btn" id="proactive-close">✕</button>
+    </div>
+    <div class="modal-body" id="proactive-body">
+      <div style="display:flex; gap:8px; margin-bottom:16px">
+        <button class="btn-minimal" id="btn-morning-brief" style="flex:1">🌅 Morning Briefing</button>
+        <button class="btn-minimal secondary" id="btn-evening-summary" style="flex:1">🌙 Evening Summary</button>
+      </div>
+      <div id="proactive-status">Loading status, Sir...</div>
+      <div id="proactive-briefing" style="margin-top:16px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px; font-size:13px; line-height:1.6; display:none"></div>
+      <div id="proactive-notifications" style="margin-top:16px"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
