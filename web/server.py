@@ -108,6 +108,13 @@ async def serve_ui():
         return FileResponse(str(ui_path))
     return HTMLResponse("<h1>JARVIS UI not found</h1>")
 
+@app.get("/holo")
+async def serve_holo():
+    holo_path = Path(__file__).parent / "holo.html"
+    if holo_path.exists():
+        return FileResponse(str(holo_path))
+    return HTMLResponse("<h1>Holo UI not found</h1><a href='/'>Back to minimal</a>")
+
 @app.get("/api/status")
 async def get_status():
     b = get_brain()
@@ -244,6 +251,41 @@ async def list_backups(file_path: str = None):
             backups = sorted(backup_dir.rglob("*.bak"), key=lambda x: x.stat().st_mtime, reverse=True)[:20]
         return {"backups": [{"path": str(b), "file": b.name, "mtime": b.stat().st_mtime, "size": b.stat().st_size} for b in backups]}
     except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/voice/presets")
+async def voice_presets():
+    try:
+        from jarvis.voice.premium import VOICE_PRESETS
+        return {"presets": VOICE_PRESETS}
+    except Exception as e:
+        return {"error": str(e), "presets": {}}
+
+class TTSRequest(BaseModel):
+    text: str
+    engine: str = "edge"
+    preset: str = "manina_premium"
+
+@app.post("/api/voice/speak")
+async def voice_speak(req: TTSRequest):
+    try:
+        from jarvis.voice.premium import get_premium_tts
+        tts = get_premium_tts(engine=req.engine, preset=req.preset)
+        # Generate audio file
+        import asyncio
+        audio_path = await tts.speak_async(req.text)
+        if not audio_path:
+            return {"error": "TTS generation failed"}
+        # Return file as response? For now return path and let client play via static?
+        # Move file to web/static temp
+        from pathlib import Path
+        static_temp = Path(__file__).parent / "tts_temp.mp3"
+        import shutil
+        shutil.copy(audio_path, static_temp)
+        return {"status": "ok", "audio_url": "/static/tts_temp.mp3", "engine": req.engine, "preset": req.preset, "text": req.text[:100]}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"error": str(e)}
 
 # Proactive Endpoints

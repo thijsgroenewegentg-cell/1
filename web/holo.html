@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JARVIS — Movable Holographic UI</title>
+<link rel="icon" href="/static/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/holo.css">
+</head>
+<body>
+<div class="holo-bg">
+  <div class="grid"></div>
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+</div>
+
+<header class="holo-topbar">
+  <div class="left">
+    <div class="arc-reactor-small">
+      <div class="arc-ring"></div>
+      <div class="arc-core"></div>
+    </div>
+    <span class="logo">J.A.R.V.I.S</span>
+    <span class="sub">MOVABLE • MANINA LABS STYLE • PREMIUM VOICE</span>
+  </div>
+  <div class="right">
+    <span class="model-pill" id="model-pill">jarvis • online</span>
+    <button id="add-panel-btn" class="holo-btn">+ Panel</button>
+    <button id="layout-save-btn" class="holo-btn secondary">Save Layout</button>
+    <button id="layout-reset-btn" class="holo-btn secondary">Reset</button>
+    <button id="voice-preset-btn" class="holo-btn">🎙️ Voice</button>
+    <button id="back-minimal" class="holo-btn secondary" onclick="location.href='/'">Minimal</button>
+  </div>
+</header>
+
+<!-- Canvas for movable panels -->
+<div id="canvas" class="canvas">
+  <!-- Panels will be injected here -->
+</div>
+
+<!-- Add Panel Menu -->
+<div id="panel-menu" class="panel-menu">
+  <h4>Add Holographic Panel</h4>
+  <div class="panel-menu-grid">
+    <button data-type="chat">💬 Chat</button>
+    <button data-type="codebase">🧠 Codebase</button>
+    <button data-type="git">📦 Git</button>
+    <button data-type="agent">⚡ Agent</button>
+    <button data-type="team">👥 Team</button>
+    <button data-type="proactive">🌅 Briefing</button>
+    <button data-type="memory">◐ Memory</button>
+    <button data-type="evolution">🧬 Evolution</button>
+    <button data-type="terminal">🖥️ Terminal</button>
+    <button data-type="system">📊 System</button>
+    <button data-type="selfedit">🔧 Self-Edits</button>
+    <button data-type="voice">🎙️ Voice Lab</button>
+  </div>
+  <button id="panel-menu-close" class="holo-btn secondary" style="width:100%; margin-top:12px">Close</button>
+</div>
+
+<!-- Voice Lab Modal -->
+<div id="voice-modal" class="modal-overlay">
+  <div class="modal holo-modal">
+    <div class="modal-header">
+      <h3>🎙️ Premium Voice Lab — Manina Labs Style</h3>
+      <button id="voice-modal-close" class="holo-btn secondary">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="voice-presets" id="voice-presets">
+        <!-- Presets injected -->
+      </div>
+      <div style="margin-top:16px">
+        <label style="font-size:11px; opacity:0.6; text-transform:uppercase">Test Text</label>
+        <textarea id="voice-test-text" style="width:100%; background:#0a0a0a; border:1px solid #222; color:#e6e8eb; padding:12px; border-radius:8px; font-family:inherit; margin-top:6px" rows="3">Good evening, Sir. I am JARVIS. Premium voice model online. Just a rather very intelligent system. Movable holographic interface active, Sir.</textarea>
+        <div style="display:flex; gap:8px; margin-top:10px">
+          <select id="voice-engine-select" style="flex:1; background:#15171a; border:1px solid #2a2d33; color:#e6e8eb; padding:10px; border-radius:8px">
+            <option value="edge">Edge TTS + Premium FX (Free, Manina-style)</option>
+            <option value="elevenlabs">ElevenLabs (Best, needs API key)</option>
+            <option value="openai">OpenAI TTS (HD)</option>
+            <option value="xtts">XTTS v2 Local Clone (2GB model)</option>
+          </select>
+          <button id="voice-test-btn" class="holo-btn" style="background:#e6e8eb; color:#08090a">Speak</button>
+        </div>
+        <small style="opacity:0.5; margin-top:8px; display:block">
+          Manina's premium = deep British, cinematic reverb + bass boost. Edge with FX is free and close. ElevenLabs best quality. XTTS local cloning: place WAV in data/voices/manina_premium.wav and install TTS.
+        </small>
+        <div id="voice-status" style="margin-top:10px; font-size:12px; font-family:'JetBrains Mono'; opacity:0.6"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/holo.js"></script>
+</body>
+</html>
