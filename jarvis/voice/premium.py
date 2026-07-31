@@ -75,12 +75,13 @@ VOICE_PRESETS = {
 class PremiumTTS:
     def __init__(self, engine: str = None, voice_preset: str = None, voice_id: str = None):
         """
-        100% FREE engines: edge, piper, xtts, pyttsx3
-        Optional paid: elevenlabs, openai (requires API keys, NOT needed)
+        MUST BE PIPER: 100% FREE, OFFLINE, NO API KEYS - Manina premium style
+        100% FREE engines: piper (MUST, best offline), edge (free online fallback), xtts (free clone), pyttsx3 (fallback)
+        Optional paid NOT needed: elevenlabs, openai
         
-        engine: edge (default free), piper (best free offline), xtts (free local clone), pyttsx3 (free offline fallback)
+        engine: piper (MUST, best free offline British high quality), edge (free online fallback with FX), xtts (free local clone)
         """
-        self.engine = engine or os.getenv("TTS_ENGINE", "edge")
+        self.engine = engine or os.getenv("TTS_ENGINE", "piper")
         self.voice_preset_name = voice_preset or os.getenv("PREMIUM_VOICE_STYLE", "manina_premium")
         self.preset = VOICE_PRESETS.get(self.voice_preset_name, VOICE_PRESETS["manina_premium"])
         self.voice_id = voice_id or os.getenv("TTS_VOICE", self.preset["edge_voice"])
@@ -249,29 +250,49 @@ class PremiumTTS:
     
     async def _piper_tts(self, text: str) -> str:
         """
-        Piper TTS - 100% FREE, OFFLINE, HIGH QUALITY
-        Best free offline TTS, British voices, sounds very premium
+        Piper TTS - 100% FREE, OFFLINE, HIGH QUALITY - MUST BE PIPER
+        Best free offline TTS, British voices, sounds very premium, Manina style
+        Auto-downloads model if not exists, fully free
         """
         try:
             import piper
             import wave
             import json
             
-            # Find or download model
             piper_voice = self.preset.get("piper_voice", "en_GB-alan-medium")
-            # Model files: .onnx and .onnx.json
             model_path = self.piper_models_dir / f"{piper_voice}.onnx"
             config_path = self.piper_models_dir / f"{piper_voice}.onnx.json"
             
-            if not model_path.exists():
-                print(f"Piper model {piper_voice} not found locally, downloading... (this is free)")
-                # Try to download via piper's download? For now fallback to edge and instruct
-                # In real use, user should download model via:
-                # python -m piper.download_voices en_GB-alan-medium
-                # For now fallback
-                print(f"To get 100% free offline premium voice, run:\n  python -m piper.download_voices {piper_voice}\n  Or pip install piper-tts and download from https://github.com/rhasspy/piper/releases")
-                # Fallback to edge for now
-                return await self._edge_tts(text)
+            if not model_path.exists() or not config_path.exists():
+                print(f"Piper model {piper_voice} not found, auto-downloading 100% FREE...")
+                try:
+                    import requests
+                    # Try huggingface direct download
+                    parts = piper_voice.split('-')
+                    if len(parts) >= 3:
+                        name = parts[1]
+                        quality = parts[2]
+                        base_url = f"https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/{name}/{quality}"
+                        model_url = f"{base_url}/{piper_voice}.onnx"
+                        config_url = f"{base_url}/{piper_voice}.onnx.json"
+                        self.piper_models_dir.mkdir(parents=True, exist_ok=True)
+                        if not model_path.exists():
+                            print(f"Downloading {model_url} (free)...")
+                            resp = requests.get(model_url, timeout=30)
+                            if resp.status_code == 200:
+                                model_path.write_bytes(resp.content)
+                                print(f"✓ Downloaded {model_path.name} {len(resp.content)//1024}KB free")
+                        if not config_path.exists():
+                            resp = requests.get(config_url, timeout=15)
+                            if resp.status_code == 200:
+                                config_path.write_bytes(resp.content)
+                                print(f"✓ Downloaded {config_path.name} free")
+                except Exception as e:
+                    print(f"Auto-download failed: {e}")
+                
+                if not model_path.exists() or not config_path.exists():
+                    print(f"Piper model still missing. Install via:\n  pip install piper-tts --break-system-packages\n  python -m piper.download_voices {piper_voice} --data-dir {self.piper_models_dir}\nFalling back to edge (free) for now.")
+                    return await self._edge_tts(text)
             
             # Load voice
             voice = piper.PiperVoice.load(str(model_path), str(config_path))

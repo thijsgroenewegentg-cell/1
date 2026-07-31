@@ -13,11 +13,11 @@ class Config:
     FALLBACK_MODELS: list = os.getenv("FALLBACK_MODELS", "qwen2.5:7b,llama3.1:8b,mistral-nemo,gemma2:9b").split(",")
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 
-    # Voice
+    # Voice - MUST BE PIPER - 100% FREE OFFLINE, NO API KEYS
     VOICE_ENABLED: bool = os.getenv("VOICE_ENABLED", "false").lower() == "true"
     WAKE_WORD: str = os.getenv("WAKE_WORD", "jarvis")
-    TTS_ENGINE: str = os.getenv("TTS_ENGINE", "edge")
-    TTS_VOICE: str = os.getenv("TTS_VOICE", "en-GB-RyanNeural")
+    TTS_ENGINE: str = os.getenv("TTS_ENGINE", "piper")  # MUST BE PIPER: 100% free offline, high quality British
+    TTS_VOICE: str = os.getenv("TTS_VOICE", "en_GB-alan-medium")  # Piper voice: British male, Manina premium style
     STT_ENGINE: str = os.getenv("STT_ENGINE", "faster-whisper")
 
     # Memory & Learning
