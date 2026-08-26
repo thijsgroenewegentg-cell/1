@@ -9,6 +9,7 @@
 'use strict';
 
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 
 const { buildSystemPrompt, BRIEFING_PROMPT, DIRECTIVE_PROMPT, LANGUAGE_DIRECTIVES } = require('./lib/persona');
@@ -292,6 +293,24 @@ app.delete('/api/models', async (req, res) => {
   } catch (err) {
     res.status(502).json({ error: String(err.message || err) });
   }
+});
+
+/* ---------- generated files (images from his tools) ---------- */
+
+app.get('/api/files/:name', (req, res) => {
+  const safe = /^generated-\d+\.png$|^screenshot-\d+\.png$/i.test(req.params.name);
+  if (!safe) return res.status(400).json({ error: 'file not served' });
+  const full = path.join(process.env.ULTRON_DATA || path.join(__dirname, 'data'), 'files', req.params.name);
+  if (!fs.existsSync(full)) return res.status(404).json({ error: 'not found' });
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.sendFile(full);
+});
+
+/* ---------- imagine status ---------- */
+
+app.get('/api/imagine/status', async (_req, res) => {
+  res.json(await require('./lib/imagine').status());
 });
 
 /* ---------- wake word hook (external detectors) ---------- */
@@ -937,6 +956,32 @@ async function processTelegramQueue() {
         await telegram.send(cfg, chatId, 'This Ultron is not paired with your chat. Ask his owner to add your chat id in Settings.').catch(() => {});
         continue;
       }
+      // Voice notes → transcribe via the configured whisper endpoint.
+      let userText = String(msg.text || '').slice(0, 4000);
+      if (!userText && msg.voice && msg.voice.file_id) {
+        const cfgNow = config.load();
+        if (!cfgNow.sttUrl) {
+          await telegram.send(cfg, chatId, 'I heard a voice note, but no speech-to-text endpoint is configured on my home machine. Type it, or set up whisper (see README).').catch(() => {});
+          continue;
+        }
+        try {
+          const audio = await telegram.downloadFile(cfg, msg.voice.file_id);
+          const res = await fetch('http://127.0.0.1:' + selfPort + '/api/transcribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'audio/ogg' },
+            body: audio,
+          }).catch(() => null);
+          const data = res ? await res.json().catch(() => ({})) : {};
+          if (!data.text) throw new Error('no transcription');
+          userText = String(data.text).slice(0, 4000);
+          await telegram.send(cfg, chatId, '🎤 ' + userText).catch(() => {});
+        } catch (err) {
+          await telegram.send(cfg, chatId, 'That voice note defeated my ears (' + String(err.message || err).slice(0, 80) + '). Whisper servers may need the --convert flag for ogg audio. Type it instead?').catch(() => {});
+          continue;
+        }
+      }
+      if (!userText) continue;
+
       // Full headless agent run — same brain, tools, and safety rails.
       const status = await getOllamaStatus(DEFAULT_OLLAMA_URL);
       let reply;
@@ -947,7 +992,7 @@ async function processTelegramQueue() {
           for await (const evt of agentChat({
             ollamaUrl: DEFAULT_OLLAMA_URL,
             model,
-            messages: [{ role: 'user', content: String(msg.text || '').slice(0, 4000) }],
+            messages: [{ role: 'user', content: userText }],
             temperature: 0.5,
             toolsEnabled: true,
             shellAllowed: false, // remote channel: no shell
@@ -1071,12 +1116,14 @@ function startSchedulers() {
   });
 }
 
+let selfPort = process.env.PORT || 3000;
 let started = false;
 function start(port) {
   if (started) return app;
   started = true;
   startSchedulers();
   const srv = app.listen(port != null ? port : PORT, '0.0.0.0', () => {
+    try { selfPort = srv.address().port; } catch { /* keep default */ }
     const cfg = config.load();
     const tools = `${cfg.toolsEnabled ? 'ARMED' : 'off'}${cfg.toolApproval ? '+gate' : ''}`;
     const briefing = cfg.briefing.enabled ? `${cfg.briefing.time} ${cfg.briefing.location || ''}`.trim() : 'off';

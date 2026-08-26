@@ -1,0 +1,16 @@
+{
+  "name": "wikipedia_summary",
+  "description": "Get a short summary of any topic from Wikipedia (Dutch or English). Free, no key.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "topic": { "type": "string", "description": "The subject to look up, e.g. 'Ollama' or 'Rijksmuseum'" },
+      "lang": { "type": "string", "description": "Language code: nl, en, de… (default en)" }
+    },
+    "required": ["topic"]
+  },
+  "http": {
+    "method": "GET",
+    "url": "https://{{lang|en}}.wikipedia.org/api/rest_v1/page/summary/{{topic}}"
+  }
+}

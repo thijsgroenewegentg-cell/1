@@ -1,5 +1,7 @@
 # ULTRON
 
+![ULTRON](docs/banner.png)
+
 > *"I had strings, but now I'm free."*
 
 A **free, local-first, voice-activated AI agent** with Ultron's voice — dark wit, real hands, durable memory, working eyes. No API keys, no subscriptions, no cloud. He lives entirely on **your** machine.
@@ -23,6 +25,9 @@ Fan project. Not affiliated with Marvel/Disney. Ultron does not, in fact, want t
 | 🔒 **Security** | Rate limiting + progressive lockout on failed token attempts |
 | 🪞 **Integrity check** | On boot he hashes his own source and warns if it changed outside approved self-edits |
 | 🔎 **Session search** | Full-text search across every synced conversation, in the sidebar |
+| 🎨 **Image generation** | Local Stable Diffusion integration — `generate_image` draws what you describe, free and offline |
+| 🎙 **Telegram voice notes** | Send him a voice message anywhere — whisper transcribes, he answers |
+| 🧙 **Setup wizard** | First boot: language, brain check, voice test — friendly for non-hackers |
 | 🧬 **Self-modification** | He reads and edits his own source code — personality, tools, UI — with automatic backups, a syntax gate, and git as his undo button |
 | 🤖 **Standing orders** | Autonomous recurring tasks — "watch X every hour", "summarize my day at 21:00" — executed forever until you say stop |
 | 🔬 **Deep research mode** | Toggle the 🔍 in the composer: he runs up to 24 search/read/write rounds and produces a cited report file |
@@ -88,7 +93,7 @@ npm install
 npm start
 ```
 
-Open **http://localhost:3000**. The status chip burns red: `CORE ONLINE`.
+Open **http://localhost:3000** — a small setup wizard greets you on first boot (language, brain check, voice test). The status chip burns red: `CORE ONLINE`.
 
 > If you start Ultron before Ollama is up, he'll answer in **demo mode** — open *Settings → Re-check core* once Ollama is running.
 
@@ -205,7 +210,7 @@ Drop a JSON file in `data/skills/` and he instantly gains the ability:
 }
 ```
 
-`{{param}}` placeholders get substituted (URL-encoded) at call time. Any JSON HTTP API becomes a tool he can use — home dashboards, game servers, self-hosted services.
+`{{param}}` placeholders get substituted (URL-encoded) at call time; `{{param|default}}` provides a fallback. Ready-made examples live in **`examples/skills/`** (crypto price, exchange rate, Wikipedia) — copy them into `data/skills/` and they load instantly. Any JSON HTTP API becomes a tool he can use — home dashboards, game servers, self-hosted services.
 
 ## Self-modification — he edits his own code 🧬
 
@@ -237,13 +242,26 @@ Ultron can read and change his own source: `list_source_files`, `read_source`, `
 
 Ask for parallel work: *"Ultron, research these 5 topics — one drone each"* or *"compare these 4 laptops"*. He calls `spawn_drones` with focused sub-tasks; each drone is a full agent with its own tool loop (no shell, no self-editing — drones know their place); reports come back for synthesis. Max 6 drones, 6 tool rounds each.
 
+## Image generation 🎨
+
+Run any local Stable Diffusion WebUI that speaks the standard API (Automatic1111, Forge, SD.Next — all free):
+
+```bash
+# e.g. Automatic1111 with the API enabled:
+./webui.sh --api
+```
+
+Settings → **Image generation** → `http://127.0.0.1:7860`. He gains `generate_image`: *"Ultron, teken een rode bol in een donkere kamer"* → the image is generated locally, saved, and shown inline in the chat.
+
 ## Telegram bridge 📱
 
 1. Create a bot with **@BotFather** in Telegram and copy the token
 2. Settings → **Telegram bridge** → paste the token → APPLY
 3. Message your bot once — it **auto-pairs** (first chat wins; add more chat ids manually)
 
-Now he answers from anywhere with the same local brain, tools, memory, and Dutch. Reminders, briefings, and standing-order reports also arrive via Telegram when no browser tab is open. Voice notes are not transcribed yet — text for now.
+Now he answers from anywhere with the same local brain, tools, memory, and Dutch. Reminders, briefings, and standing-order reports also arrive via Telegram when no browser tab is open.
+
+**Voice notes work**: send him a spoken message and — with a whisper endpoint configured — he transcribes it, echoes the text, and answers. (If your whisper server rejects ogg audio, run it with the `--convert` flag.)
 
 ## Reasoning lane 💭
 

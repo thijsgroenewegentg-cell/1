@@ -29,14 +29,29 @@ function start(port, host = '127.0.0.1') {
         } else if (stage === 2) {
           updates = [{ update_id: 2, message: { chat: { id: 12345 }, text: 'wat is twee plus twee' } }];
           stage = 3;
+        } else if (stage === 4) {
+          updates = [{ update_id: 3, message: { chat: { id: 12345 }, voice: { file_id: 'VOICETEST', duration: 2 } } }];
+          stage = 5;
         }
         res.end(JSON.stringify({ ok: true, result: updates }));
+        return;
+      }
+      if (req.url.includes('/getFile')) {
+        const p = JSON.parse(text);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, result: { file_id: p.file_id, file_path: 'voice/note.oga' } }));
+        return;
+      }
+      if (req.url.includes('/file/botTESTTOKEN/voice/note.oga')) {
+        res.writeHead(200, { 'Content-Type': 'audio/ogg' });
+        res.end(Buffer.from('FAKE-OGG-OPUS-AUDIO-BYTES'));
         return;
       }
       if (req.url.includes('/sendMessage')) {
         const p = JSON.parse(text);
         sent.push({ chat_id: p.chat_id, text: String(p.text || '') });
         if (stage === 1 && /Pairing complete/.test(p.text || '')) stage = 2;
+        if (stage === 3 && /model=/.test(p.text || '')) stage = 4;
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, result: { message_id: sent.length } }));
         return;

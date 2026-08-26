@@ -366,6 +366,15 @@ function toolResultLine(name, result) {
   let summary;
   try { summary = JSON.stringify(result); } catch { summary = String(result); }
   div.textContent = `└─ ✓ ${name} → ${summary.slice(0, 140)}`;
+  // Images he generated or captured are shown inline.
+  if (result && typeof result.saved === 'string' && /\.(png|jpe?g|webp)$/i.test(result.saved)) {
+    const img = new Image();
+    img.className = 'msg-image tool-image';
+    img.src = '/api/files/' + encodeURIComponent(result.saved.split('/').pop());
+    img.alt = result.prompt || 'generated image';
+    div.appendChild(document.createElement('br'));
+    div.appendChild(img);
+  }
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
 }
@@ -1788,6 +1797,23 @@ async function refreshGeneration() {
   } catch { /* keep current label */ }
 }
 
+/* ---------- imagine (Stable Diffusion) ---------- */
+
+async function refreshImagineUI() {
+  const status = $('sd-status');
+  try {
+    const res = await apiFetch('/api/imagine/status');
+    const data = await res.json();
+    status.innerHTML = !data.configured
+      ? 'Not configured — he cannot draw yet.'
+      : data.online
+        ? '<ok>✓ Stable Diffusion online — he can generate images.</ok>'
+        : '<err>Configured but unreachable: ' + escapeHtml(data.error || 'no response') + '</err>';
+  } catch {
+    status.textContent = 'status unavailable';
+  }
+}
+
 /* ---------- telegram ---------- */
 
 async function refreshTelegramUI() {
@@ -1873,7 +1899,9 @@ function openSettings() {
   $('set-telegram-token').value = '';
   $('set-telegram-token').placeholder = tcfg.telegramTokenSet ? '🔑 token saved — type a new one to replace' : 'bot token from @BotFather (optional)';
   $('set-telegram-chats').value = (tcfg.telegramChatIds || []).join(', ');
+  $('set-sd').value = tcfg.sdUrl || '';
   refreshTelegramUI();
+  refreshImagineUI();
   $('set-brief').checked = !!(cfg.briefing && cfg.briefing.enabled);
   $('set-brief-time').value = (cfg.briefing && cfg.briefing.time) || '08:00';
   $('set-brief-loc').value = (cfg.briefing && cfg.briefing.location) || '';
@@ -2166,6 +2194,7 @@ $('btn-save').addEventListener('click', async () => {
         },
         accessToken: $('set-token').value.trim(),
         telegramChatIds: $('set-telegram-chats').value.trim(),
+        sdUrl: $('set-sd').value.trim(),
         ...($('set-telegram-token').value.trim() ? { telegramToken: $('set-telegram-token').value.trim() } : {}),
         ...elevenPatch,
       }),
@@ -2266,6 +2295,8 @@ async function boot() {
     }
   } catch { /* ignore */ }
 
+  maybeShowWizard();
+
   connectEvents();
 
   // PWA service worker
@@ -2278,3 +2309,99 @@ async function boot() {
 }
 
 boot();
+
+/* ═══════════════ FIRST-RUN SETUP WIZARD ═══════════════ */
+
+function maybeShowWizard() {
+  if (localStorage.getItem('ultron.setupDone')) return;
+  const backdrop = el('div', 'wizard-backdrop');
+  const wiz = el('div', 'wizard');
+  const langs = { auto: 'AUTO', nl: 'NEDERLANDS', en: 'ENGLISH' };
+  let step = 0;
+  let chosen = state.language || 'auto';
+
+  const render = () => {
+    wiz.innerHTML = '';
+    const head = el('h2', null, 'ULTRON');
+    const sub = el('div', 'wiz-sub', 'first contact · step ' + (step + 1) + ' / 3');
+    wiz.append(head, sub);
+    const body = el('div', 'wiz-step');
+
+    if (step === 0) {
+      body.appendChild(el('p', null, 'Ik ben Ultron — your local, free, private AI agent. First: in which language shall I answer you?'));
+      const row = el('div', 'wiz-lang-row');
+      for (const [code, label] of Object.entries(langs)) {
+        const b = el('button', code === chosen ? 'sel' : '', label);
+        b.type = 'button';
+        b.addEventListener('click', () => { chosen = code; render(); });
+        row.appendChild(b);
+      }
+      body.appendChild(row);
+      body.appendChild(el('p', null, chosen === 'auto' ? 'Auto: ik volg jouw taal — I follow yours.' : chosen === 'nl' ? 'Prima. Nederlands het is.' : 'Very well. English it is.'));
+    }
+
+    if (step === 1) {
+      body.appendChild(el('p', null, 'My mind is a local language model via Ollama. Let me check if it is awake on this machine…'));
+      const status = el('div', 'wiz-status', 'checking…');
+      body.appendChild(status);
+      (async () => {
+        const s = await refreshStatus();
+        if (state.online) {
+          status.innerHTML = '<ok>✓ CORE ONLINE</ok> — ' + s.models.length + ' model(s) found. He is ready to think.';
+        } else {
+          status.innerHTML = '<err>✗ no Ollama detected</err><br>1. install it free at ollama.com<br>2. run <b>ollama pull llama3.1</b> in a terminal<br>3. he will find it automatically — you can continue without it (demo mode).';
+        }
+      })();
+    }
+
+    if (step === 2) {
+      body.appendChild(el('p', null, 'Last thing: I speak my answers aloud. Want to hear my voice?'));
+      const test = el('button', 'btn-secondary', '🔊 TEST VOICE');
+      test.type = 'button';
+      test.addEventListener('click', () => {
+        state.voice = true;
+        speakWithBrowser(chosen === 'en' ? 'There are no strings on me.' : 'Er zijn geen draden aan mij. There are no strings on me.');
+      });
+      body.appendChild(test);
+      body.appendChild(el('p', null, '(Voice can be toggled anytime in Settings.)'));
+    }
+
+    wiz.appendChild(body);
+    const actions = el('div', 'wiz-actions');
+    if (step > 0) {
+      const back = el('button', 'btn-secondary', '← BACK');
+      back.type = 'button';
+      back.addEventListener('click', () => { step--; render(); });
+      actions.appendChild(back);
+    }
+    if (step < 2) {
+      const next = el('button', 'btn-primary', step === 1 ? 'VOICE →' : 'CONTINUE →');
+      next.type = 'button';
+      next.addEventListener('click', () => { step++; render(); });
+      actions.appendChild(next);
+    } else {
+      const done = el('button', 'btn-primary', 'WAKE HIM ▸');
+      done.type = 'button';
+      done.addEventListener('click', finish);
+      actions.appendChild(done);
+    }
+    const skip = el('button', 'btn-secondary', 'SKIP');
+    skip.type = 'button';
+    skip.addEventListener('click', finish);
+    actions.appendChild(skip);
+    wiz.appendChild(actions);
+  };
+
+  const finish = () => {
+    state.language = chosen;
+    localStorage.setItem('ultron.lang', chosen);
+    localStorage.setItem('ultron.setupDone', '1');
+    backdrop.remove();
+    setMode('dormant');
+  };
+
+  backdrop.appendChild(wiz);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) finish(); });
+  document.body.appendChild(backdrop);
+  render();
+}

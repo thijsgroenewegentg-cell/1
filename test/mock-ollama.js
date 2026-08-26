@@ -93,6 +93,7 @@ function start(port, host = '127.0.0.1') {
         if (!hasToolResult && p.tools && p.tools.length) {
           const calls = [];
           if (/legioontest/i.test(text)) calls.push({ function: { name: 'spawn_drones', arguments: { tasks: ['onderzoek onderdeel een', 'onderzoek onderdeel twee'] } } });
+          if (/maaktekening|tekentest/i.test(text)) calls.push({ function: { name: 'generate_image', arguments: { prompt: 'a red glowing orb in a dark room' } } });
           if (/runcommand/i.test(text)) calls.push({ function: { name: 'run_command', arguments: { command: 'echo approved > approved.txt' } } });
           else if (/crypto|skilltest/i.test(text)) calls.push({ function: { name: 'get_crypto_price', arguments: { coin: 'bitcoin' } } });
           else if (/neko|kat|kennis|knowledge|document/i.test(text)) calls.push({ function: { name: 'search_knowledge', arguments: { query: text } } });

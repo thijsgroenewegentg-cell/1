@@ -613,14 +613,90 @@ async function main() {
     }
     ok('telegram auto-pairs first chat', mock.sent.some((m) => String(m.chat_id) === '12345' && /Pairing complete/.test(m.text)));
     ok('telegram answers via the full agent', mock.sent.some((m) => String(m.chat_id) === '12345' && /model=/.test(m.text)));
+
+    // Voice note → whisper → agent → reply.
+    await fetch(BASE + '/api/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sttUrl: 'http://127.0.0.1:9966' }),
+    });
+    const voiceDeadline = Date.now() + 15000;
+    while (Date.now() < voiceDeadline) {
+      const echoed = mock.sent.some((m) => /🎤/.test(m.text));
+      const answered2 = mock.sent.filter((m) => /model=/.test(m.text)).length >= 2;
+      if (echoed && answered2) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    ok('voice note transcribed and echoed', mock.sent.some((m) => /🎤 .*goedemorgen ultron/.test(m.text)));
+    ok('voice note answered by the agent', mock.sent.filter((m) => /model=/.test(m.text)).length >= 2);
+
     const status = await j(await fetch(BASE + '/api/telegram/status'));
     ok('paired chat id stored', status.tokenSet === true && status.chatIds.includes('12345'));
+    await fetch(BASE + '/api/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sttUrl: '' }),
+    });
 
     await fetch(BASE + '/api/config', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ telegramTokenClear: true }),
     });
     mock.server.close();
+  }
+
+  /* ---------- image generation ---------- */
+  console.log('image generation');
+  {
+    const TINY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    const sdSrv = await new Promise((resolve) => {
+      const srv = require('http').createServer((req, res) => {
+        let body = [];
+        req.on('data', (c) => body.push(c));
+        req.on('end', () => {
+          if (req.url === '/sdapi/v1/options') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end('{}');
+            return;
+          }
+          if (req.url === '/sdapi/v1/txt2img') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ images: [TINY_PNG] }));
+            return;
+          }
+          res.writeHead(404);
+          res.end();
+        });
+      });
+      srv.listen(9971, '127.0.0.1', () => resolve(srv));
+    });
+
+    const st1 = await j(await fetch(BASE + '/api/imagine/status'));
+    ok('imagine off without config', st1.configured === false);
+
+    await fetch(BASE + '/api/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sdUrl: 'http://127.0.0.1:9971' }),
+    });
+    const st2 = await j(await fetch(BASE + '/api/imagine/status'));
+    ok('imagine online with SD server', st2.configured === true && st2.online === true);
+
+    const r = await chatUntil([{ role: 'user', content: 'maaktekening van een rode bol' }]);
+    const tr = r.events.find((e) => e.type === 'tool_result' && e.name === 'generate_image');
+    ok('image generated via tool', tr && tr.result && tr.result.ok === true && /generated-\d+\.png$/.test(tr.result.saved));
+    const savedName = tr && tr.result ? tr.result.saved.split('/').pop() : null;
+    ok('image file exists on disk', savedName && fs.existsSync(path.join(DATA_DIR, 'files', savedName)));
+
+    const img = await fetch(BASE + '/api/files/' + savedName);
+    ok('image served over http', img.ok && /image\/png/.test(img.headers.get('content-type')));
+
+    const evil = await fetch(BASE + '/api/files/' + encodeURIComponent('..%2Fmemory.json'));
+    const evil2 = await fetch(BASE + '/api/files/..%2F..%2Fserver.js');
+    ok('file jail blocks traversal', evil.status === 400 && evil2.status === 400);
+
+    await fetch(BASE + '/api/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sdUrl: '' }),
+    });
+    sdSrv.close();
   }
 
   /* ---------- security (unit) ---------- */
