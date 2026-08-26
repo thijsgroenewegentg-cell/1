@@ -25,6 +25,8 @@ Fan project. Not affiliated with Marvel/Disney. Ultron does not, in fact, want t
 | 🔒 **Security** | Rate limiting + progressive lockout on failed token attempts |
 | 🪞 **Integrity check** | On boot he hashes his own source and warns if it changed outside approved self-edits |
 | 🔎 **Session search** | Full-text search across every synced conversation, in the sidebar |
+| 🔌 **MCP client** | Connects to any Model Context Protocol server — **Blender scene control** (`uvx blender-mcp`), filesystem, GitHub, databases. Every MCP tool becomes his tool, automatically |
+| 👨‍💻 **Coder routing** | Code requests route to a dedicated coding model (Qwen3-Coder), with syntax-highlighted output and a craft directive: complete, runnable, verified code |
 | 🖥 **PC control** | `open_app` — opens apps and games by name (Start-menu matching on Windows; Steam/Epic games included) and deep-links into Spotify's desktop app with a search |
 | 🎵 **Music** | `play_music` — ▶ PLAY buttons for Spotify web / YouTube / YT Music from any query, plus an IN-SPOTIFY-APP button. No API keys, no cost |
 | 💎 **Liquid glass mode** | Optional frosted-glass interface — translucent panels, backdrop blur, specular highlights over the orb |
@@ -287,6 +289,24 @@ Pull a thinking model (`ollama pull deepseek-r1` or a qwen3 variant) and select 
 ## Scheduled tasks ⏰
 
 Standing orders now come in three flavors: `every N minutes`, `daily at HH:MM`, and **one-shot** (`once_at` — "compile tonight's research at 23:00") which fires once and disappears. Ask him in chat: *"Ultron, run X tonight at 23:00, eenmalig."*
+
+## MCP servers — Blender and anything else 🔌
+
+Ultron speaks the **Model Context Protocol**. Any MCP server's tools become his tools, named `mcp_<server>_<tool>`.
+
+**Blender setup** (the classic):
+1. In Blender: Edit → Preferences → Add-ons → Install… → the [blender-mcp addon](https://github.com/ahujasid/blender-mcp) → enable it → in the 3D viewport sidebar (N), find **Blender MCP** → *Connect to MCP server* (Blender must stay open)
+2. On your machine: install [uv](https://docs.astral.sh/uv/) (Python's fast runner)
+3. Ultron → Settings → **MCP servers** → name `blender`, command `uvx blender-mcp` → ADD
+4. Ask: *"Ultron, create a red cube of size 2 in the scene"* — he gets `mcp_blender_*` tools: scene info, object control, even executing Blender Python code
+
+The same mechanism works for any MCP server (filesystem, GitHub, Slack, home automation hubs that expose MCP…). Add them in Settings; his tool list refreshes automatically.
+
+## Coding 👨‍💻
+
+- **Routing**: questions about code route to a dedicated coder model. Recommended: `ollama pull qwen3-coder:30b` (MoE — fast, excellent). Without one, code goes to your smartest model.
+- **Craft directive**: his persona demands complete runnable code — no ellipses, minimal diffs, and verification via `run_command` when you ask him to prove it works.
+- **Syntax highlighting**: code blocks in chat are highlighted (JS/TS/Python/bash/SQL/Java/C/Go/Rust/JSON).
 
 ## Security & integrity 🔒🪞
 

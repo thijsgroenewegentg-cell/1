@@ -850,6 +850,50 @@ async function main() {
     ok('play_music includes app deep link', tr2 && tr2.result && tr2.result.app_link === 'spotify:search:pink%20floyd%20echoes');
   }
 
+  /* ---------- MCP / Blender (via mock MCP server) ---------- */
+  console.log('MCP / Blender');
+  {
+    const mcpPath = path.join(process.cwd(), 'test', 'mock-mcp.js');
+    await fetch(BASE + '/api/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mcps: [{ name: 'blender', command: 'node ' + mcpPath }] }),
+    });
+
+    const mcp = require('../lib/mcp');
+    const tools = await mcp.listTools();
+    ok('MCP tools discovered', tools.some((x) => x.name === 'mcp_blender_create_cube' && /cube/i.test(x.description)));
+    ok('MCP tool has a schema', tools.find((x) => x.name === 'mcp_blender_create_cube').schema.properties.size);
+
+    const res = await mcp.callTool('mcp_blender_create_cube', { size: 2 });
+    ok('MCP tool call round-trips', res.ok === true && /Cube created with size 2/.test(res.result));
+
+    const st = await j(await fetch(BASE + '/api/mcp/status'));
+    ok('MCP status endpoint', st.servers.length === 1 && st.servers[0].connected === true && st.servers[0].tools === 1);
+
+    // Through the agent loop: Blender tool appears in specs and executes.
+    const r = await chatUntil([{ role: 'user', content: 'blendertest make a cube' }]);
+    const tr = r.events.find((e) => e.type === 'tool_result' && e.name === 'mcp_blender_create_cube');
+    ok('agent drives Blender via MCP', tr && tr.result && /Cube created with size 3/.test(tr.result.result));
+
+    await fetch(BASE + '/api/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mcps: [] }),
+    });
+  }
+
+  /* ---------- coder routing ---------- */
+  console.log('coder routing');
+  {
+    const { pickModel } = require('../server');
+    const models = ['qwen3-coder:30b', 'qwen3:14b', 'qwen3:4b'];
+    const coder = pickModel({}, { models }, { hasImages: false, isCode: true, text: 'write a python function' });
+    ok('code requests route to the coder model', coder.model === 'qwen3-coder:30b' && coder.why === 'coder');
+    const chat = pickModel({}, { models }, { hasImages: false, isCode: false, text: 'hoi hoe gaat het' });
+    ok('normal chat skips the coder', chat.model !== 'qwen3-coder:30b');
+    const none = pickModel({}, { models: ['qwen3:14b', 'qwen3:4b'] }, { hasImages: false, isCode: true, text: 'fix this bug' });
+    ok('no coder installed → falls back to smart', none.model === 'qwen3:14b');
+  }
+
   /* ---------- security (unit) ---------- */
   console.log('security');
   {

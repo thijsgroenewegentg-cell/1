@@ -424,7 +424,8 @@ function renderMarkdown(text) {
   const blocks = [];
   let t = escapeHtml(text);
   t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, _lang, code) => {
-    blocks.push(`<pre><code>${code.replace(/\n$/, '')}</code></pre>`);
+    const cleaned = code.replace(/\n$/, '');
+    blocks.push('<pre><code class="lang-' + escapeHtml(_lang || 'txt') + '">' + highlightCode(cleaned, _lang) + '</code></pre>');
     return `\u0000BLOCK${blocks.length - 1}\u0000`;
   });
   t = t
@@ -1931,6 +1932,7 @@ function openSettings() {
   $('set-telegram-chats').value = (tcfg.telegramChatIds || []).join(', ');
   $('set-sd').value = tcfg.sdUrl || '';
   $('set-ctx').value = tcfg.contextLength != null ? tcfg.contextLength : 8192;
+  refreshMcpUI();
   $('set-keepalive').value = tcfg.keepAlive || '30m';
   $('set-glass').checked = localStorage.getItem('ultron.glass') === '1';
   refreshTelegramUI();
@@ -2065,6 +2067,7 @@ async function populateModels() {
     ['set-model-fast', (state.serverCfg.models || {}).fast || ''],
     ['set-model-smart', (state.serverCfg.models || {}).smart || ''],
     ['set-model-vision', (state.serverCfg.models || {}).vision || ''],
+    ['set-model-coder', (state.serverCfg.models || {}).coder || ''],
   ];
   for (const [id, chosen] of selects) {
     const select = $(id);
@@ -2220,7 +2223,9 @@ $('btn-save').addEventListener('click', async () => {
           fast: $('set-model-fast').value,
           smart: $('set-model-smart').value,
           vision: $('set-model-vision').value,
+          coder: $('set-model-coder').value,
         },
+        mcps: collectMcpRows(),
         briefing: {
           enabled: $('set-brief').checked,
           time: $('set-brief-time').value || '08:00',
@@ -2416,6 +2421,7 @@ const WIZARD_MODELS = [
   { name: 'gemma3:12b', label: 'VISION — he can see images', size: '~8 GB', role: 'vision' },
   { name: 'nomic-embed-text', label: 'MEMORY — required for knowledge & recall', size: '~0.3 GB', role: 'embed', required: true },
   { name: 'qwen3:30b-a3b', label: 'WILDCARD — 30B MoE, small-model speed', size: '~18 GB (spills to RAM)', role: 'moe' },
+  { name: 'qwen3-coder:30b', label: 'CODER — the local programming brain (MoE)', size: '~18 GB (spills to RAM)', role: 'coder' },
 ];
 
 const WIZARD_PRESETS = [
@@ -2697,5 +2703,145 @@ try {
       btn.textContent = '⚡ PULL EVERYTHING';
       populateModels();
     });
+  });
+})();
+
+/* ═══════════════ SYNTAX HIGHLIGHTING for code blocks ═══════════════ */
+
+const LANG_KEYWORDS = {
+  js: 'const|let|var|function|return|if|else|for|while|class|new|async|await|import|export|from|try|catch|throw|typeof|instanceof|of|in|this|super|extends|null|undefined|true|false|yield|delete|switch|case|break|continue|default|do',
+  py: 'def|return|if|elif|else|for|while|class|import|from|as|try|except|finally|raise|with|lambda|None|True|False|self|async|await|pass|break|continue|global|yield|not|and|or|in|is|print|len|range',
+  bash: 'if|then|else|elif|fi|for|do|done|while|case|esac|function|return|export|local|echo|cd|sudo|npm|git|ollama|apt|brew|curl|grep|sed|awk|cat|mkdir|rm|cp|mv|chmod|source',
+  sql: 'SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|GROUP|ORDER|BY|LIMIT|AS|AND|OR|NOT|NULL|PRIMARY|KEY',
+  java: 'public|private|protected|class|static|void|new|return|if|else|for|while|try|catch|throw|throws|import|package|extends|implements|interface|final|this|null|true|false',
+  c: 'int|char|float|double|void|return|if|else|for|while|struct|typedef|const|static|include|define|NULL|free|malloc|sizeof',
+  go: 'func|package|import|var|const|type|struct|return|if|else|for|range|go|defer|chan|map|nil|true|false',
+  rust: 'fn|let|mut|const|struct|enum|impl|trait|use|pub|mod|match|if|else|for|while|loop|return|Some|None|Ok|Err|self|crate|async|await|move',
+  json: 'true|false|null',
+};
+
+function keywordsFor(lang) {
+  const k = String(lang || '').toLowerCase();
+  if (LANG_KEYWORDS[k]) return LANG_KEYWORDS[k];
+  if (['javascript', 'ts', 'typescript', 'jsx', 'node', 'mjs'].includes(k)) return LANG_KEYWORDS.js;
+  if (['python', 'py3'].includes(k)) return LANG_KEYWORDS.py;
+  if (['sh', 'shell', 'zsh', 'console'].includes(k)) return LANG_KEYWORDS.bash;
+  if (k === 'cpp' || k === 'c++') return LANG_KEYWORDS.c;
+  return 'function|return|if|else|for|while|class|import|const|let|def|true|false|null|none|async|await';
+}
+
+function highlightCode(code, lang) {
+  const kw = keywordsFor(lang);
+  const parts = [
+    '//[^\\n]*',
+    '#[^\\n]*',
+    '/\\*[\\s\\S]*?\\*/',
+    '"[^"\\n]*"',
+    "'[^'\\n]*'",
+    '`[^`]*`',
+    '\\b(?:' + kw + ')\\b',
+    '\\b\\d+(?:\\.\\d+)?\\b',
+  ];
+  let re;
+  try { re = new RegExp(parts.join('|'), 'g'); } catch { return escapeHtml(code); }
+  let out = '';
+  let last = 0;
+  let m;
+  while ((m = re.exec(code)) !== null) {
+    out += escapeHtml(code.slice(last, m.index));
+    const tok = m[0];
+    const isComment = tok.startsWith('//') || tok.startsWith('#') || tok.startsWith('/*');
+    const isString = tok.charAt(0) === '"' || tok.charAt(0) === "'" || tok.charAt(0) === '`';
+    const isNum = /^[0-9]/.test(tok);
+    const cls = isComment ? 'c' : isString ? 's' : isNum ? 'n' : 'k';
+    out += '<span class="tk-' + cls + '">' + escapeHtml(tok) + '</span>';
+    last = m.index + tok.length;
+  }
+  out += escapeHtml(code.slice(last));
+  return out;
+}
+
+/* ═══════════════ MCP SERVERS (Blender etc.) ═══════════════ */
+
+function collectMcpRows() {
+  const rows = document.querySelectorAll('#mcp-list .mcp-row[data-name]');
+  const out = [];
+  for (const row of rows) {
+    const cmd = row.querySelector('.mcp-cmd');
+    if (cmd && cmd.value.trim()) out.push({ name: row.dataset.name, command: cmd.value.trim(), enabled: true });
+  }
+  return out;
+}
+
+async function refreshMcpUI() {
+  const list = $('mcp-list');
+  if (!list) return;
+  const cfg = state.serverCfg || {};
+  const servers = cfg.mcps || [];
+  list.innerHTML = '';
+  if (servers.length === 0) {
+    list.appendChild(el('div', 'dir-empty', 'NO MCP SERVERS — add one below (e.g. blender via: uvx blender-mcp)'));
+  }
+  for (const m of servers) {
+    const row = el('div', 'mcp-row');
+    row.dataset.name = m.name;
+    const name = el('span', 'mcp-name', m.name);
+    const cmd = document.createElement('input');
+    cmd.type = 'text';
+    cmd.className = 'mcp-cmd';
+    cmd.value = m.command;
+    const del = el('button', 'dir-del', '✕');
+    del.addEventListener('click', () => { row.remove(); saveMcpNow(); });
+    row.append(name, cmd, del);
+    list.appendChild(row);
+  }
+  try {
+    const res = await apiFetch('/api/mcp/status');
+    const data = await res.json();
+    const st = $('mcp-status');
+    if (st) {
+      st.innerHTML = (data.servers || []).length === 0 ? '' : (data.servers || []).map((s) => s.connected
+        ? '<ok>✓ ' + escapeHtml(s.name) + ': ' + s.tools + ' tools</ok>'
+        : '<err>✗ ' + escapeHtml(s.name) + ': ' + escapeHtml(s.error || 'unreachable') + '</err>').join(' · ');
+    }
+  } catch { /* ignore */ }
+}
+
+async function saveMcpNow() {
+  try {
+    const res = await apiFetch('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mcps: collectMcpRows() }),
+    });
+    if (res.ok) state.serverCfg = await res.json();
+    refreshMcpUI();
+  } catch { /* ignore */ }
+}
+
+(function () {
+  const mcpAdd = document.getElementById('btn-mcp-add');
+  if (!mcpAdd) return;
+  mcpAdd.addEventListener('click', () => {
+    const name = document.getElementById('set-mcp-name').value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const command = document.getElementById('set-mcp-cmd').value.trim();
+    if (!name || !command) return;
+    const list = document.getElementById('mcp-list');
+    const empty = list.querySelector('.dir-empty');
+    if (empty) empty.remove();
+    const row = el('div', 'mcp-row');
+    row.dataset.name = name;
+    const nameEl = el('span', 'mcp-name', name);
+    const cmd = document.createElement('input');
+    cmd.type = 'text';
+    cmd.className = 'mcp-cmd';
+    cmd.value = command;
+    const del = el('button', 'dir-del', '✕');
+    del.addEventListener('click', () => { row.remove(); saveMcpNow(); });
+    row.append(nameEl, cmd, del);
+    list.appendChild(row);
+    document.getElementById('set-mcp-name').value = '';
+    document.getElementById('set-mcp-cmd').value = '';
+    saveMcpNow();
   });
 })();

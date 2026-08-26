@@ -121,6 +121,10 @@
         <span class="field-label">Vision — images</span>
         <select id="set-model-vision"></select>
       </label>
+      <label class="field sub-field">
+        <span class="field-label">Coder — programming</span>
+        <select id="set-model-coder"></select>
+      </label>
       <span class="field-help">He picks per question: short chat → fast, hard questions → smart, images → vision. AUTO detects from your installed models.</span>
       <label class="field sub-field">
         <span class="field-label">Context window (num_ctx)</span>
@@ -223,6 +227,18 @@
       </div>
       <div class="eleven-status" id="push-status">—</div>
       <span class="field-help">Install him as an app (PWA), enable push, and his reminders, briefings and standing orders reach your phone — free, no server cost. Notifications only send when no tab is open.</span>
+    </div>
+
+    <div class="field">
+      <span class="field-label">MCP servers — Blender & more</span>
+      <div id="mcp-list" class="mcp-list"></div>
+      <div class="dir-schedule-row">
+        <input id="set-mcp-name" type="text" spellcheck="false" placeholder="name (blender)" />
+        <input id="set-mcp-cmd" type="text" spellcheck="false" placeholder="command (uvx blender-mcp)" />
+        <button type="button" id="btn-mcp-add" class="btn-secondary btn-small">ADD</button>
+      </div>
+      <div class="eleven-status" id="mcp-status"></div>
+      <span class="field-help">Any <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP server</a> becomes his tools — Blender first: install the <a href="https://github.com/ahujasid/blender-mcp" target="_blank" rel="noopener">blender-mcp addon</a> in Blender, start its server in the sidebar, install <code>uv</code>, then add name <b>blender</b> · command <b>uvx blender-mcp</b>. His tools refresh automatically (mcp_blender_*).</span>
     </div>
 
     <div class="field">

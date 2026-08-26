@@ -489,6 +489,11 @@ app.post('/api/push/test', async (_req, res) => {
 
 app.get('/api/skills', (_req, res) => res.json(skills.stats()));
 
+app.get('/api/mcp/status', async (_req, res) => {
+  try { res.json(await require('./lib/mcp').status()); }
+  catch (err) { res.status(500).json({ error: String(err.message || err) }); }
+});
+
 /* ---------- tool approval gate ---------- */
 const pendingApprovals = new Map(); // id → {resolve, timer}
 
@@ -517,6 +522,7 @@ function makeApprovalRequest(send) {
 /* ---------- model routing ---------- */
 
 const VISION_RE = /vision|vl|llava|moondream|minicpm-v|gemma3(?!:1b)/i; // gemma3 (except 1b) is multimodal
+const CODE_RE = /\b(code|coding|function|bug|debug|refactor|script|python|javascript|typescript|regex|sql|implement|compile|syntax|stack trace|programmeer|fout in)\b/i;
 const FAST_RE = /^(llama3\.2|llama3\.3:8b|qwen2\.5:(0\.5|1\.5|3)b|qwen2:0\.5|gemma2:2b|gemma:2b|qwen3:(0\.6b|1\.7b|4b)|gemma3:(1b|4b)|gemma3n|phi3|phi-3|phi4-mini|tinyllama|smollm)/i;
 const DEEP_RE = /\b(why|how|explain|analy[sz]e|plan|design|debug|refactor|compare|essay|research|investigate|onderzoek|uitleg|waarom|hoe)\b/i;
 
@@ -525,7 +531,7 @@ function resolveConfigured(name, models, fallback) {
   return fallback || null;
 }
 
-function pickModel(cfgModels, status, { hasImages, text }) {
+function pickModel(cfgModels, status, { hasImages, text, isCode }) {
   const models = status.models || [];
   const autoVision = models.find((m) => VISION_RE.test(m)) || null;
   const vision = resolveConfigured(cfgModels.vision, models, autoVision);
@@ -535,6 +541,11 @@ function pickModel(cfgModels, status, { hasImages, text }) {
   const smart = resolveConfigured(cfgModels.smart, models, autoSmart);
   const autoFast = models.find((m) => FAST_RE.test(m)) || null;
   const fast = resolveConfigured(cfgModels.fast, models, autoFast) || smart;
+
+  const autoCoder = models.find((m) => /coder/i.test(m)) || null;
+  const coder = resolveConfigured(cfgModels.coder, models, autoCoder);
+  if (isCode && coder) return { model: coder, why: 'coder' };
+  if (isCode && smart) return { model: smart, why: 'deep' }; // code with no coder model → biggest brain
 
   const body = String(text || '');
   const deep = body.length > 600 || DEEP_RE.test(body) || /```/.test(body);
@@ -640,7 +651,7 @@ app.post('/api/chat', async (req, res) => {
     const lastUser = [...history].reverse().find((m) => m.role === 'user');
     const routed = model && status.models.includes(model)
       ? { model, why: 'pinned' }
-      : pickModel(cfg.models, status, { hasImages, text: lastUser ? lastUser.content : '' });
+      : pickModel(cfg.models, status, { hasImages, text: lastUser ? lastUser.content : '', isCode: CODE_RE.test(lastUser ? lastUser.content : '') || (lastUser ? lastUser.content : '').includes('```') });
 
     // ── Memory 2.0: relevance-ranked memories (falls back to recency) ──
     let memoryText;
