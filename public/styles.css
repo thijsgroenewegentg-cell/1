@@ -1315,3 +1315,10 @@ body.glass .vignette { background: radial-gradient(130% 100% at 50% 42%, transpa
   outline: none;
   min-width: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   v14 — failure notification badge in the orb panel
+   ═══════════════════════════════════════════════════════════════ */
+
+.orb-state.error { color: #ff4438; text-shadow: 0 0 16px rgba(255,68,56,0.6); animation: errorPulse 1.2s ease-in-out infinite; }
+@keyframes errorPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }

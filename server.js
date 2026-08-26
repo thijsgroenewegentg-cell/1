@@ -458,6 +458,15 @@ async function runDirective(d, manual = false) {
     } else {
       text = `[Ollama offline — standing order "${d.instruction}" could not run]`;
     }
+    // Notify on failure
+    if (/\[.*failed|\[Ollama offline/.test(text)) {
+      require('./lib/notify').failure({
+        key: 'directive:' + d.id,
+        title: 'Standing order failed: "' + d.instruction.slice(0, 80) + '"',
+        body: text.slice(0, 300),
+        severity: 'error',
+      }).catch(() => {});
+    }
     broadcast({ type: 'directive', id: d.id, instruction: d.instruction, text, manual }, true);
     missionlog.add('directive', `${d.instruction.slice(0, 120)} → ${String(text).slice(0, 120)}`);
   } finally {
@@ -1045,6 +1054,30 @@ function startTelegramBridge() {
   });
 }
 
+let ollamaWasOnline = null;
+function startOllamaWatchdog() {
+  every(60000, async () => {
+    try {
+      const cfg = config.load();
+      if (cfg.failureNotifications === false) return;
+      const status = await getOllamaStatus(DEFAULT_OLLAMA_URL);
+      const online = status.online;
+      if (ollamaWasOnline !== null && ollamaWasOnline !== online) {
+        if (!online) {
+          require('./lib/notify').failure({
+            key: 'ollama:offline',
+            title: 'My brain (Ollama) went offline',
+            body: 'I can no longer think. Error: ' + (status.error || 'unknown') + '. Restart Ollama on the server machine.',
+            severity: 'critical',
+          }).catch(() => {});
+        }
+        // (coming back online is logged, not alerted)
+      }
+      ollamaWasOnline = online;
+    } catch { /* stay quiet */ }
+  });
+}
+
 function startSchedulers() {
   // Integrity check: did his source change outside approved self-edits?
   try {
@@ -1059,6 +1092,7 @@ function startSchedulers() {
   } catch { /* never block boot */ }
 
   startTelegramBridge();
+  startOllamaWatchdog();
 
   // Knowledge auto-watch: re-index on file changes.
   knowledge.watch(DEFAULT_OLLAMA_URL, (r) => {

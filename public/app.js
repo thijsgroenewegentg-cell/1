@@ -1464,6 +1464,12 @@ function connectEvents() {
         if (!state.streaming && state.voice && (state.micSession || state.wake)) {
           Speech.speakOnce(`${evt.instruction}. ${evt.text}`, () => setMode(state.micSession || state.wake ? 'listening' : 'dormant'));
         }
+      } else if (evt.type === 'error') {
+        // Tool / directive / system failure — flash the orb
+        setMode('thinking');
+        orbState.textContent = 'FAULT DETECTED';
+        orbState.classList.add('error');
+        setTimeout(() => { orbState.classList.remove('error'); setMode(state.streaming ? 'thinking' : 'dormant'); }, 5000);
       } else if (evt.type === 'knowledge') {
         const div = el('div', 'msg-tool tool-done', '📚 ' + evt.text);
         chat.appendChild(div);
@@ -1935,6 +1941,7 @@ function openSettings() {
   refreshMcpUI();
   $('set-keepalive').value = tcfg.keepAlive || '30m';
   $('set-glass').checked = localStorage.getItem('ultron.glass') === '1';
+  $('set-failure-notify').checked = (state.serverCfg || {}).failureNotifications !== false;
   refreshTelegramUI();
   refreshImagineUI();
   $('set-brief').checked = !!(cfg.briefing && cfg.briefing.enabled);
@@ -2188,6 +2195,7 @@ $('btn-save').addEventListener('click', async () => {
   state.profile = ($('set-profile').value.trim() || 'main').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'main';
   localStorage.setItem('ultron.profile', state.profile);
   localStorage.setItem('ultron.glass', $('set-glass').checked ? '1' : '0');
+  // failureNotifications is a server-side setting
   applyGlass();
   localStorage.setItem('ultron.url', state.ollamaUrl);
   localStorage.setItem('ultron.temp', String(state.temperature));

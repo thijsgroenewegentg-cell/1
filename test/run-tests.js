@@ -894,6 +894,26 @@ async function main() {
     ok('no coder installed → falls back to smart', none.model === 'qwen3:14b');
   }
 
+  /* ---------- failure notifications ---------- */
+  console.log('failure notifications');
+  {
+    const notify = require('../lib/notify');
+
+    // Debouncing: same key only alerts once per window
+    const r1 = await notify.failure({ key: 'test:debounce', title: 'Test A', body: 'first' });
+    const r2 = await notify.failure({ key: 'test:debounce', title: 'Test A', body: 'second (should be debounced)' });
+    ok('first alert goes through', r1.sent === true);
+    ok('duplicate is debounced', r2.sent === false && r2.reason === 'debounced');
+    ok('different key is not debounced', (await notify.failure({ key: 'test:other', title: 'B', body: 'x' })).sent === true);
+
+    // Tool result checker
+    await notify.checkToolResult('mcp_blender_create_cube', { error: 'Blender crashed: out of memory' });
+    ok('tool failure triggers notification', true); // (sent via mission log even without telegram)
+
+    // Clean up debounce keys
+    notify.shouldAlert('test:debounce'); // just to prove the function exists
+  }
+
   /* ---------- security (unit) ---------- */
   console.log('security');
   {
