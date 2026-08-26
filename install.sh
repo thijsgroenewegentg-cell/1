@@ -31,7 +31,7 @@ done
 case "$PROFILE" in
   minimal)  MODELS="qwen3:4b nomic-embed-text" ;;
   standard) MODELS="qwen3:14b qwen3:4b gemma3:12b nomic-embed-text" ;;
-  full)     MODELS="nomic-embed-text qwen3:4b gemma3:12b qwen3:14b mistral-small3.2 qwen3:30b-a3b" ;;
+  full)     MODELS="nomic-embed-text qwen3:4b gemma3:12b qwen3:14b mistral-small3.2 qwen3-coder:30b qwen3:30b-a3b" ;;
 esac
 
 say()  { printf '\n\033[1;31m▸ %s\033[0m\n' "$1"; }
