@@ -1047,3 +1047,61 @@ body.mini .brand { display: none; }
   margin-top: 6px;
   overflow-wrap: anywhere;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   v9 additions — reasoning lane, session search, telegram settings
+   ═══════════════════════════════════════════════════════════════ */
+
+.think-lane {
+  margin: 0 0 10px;
+  border-left: 2px dashed var(--line);
+  padding-left: 12px;
+  font-size: 12.5px;
+}
+.think-lane summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  user-select: none;
+}
+.think-lane[open] summary { color: var(--text-dim); }
+.think-body {
+  margin-top: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  font-style: italic;
+  color: var(--text-dim);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.think-body::-webkit-scrollbar { width: 5px; }
+.think-body::-webkit-scrollbar-thumb { background: #1d222d; border-radius: 4px; }
+
+.session-search {
+  margin: 8px 10px 4px;
+  background: var(--bg-raise);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 7px 10px;
+  outline: none;
+  width: calc(100% - 20px);
+}
+.session-search:focus { border-color: var(--accent-soft); }
+.session-search::placeholder { color: var(--text-faint); }
+
+.search-snippet {
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.5;
+  padding: 2px 9px 8px 24px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-snippet:hover { color: var(--text-dim); }

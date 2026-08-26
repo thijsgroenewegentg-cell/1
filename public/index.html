@@ -25,6 +25,7 @@
         <button id="btn-new-chat" class="btn-secondary btn-small">+ NEW</button>
       </div>
     </div>
+    <input id="session-search" type="text" class="session-search" placeholder="search all sessions…" aria-label="Search sessions" />
     <div id="conv-list" class="conv-list"></div>
     <div class="sidebar-foot">
       <span id="mem-count" class="mem-count"></span>
@@ -162,6 +163,21 @@
           <option value="en">English</option>
         </select>
       </label>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Telegram bridge — reach him anywhere</span>
+      <input id="set-telegram-token" type="password" spellcheck="false" autocomplete="off" placeholder="bot token from @BotFather (optional)" />
+      <label class="field sub-field">
+        <span class="field-label">Paired chat ids (comma-separated)</span>
+        <input id="set-telegram-chats" type="text" spellcheck="false" placeholder="auto-paired on first message" />
+      </label>
+      <div class="eleven-row">
+        <button type="button" id="btn-telegram-test" class="btn-secondary btn-small">TEST</button>
+        <button type="button" id="btn-telegram-clear" class="btn-secondary btn-small">REMOVE TOKEN</button>
+      </div>
+      <div class="eleven-status" id="telegram-status">—</div>
+      <span class="field-help">Create a bot with @BotFather, paste the token here, then message your bot once — it pairs automatically. Reminders, briefings and standing orders also arrive via Telegram when no tab is open. <code>data/config.json</code> only.</span>
     </div>
 
     <div class="field">

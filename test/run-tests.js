@@ -482,6 +482,169 @@ async function main() {
     }
   }
 
+  /* ---------- one-shot directives ---------- */
+  console.log('one-shot scheduled tasks');
+  {
+    const add = await j(await fetch(BASE + '/api/directives', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instruction: 'one-shot probe', once_at: new Date(Date.now() + 3600e3).toISOString() }),
+    }));
+    ok('one-shot order added', add.ok === true && /once at/.test(add.directive.schedule));
+    ok('future one-shot is not due', !directivesDue('one-shot probe'));
+    await fetch(BASE + '/api/directives/' + add.directive.id + '/run', { method: 'POST' });
+    await new Promise((r) => setTimeout(r, 300));
+    const list = await j(await fetch(BASE + '/api/directives'));
+    ok('one-shot disappears after running', !list.directives.some((d) => /one-shot probe/.test(d.instruction)));
+    function directivesDue(needle) {
+      const lib = require('../lib/directives');
+      return lib.due().some((d) => d.instruction.includes(needle));
+    }
+  }
+
+  /* ---------- reasoning lane (thinking tokens) ---------- */
+  console.log('reasoning lane');
+  {
+    // Inline mini-mock that streams thinking + <think> tagged content.
+    const thinkSrv = await new Promise((resolve) => {
+      const srv = require('http').createServer((req, res) => {
+        let b = '';
+        req.on('data', (c) => b += c);
+        req.on('end', () => {
+          const p = JSON.parse(b);
+          res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+          const chunks = [
+            { message: { role: 'assistant', thinking: 'Let me reason: ' } },
+            { message: { role: 'assistant', thinking: 'two plus two is four. ' } },
+            { message: { role: 'assistant', content: '<think>hidden chain</think>The answer is ' } },
+            { message: { role: 'assistant', content: 'four.' } },
+            { message: { role: 'assistant', content: '' }, done: true },
+          ];
+          for (const c of chunks) res.write(JSON.stringify(c) + '\n');
+          res.end();
+        });
+      });
+      srv.listen(9963, '127.0.0.1', () => resolve(srv));
+    });
+    const { streamOllamaChat } = require('../lib/ollama');
+    const events = [];
+    for await (const evt of streamOllamaChat({ ollamaUrl: 'http://127.0.0.1:9963', model: 'llama3.1:8b', messages: [{ role: 'user', content: 'q' }] })) {
+      events.push(evt);
+    }
+    const thinking = events.filter((e) => e.type === 'thinking').map((e) => e.token).join('');
+    const tokens = events.filter((e) => e.type === 'token').map((e) => e.token).join('');
+    ok('thinking events streamed', thinking.includes('two plus two is four.'));
+    ok('think tags routed out of the answer', tokens.includes('The answer is four.') && !tokens.includes('<think>') && !tokens.includes('hidden chain'));
+    thinkSrv.close();
+  }
+
+  /* ---------- legion (drone swarm) ---------- */
+  console.log('legion drones');
+  {
+    const r = await chatUntil([{ role: 'user', content: 'legioontest please' }]);
+    const tr = r.events.find((e) => e.type === 'tool_result' && e.name === 'spawn_drones');
+    ok('drones spawned and reported', tr && tr.result && tr.result.ok === true && tr.result.drones === 2);
+    ok('drone reports collected', tr && /DRONE REPORT/.test(JSON.stringify(tr.result.reports || [])));
+  }
+
+  /* ---------- conversation search ---------- */
+  console.log('conversation search');
+  {
+    await fetch(BASE + '/api/sessions/searchtest1', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'zonnebloem', updated: Date.now(), messages: [
+        { role: 'user', content: 'vertel over zonnebloemen in de tuin' },
+        { role: 'assistant', content: 'Zonnebloemen draaien naar de zon.' },
+      ] }),
+    });
+    await fetch(BASE + '/api/sessions/searchtest2', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'kat', updated: Date.now(), messages: [
+        { role: 'user', content: 'mijn kat heet neko' },
+      ] }),
+    });
+    const res = await j(await fetch(BASE + '/api/sessions/search?q=' + encodeURIComponent('zonnebloem')));
+    ok('search finds the right session', res.results.length === 1 && res.results[0].sessionId === 'searchtest1');
+    ok('search returns snippets', res.results[0] && /zonnebloem/i.test(res.results[0].matches[0].snippet));
+    const res2 = await j(await fetch(BASE + '/api/sessions/search?q=' + encodeURIComponent('neko')));
+    ok('search finds the second session', res2.results.length === 1 && res2.results[0].sessionId === 'searchtest2');
+    await fetch(BASE + '/api/sessions/searchtest1', { method: 'DELETE' });
+    await fetch(BASE + '/api/sessions/searchtest2', { method: 'DELETE' });
+  }
+
+  /* ---------- integrity ---------- */
+  console.log('integrity check');
+  {
+    const before = await j(await fetch(BASE + '/api/integrity'));
+    if (!before.baselined) {
+      await fetch(BASE + '/api/integrity/trust', { method: 'POST' });
+    }
+    const clean = await j(await fetch(BASE + '/api/integrity'));
+    ok('baseline clean after trust', clean.baselined && clean.changed.length === 0);
+
+    // Tamper with his source outside the approval flow…
+    const fsx = require('fs');
+    const target = path.join(process.cwd(), 'lib', 'selfedit.js');
+    const original = fsx.readFileSync(target, 'utf8');
+    fsx.writeFileSync(target, original + '\n// integrity tamper test\n');
+    const drift = await j(await fetch(BASE + '/api/integrity'));
+    ok('tampering detected', drift.changed.includes('lib/selfedit.js'));
+    fsx.writeFileSync(target, original);
+    const after = await j(await fetch(BASE + '/api/integrity'));
+    ok('restore clears the drift', after.changed.length === 0);
+  }
+
+  /* ---------- telegram bridge ---------- */
+  console.log('telegram bridge');
+  {
+    const tg = require('./mock-telegram');
+    const mock = await tg.start(9969);
+    await fetch(BASE + '/api/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ telegramToken: 'TESTTOKEN', telegramUrl: 'http://127.0.0.1:9969' }),
+    });
+
+    // Wait for pairing + the agent's answer to the second message.
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const paired = mock.sent.some((m) => /Pairing complete/.test(m.text));
+      const answered = mock.sent.some((m) => /syscheck|DRONE|model=/.test(m.text));
+      if (paired && answered) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    ok('telegram auto-pairs first chat', mock.sent.some((m) => String(m.chat_id) === '12345' && /Pairing complete/.test(m.text)));
+    ok('telegram answers via the full agent', mock.sent.some((m) => String(m.chat_id) === '12345' && /model=/.test(m.text)));
+    const status = await j(await fetch(BASE + '/api/telegram/status'));
+    ok('paired chat id stored', status.tokenSet === true && status.chatIds.includes('12345'));
+
+    await fetch(BASE + '/api/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ telegramTokenClear: true }),
+    });
+    mock.server.close();
+  }
+
+  /* ---------- security (unit) ---------- */
+  console.log('security');
+  {
+    const security = require('../lib/security');
+    const limiter = security.rateLimit({ windowMs: 1000, max: 3 });
+    const mk = () => ({ headers: {}, socket: { remoteAddress: '9.9.9.9' } });
+    const codes = [];
+    for (let i = 0; i < 5; i++) {
+      await new Promise((resolve) => {
+        limiter(mk(), { setHeader: () => {}, status: (c) => ({ json: () => resolve(codes.push(c)) }) }, resolve);
+      });
+    }
+    ok('rate limiter trips after max', codes.filter((c) => c === 429).length >= 2, JSON.stringify(codes));
+
+    const guard = security.authGuard({ maxFails: 2, lockMs: 60000 });
+    const req = mk();
+    guard.noteFailure(req); guard.noteFailure(req);
+    ok('lockout after repeated failures', guard.isLocked(req) === true);
+    const okReq = { headers: {}, socket: { remoteAddress: '8.8.8.8' } };
+    ok('other clients unaffected', guard.isLocked(okReq) === false);
+  }
+
   /* ---------- wrap up ---------- */
   console.log('\n──────────────────────────────');
   console.log(`${passed} passed · ${failed} failed`);

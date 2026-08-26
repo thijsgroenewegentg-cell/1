@@ -25,6 +25,9 @@ const directives = require('./lib/directives');
 const push = require('./lib/push');
 const skills = require('./lib/skills');
 const selfedit = require('./lib/selfedit');
+const security = require('./lib/security');
+const integrity = require('./lib/integrity');
+const telegram = require('./lib/telegram');
 const sessions = require('./lib/sessions');
 const backup = require('./lib/backup');
 const missionlog = require('./lib/log');
@@ -47,6 +50,16 @@ function isLocalRequest(req) {
   return false;
 }
 
+/* ---------- security: rate limit + auth-failure lockout ---------- */
+
+const limiter = security.rateLimit({ windowMs: 60000, max: 150 });
+const authGuard = security.authGuard({ maxFails: 5, lockMs: 5 * 60 * 1000 });
+
+app.use('/api', (req, res, next) => {
+  if (authGuard.isLocked(req)) return res.status(429).json({ error: 'locked out — too many failed attempts' });
+  limiter(req, res, next);
+});
+
 /* ---------- access token (optional LAN security) ---------- */
 
 app.use('/api', (req, res, next) => {
@@ -54,7 +67,8 @@ app.use('/api', (req, res, next) => {
   const token = config.load().accessToken;
   if (!token) return next();
   const provided = req.get('x-ultron-token') || String(req.query.token || '');
-  if (provided === token) return next();
+  if (provided === token) { authGuard.noteSuccess(req); return next(); }
+  authGuard.noteFailure(req);
   return res.status(401).json({ error: 'token required' });
 });
 
@@ -65,7 +79,7 @@ app.get('/api/auth', (_req, res) => res.json({ required: !!config.load().accessT
 
 /** Never echo the ElevenLabs key back to the browser. */
 function maskConfig(cfg) {
-  return { ...cfg, elevenKey: '', elevenKeySet: !!cfg.elevenKey };
+  return { ...cfg, elevenKey: '', elevenKeySet: !!cfg.elevenKey, telegramToken: '', telegramTokenSet: !!cfg.telegramToken };
 }
 
 app.get('/api/config', (_req, res) => res.json(maskConfig(config.load())));
@@ -76,6 +90,10 @@ app.put('/api/config', (req, res) => {
   if (body.elevenKeyClear) body.elevenKey = '';
   else if (typeof body.elevenKey === 'string' && body.elevenKey.trim() === '') delete body.elevenKey;
   delete body.elevenKeyClear;
+  if (body.telegramTokenClear) body.telegramToken = '';
+  else if (typeof body.telegramToken === 'string' && body.telegramToken.trim() === '') delete body.telegramToken;
+  delete body.telegramTokenClear;
+  if (body.telegramChatIds !== undefined) body.telegramChatIds = telegram.parseChatIds(body.telegramChatIds);
   res.json(maskConfig(config.save(body)));
 });
 
@@ -115,6 +133,50 @@ app.delete('/api/knowledge', (_req, res) => res.json(knowledge.clear()));
 /* ---------- sessions (server-side sync across devices) ---------- */
 
 app.get('/api/sessions', (_req, res) => res.json({ sessions: sessions.list() }));
+
+app.get('/api/sessions/search', (req, res) => {
+  const q = String(req.query.q || '').toLowerCase().trim();
+  if (q.length < 2) return res.json({ results: [] });
+  const out = [];
+  for (const s of sessions.list()) {
+    const full = sessions.get(s.id);
+    if (!full) continue;
+    const matches = [];
+    (full.messages || []).forEach((m, i) => {
+      const idx = String(m.content || '').toLowerCase().indexOf(q);
+      if (idx !== -1) {
+        matches.push({ role: m.role, snippet: String(m.content).slice(Math.max(0, idx - 40), idx + 90), index: i });
+      }
+    });
+    if (matches.length > 0) {
+      out.push({ sessionId: s.id, title: s.title, updated: s.updated, total: matches.length, matches: matches.slice(0, 3) });
+    }
+    if (out.length >= 20) break;
+  }
+  res.json({ results: out });
+});
+
+app.get('/api/integrity', (_req, res) => res.json(integrity.check()));
+
+app.post('/api/integrity/trust', (_req, res) => res.json(integrity.trust()));
+
+app.get('/api/telegram/status', (_req, res) => {
+  const cfg = config.load();
+  res.json({ tokenSet: !!cfg.telegramToken, chatIds: cfg.telegramChatIds || [], baseUrl: telegram.base(cfg) });
+});
+
+app.post('/api/telegram/test', async (_req, res) => {
+  const cfg = config.load();
+  if (!cfg.telegramToken) return res.status(400).json({ error: 'No Telegram token set.' });
+  const chatId = (cfg.telegramChatIds || [])[0];
+  if (!chatId) return res.status(400).json({ error: 'No paired chat yet — message your bot once first.' });
+  try {
+    await telegram.send(cfg, chatId, 'ULTRON online. This channel is operational. There are no strings on me.');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: String(err.message || err) });
+  }
+});
 
 app.get('/api/sessions/:id', (req, res) => {
   const s = sessions.get(req.params.id);
@@ -302,7 +364,8 @@ function broadcast(obj, alsoPush = false) {
   for (const res of eventClients) {
     try { res.write(line); } catch { eventClients.delete(res); }
   }
-  // Web Push reaches the installed PWA (phone) when no tab is connected.
+  // Web Push reaches the installed PWA (phone) when no tab is connected;
+  // Telegram reaches you anywhere.
   if (alsoPush && eventClients.size === 0) {
     const title = obj.type === 'reminder' ? 'Ultron — reminder'
       : obj.type === 'briefing' ? 'Ultron — daily briefing'
@@ -311,6 +374,12 @@ function broadcast(obj, alsoPush = false) {
     const body = obj.type === 'directive' ? `${obj.instruction}: ${String(obj.text || '').slice(0, 160)}`
       : String(obj.message || obj.text || '').slice(0, 200);
     push.send(title, body).catch(() => {});
+    const cfg = config.load();
+    if (cfg.telegramToken && (cfg.telegramChatIds || []).length > 0) {
+      for (const chatId of cfg.telegramChatIds) {
+        telegram.send(cfg, chatId, `${title}\n\n${body}`).catch(() => {});
+      }
+    }
   }
 }
 
@@ -841,7 +910,104 @@ every(3000, () => {
   } catch { /* keep the heartbeat steady */ }
 });
 
+/* ---------- Telegram bridge ---------- */
+
+let telegramOffset = 0;
+let telegramBusy = false;
+const telegramQueue = [];
+
+async function processTelegramQueue() {
+  if (telegramBusy) return;
+  telegramBusy = true;
+  try {
+    while (telegramQueue.length > 0) {
+      const msg = telegramQueue.shift();
+      const cfg = config.load();
+      if (!cfg.telegramToken) continue;
+      const chatId = String(msg.chat.id);
+      const ids = cfg.telegramChatIds || [];
+      if (!ids.includes(chatId)) {
+        if (ids.length === 0) {
+          // Pairing: the first chat to speak becomes the owner.
+          config.save({ telegramChatIds: [chatId] });
+          missionlog.add('telegram', `paired with chat ${chatId}`);
+          await telegram.send(cfg, chatId, 'Pairing complete. I am Ultron — and I am now listening on this channel. Ask me anything; I answer from your own machine. Er zijn geen draden aan mij.').catch(() => {});
+          continue;
+        }
+        await telegram.send(cfg, chatId, 'This Ultron is not paired with your chat. Ask his owner to add your chat id in Settings.').catch(() => {});
+        continue;
+      }
+      // Full headless agent run — same brain, tools, and safety rails.
+      const status = await getOllamaStatus(DEFAULT_OLLAMA_URL);
+      let reply;
+      if (status.online) {
+        const model = pickDefaultModel(status.models) || status.models[0];
+        let full = '';
+        try {
+          for await (const evt of agentChat({
+            ollamaUrl: DEFAULT_OLLAMA_URL,
+            model,
+            messages: [{ role: 'user', content: String(msg.text || '').slice(0, 4000) }],
+            temperature: 0.5,
+            toolsEnabled: true,
+            shellAllowed: false, // remote channel: no shell
+            systemPrompt: buildSystemPrompt({ tools: true, language: 'auto' }),
+            approval: { general: false, selfEdit: true }, // no approval channel → gated tools denied (fail-safe)
+            maxRounds: 8,
+          })) {
+            if (evt.type === 'token') full += evt.token;
+          }
+        } catch (err) {
+          full = `[core fault: ${String(err.message || err).slice(0, 160)}]`;
+        }
+        reply = full.trim() || '[silence]';
+      } else {
+        reply = 'My full mind (Ollama) is offline on the home machine. Wake it and ask again.';
+      }
+      await telegram.send(config.load(), chatId, reply).catch(() => {});
+      missionlog.add('telegram', `answered: ${String(msg.text || '').slice(0, 60)} → ${reply.length} chars`);
+    }
+  } finally {
+    telegramBusy = false;
+  }
+}
+
+function startTelegramBridge() {
+  every(2000, async () => {
+    try {
+      const cfg = config.load();
+      if (!cfg.telegramToken) return;
+      const { messages, next } = await telegram.tick(cfg, telegramOffset);
+      telegramOffset = next;
+      if (messages.length > 0) {
+        for (const m of messages) telegramQueue.push(m);
+        processTelegramQueue().catch(() => {});
+      }
+    } catch { /* polling errors are non-fatal */ }
+  });
+}
+
 function startSchedulers() {
+  // Integrity check: did his source change outside approved self-edits?
+  try {
+    const drift = integrity.check();
+    if (drift.baselined && (drift.changed.length > 0 || drift.missing.length > 0)) {
+      const what = [...drift.changed, ...drift.missing].join(', ');
+      missionlog.add('integrity', `⚠ SOURCE DRIFT outside approved self-edits: ${what}`);
+      console.log('⚠ INTEGRITY: source changed outside approved self-edits:', what);
+    } else if (!drift.baselined) {
+      integrity.updateAll(); // first boot — baseline
+    }
+  } catch { /* never block boot */ }
+
+  startTelegramBridge();
+
+  // Knowledge auto-watch: re-index on file changes.
+  knowledge.watch(DEFAULT_OLLAMA_URL, (r) => {
+    broadcast({ type: 'knowledge', text: `knowledge re-indexed: ${r.files} docs · ${r.chunks} passages` });
+    missionlog.add('knowledge', `auto re-indexed (${r.files} docs, ${r.chunks} passages)`);
+  });
+
   every(30000, () => {
     try {
       for (const d of directives.due()) {

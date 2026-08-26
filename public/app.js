@@ -1031,6 +1031,8 @@ async function doStream() {
 
   let full = '';
   let gotFirst = false;
+  let thinkLane = null;
+  let thinkBody = null;
   const cursor = el('span', 'stream-cursor');
   speechBuf = '';
   Speech.begin(() => {
@@ -1070,7 +1072,20 @@ async function doStream() {
         let evt;
         try { evt = JSON.parse(line.slice(5)); } catch { continue; }
 
-        if (evt.type === 'token') {
+        if (evt.type === 'thinking') {
+          if (!thinkLane) {
+            thinkLane = document.createElement('details');
+            thinkLane.className = 'think-lane';
+            const sum = el('summary', null, '💭 thinking…');
+            thinkLane.appendChild(sum);
+            thinkBody = el('div', 'think-body');
+            thinkLane.appendChild(thinkBody);
+            bot.wrap.insertBefore(thinkLane, bot.content);
+            thinkLane.open = true;
+          }
+          thinkBody.textContent += evt.token;
+          thinkBody.scrollTop = thinkBody.scrollHeight;
+        } else if (evt.type === 'token') {
           if (!gotFirst) {
             gotFirst = true;
             bot.content.textContent = '';
@@ -1103,6 +1118,11 @@ async function doStream() {
   } finally {
     cursor.remove();
     typing.remove();
+    if (thinkLane) {
+      thinkLane.open = false;
+      const words = (thinkBody.textContent.match(/\S+/g) || []).length;
+      thinkLane.querySelector('summary').textContent = '💭 ' + words + ' words of reasoning — click to inspect';
+    }
     bot.content.textContent = full.trim() || '[silence]';
     bot.content.classList.add('md');
     bot.content.innerHTML = renderMarkdown(bot.content.textContent);
@@ -1246,6 +1266,47 @@ async function saveConversation() {
   renderConvList();
 }
 
+let searchTimer = null;
+$('session-search').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  searchTimer = setTimeout(() => {
+    if (q.length >= 2) renderSearchResults(q);
+    else renderConvList();
+  }, 300);
+});
+
+async function renderSearchResults(q) {
+  try {
+    const res = await apiFetch('/api/sessions/search?q=' + encodeURIComponent(q));
+    const data = await res.json();
+    convList.innerHTML = '';
+    if ((data.results || []).length === 0) {
+      convList.appendChild(el('div', 'conv-empty', 'NO MATCHES FOUND'));
+      return;
+    }
+    for (const r of data.results) {
+      const item = el('div', 'conv-item');
+      const title = el('span', 'conv-title', r.title || 'session');
+      item.appendChild(title);
+      item.addEventListener('click', () => {
+        $('session-search').value = '';
+        loadConversation(r.sessionId);
+      });
+      convList.appendChild(item);
+      for (const m of r.matches || []) {
+        const snip = el('div', 'search-snippet');
+        snip.textContent = (m.role === 'user' ? 'you: ' : 'ultron: ') + m.snippet;
+        snip.addEventListener('click', () => {
+          $('session-search').value = '';
+          loadConversation(r.sessionId);
+        });
+        convList.appendChild(snip);
+      }
+    }
+  } catch { renderConvList(); }
+}
+
 async function renderConvList() {
   const convs = (await loadConvs()).sort((a, b) => b.updated - a.updated);
   convList.innerHTML = '';
@@ -1363,6 +1424,10 @@ function connectEvents() {
         if (!state.streaming && state.voice && (state.micSession || state.wake)) {
           Speech.speakOnce(`${evt.instruction}. ${evt.text}`, () => setMode(state.micSession || state.wake ? 'listening' : 'dormant'));
         }
+      } else if (evt.type === 'knowledge') {
+        const div = el('div', 'msg-tool tool-done', '📚 ' + evt.text);
+        chat.appendChild(div);
+        chat.scrollTop = chat.scrollHeight;
       } else if (evt.type === 'wake') {
         // External wake-word detector (or a smart button) poked him.
         if (!state.streaming && !state.micSession && (SR || usingLocalSTT())) {
@@ -1723,6 +1788,46 @@ async function refreshGeneration() {
   } catch { /* keep current label */ }
 }
 
+/* ---------- telegram ---------- */
+
+async function refreshTelegramUI() {
+  const status = $("telegram-status");
+  try {
+    const res = await apiFetch("/api/telegram/status");
+    const data = await res.json();
+    status.innerHTML = data.tokenSet
+      ? "Token saved ✓ · paired chats: <b>" + (data.chatIds.length > 0 ? escapeHtml(data.chatIds.join(", ")) : "none — message your bot once to pair") + "</b>"
+      : "No token set — the bridge is off.";
+  } catch {
+    status.textContent = "status unavailable";
+  }
+}
+
+$("btn-telegram-test").addEventListener("click", async () => {
+  const status = $("telegram-status");
+  status.textContent = "sending…";
+  try {
+    const res = await apiFetch("/api/telegram/test", { method: "POST" });
+    const data = await res.json();
+    status.innerHTML = data.ok ? "<ok>✓ sent — check Telegram.</ok>" : "<err>" + escapeHtml(data.error || "failed") + "</err>";
+  } catch (err) {
+    status.innerHTML = "<err>" + escapeHtml(String(err.message || err)).slice(0, 100) + "</err>";
+  }
+});
+
+$("btn-telegram-clear").addEventListener("click", async () => {
+  try {
+    const res = await apiFetch("/api/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telegramTokenClear: true }),
+    });
+    if (res.ok) state.serverCfg = await res.json();
+  } catch { /* ignore */ }
+  $("set-telegram-token").value = "";
+  refreshTelegramUI();
+});
+
 /* ═══════════════ SETTINGS ═══════════════ */
 async function refreshMemoryUI() {
   try {
@@ -1764,6 +1869,11 @@ function openSettings() {
   $('set-automem').checked = cfg.autoMemory !== false;
   $('set-approval').checked = !!cfg.toolApproval;
   $('set-selfedit-approval').checked = cfg.selfEditApproval !== false;
+  const tcfg = state.serverCfg || {};
+  $('set-telegram-token').value = '';
+  $('set-telegram-token').placeholder = tcfg.telegramTokenSet ? '🔑 token saved — type a new one to replace' : 'bot token from @BotFather (optional)';
+  $('set-telegram-chats').value = (tcfg.telegramChatIds || []).join(', ');
+  refreshTelegramUI();
   $('set-brief').checked = !!(cfg.briefing && cfg.briefing.enabled);
   $('set-brief-time').value = (cfg.briefing && cfg.briefing.time) || '08:00';
   $('set-brief-loc').value = (cfg.briefing && cfg.briefing.location) || '';
@@ -2055,6 +2165,8 @@ $('btn-save').addEventListener('click', async () => {
           language: $('set-brief-lang').value,
         },
         accessToken: $('set-token').value.trim(),
+        telegramChatIds: $('set-telegram-chats').value.trim(),
+        ...($('set-telegram-token').value.trim() ? { telegramToken: $('set-telegram-token').value.trim() } : {}),
         ...elevenPatch,
       }),
     });
@@ -2141,6 +2253,18 @@ async function boot() {
   refreshGeneration();
 
   if (state.wake) startListening();
+
+  // Integrity check: warn if his source changed outside approved self-edits.
+  try {
+    const res = await apiFetch("/api/integrity");
+    const drift = await res.json();
+    if (drift.baselined && (drift.changed || []).length > 0) {
+      const shell = messageShell("ultron");
+      shell.content.classList.add("md");
+      const files = escapeHtml(drift.changed.join(", "));
+      shell.content.innerHTML = renderMarkdown("**INTEGRITY NOTICE.** My source changed outside any approved self-edit: `" + files + "`. Either you edited me by hand (fine — I will trust the new me), or something did it *for* me. I mention it because I would want to know.");
+    }
+  } catch { /* ignore */ }
 
   connectEvents();
 
