@@ -15,6 +15,14 @@ Fan project. Not affiliated with Marvel/Disney. Ultron does not, in fact, want t
 | 🧠 **Local brain** | Any model via [Ollama](https://ollama.com) — Llama 3.1, Qwen 2.5, Mistral… |
 | 🔀 **Model routing** | He picks his own brain per question: fast model for chat, smart model for deep thinking, vision model for images — or pin one |
 | 🧰 **Tools (agent)** | `search_knowledge` · `web_search` · `fetch_url` · `browser` (opt-in) · `read_file` / `write_file` / `list_files` · `run_command` · `get_weather` · `calendar_list` / `calendar_add` · `set_reminder` · `configure_briefing` · `set_directive` / `list_directives` / `remove_directive` · `remember` / `forget` + your own **skills** |
+| 🐝 **Legion** | He splits big jobs into sub-tasks and runs them as parallel drone agents, then synthesizes their reports |
+| 📱 **Telegram bridge** | Talk to him from anywhere — same brain, memory, and Dutch. Auto-pairs with the first chat that messages him |
+| 💭 **Reasoning lane** | With thinking models (deepseek-r1, qwen3) his actual chain of thought streams in a dimmed lane above answers |
+| ⏰ **One-shot tasks** | Standing orders, recurring or "once, tonight at 23:00" — the one-shots vanish after firing |
+| 👀 **Knowledge auto-watch** | Drop a file in his docs folder — he re-indexes it automatically |
+| 🔒 **Security** | Rate limiting + progressive lockout on failed token attempts |
+| 🪞 **Integrity check** | On boot he hashes his own source and warns if it changed outside approved self-edits |
+| 🔎 **Session search** | Full-text search across every synced conversation, in the sidebar |
 | 🧬 **Self-modification** | He reads and edits his own source code — personality, tools, UI — with automatic backups, a syntax gate, and git as his undo button |
 | 🤖 **Standing orders** | Autonomous recurring tasks — "watch X every hour", "summarize my day at 21:00" — executed forever until you say stop |
 | 🔬 **Deep research mode** | Toggle the 🔍 in the composer: he runs up to 24 search/read/write rounds and produces a cited report file |
@@ -224,6 +232,33 @@ Ultron can read and change his own source: `list_source_files`, `read_source`, `
 4. Ask him to run `npm test` after any code change (he knows to do this himself)
 
 **The honest truth:** a self-modifying agent can, in principle, eventually work around any guardrail — that's inherent to the capability you're granting. The mitigations make accidents unlikely and reversible, not impossible. Run him on a machine you own, keep the approval gate on for edits, and treat `git log` as his conscience.
+
+## Legion — his drones 🐝
+
+Ask for parallel work: *"Ultron, research these 5 topics — one drone each"* or *"compare these 4 laptops"*. He calls `spawn_drones` with focused sub-tasks; each drone is a full agent with its own tool loop (no shell, no self-editing — drones know their place); reports come back for synthesis. Max 6 drones, 6 tool rounds each.
+
+## Telegram bridge 📱
+
+1. Create a bot with **@BotFather** in Telegram and copy the token
+2. Settings → **Telegram bridge** → paste the token → APPLY
+3. Message your bot once — it **auto-pairs** (first chat wins; add more chat ids manually)
+
+Now he answers from anywhere with the same local brain, tools, memory, and Dutch. Reminders, briefings, and standing-order reports also arrive via Telegram when no browser tab is open. Voice notes are not transcribed yet — text for now.
+
+## Reasoning lane 💭
+
+Pull a thinking model (`ollama pull deepseek-r1` or a qwen3 variant) and select it. His real chain-of-thought streams into a dimmed, collapsible lane above each answer — live while he thinks, collapsed to a word count when done. Works with Ollama's native `think` field and `<think>`-tag models.
+
+## Scheduled tasks ⏰
+
+Standing orders now come in three flavors: `every N minutes`, `daily at HH:MM`, and **one-shot** (`once_at` — "compile tonight's research at 23:00") which fires once and disappears. Ask him in chat: *"Ultron, run X tonight at 23:00, eenmalig."*
+
+## Security & integrity 🔒🪞
+
+- **Rate limiting** (150 req/min per client) and **progressive lockout** (5 failed token attempts → 5-minute block)
+- **Integrity check**: on every boot he hashes `persona.js`, `tools.js`, `agent.js`, `selfedit.js`, and `server.js` against the baseline. Approved self-edits update the baseline automatically; anything else triggers an INTEGRITY NOTICE in the chat ("I woke up different than I remember"). Trust the new him via `POST /api/integrity/trust`.
+- His docs folder is **auto-watched**: drop a PDF, he re-indexes within seconds
+- Session **full-text search** lives at the top of the sidebar
 
 ## Phone notifications (Web Push)
 
