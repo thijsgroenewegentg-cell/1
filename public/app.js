@@ -31,6 +31,10 @@ const state = {
   serverSessions: [],           // server-side session index (sync)
 };
 
+function applyGlass() {
+  document.body.classList.toggle('glass', localStorage.getItem('ultron.glass') === '1');
+}
+
 // Desktop companion mode (tiny always-on-top window)
 if (new URLSearchParams(location.search).has('mini')) {
   document.body.classList.add('mini');
@@ -366,6 +370,19 @@ function toolResultLine(name, result) {
   let summary;
   try { summary = JSON.stringify(result); } catch { summary = String(result); }
   div.textContent = `└─ ✓ ${name} → ${summary.slice(0, 140)}`;
+  // Music: PLAY buttons for his keyless music services.
+  if (name === 'play_music' && result && result.ok && result.links) {
+    const chips = el('div', 'cite-chips play-chips');
+    const labels = { spotify: '▶ SPOTIFY', youtube: '▶ YOUTUBE', ytmusic: '▶ YT MUSIC' };
+    for (const [svc, url] of Object.entries(result.links)) {
+      const chip = el('button', 'play-chip' + (svc === result.service ? ' primary' : ''), labels[svc] || svc);
+      chip.type = 'button';
+      chip.addEventListener('click', () => window.open(url, '_blank', 'noopener'));
+      chips.appendChild(chip);
+    }
+    div.appendChild(document.createElement('br'));
+    div.appendChild(chips);
+  }
   // Images he generated or captured are shown inline.
   if (result && typeof result.saved === 'string' && /\.(png|jpe?g|webp)$/i.test(result.saved)) {
     const img = new Image();
@@ -1902,6 +1919,7 @@ function openSettings() {
   $('set-sd').value = tcfg.sdUrl || '';
   $('set-ctx').value = tcfg.contextLength != null ? tcfg.contextLength : 8192;
   $('set-keepalive').value = tcfg.keepAlive || '30m';
+  $('set-glass').checked = localStorage.getItem('ultron.glass') === '1';
   refreshTelegramUI();
   refreshImagineUI();
   $('set-brief').checked = !!(cfg.briefing && cfg.briefing.enabled);
@@ -2153,6 +2171,8 @@ $('btn-save').addEventListener('click', async () => {
   state.language = newLang;
   state.profile = ($('set-profile').value.trim() || 'main').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'main';
   localStorage.setItem('ultron.profile', state.profile);
+  localStorage.setItem('ultron.glass', $('set-glass').checked ? '1' : '0');
+  applyGlass();
   localStorage.setItem('ultron.url', state.ollamaUrl);
   localStorage.setItem('ultron.temp', String(state.temperature));
   localStorage.setItem('ultron.voice', state.voice ? '1' : '0');
@@ -2300,6 +2320,8 @@ async function boot() {
   } catch { /* ignore */ }
 
   maybeShowWizard();
+
+  applyGlass();
 
   connectEvents();
 

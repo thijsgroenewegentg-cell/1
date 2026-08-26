@@ -797,6 +797,16 @@ async function main() {
     nomSrv.close(); osrmSrv.close(); overpassSrv.close();
   }
 
+  /* ---------- play_music (keyless) ---------- */
+  console.log('music');
+  {
+    const r = await chatUntil([{ role: 'user', content: 'musiektest pink floyd' }]);
+    const tr = r.events.find((e) => e.type === 'tool_result' && e.name === 'play_music');
+    ok('play_music returns service links', tr && tr.result && tr.result.ok === true && tr.result.service === 'spotify');
+    ok('spotify link is a keyless web search', tr && /https:\/\/open\.spotify\.com\/search\/pink%20floyd%20echoes/.test(tr.result.links.spotify));
+    ok('youtube + ytmusic alternatives included', tr && /youtube\.com\/results/.test(tr.result.links.youtube) && /music\.youtube\.com/.test(tr.result.links.ytmusic));
+  }
+
   /* ---------- security (unit) ---------- */
   console.log('security');
   {

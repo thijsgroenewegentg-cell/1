@@ -1200,3 +1200,85 @@ body.mini .brand { display: none; }
 /* one-press pull everything */
 .wiz-pull-all { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
 .wiz-pull-all .btn-primary { padding: 10px 16px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   v12 additions — play chips + LIQUID GLASS mode
+   ═══════════════════════════════════════════════════════════════ */
+
+.play-chips { margin-top: 6px; }
+.play-chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+  background: var(--bg-raise);
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.play-chip:hover { color: #1db954; border-color: rgba(29,185,84,0.6); box-shadow: 0 0 12px rgba(29,185,84,0.2); }
+.play-chip.primary { color: #1db954; border-color: rgba(29,185,84,0.5); background: rgba(29,185,84,0.08); }
+
+/* ── Liquid Glass: frosted translucency over the glowing orb ── */
+body.glass .topbar,
+body.glass .sidebar,
+body.glass .settings,
+body.glass .composer,
+body.glass .wizard,
+body.glass .approval-card,
+body.glass .self-edit-card,
+body.glass .directive-row,
+body.glass .mem-row,
+body.glass .kb-status,
+body.glass .attach-chip,
+body.glass .pull-progress,
+body.glass .wiz-model-row,
+body.glass .chip {
+  background: rgba(18, 22, 32, 0.42);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+/* specular top highlight — the "liquid" tell */
+body.glass .composer,
+body.glass .sidebar,
+body.glass .settings,
+body.glass .wizard,
+body.glass .approval-card,
+body.glass .self-edit-card {
+  position: relative;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+body.glass .composer::after,
+body.glass .sidebar::after,
+body.glass .settings::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 8%; right: 8%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  pointer-events: none;
+}
+
+body.glass .topbar { background: rgba(12, 15, 22, 0.35); backdrop-filter: blur(20px) saturate(150%); }
+body.glass .icon-btn, body.glass .mic-btn, body.glass .send-btn, body.glass .btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(14px);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+body.glass .msg-ultron { border-left-color: rgba(255, 90, 79, 0.55); }
+body.glass .think-lane { border-left-color: rgba(255, 255, 255, 0.14); }
+body.glass .log-wrap { mask-image: none; }
+body.glass .stage {
+  background:
+    radial-gradient(900px 500px at 50% 12%, rgba(224, 50, 47, 0.10), transparent 60%),
+    radial-gradient(700px 500px at 85% 100%, rgba(63, 182, 255, 0.07), transparent 55%);
+}
+body.glass .composer:focus-within {
+  border-color: rgba(255, 120, 110, 0.45);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 120, 110, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+body.glass .vignette { background: radial-gradient(130% 100% at 50% 42%, transparent 62%, rgba(0, 0, 0, 0.35) 100%); }
