@@ -1,0 +1,124 @@
+/**
+ * Mock Ollama server for tests — models, embeddings, streaming chat with
+ * keyword-driven tool calls, non-streaming completions, pull/delete.
+ */
+'use strict';
+
+const http = require('http');
+
+const MODELS = ['llama3.1:8b', 'llama3.2:3b', 'llama3.2-vision:11b', 'nomic-embed-text'];
+const VOCAB = ['kat', 'neko', 'leiderdorp', 'price', 'crypto', 'project', 'zonnepaneel', 'dierenarts'];
+const embedOf = (t) => VOCAB.map((w) => String(t).toLowerCase().includes(w) ? 1 : 0);
+
+function stream(res, text) {
+  const words = text.split(/(\s+)/);
+  let i = 0;
+  const timer = setInterval(() => {
+    if (i >= words.length) {
+      clearInterval(timer);
+      res.write(JSON.stringify({ message: { role: 'assistant', content: '' }, done: true }) + '\n');
+      res.end();
+      return;
+    }
+    res.write(JSON.stringify({ message: { role: 'assistant', content: words[i++] }, done: false }) + '\n');
+  }, 2);
+}
+
+function start(port, host = '127.0.0.1') {
+  const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/api/tags') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ models: MODELS.map((name) => ({ name })) }));
+      return;
+    }
+    if (req.method === 'GET' && req.url === '/api/version') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ version: '0.5.4-test' }));
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/api/embeddings') {
+      let b = '';
+      req.on('data', (c) => b += c);
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ embedding: embedOf(JSON.parse(b).prompt || '') }));
+      });
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/api/pull') {
+      let b = '';
+      req.on('data', (c) => b += c);
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+        res.write(JSON.stringify({ status: 'pulling manifest' }) + '\n');
+        res.write(JSON.stringify({ status: 'downloading', digest: 'sha256:abc', total: 100, completed: 50 }) + '\n');
+        res.write(JSON.stringify({ status: 'verifying' }) + '\n');
+        res.write(JSON.stringify({ status: 'success' }) + '\n');
+        res.end();
+      });
+      return;
+    }
+    if (req.method === 'DELETE' && req.url === '/api/delete') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{}');
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/api/chat') {
+      let b = '';
+      req.on('data', (c) => b += c);
+      req.on('end', () => {
+        const p = JSON.parse(b);
+        const sys = p.messages[0].content;
+        const lastUser = [...p.messages].reverse().find((m) => m.role === 'user');
+        const text = lastUser ? lastUser.content : '';
+        const hasToolResult = p.messages.some((m) => m.role === 'tool');
+
+        if (p.stream === false) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          if (/extract durable/i.test(sys)) {
+            res.end(JSON.stringify({ message: { role: 'assistant', content: '["The user has a cat named Neko"]' } }));
+          } else if (/Summarize this conversation/i.test(sys)) {
+            res.end(JSON.stringify({ message: { role: 'assistant', content: 'Summary: user talks about cat Neko and project work.' } }));
+          } else {
+            res.end(JSON.stringify({ message: { role: 'assistant', content: 'briefing-ok ' + p.model } }));
+          }
+          return;
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+        if (!hasToolResult && p.tools && p.tools.length) {
+          const calls = [];
+          if (/runcommand/i.test(text)) calls.push({ function: { name: 'run_command', arguments: { command: 'echo approved > approved.txt' } } });
+          else if (/crypto|skilltest/i.test(text)) calls.push({ function: { name: 'get_crypto_price', arguments: { coin: 'bitcoin' } } });
+          else if (/neko|kat|kennis|knowledge|document/i.test(text)) calls.push({ function: { name: 'search_knowledge', arguments: { query: text } } });
+          else if (/schrijf|writefile/i.test(text)) calls.push({ function: { name: 'write_file', arguments: { path: 'greeting.txt', content: 'no strings on me' } } });
+          else if (/onthoud|remember/i.test(text)) calls.push({ function: { name: 'remember', arguments: { fact: 'The user loves test suites' } } });
+          if (calls.length) {
+            res.write(JSON.stringify({ message: { role: 'assistant', content: '', tool_calls: calls }, done: false }) + '\n');
+            res.write(JSON.stringify({ message: { role: 'assistant', content: '' }, done: true }) + '\n');
+            res.end();
+            return;
+          }
+        }
+        if (hasToolResult) {
+          const tr = p.messages.filter((m) => m.role === 'tool');
+          stream(res, `TOOLRESULT ${tr.map((m) => m.name + ':' + m.content.slice(0, 100)).join(' | ')}`);
+          return;
+        }
+        const flags = [
+          sys.includes('RESEARCH MODE') ? 'research-prompt' : 'no-research',
+          sys.includes('SESSION CONTEXT') ? 'session-summary' : 'no-summary',
+          sys.includes('ALTIJD in het Nederlands') ? 'nl-directive' : 'no-nl',
+          sys.includes('DURABLE MEMORIES') ? 'memories' : 'no-memories',
+        ].join(',');
+        stream(res, `syscheck ${flags} model=${p.model}`);
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  return new Promise((resolve) => server.listen(port, host, () => resolve(server)));
+}
+
+module.exports = { start, MODELS };

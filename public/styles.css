@@ -866,3 +866,133 @@ input[type="password"]::placeholder { color: var(--text-faint); }
 .dir-schedule-row select { flex: 0 0 90px; }
 .dir-schedule-row input { flex: 1; }
 .dir-schedule-row .btn-small { flex: 0 0 auto; }
+
+/* ═══════════════════════════════════════════════════════════════
+   v7 additions — model manager, mission log, backup, cite chips,
+   message actions, mini (desktop companion) mode, mobile pass
+   ═══════════════════════════════════════════════════════════════ */
+
+.pull-progress {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+.pull-progress.hidden { display: none; }
+.pull-bar-track { flex: 1; height: 6px; border-radius: 4px; background: var(--bg-raise); border: 1px solid var(--line); overflow: hidden; }
+.pull-bar { height: 100%; width: 0%; background: var(--accent); box-shadow: 0 0 8px var(--accent-soft); transition: width 0.3s ease; }
+
+.mission-log {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+.mission-log::-webkit-scrollbar { width: 6px; }
+.mission-log::-webkit-scrollbar-thumb { background: #1d222d; border-radius: 4px; }
+.log-row { display: flex; gap: 8px; align-items: baseline; }
+.log-kind {
+  flex: 0 0 auto;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  font-size: 9px;
+}
+.log-row[data-kind="tool"] .log-kind { color: #7dd8a0; border-color: rgba(125,216,160,0.3); }
+.log-row[data-kind="error"] .log-kind { color: #ff8d84; border-color: rgba(255,141,132,0.3); }
+.log-row[data-kind="directive"] .log-kind, .log-row[data-kind="briefing"] .log-kind { color: var(--amber); border-color: rgba(217,160,54,0.3); }
+.log-row[data-kind="memory"] .log-kind { color: #b8a0ff; border-color: rgba(184,160,255,0.3); }
+.log-ts { flex: 0 0 auto; color: var(--text-faint); }
+.log-text { color: var(--text-dim); overflow-wrap: anywhere; }
+
+/* citation chips on search_knowledge results */
+.cite-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.cite-chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border: 1px solid var(--accent-soft);
+  background: var(--accent-faint);
+  border-radius: 999px;
+  padding: 3px 9px;
+  cursor: pointer;
+  user-select: none;
+}
+.cite-chip small { color: var(--text-faint); margin-left: 5px; }
+
+/* message hover actions (edit / branch) */
+.msg-actions { display: inline-flex; gap: 6px; margin-left: 8px; visibility: hidden; }
+.msg:hover .msg-actions { visibility: visible; }
+.msg-actions button {
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  color: var(--text-faint);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+.msg-actions button:hover { color: var(--accent); border-color: var(--accent-soft); }
+
+.eleven-usage { margin: 6px 0; }
+.eleven-usage .pull-bar-track { margin-bottom: 4px; }
+.eleven-usage .usage-text { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); }
+.eleven-usage.hidden { display: none; }
+
+/* ── mini mode (desktop companion window) ── */
+body.mini .topbar { display: none; }
+body.mini .sidebar, body.mini .sidebar-backdrop { display: none; }
+body.mini .stage { height: 100%; padding: 0 10px 4px; max-width: 480px; }
+body.mini #orb-canvas { width: 132px; height: 132px; }
+body.mini .orb-state { font-size: 9px; }
+body.mini .log-wrap { flex: 0 0 auto; max-height: 42vh; }
+body.mini .composer { margin: 4px 0 0; }
+body.mini .composer-hint { display: none; }
+body.mini .msg { margin-bottom: 12px; }
+body.mini .brand { display: none; }
+
+/* ── mobile pass ── */
+@media (max-width: 640px) {
+  .stage { padding: 0 10px calc(6px + env(safe-area-inset-bottom)); }
+  #orb-canvas { width: 128px; height: 128px; }
+  .composer { border-radius: 20px; margin: 6px 8px 0; }
+  .composer-hint { margin: 7px 14px 8px; font-size: 9.5px; }
+  .settings { width: 100vw; padding: 18px 16px; }
+  .chat { padding: 10px 4px 6px; }
+  .topbar { padding: 8px 12px; }
+  .attach-chip { width: 44px; height: 44px; }
+  .dir-schedule-row { flex-wrap: wrap; }
+  .mission-log { max-height: 200px; }
+}
+
+/* model manager rows + inline message editor */
+.mm-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 4px 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.mm-row .mm-del { visibility: hidden; }
+.mm-row:hover .mm-del { visibility: visible; }
+
+.edit-area {
+  width: 100%;
+  min-height: 72px;
+  background: var(--bg-raise);
+  border: 1px solid var(--accent-soft);
+  border-radius: 9px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  outline: none;
+  resize: vertical;
+}

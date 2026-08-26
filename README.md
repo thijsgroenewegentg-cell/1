@@ -27,11 +27,35 @@ Fan project. Not affiliated with Marvel/Disney. Ultron does not, in fact, want t
 | 🛡 **Safety rails** | File jail, shell only on localhost/LAN, optional approval gate for commands, optional LAN access token |
 | 🇳🇱 **Multilingual** | Understands and replies in **Dutch** (and EN/DE/FR/ES/IT/TR) — voice included |
 | 🌑 **Demo mode** | No Ollama? A scripted backup core answers — zero setup |
-| 💬 **Sessions** | Chat history sidebar + export to Markdown + regenerate replies |
+| 💬 **Sessions** | Chat history sidebar + export to Markdown + regenerate replies — **synced across all your devices** via the server |
+| ✏️ **Edit & branch** | Edit any past message and rerun, or fork the conversation into a new timeline |
+| 🧪 **Test suite** | `npm test` — 49 integration tests over a full mock harness (Ollama, whisper, Piper, ElevenLabs) |
+| 💾 **Backup/restore** | One JSON file containing his entire mind — memories, sessions, orders, knowledge, skills |
+| 🎛 **Model manager** | Pull and delete models from the browser — no terminal needed |
+| 📋 **Mission log** | His flight recorder: every route, tool call, directive, briefing, and auto-memory |
+| 👤 **Profiles** | Memory scopes per person — shared sessions, private memories |
 | ⏰ **Live reminders** | Pushed to the UI and spoken aloud in real time |
 | 📱 **PWA** | Install him as an app (Chrome/Edge: install icon in the address bar) |
 
-## Quick start
+## Trust & quality
+
+- **`npm test`** — the full integration suite: mock Ollama + mock voice endpoints, 49 checks covering chat, routing, tools, approval, RAG (hybrid + incremental), skills, sessions, directives, wake, summarization, voice proxies, push, backup, model manager, token auth, and profiles. Run it before and after any change.
+- **Session sync** — conversations live on the server (`data/sessions.json`); your phone, desktop, and browser all see the same history. Your old localStorage history migrates automatically on first load.
+- **Backup/restore** — Settings → *Backup* → EXPORT EVERYTHING / IMPORT BACKUP. One JSON file with his whole mind (it contains secrets — store it safely).
+- **Model manager** — Settings → pull models with a live progress bar, delete them, no CLI.
+- **Mission log** — Settings → what he did and why: routing decisions, every tool call, standing-order runs, briefings, auto-memories.
+- **Profiles** — Settings → a memory scope per person (e.g. `pim`, `sanne`). Sessions stay shared; memories don't leak between profiles.
+- **Edit & branch** — hover any of your messages: ✎ edits it and re-runs from there; ⑂ forks the conversation into a new timeline.
+- **Wake-word hook** — `POST /api/wake` arms his microphone from any external detector (see `extras/wakeword/`).
+- **Desktop companion** — `desktop/`: a tiny always-on-top mini-orb (Electron scaffold, Alt+Shift+U to toggle).
+
+## Quick test
+
+```bash
+npm test    # 49 integration tests, ~5 seconds
+```
+
+
 
 ### 1. Install Ollama (free)
 

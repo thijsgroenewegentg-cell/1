@@ -19,6 +19,7 @@ const state = {
   voice: localStorage.getItem('ultron.voice') !== '0',
   wake: localStorage.getItem('ultron.wake') === '1',
   language: localStorage.getItem('ultron.lang') || 'auto',
+  profile: localStorage.getItem('ultron.profile') || 'main',
   online: false,
   streaming: false,
   mode: 'dormant',
@@ -27,7 +28,13 @@ const state = {
   serverCfg: { toolsEnabled: true, sttUrl: '', ttsUrl: '' },
   pendingImages: [],            // dataURLs staged for the next message
   convId: null,
+  serverSessions: [],           // server-side session index (sync)
 };
+
+// Desktop companion mode (tiny always-on-top window)
+if (new URLSearchParams(location.search).has('mini')) {
+  document.body.classList.add('mini');
+}
 
 function sttLocale() {
   return LANG_LOCALES[state.language] || navigator.language || 'en-US';
@@ -250,14 +257,82 @@ function el(tag, cls, text) {
   return e;
 }
 
-function messageShell(role) {
+function messageShell(role, idx) {
   const wrap = el('div', `msg msg-${role}`);
+  if (idx != null) wrap.dataset.idx = idx;
   const meta = el('div', 'msg-meta', role === 'ultron' ? 'ULTRON' : 'HUMAN');
   const content = el('div', 'msg-content');
+
+  // Edit / branch actions on user messages.
+  if (role === 'user' && idx != null) {
+    const actions = el('div', 'msg-actions');
+    const edit = el('button', null, '✎');
+    edit.type = 'button';
+    edit.title = 'Edit this message and rerun';
+    edit.addEventListener('click', () => editMessage(idx));
+    const branch = el('button', null, '⑂');
+    branch.type = 'button';
+    branch.title = 'Branch the conversation from here';
+    branch.addEventListener('click', () => branchFrom(idx));
+    actions.append(edit, branch);
+    meta.appendChild(actions);
+  }
+
   wrap.append(meta, content);
   chat.appendChild(wrap);
   chat.scrollTop = chat.scrollHeight;
   return { wrap, content };
+}
+
+/** Full re-render of the conversation from state. */
+function renderAll() {
+  chat.innerHTML = '';
+  state.messages.forEach((m, i) => {
+    const shell = messageShell(m.role, m.role === 'user' ? i : null);
+    shell.content.textContent = m.content;
+    if (m.images) attachThumbToMessage(shell.content, m.images);
+  });
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function editMessage(idx) {
+  if (state.streaming) return;
+  const m = state.messages[idx];
+  if (!m || m.role !== 'user') return;
+  const wrap = chat.querySelector(`.msg[data-idx="${idx}"]`);
+  if (!wrap) return;
+  const contentEl = wrap.querySelector('.msg-content');
+  contentEl.innerHTML = '';
+  contentEl.classList.remove('md');
+  const ta = document.createElement('textarea');
+  ta.value = m.content;
+  ta.className = 'edit-area';
+  const row = el('div', 'approval-actions');
+  const save = el('button', 'btn-primary btn-small', 'SAVE & RERUN');
+  const cancel = el('button', 'btn-secondary btn-small', 'CANCEL');
+  save.type = cancel.type = 'button';
+  row.append(save, cancel);
+  contentEl.append(ta, row);
+  ta.focus();
+  cancel.addEventListener('click', () => renderAll());
+  save.addEventListener('click', () => {
+    const newText = ta.value.trim();
+    if (!newText) return;
+    state.messages = state.messages.slice(0, idx);
+    state.messages.push({ role: 'user', content: newText, ...(m.images ? { images: m.images } : {}) });
+    renderAll();
+    saveConversation();
+    doStream();
+  });
+}
+
+function branchFrom(idx) {
+  if (state.streaming) return;
+  state.messages = state.messages.slice(0, idx + 1);
+  state.convId = 'c' + Date.now();
+  renderAll();
+  saveConversation();
+  composerHint.textContent = 'Branched — this is a new timeline. Regenerate his reply with ↺ or keep typing.';
 }
 
 function toolLine(name, args) {
@@ -272,6 +347,21 @@ function toolLine(name, args) {
 
 function toolResultLine(name, result) {
   const div = el('div', 'msg-tool tool-done');
+  // Knowledge results get clickable citation chips.
+  if (name === 'search_knowledge' && result && Array.isArray(result.results) && result.results.length > 0) {
+    div.textContent = `└─ ✓ knowledge: ${result.results.length} passage(s)`;
+    const chips = el('div', 'cite-chips');
+    for (const r of result.results) {
+      const chip = el('span', 'cite-chip', r.source || 'source');
+      chip.appendChild(el('small', null, String(r.relevance != null ? r.relevance : '')));
+      chip.title = (r.excerpt || '').slice(0, 300);
+      chips.appendChild(chip);
+    }
+    div.appendChild(chips);
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
   let summary;
   try { summary = JSON.stringify(result); } catch { summary = String(result); }
   div.textContent = `└─ ✓ ${name} → ${summary.slice(0, 140)}`;
@@ -906,7 +996,7 @@ async function send(text) {
   renderAttachPreview();
 
   state.messages.push(userMsg);
-  const user = messageShell('user');
+  const user = messageShell('user', state.messages.length - 1);
   user.content.textContent = userMsg.content;
   attachThumbToMessage(user.content, userMsg.images);
 
@@ -957,6 +1047,7 @@ async function doStream() {
         ollamaUrl: state.ollamaUrl,
         temperature: state.temperature,
         language: state.language,
+        profile: state.profile,
         mode: state.research ? 'research' : 'chat',
       }),
     });
@@ -1073,18 +1164,17 @@ form.addEventListener('submit', (e) => {
   send(text);
 });
 
-/* ═══════════════ SESSIONS (chat history) ═══════════════ */
+/* ═══════════════ SESSIONS (server-synced chat history) ═══════════════ */
 const CONVS_KEY = 'ultron.convs';
 
-function loadConvs() {
+function loadConvsLocal() {
   try { return JSON.parse(localStorage.getItem(CONVS_KEY) || '[]'); } catch { return []; }
 }
 
-function saveConvs(convs) {
+function saveConvsLocal(convs) {
   try {
     localStorage.setItem(CONVS_KEY, JSON.stringify(convs.slice(-40)));
   } catch {
-    // Storage full — drop the oldest until it fits (images are heavy).
     while (convs.length > 1) {
       convs.shift();
       try { localStorage.setItem(CONVS_KEY, JSON.stringify(convs)); break; } catch { /* keep trimming */ }
@@ -1092,10 +1182,40 @@ function saveConvs(convs) {
   }
 }
 
-/** Persist current conversation (images stored as small thumbnails). */
+/** Merged view: server sessions win, localStorage fills the gaps (offline cache). */
+async function loadConvs() {
+  const local = loadConvsLocal();
+  const server = state.serverSessions;
+  const byId = new Map();
+  for (const c of local) byId.set(c.id, c);
+  for (const s of server) byId.set(s.id, s); // server wins
+  return [...byId.values()];
+}
+
+async function syncSessionsFromServer() {
+  try {
+    const res = await apiFetch('/api/sessions');
+    if (res.ok) {
+      const data = await res.json();
+      state.serverSessions = data.sessions || [];
+      // Migrate: upload any local-only conversations once.
+      const serverIds = new Set(state.serverSessions.map((s) => s.id));
+      for (const c of loadConvsLocal()) {
+        if (!serverIds.has(c.id)) {
+          apiFetch('/api/sessions/' + encodeURIComponent(c.id), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(c),
+          }).catch(() => {});
+        }
+      }
+    }
+  } catch { /* offline — localStorage still works */ }
+}
+
+/** Persist current conversation locally (cache) AND on the server (sync). */
 async function saveConversation() {
   if (!state.convId) state.convId = 'c' + Date.now();
-  const convs = loadConvs().filter((c) => c.id !== state.convId);
   const storedMessages = [];
   for (const m of state.messages) {
     const copy = { role: m.role, content: m.content };
@@ -1103,18 +1223,28 @@ async function saveConversation() {
     storedMessages.push(copy);
   }
   const firstUser = state.messages.find((m) => m.role === 'user');
-  convs.push({
+  const conv = {
     id: state.convId,
     title: firstUser ? firstUser.content.slice(0, 32) : 'New session',
     updated: Date.now(),
     messages: storedMessages,
-  });
-  saveConvs(convs);
+  };
+
+  // local cache
+  const convs = loadConvsLocal().filter((c) => c.id !== state.convId);
+  convs.push(conv);
+  saveConvsLocal(convs);
+  // server sync
+  apiFetch('/api/sessions/' + encodeURIComponent(state.convId), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(conv),
+  }).then((res) => (res.ok ? syncSessionsFromServer() : null)).catch(() => {});
   renderConvList();
 }
 
-function renderConvList() {
-  const convs = loadConvs().slice().sort((a, b) => b.updated - a.updated);
+async function renderConvList() {
+  const convs = (await loadConvs()).sort((a, b) => b.updated - a.updated);
   convList.innerHTML = '';
   if (convs.length === 0) {
     convList.appendChild(el('div', 'conv-empty', 'NO SESSIONS YET\nHE IS WAITING'));
@@ -1124,9 +1254,10 @@ function renderConvList() {
     const item = el('div', 'conv-item' + (c.id === state.convId ? ' active' : ''));
     const title = el('span', 'conv-title', c.title || 'session');
     const del = el('button', 'conv-del', '✕');
-    del.addEventListener('click', (e) => {
+    del.addEventListener('click', async (e) => {
       e.stopPropagation();
-      saveConvs(loadConvs().filter((x) => x.id !== c.id));
+      saveConvsLocal(loadConvsLocal().filter((x) => x.id !== c.id));
+      apiFetch('/api/sessions/' + encodeURIComponent(c.id), { method: 'DELETE' }).catch(() => {});
       if (c.id === state.convId) newChat(false);
       renderConvList();
     });
@@ -1136,18 +1267,18 @@ function renderConvList() {
   }
 }
 
-function loadConversation(id) {
-  const conv = loadConvs().find((c) => c.id === id);
+async function loadConversation(id) {
+  // Prefer the full copy from the server; fall back to local.
+  let conv = null;
+  try {
+    const res = await apiFetch('/api/sessions/' + encodeURIComponent(id));
+    if (res.ok) conv = await res.json();
+  } catch { /* offline */ }
+  if (!conv) conv = (await loadConvs()).find((c) => c.id === id);
   if (!conv) return;
   state.convId = id;
   state.messages = (conv.messages || []).map((m) => ({ role: m.role, content: m.content, images: m.images }));
-  chat.innerHTML = '';
-  for (const m of state.messages) {
-    const shell = messageShell(m.role);
-    shell.content.textContent = m.content;
-    if (m.images) attachThumbToMessage(shell.content, m.images);
-  }
-  chat.scrollTop = chat.scrollHeight;
+  renderAll();
   renderConvList();
   closeSidebar();
 }
@@ -1164,8 +1295,9 @@ function newChat(greeting = true) {
 $('btn-new-chat').addEventListener('click', () => newChat());
 
 /* ---------- export current session as Markdown ---------- */
-$('btn-export').addEventListener('click', () => {
-  const conv = loadConvs().find((c) => c.id === state.convId);
+$('btn-export').addEventListener('click', async () => {
+  const convs = await loadConvs();
+  const conv = convs.find((c) => c.id === state.convId);
   const msgs = conv ? conv.messages : state.messages;
   if (!msgs || msgs.length === 0) {
     composerHint.textContent = 'Nothing to export — this session is empty.';
@@ -1227,6 +1359,15 @@ function connectEvents() {
         chat.scrollTop = chat.scrollHeight;
         if (!state.streaming && state.voice && (state.micSession || state.wake)) {
           Speech.speakOnce(`${evt.instruction}. ${evt.text}`, () => setMode(state.micSession || state.wake ? 'listening' : 'dormant'));
+        }
+      } else if (evt.type === 'wake') {
+        // External wake-word detector (or a smart button) poked him.
+        if (!state.streaming && !state.micSession && (SR || usingLocalSTT())) {
+          state.micSession = true;
+          micBtn.classList.add('live');
+          setMode('listening');
+          startListening();
+          composerHint.textContent = 'Woken externally — listening. Esc to stop.';
         }
       } else if (evt.type === 'memory') {
         for (const fact of evt.facts || []) {
@@ -1374,10 +1515,151 @@ async function refreshSkillsUI() {
   }
 }
 
+/* ---------- model manager ---------- */
+
+async function refreshModelManager(models) {
+  const box = $('model-manager-list');
+  if (!models || models.length === 0) {
+    box.textContent = 'No models installed — pull one below.';
+    return;
+  }
+  box.innerHTML = models.map((m) =>
+    `<div class="mm-row">${escapeHtml(m)} <button type="button" class="dir-del mm-del" data-model="${escapeHtml(m)}" title="Delete model">✕</button></div>`
+  ).join('');
+  for (const btn of box.querySelectorAll('.mm-del')) {
+    btn.addEventListener('click', async () => {
+      if (!window.confirm(`Delete model ${btn.dataset.model} from Ollama?`)) return;
+      await apiFetch(`/api/models?name=${encodeURIComponent(btn.dataset.model)}&ollamaUrl=${encodeURIComponent(state.ollamaUrl)}`, { method: 'DELETE' }).catch(() => {});
+      populateModels();
+    });
+  }
+}
+
+$('btn-model-pull').addEventListener('click', async () => {
+  const name = $('set-pull-name').value.trim();
+  if (!name) return;
+  const btn = $('btn-model-pull');
+  const prog = $('pull-progress');
+  const bar = $('pull-bar');
+  const status = $('pull-status');
+  btn.disabled = true;
+  prog.classList.remove('hidden');
+  bar.style.width = '2%';
+  status.textContent = 'starting…';
+  try {
+    const res = await apiFetch('/api/models/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, ollamaUrl: state.ollamaUrl }),
+    });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n\n')) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 2);
+        if (!line.startsWith('data:')) continue;
+        try {
+          const evt = JSON.parse(line.slice(5));
+          if (evt.pct != null) bar.style.width = evt.pct + '%';
+          if (evt.status) status.textContent = evt.status.slice(0, 46);
+          if (evt.type === 'error') { status.textContent = 'failed: ' + String(evt.error).slice(0, 60); }
+        } catch { /* skip */ }
+      }
+    }
+  } catch (err) {
+    status.textContent = 'failed: ' + String(err.message || err).slice(0, 60);
+  } finally {
+    btn.disabled = false;
+    $('set-pull-name').value = '';
+    setTimeout(() => { prog.classList.add('hidden'); populateModels(); }, 1200);
+  }
+});
+
+/* ---------- mission log ---------- */
+
+async function refreshMissionLog() {
+  const box = $('mission-log');
+  try {
+    const res = await apiFetch('/api/log');
+    const data = await res.json();
+    const entries = data.entries || [];
+    box.innerHTML = '';
+    if (entries.length === 0) {
+      box.appendChild(el('div', 'dir-empty', 'NOTHING YET — HE IS IDLING'));
+      return;
+    }
+    for (const e of entries) {
+      const row = el('div', 'log-row');
+      row.dataset.kind = e.kind;
+      row.append(
+        el('span', 'log-kind', e.kind),
+        el('span', 'log-ts', new Date(e.ts).toLocaleTimeString()),
+        el('span', 'log-text', e.text)
+      );
+      box.appendChild(row);
+    }
+  } catch {
+    box.textContent = 'log unavailable';
+  }
+}
+
+/* ---------- backup & restore ---------- */
+
+$('btn-backup').addEventListener('click', async () => {
+  try {
+    const res = await apiFetch('/api/backup');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ultron-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (err) {
+    window.alert('Backup failed: ' + String(err.message || err));
+  }
+});
+
+$('btn-restore').addEventListener('click', () => $('restore-file').click());
+$('restore-file').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (!window.confirm('Restore this backup? Current memories, sessions, orders and config will be OVERWRITTEN.')) {
+    e.target.value = '';
+    return;
+  }
+  try {
+    const text = await file.text();
+    const res = await apiFetch('/api/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: text,
+    });
+    const data = await res.json();
+    if (data.ok) {
+      window.alert(`Mind restored (${data.restored} stores, ${data.skills} skills, ${data.files} files). Reload the page to see everything.`);
+      location.reload();
+    } else {
+      window.alert('Restore failed: ' + (data.error || 'unknown'));
+    }
+  } catch (err) {
+    window.alert('Restore failed: ' + String(err.message || err));
+  } finally {
+    e.target.value = '';
+  }
+});
+
 /* ═══════════════ SETTINGS ═══════════════ */
 async function refreshMemoryUI() {
   try {
-    const res = await apiFetch('/api/memory');
+    const q = state.profile && state.profile !== 'main' ? `?profile=${encodeURIComponent(state.profile)}` : '';
+    const res = await apiFetch('/api/memory' + q);
     const data = await res.json();
     const list = data.memories || [];
     $('mem-count').textContent = list.length ? `${list.length} MEMOR${list.length === 1 ? 'Y' : 'IES'} HELD` : 'NO MEMORIES HELD';
@@ -1406,6 +1688,7 @@ function openSettings() {
   $('set-voice').checked = state.voice;
   $('set-wake').checked = state.wake;
   $('set-lang').value = state.language;
+  $('set-profile').value = state.profile;
   const cfg = state.serverCfg || {};
   $('set-tools').checked = !!cfg.toolsEnabled;
   $('set-stt').value = cfg.sttUrl || '';
@@ -1428,6 +1711,8 @@ function openSettings() {
   refreshKnowledgeUI();
   refreshDirectivesUI();
   refreshSkillsUI();
+  refreshMissionLog();
+  refreshElevenUsage();
   populateModels();
 }
 function closeSettings() {
@@ -1511,8 +1796,27 @@ $('btn-eleven-clear').addEventListener('click', async () => {
     if (res.ok) state.serverCfg = await res.json();
   } catch { /* ignore */ }
   $('set-eleven-key').value = '';
+  $('eleven-usage').classList.add('hidden');
   refreshElevenUI();
 });
+
+/* ---------- ElevenLabs credits meter ---------- */
+
+async function refreshElevenUsage() {
+  const box = $('eleven-usage');
+  if (!state.serverCfg.elevenKeySet) { box.classList.add('hidden'); return; }
+  try {
+    const res = await apiFetch('/api/elevenlabs/usage');
+    if (!res.ok) { box.classList.add('hidden'); return; }
+    const u = await res.json();
+    const used = u.character_count || 0;
+    const limit = u.character_limit || 1;
+    const pct = Math.min(100, Math.round((used / limit) * 100));
+    $('usage-bar').style.width = pct + '%';
+    $('usage-text').textContent = `${used.toLocaleString()} / ${limit.toLocaleString()} characters used (${pct}%)${u.tier ? ' · ' + u.tier : ''}${u.resets ? ' · resets ' + new Date(u.resets).toLocaleDateString() : ''}`;
+    box.classList.remove('hidden');
+  } catch { box.classList.add('hidden'); }
+}
 
 async function populateModels() {
   const s = await refreshStatus();
@@ -1546,6 +1850,7 @@ async function populateModels() {
   }
   if (s.models && s.models.length) {
     $('settings-note').innerHTML = `Brain detected: <b>${s.models.length}</b> model(s) on your Ollama server.`;
+    refreshModelManager(s.models);
   } else {
     $('settings-note').innerHTML =
       `<err>No Ollama server at <b>${escapeHtml(state.ollamaUrl)}</b>.</err><br><br>` +
@@ -1616,7 +1921,8 @@ $('btn-mem-del').addEventListener('click', async () => {
 
 async function factAtIndex(idx) {
   try {
-    const res = await apiFetch('/api/memory');
+    const q = state.profile && state.profile !== 'main' ? `?profile=${encodeURIComponent(state.profile)}` : '';
+    const res = await apiFetch('/api/memory' + q);
     const data = await res.json();
     const m = (data.memories || []).find((x) => x.idx === idx);
     return m ? m.fact : null;
@@ -1636,6 +1942,8 @@ $('btn-save').addEventListener('click', async () => {
   const newLang = $('set-lang').value;
   const langChanged = newLang !== state.language;
   state.language = newLang;
+  state.profile = ($('set-profile').value.trim() || 'main').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'main';
+  localStorage.setItem('ultron.profile', state.profile);
   localStorage.setItem('ultron.url', state.ollamaUrl);
   localStorage.setItem('ultron.temp', String(state.temperature));
   localStorage.setItem('ultron.voice', state.voice ? '1' : '0');
@@ -1751,8 +2059,11 @@ async function boot() {
   await refreshStatus();
   setMode('dormant');
 
+  // Sync sessions with the server (all devices see the same history).
+  await syncSessionsFromServer();
+
   // Restore the most recent session, or start fresh.
-  const convs = loadConvs().slice().sort((a, b) => b.updated - a.updated);
+  const convs = (await loadConvs()).sort((a, b) => b.updated - a.updated);
   if (convs.length > 0) loadConversation(convs[0].id);
   else { state.convId = 'c' + Date.now(); greet(); }
   renderConvList();

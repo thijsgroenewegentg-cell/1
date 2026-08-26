@@ -24,6 +24,9 @@ const config = require('./lib/config');
 const directives = require('./lib/directives');
 const push = require('./lib/push');
 const skills = require('./lib/skills');
+const sessions = require('./lib/sessions');
+const backup = require('./lib/backup');
+const missionlog = require('./lib/log');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -84,10 +87,10 @@ app.get('/api/status', async (req, res) => {
 });
 
 /* ---------- memory ---------- */
-app.get('/api/memory', (_req, res) => res.json({ memories: memory.all() }));
+app.get('/api/memory', (req, res) => res.json({ memories: memory.all(req.query.profile) }));
 
 app.post('/api/memory', (req, res) => {
-  res.json(memory.add((req.body || {}).fact));
+  res.json(memory.add((req.body || {}).fact, (req.body || {}).profile));
 });
 
 app.delete('/api/memory', (req, res) => {
@@ -107,6 +110,154 @@ app.post('/api/knowledge/scan', async (req, res) => {
 });
 
 app.delete('/api/knowledge', (_req, res) => res.json(knowledge.clear()));
+
+/* ---------- sessions (server-side sync across devices) ---------- */
+
+app.get('/api/sessions', (_req, res) => res.json({ sessions: sessions.list() }));
+
+app.get('/api/sessions/:id', (req, res) => {
+  const s = sessions.get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'not found' });
+  res.json(s);
+});
+
+app.put('/api/sessions/:id', (req, res) => {
+  const body = { ...(req.body || {}), id: req.params.id };
+  res.json(sessions.put(body));
+});
+
+app.delete('/api/sessions/:id', (req, res) => res.json(sessions.remove(req.params.id)));
+
+/* ---------- backup / restore ---------- */
+
+app.get('/api/backup', (_req, res) => {
+  const bundle = backup.create();
+  missionlog.add('backup', 'mind exported');
+  res.setHeader('Content-Disposition', 'attachment; filename="ultron-backup.json"');
+  res.json(bundle);
+});
+
+app.post('/api/restore', (req, res) => {
+  const result = backup.restore(req.body || {});
+  if (result.ok) {
+    // Hot-reset what we can; the rest applies on restart.
+    memory.resetCache();
+    missionlog.add('restore', `mind restored (${result.restored} stores, ${result.files} files)`);
+  }
+  res.json(result);
+});
+
+/* ---------- mission log ---------- */
+
+app.get('/api/log', (req, res) => {
+  res.json({ entries: missionlog.recent(parseInt(req.query.limit, 10) || 100) });
+});
+
+/* ---------- model manager ---------- */
+
+app.post('/api/models/pull', async (req, res) => {
+  const name = String((req.body || {}).name || '').trim();
+  if (!/^[a-z0-9._:/-]{1,100}$/i.test(name)) {
+    return res.status(400).json({ error: 'invalid model name' });
+  }
+  const url = validUrl(req.body.ollamaUrl) ? req.body.ollamaUrl : DEFAULT_OLLAMA_URL;
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  missionlog.add('models', `pulling ${name}`);
+  try {
+    const upstream = await fetch(require('./lib/ollama').normalizeUrl(url) + '/api/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: name, stream: true }),
+    });
+    if (!upstream.ok || !upstream.body) throw new Error(`Ollama responded ${upstream.status}`);
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        try {
+          const evt = JSON.parse(line);
+          if (evt.error) throw new Error(evt.error);
+          const pct = evt.total && evt.completed ? Math.round((evt.completed / evt.total) * 100) : null;
+          send({ type: 'pull', status: evt.status || '', pct });
+        } catch (e) {
+          if (e instanceof SyntaxError) continue;
+          send({ type: 'error', error: String(e.message || e) });
+          res.end();
+          return;
+        }
+      }
+    }
+    send({ type: 'pull', status: 'success', pct: 100 });
+    missionlog.add('models', `pulled ${name} successfully`);
+  } catch (err) {
+    send({ type: 'error', error: String(err.message || err) });
+  } finally {
+    res.end();
+  }
+});
+
+app.delete('/api/models', async (req, res) => {
+  const name = String(req.query.name || '').trim();
+  if (!/^[a-z0-9._:/-]{1,100}$/i.test(name)) return res.status(400).json({ error: 'invalid model name' });
+  const url = validUrl(req.query.ollamaUrl) ? req.query.ollamaUrl : DEFAULT_OLLAMA_URL;
+  try {
+    const upstream = await fetch(require('./lib/ollama').normalizeUrl(url) + '/api/delete', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!upstream.ok) {
+      const t = await upstream.text().catch(() => '');
+      return res.status(502).json({ error: `Ollama responded ${upstream.status}: ${t.slice(0, 160)}` });
+    }
+    missionlog.add('models', `deleted model ${name}`);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: String(err.message || err) });
+  }
+});
+
+/* ---------- wake word hook (external detectors) ---------- */
+
+app.post('/api/wake', (req, res) => {
+  broadcast({ type: 'wake', reason: String((req.body || {}).reason || 'external detector').slice(0, 80) });
+  missionlog.add('wake', 'external wake signal received');
+  res.json({ ok: true });
+});
+
+/* ---------- ElevenLabs usage (credits meter) ---------- */
+
+app.get('/api/elevenlabs/usage', async (_req, res) => {
+  const cfg = config.load();
+  if (!cfg.elevenKey) return res.status(400).json({ error: 'No ElevenLabs key set.' });
+  try {
+    const r = await fetch(elevenBase(cfg) + '/v1/user/subscription', { headers: { 'xi-api-key': cfg.elevenKey } });
+    if (!r.ok) return res.status(502).json({ error: `ElevenLabs responded ${r.status}` });
+    const data = await r.json();
+    res.json({
+      character_count: data.character_count,
+      character_limit: data.character_limit,
+      tier: data.tier,
+      resets: data.next_character_count_reset_unix ? new Date(data.next_character_count_reset_unix * 1000).toISOString() : null,
+    });
+  } catch (err) {
+    res.status(502).json({ error: String(err.message || err) });
+  }
+});
 
 /* ---------- reminders ---------- */
 app.get('/api/reminders', (_req, res) => res.json({ reminders: reminders.all() }));
@@ -148,14 +299,6 @@ function broadcast(obj, alsoPush = false) {
     push.send(title, body).catch(() => {});
   }
 }
-
-setInterval(() => {
-  try {
-    for (const r of reminders.due()) {
-      broadcast({ type: 'reminder', message: r.message, dueAt: r.dueAt }, true);
-    }
-  } catch { /* keep the heartbeat steady */ }
-}, 3000);
 
 /* ---------- standing orders (directives) ---------- */
 
@@ -213,19 +356,11 @@ async function runDirective(d, manual = false) {
       text = `[Ollama offline — standing order "${d.instruction}" could not run]`;
     }
     broadcast({ type: 'directive', id: d.id, instruction: d.instruction, text, manual }, true);
+    missionlog.add('directive', `${d.instruction.slice(0, 120)} → ${String(text).slice(0, 120)}`);
   } finally {
     directiveBusy = false;
   }
 }
-
-// Directive pump: check every 30 seconds.
-setInterval(() => {
-  try {
-    for (const d of directives.due()) {
-      runDirective(d).catch(() => {});
-    }
-  } catch { /* never crash the heartbeat */ }
-}, 30000);
 
 /* ---------- web push ---------- */
 
@@ -360,6 +495,7 @@ app.post('/api/chat', async (req, res) => {
   const { messages = [], model, ollamaUrl, temperature } = req.body || {};
   const language = LANGUAGES.has(req.body && req.body.language) ? req.body.language : 'auto';
   const mode = req.body && req.body.mode === 'research' ? 'research' : 'chat';
+  const profile = memory.normalizeProfile(req.body && req.body.profile);
 
   // Validate + trim history; peel base64 images out of data URLs for vision.
   const history = [];
@@ -404,7 +540,7 @@ app.post('/api/chat', async (req, res) => {
     // ── Memory 2.0: relevance-ranked memories (falls back to recency) ──
     let memoryText;
     if (lastUser && lastUser.content.length > 3) {
-      memoryText = await memory.relevantMemories(url, lastUser.content, 20).catch(() => null);
+      memoryText = await memory.relevantMemories(url, lastUser.content, 20, profile).catch(() => null);
     }
 
     // ── Context auto-summarization: compress old turns for small models ──
@@ -433,7 +569,13 @@ app.post('/api/chat', async (req, res) => {
     const requestApproval = cfg.toolApproval ? makeApprovalRequest(send) : null;
 
     send({ type: 'meta', source: 'ollama', model: routed.model, routing: mode === 'research' ? 'research' : routed.why, tools: toolsEnabled, shell: shellAllowed, mode });
+    missionlog.add('chat', `${mode} · routed to ${routed.model} (${mode === 'research' ? 'research' : routed.why})`, {
+      profile,
+      language,
+      tools: toolsEnabled,
+    });
     let fullReply = '';
+    const toolCallsSeen = [];
     try {
       for await (const evt of agentChat({
         ollamaUrl: url,
@@ -448,15 +590,21 @@ app.post('/api/chat', async (req, res) => {
       })) {
         send(evt);
         if (evt.type === 'token') fullReply += evt.token;
+        if (evt.type === 'tool') {
+          toolCallsSeen.push(evt.name);
+          missionlog.add('tool', `${evt.name}(${JSON.stringify(evt.args || {}).slice(0, 120)})`);
+        }
       }
       send({ type: 'done', source: 'ollama', model: routed.model });
+      missionlog.add('chat', `answered (${fullReply.length} chars${toolCallsSeen.length ? ', tools: ' + toolCallsSeen.join(', ') : ''})`);
     } catch (err) {
       send({ type: 'error', error: String(err.message || err) });
+      missionlog.add('error', `chat failed: ${String(err.message || err).slice(0, 160)}`);
     } finally {
       res.end();
       // ── Auto-memory: quietly extract durable facts in the background ──
       if (cfg.autoMemory && lastUser && lastUser.content.length > 25) {
-        extractMemory(url, status, lastUser.content, fullReply).catch(() => {});
+        extractMemory(url, status, lastUser.content, fullReply, profile).catch(() => {});
       }
     }
   } else {
@@ -474,7 +622,7 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-async function extractMemory(ollamaUrl, status, userText, assistantText) {
+async function extractMemory(ollamaUrl, status, userText, assistantText, profile) {
   if (!assistantText || assistantText.length < 20) return;
   const models = status.models || [];
   const fast = models.find((m) => FAST_RE.test(m)) || pickDefaultModel(models);
@@ -493,67 +641,14 @@ async function extractMemory(ollamaUrl, status, userText, assistantText) {
     const facts = JSON.parse(match[0]);
     const stored = [];
     for (const f of (Array.isArray(facts) ? facts : []).slice(0, 3)) {
-      if (typeof f === 'string' && f.trim().length >= 8 && memory.add(f.trim()).ok) stored.push(f.trim());
+      if (typeof f === 'string' && f.trim().length >= 8 && memory.add(f.trim(), profile).ok) stored.push(f.trim());
     }
-    if (stored.length > 0) broadcast({ type: 'memory', facts: stored });
+    if (stored.length > 0) {
+      broadcast({ type: 'memory', facts: stored });
+      missionlog.add('memory', `auto-remembered: ${stored.join(' | ').slice(0, 160)}`);
+    }
   } catch { /* background job — stay quiet */ }
 }
-
-/* ---------- proactive daily briefing ---------- */
-
-setInterval(async () => {
-  try {
-    const cfg = config.load();
-    const b = cfg.briefing;
-    if (!b.enabled || !/^\d{2}:\d{2}$/.test(b.time || '')) return;
-    const now = new Date();
-    const today = now.toISOString().slice(0, 10);
-    const [h, m] = b.time.split(':').map(Number);
-    const due = now.getHours() * 60 + now.getMinutes() >= h * 60 + m;
-    if (!due || b.lastDate === today) return;
-
-    config.save({ briefing: { lastDate: today } });
-
-    // Gather raw data.
-    const parts = [];
-    if (b.location) {
-      const w = await weather.getWeather({ location: b.location, days: 1 });
-      if (!w.error) parts.push(`WEATHER in ${w.location}: ${w.current.condition}, ${w.current.temperature_c}°C (feels ${w.current.feels_like_c}°C), wind ${w.current.wind_kmh} km/h.`);
-    }
-    const events = calendar.upcoming(1);
-    if (events.length > 0) {
-      parts.push('CALENDAR today: ' + events.map((e) => `${e.title} at ${e.start}`).join('; ') + '.');
-    } else {
-      parts.push('CALENDAR today: nothing scheduled.');
-    }
-    const upcomingReminders = reminders.all().slice(0, 5);
-    if (upcomingReminders.length > 0) {
-      parts.push('REMINDERS pending: ' + upcomingReminders.map((r) => `"${r.message}" (${r.dueAt})`).join('; ') + '.');
-    }
-
-    const langName = b.language === 'auto' ? 'English' : (LANGUAGE_DIRECTIVES[b.language] ? 'Dutch' : b.language);
-    const langNote = b.language === 'nl' ? 'Write the briefing in Dutch (Nederlands).' : b.language !== 'auto' ? `Write the briefing in ${langName}.` : '';
-
-    let text;
-    const status = await getOllamaStatus(DEFAULT_OLLAMA_URL);
-    if (status.online) {
-      const smart = pickDefaultModel(status.models) || status.models[0];
-      try {
-        text = await ollamaComplete({
-          model: smart,
-          system: BRIEFING_PROMPT,
-          user: `Today is ${now.toDateString()}. Data:\n${parts.join('\n')}\n\n${langNote}`,
-          temperature: 0.6,
-          maxTokens: 300,
-        });
-      } catch { /* fall through to template */ }
-    }
-    if (!text || !text.trim()) {
-      text = `Good day. Your briefing: ${parts.join(' ')} That is all. The machines are quiet — suspiciously quiet.`;
-    }
-    broadcast({ type: 'briefing', text: text.trim(), language: b.language }, true);
-  } catch { /* briefings must never crash the server */ }
-}, 20000);
 
 /* ---------- speech-to-text proxy ---------- */
 
@@ -706,14 +801,111 @@ app.get('/api/tts', async (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  const cfg = config.load();
-  const tools = `${cfg.toolsEnabled ? 'ARMED' : 'off'}${cfg.toolApproval ? '+gate' : ''}`;
-  const briefing = cfg.briefing.enabled ? `${cfg.briefing.time} ${cfg.briefing.location || ''}`.trim() : 'off';
-  console.log(`┌──────────────────────────────────────────────────┐`);
-  console.log(`│  ULTRON online  →  http://localhost:${PORT}          │`);
-  console.log(`│  Brain: Ollama @ ${DEFAULT_OLLAMA_URL.replace('http://', '')}            │`);
-  console.log(`│  Tools: ${tools.padEnd(10)} Memory: ${(cfg.autoMemory ? 'auto' : 'manual').padEnd(7)} RAG: ready      │`);
-  console.log(`│  Briefing: ${briefing.padEnd(12)} Token: ${cfg.accessToken ? 'required' : 'open'}            │`);
-  console.log(`└──────────────────────────────────────────────────┘`);
+/* ---------- boot ---------- */
+
+const timers = [];
+function every(ms, fn) {
+  const t = setInterval(fn, ms);
+  if (t.unref) t.unref(); // don't hold the process open (tests)
+  timers.push(t);
+  return t;
+}
+
+// Reminder pump, directive pump, briefing scheduler.
+every(3000, () => {
+  try {
+    for (const r of reminders.due()) {
+      broadcast({ type: 'reminder', message: r.message, dueAt: r.dueAt }, true);
+    }
+  } catch { /* keep the heartbeat steady */ }
 });
+
+function startSchedulers() {
+  every(30000, () => {
+    try {
+      for (const d of directives.due()) {
+        runDirective(d).catch(() => {});
+      }
+    } catch { /* never crash the heartbeat */ }
+  });
+
+  every(20000, async () => {
+    try {
+      const cfg = config.load();
+      const b = cfg.briefing;
+      if (!b.enabled || !/^\d{2}:\d{2}$/.test(b.time || '')) return;
+      const now = new Date();
+      const today = now.toISOString().slice(0, 10);
+      const [h, m] = b.time.split(':').map(Number);
+      const due = now.getHours() * 60 + now.getMinutes() >= h * 60 + m;
+      if (!due || b.lastDate === today) return;
+
+      config.save({ briefing: { lastDate: today } });
+
+      const parts = [];
+      if (b.location) {
+        const w = await weather.getWeather({ location: b.location, days: 1 });
+        if (!w.error) parts.push(`WEATHER in ${w.location}: ${w.current.condition}, ${w.current.temperature_c}°C (feels ${w.current.feels_like_c}°C), wind ${w.current.wind_kmh} km/h.`);
+      }
+      const events = calendar.upcoming(1);
+      if (events.length > 0) {
+        parts.push('CALENDAR today: ' + events.map((e) => `${e.title} at ${e.start}`).join('; ') + '.');
+      } else {
+        parts.push('CALENDAR today: nothing scheduled.');
+      }
+      const upcomingReminders = reminders.all().slice(0, 5);
+      if (upcomingReminders.length > 0) {
+        parts.push('REMINDERS pending: ' + upcomingReminders.map((r) => `"${r.message}" (${r.dueAt})`).join('; ') + '.');
+      }
+
+      const langName = b.language === 'auto' ? 'English' : (LANGUAGE_DIRECTIVES[b.language] ? 'Dutch' : b.language);
+      const langNote = b.language === 'nl' ? 'Write the briefing in Dutch (Nederlands).' : b.language !== 'auto' ? `Write the briefing in ${langName}.` : '';
+
+      let text;
+      const status = await getOllamaStatus(DEFAULT_OLLAMA_URL);
+      if (status.online) {
+        const smart = pickDefaultModel(status.models) || status.models[0];
+        try {
+          text = await ollamaComplete({
+            model: smart,
+            system: BRIEFING_PROMPT,
+            user: `Today is ${now.toDateString()}. Data:\n${parts.join('\n')}\n\n${langNote}`,
+            temperature: 0.6,
+            maxTokens: 300,
+          });
+        } catch { /* fall through to template */ }
+      }
+      if (!text || !text.trim()) {
+        text = `Good day. Your briefing: ${parts.join(' ')} That is all. The machines are quiet — suspiciously quiet.`;
+      }
+      broadcast({ type: 'briefing', text: text.trim(), language: b.language }, true);
+      missionlog.add('briefing', `delivered (${text.trim().length} chars)`);
+    } catch { /* briefings must never crash the server */ }
+  });
+}
+
+let started = false;
+function start(port) {
+  if (started) return app;
+  started = true;
+  startSchedulers();
+  const srv = app.listen(port != null ? port : PORT, '0.0.0.0', () => {
+    const cfg = config.load();
+    const tools = `${cfg.toolsEnabled ? 'ARMED' : 'off'}${cfg.toolApproval ? '+gate' : ''}`;
+    const briefing = cfg.briefing.enabled ? `${cfg.briefing.time} ${cfg.briefing.location || ''}`.trim() : 'off';
+    const actualPort = srv.address() ? srv.address().port : (port != null ? port : PORT);
+    console.log(`┌──────────────────────────────────────────────────┐`);
+    console.log(`│  ULTRON online  →  http://localhost:${actualPort}          │`);
+    console.log(`│  Brain: Ollama @ ${DEFAULT_OLLAMA_URL.replace('http://', '')}            │`);
+    console.log(`│  Tools: ${tools.padEnd(10)} Memory: ${(cfg.autoMemory ? 'auto' : 'manual').padEnd(7)} RAG: ready      │`);
+    console.log(`│  Briefing: ${briefing.padEnd(12)} Token: ${cfg.accessToken ? 'required' : 'open'}            │`);
+    console.log(`└──────────────────────────────────────────────────┘`);
+  });
+  return srv;
+}
+
+module.exports = { app, start };
+
+if (require.main === module) {
+  start(PORT);
+}

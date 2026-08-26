@@ -228,6 +228,23 @@
       <span class="field-help">Shell commands only run when Ultron is accessed from localhost/LAN.</span>
     </div>
 
+    <div class="field">
+      <span class="field-label">Model manager</span>
+      <div id="model-manager-list" class="kb-status">—</div>
+      <div class="dir-schedule-row">
+        <input id="set-pull-name" type="text" spellcheck="false" placeholder="llama3.2:3b" />
+        <button type="button" id="btn-model-pull" class="btn-secondary btn-small">PULL</button>
+      </div>
+      <div class="pull-progress hidden" id="pull-progress"><div class="pull-bar-track"><div class="pull-bar" id="pull-bar"></div></div><span id="pull-status">…</span></div>
+      <span class="field-help">Download and remove models straight from the browser — no terminal needed. Pull streams live progress from Ollama.</span>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Profile (memory scope)</span>
+      <input id="set-profile" type="text" spellcheck="false" placeholder="main" />
+      <span class="field-help">Memories are scoped per profile — useful when multiple people share this Ultron. Sessions and chats stay shared.</span>
+    </div>
+
     <label class="field">
       <span class="field-label">Language · Taal</span>
       <select id="set-lang">
@@ -282,6 +299,10 @@
           </select>
         </label>
         <div class="eleven-status" id="eleven-status">—</div>
+        <div class="eleven-usage hidden" id="eleven-usage">
+          <div class="pull-bar-track"><div class="pull-bar" id="usage-bar"></div></div>
+          <div class="usage-text" id="usage-text"></div>
+        </div>
         <button type="button" id="btn-eleven-clear" class="btn-secondary btn-small">REMOVE KEY</button>
         <span class="field-help">Your key is stored only in this server's <code>data/config.json</code> and sent solely to ElevenLabs when speaking. Multilingual voices speak whatever language he replied in — Dutch included. Free tier ≈ 10 min of voice per month; remove the key anytime to fall back to local voice.</span>
       </div>
@@ -295,6 +316,22 @@
         <button id="btn-mem-del" class="btn-secondary">FORGET SELECTED</button>
         <button id="btn-mem-clear" class="btn-secondary">WIPE ALL</button>
       </div>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Mission log — what he did & why</span>
+      <div id="mission-log" class="mission-log">—</div>
+      <span class="field-help">Routing decisions, every tool call, directives, briefings, auto-memories. His flight recorder.</span>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Backup — his entire mind</span>
+      <div class="eleven-row">
+        <button type="button" id="btn-backup" class="btn-secondary">EXPORT EVERYTHING</button>
+        <button type="button" id="btn-restore" class="btn-secondary">IMPORT BACKUP</button>
+      </div>
+      <input type="file" id="restore-file" accept="application/json,.json" hidden />
+      <span class="field-help">One JSON file: memories, sessions, standing orders, reminders, config, knowledge index, skills, workspace. <b>The file contains secrets — store it safely.</b></span>
     </div>
 
     <div class="settings-actions">
