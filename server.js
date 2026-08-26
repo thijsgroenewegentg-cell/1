@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { buildSystemPrompt, BRIEFING_PROMPT, DIRECTIVE_PROMPT, LANGUAGE_DIRECTIVES } = require('./lib/persona');
-const { getOllamaStatus, validUrl, DEFAULT_OLLAMA_URL, normalizeUrl, pickDefaultModel } = require('./lib/ollama');
+const { getOllamaStatus, validUrl, DEFAULT_OLLAMA_URL, normalizeUrl, pickDefaultModel, perfOptions } = require('./lib/ollama');
 const { agentChat } = require('./lib/agent');
 const { streamDemoChat } = require('./lib/demoBrain');
 const memory = require('./lib/memory');
@@ -516,8 +516,8 @@ function makeApprovalRequest(send) {
 
 /* ---------- model routing ---------- */
 
-const VISION_RE = /vision|vl|llava|moondream|minicpm-v/i;
-const FAST_RE = /^(llama3\.2|qwen2\.5:(0\.5|1\.5|3)b|qwen2:0\.5|gemma2:2b|gemma:2b|phi3|phi-3|tinyllama|smollm)/i;
+const VISION_RE = /vision|vl|llava|moondream|minicpm-v|gemma3(?!:1b)/i; // gemma3 (except 1b) is multimodal
+const FAST_RE = /^(llama3\.2|llama3\.3:8b|qwen2\.5:(0\.5|1\.5|3)b|qwen2:0\.5|gemma2:2b|gemma:2b|qwen3:(0\.6b|1\.7b|4b)|gemma3:(1b|4b)|gemma3n|phi3|phi-3|phi4-mini|tinyllama|smollm)/i;
 const DEEP_RE = /\b(why|how|explain|analy[sz]e|plan|design|debug|refactor|compare|essay|research|investigate|onderzoek|uitleg|waarom|hoe)\b/i;
 
 function resolveConfigured(name, models, fallback) {
@@ -546,6 +546,7 @@ function pickModel(cfgModels, status, { hasImages, text }) {
 
 async function ollamaComplete({ ollamaUrl, model, system, user, temperature = 0.4, maxTokens }) {
   const base = normalizeUrl(ollamaUrl || DEFAULT_OLLAMA_URL);
+  const perf = perfOptions({ temperature, ...(maxTokens ? { num_predict: maxTokens } : {}) });
   const body = {
     model,
     messages: [
@@ -553,7 +554,8 @@ async function ollamaComplete({ ollamaUrl, model, system, user, temperature = 0.
       { role: 'user', content: user },
     ],
     stream: false,
-    options: { temperature, ...(maxTokens ? { num_predict: maxTokens } : {}) },
+    options: perf.options,
+    ...(perf.keep_alive ? { keep_alive: perf.keep_alive } : {}),
   };
   const res = await fetch(base + '/api/chat', {
     method: 'POST',
@@ -1138,7 +1140,7 @@ function start(port) {
   return srv;
 }
 
-module.exports = { app, start };
+module.exports = { app, start, pickModel };
 
 if (require.main === module) {
   start(PORT);

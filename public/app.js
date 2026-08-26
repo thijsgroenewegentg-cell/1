@@ -1900,6 +1900,8 @@ function openSettings() {
   $('set-telegram-token').placeholder = tcfg.telegramTokenSet ? '🔑 token saved — type a new one to replace' : 'bot token from @BotFather (optional)';
   $('set-telegram-chats').value = (tcfg.telegramChatIds || []).join(', ');
   $('set-sd').value = tcfg.sdUrl || '';
+  $('set-ctx').value = tcfg.contextLength != null ? tcfg.contextLength : 8192;
+  $('set-keepalive').value = tcfg.keepAlive || '30m';
   refreshTelegramUI();
   refreshImagineUI();
   $('set-brief').checked = !!(cfg.briefing && cfg.briefing.enabled);
@@ -2195,6 +2197,8 @@ $('btn-save').addEventListener('click', async () => {
         accessToken: $('set-token').value.trim(),
         telegramChatIds: $('set-telegram-chats').value.trim(),
         sdUrl: $('set-sd').value.trim(),
+        contextLength: parseInt($('set-ctx').value, 10) || 0,
+        keepAlive: $('set-keepalive').value.trim() || '30m',
         ...($('set-telegram-token').value.trim() ? { telegramToken: $('set-telegram-token').value.trim() } : {}),
         ...elevenPatch,
       }),

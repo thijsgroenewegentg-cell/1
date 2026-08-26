@@ -118,7 +118,7 @@ function start(port, host = '127.0.0.1') {
           sys.includes('ALTIJD in het Nederlands') ? 'nl-directive' : 'no-nl',
           sys.includes('DURABLE MEMORIES') ? 'memories' : 'no-memories',
         ].join(',');
-        stream(res, `syscheck ${flags} model=${p.model}`);
+        stream(res, `syscheck ${flags} model=${p.model} ctxcheck=${(p.options || {}).num_ctx || 0} ka=${p.keep_alive !== undefined ? p.keep_alive : '-'}`);
       });
       return;
     }

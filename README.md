@@ -307,6 +307,32 @@ Leave Model on **AUTO** and he picks per question: short chat → your fastest m
 - **LAN access token** — set one in Settings and every API call needs it. Recommended if you open port 3000 to your network.
 - `run_command` only runs when you access him from localhost/LAN — never through a public host.
 
+## Performance tuning — make him fast
+
+Ultron now sends a proper **context window** and **keep-alive** to Ollama on every request (Settings → Model routing: *Context window* and *Keep models loaded*). Defaults: 8192 ctx, 30m keep-alive.
+
+**Recommended models by VRAM** (16 GB cards like the RX 9070 XT / RTX 4080):
+
+| Slot | Model | VRAM (Q4) |
+|---|---|---|
+| Smart (tools+vision in one) | `mistral-small3.2` (24B) | ~14 GB |
+| Smart (thinking mode) | `qwen3:14b` | ~9 GB |
+| Fast | `qwen3:4b` | ~3 GB |
+| Vision | `gemma3:12b` | ~8 GB |
+| MoE wildcard (30B knowledge, small-model speed) | `qwen3:30b-a3b` | ~18 GB — spills a few GB to system RAM (fine on X3D CPUs) |
+
+Ultron's routing recognizes the modern lineup (qwen3, gemma3, mistral-small) automatically.
+
+**Ollama environment (big wins):**
+
+```bash
+OLLAMA_NUM_PARALLEL=4         # Legion drones actually run in parallel
+OLLAMA_FLASH_ATTENTION=1      # required for quantized KV cache
+OLLAMA_KV_CACHE_TYPE=q8_0     # halves KV memory → 16k–32k contexts fit
+```
+
+Linux+ROCm is the fastest path for AMD GPUs; on Windows use the latest Ollama. Verify GPU offload with `ollama ps` — it should report `100% GPU`. AMD bonus: MoE models (qwen3:30b-a3b) spill gracefully to system RAM, and X3D cache makes that spill cheap.
+
 ## What he can't do (yet)
 
 - Smart home — not integrated (no Home Assistant here; the `browser` tool covers a lot of ground meanwhile)

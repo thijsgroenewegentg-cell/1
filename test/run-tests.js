@@ -699,6 +699,43 @@ async function main() {
     sdSrv.close();
   }
 
+  /* ---------- performance config (num_ctx / keep_alive / routing) ---------- */
+  console.log('performance');
+  {
+    const cfg1 = await j(await fetch(BASE + '/api/config'));
+    ok('contextLength default 8192', cfg1.contextLength === 8192);
+    ok('keepAlive default 30m', cfg1.keepAlive === '30m');
+
+    // The chat request carries them through to Ollama.
+    const r = await chatUntil([{ role: 'user', content: 'hoi' }]);
+    ok('num_ctx sent to Ollama', /ctxcheck=8192/.test(r.text), r.text.slice(0, 110));
+    ok('keep_alive sent to Ollama', /ka=30m/.test(r.text));
+
+    // Changing config changes what Ollama receives.
+    await fetch(BASE + '/api/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contextLength: 16384, keepAlive: '2h' }),
+    });
+    const r2 = await chatUntil([{ role: 'user', content: 'hoi weer' }]);
+    ok('configurable ctx + keep_alive', /ctxcheck=16384/.test(r2.text) && /ka=2h/.test(r2.text));
+    await fetch(BASE + '/api/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contextLength: 8192, keepAlive: '30m' }),
+    });
+
+    // Modern-model routing (unit): qwen3/gemma3/mistral-small lineup.
+    const { pickModel } = require('../server');
+    const modern = ['qwen3:14b', 'qwen3:4b', 'gemma3:12b', 'mistral-small3.2:24b', 'nomic-embed-text'];
+    const fast = pickModel({}, { models: modern }, { hasImages: false, text: 'hoi' });
+    ok('modern fast routing → qwen3:4b', fast.model === 'qwen3:4b' && fast.why === 'fast');
+    const deep = pickModel({}, { models: modern }, { hasImages: false, text: 'please explain in great depth why tides work' });
+    ok('modern smart routing → mistral-small', deep.model === 'mistral-small3.2:24b' && deep.why === 'deep');
+    const vis = pickModel({}, { models: modern }, { hasImages: true, text: 'wat zie je' });
+    ok('modern vision routing → gemma3:12b', vis.model === 'gemma3:12b' && vis.why === 'vision');
+    const moe = pickModel({}, { models: ['qwen3:30b-a3b', 'qwen3:4b'] }, { hasImages: false, text: 'please analyze this in depth and explain why' });
+    ok('MoE model routed as smart', moe.model === 'qwen3:30b-a3b' && moe.why === 'deep');
+  }
+
   /* ---------- security (unit) ---------- */
   console.log('security');
   {

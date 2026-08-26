@@ -122,6 +122,16 @@
         <select id="set-model-vision"></select>
       </label>
       <span class="field-help">He picks per question: short chat → fast, hard questions → smart, images → vision. AUTO detects from your installed models.</span>
+      <label class="field sub-field">
+        <span class="field-label">Context window (num_ctx)</span>
+        <input id="set-ctx" type="text" inputmode="numeric" spellcheck="false" placeholder="8192" />
+        <span class="field-help">Tokens of context per request. Bigger = better research & RAG, more VRAM. 0 = model default. With <code>OLLAMA_KV_CACHE_TYPE=q8_0</code> you can afford 16k–32k.</span>
+      </label>
+      <label class="field sub-field">
+        <span class="field-label">Keep models loaded</span>
+        <input id="set-keepalive" type="text" spellcheck="false" placeholder="30m" />
+        <span class="field-help">How long models stay in VRAM between requests — no reload pause. e.g. 30m, 2h, -1 (forever), 0 (Ollama default).</span>
+      </label>
     </div>
 
     <label class="field">
