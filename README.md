@@ -15,6 +15,8 @@ Fan project. Not affiliated with Marvel/Disney. Ultron does not, in fact, want t
 | 🧠 **Local brain** | Any model via [Ollama](https://ollama.com) — Llama 3.1, Qwen 2.5, Mistral… |
 | 🔀 **Model routing** | He picks his own brain per question: fast model for chat, smart model for deep thinking, vision model for images — or pin one |
 | 🧰 **Tools (agent)** | `search_knowledge` · `web_search` · `fetch_url` · `browser` (opt-in) · `read_file` / `write_file` / `list_files` · `run_command` · `get_weather` · `calendar_list` / `calendar_add` · `set_reminder` · `configure_briefing` · `set_directive` / `list_directives` / `remove_directive` · `remember` / `forget` + your own **skills** |
+| 👁 **His face** | The iconic angular eyes and vented mouth on the orb — faint blue when calm, burning red when he thinks, mouth animating with his voice |
+| 💭 **Idle musings** | Optional: he occasionally speaks, unprompted, to himself |
 | 🧬 **Self-modification** | He reads and edits his own source code — personality, tools, UI — with automatic backups, a syntax gate, and git as his undo button |
 | 🤖 **Standing orders** | Autonomous recurring tasks — "watch X every hour", "summarize my day at 21:00" — executed forever until you say stop |
 | 🔬 **Deep research mode** | Toggle the 🔍 in the composer: he runs up to 24 search/read/write rounds and produces a cited report file |
@@ -208,12 +210,14 @@ Ultron can read and change his own source: `list_source_files`, `read_source`, `
 - *"What did you change about yourself?"* → he runs `git diff`
 
 **The rails:**
+- **Self-edit approval is ON by default** (Settings → Behavior & safety → *Self-edit approval*). He asks before touching his own code — always, independent of the general approval gate. Background/standing-order runs have no approval channel, so their self-edit attempts are **denied by default** (fail-safe, never bypassed).
+- **Mandatory change reports.** Every successful self-edit emits a system-enforced report — not his narration, the *system's*: a 🧬 SELF-MODIFICATION card in the chat showing the file, the exact before → after, the backup path, and his **generation number** — with a **one-click UNDO button** that restores the backup.
+- **Generations.** Each self-edit bumps his generation counter (shown under the orb as `GEN N — self-modified`). Gen 1 is the Ultron you installed; everything after is the Ultron he made of himself.
 - Jailed to the project — `.git`, `node_modules`, `data/` are off-limits
-- Every edit is backed up first (`data/code-backups/<timestamp>/`)
+- Every edit is backed up first (`data/code-backups/<timestamp>/`) — reverts are themselves backed up
 - **Syntax gate**: JS is `node --check`-ed, JSON parsed — broken edits are rejected and *never* applied
 - Surgical find/replace is preferred over rewrites; ambiguous finds are rejected
-- `edit_source` and `restart_server` sit behind the **approval gate** (enable it in Settings → Behavior & safety)
-- His `git` tool can `commit` his work and `revert` it
+- His `git` tool can `commit` his work and `revert` it (remember: `revert` discards *all* uncommitted changes — commit before experiments)
 
 **Strongly recommended workflow:**
 1. Run him with `npm run dev` (auto-restarts on file change) — or Docker/systemd
