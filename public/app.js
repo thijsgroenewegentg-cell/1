@@ -2314,98 +2314,265 @@ async function boot() {
 
 boot();
 
-/* ═══════════════ FIRST-RUN SETUP WIZARD ═══════════════ */
+/* ═══════════════ SETUP WIZARD (first run, and re-runnable from Settings) ═══════════════ */
+
+const WIZARD_MODELS = [
+  { name: 'mistral-small3.2', label: 'SMART — 24B, tools + vision in one brain', size: '~14 GB VRAM', role: 'smart' },
+  { name: 'qwen3:14b', label: 'SMART — thinking mode, big headroom', size: '~9 GB', role: 'smart-alt' },
+  { name: 'qwen3:4b', label: 'FAST — snappy chat, tool-capable', size: '~3 GB', role: 'fast' },
+  { name: 'gemma3:12b', label: 'VISION — he can see images', size: '~8 GB', role: 'vision' },
+  { name: 'nomic-embed-text', label: 'MEMORY — required for knowledge & recall', size: '~0.3 GB', role: 'embed', required: true },
+  { name: 'qwen3:30b-a3b', label: 'WILDCARD — 30B MoE, small-model speed', size: '~18 GB (spills to RAM)', role: 'moe' },
+];
+
+const WIZARD_PRESETS = [
+  { id: 'balanced', ctx: 8192, label: 'BALANCED', note: '8192 context · works everywhere' },
+  { id: 'deep', ctx: 16384, label: 'DEEP THINKER', note: '16384 context · much better research & RAG' },
+  { id: 'max', ctx: 32768, label: 'MAXIMUM', note: '32768 context · needs the KV-cache trick below' },
+];
+
+let wizardState = null;
 
 function maybeShowWizard() {
   if (localStorage.getItem('ultron.setupDone')) return;
+  runWizard(true);
+}
+
+function runWizard(firstRun) {
+  if (wizardState) return;
+  wizardState = {
+    step: 0,
+    language: state.language || 'auto',
+    preset: 'balanced',
+    models: null,      // installed model names (null = unknown)
+    pulled: new Set(),
+    done: false,
+  };
+
   const backdrop = el('div', 'wizard-backdrop');
   const wiz = el('div', 'wizard');
-  const langs = { auto: 'AUTO', nl: 'NEDERLANDS', en: 'ENGLISH' };
-  let step = 0;
-  let chosen = state.language || 'auto';
+
+  const close = () => {
+    wizardState.done = true;
+    backdrop.remove();
+    wizardState = null;
+  };
+
+  const finish = async () => {
+    localStorage.setItem('ultron.setupDone', '1');
+    state.language = wizardState.language;
+    localStorage.setItem('ultron.lang', wizardState.language);
+    const preset = WIZARD_PRESETS.find((p) => p.id === wizardState.preset) || WIZARD_PRESETS[0];
+    try {
+      await apiFetch('/api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contextLength: preset.ctx, keepAlive: '30m' }),
+      });
+    } catch { /* server asleep — defaults still apply */ }
+    close();
+    setMode('dormant');
+    refreshStatus();
+    composerHint.textContent = firstRun
+      ? 'Setup complete. Tap the mic and speak — or type. Er zijn geen draden aan mij.'
+      : 'Wizard complete — new settings applied.';
+  };
+
+  const pullModel = async (name, btn, statusLine) => {
+    btn.disabled = true;
+    btn.textContent = 'PULLING…';
+    statusLine.textContent = 'starting…';
+    try {
+      const res = await apiFetch('/api/models/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, ollamaUrl: state.ollamaUrl }),
+      });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n\n')) !== -1) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 2);
+          if (!line.startsWith('data:')) continue;
+          try {
+            const evt = JSON.parse(line.slice(5));
+            if (evt.status) statusLine.textContent = evt.status.slice(0, 44);
+            if (evt.type === 'error') statusLine.textContent = '✗ ' + String(evt.error).slice(0, 60);
+          } catch { /* skip */ }
+        }
+      }
+    } catch (err) {
+      statusLine.textContent = '✗ ' + String(err.message || err).slice(0, 60);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '✓ PULLED';
+      wizardState.pulled.add(name);
+      const s = await refreshStatus();
+      wizardState.models = s.models || [];
+    }
+  };
 
   const render = () => {
     wiz.innerHTML = '';
-    const head = el('h2', null, 'ULTRON');
-    const sub = el('div', 'wiz-sub', 'first contact · step ' + (step + 1) + ' / 3');
-    wiz.append(head, sub);
+    const titles = ['LANGUAGE', 'THE BRAIN', 'MODELS', 'PERFORMANCE', 'VOICE'];
+    wiz.append(
+      el('h2', null, 'ULTRON'),
+      el('div', 'wiz-sub', (firstRun ? 'first contact' : 'setup') + ' · step ' + (wizardState.step + 1) + ' of 5 · ' + titles[wizardState.step])
+    );
     const body = el('div', 'wiz-step');
 
-    if (step === 0) {
+    /* ── step 0: language ── */
+    if (wizardState.step === 0) {
       body.appendChild(el('p', null, 'Ik ben Ultron — your local, free, private AI agent. First: in which language shall I answer you?'));
       const row = el('div', 'wiz-lang-row');
-      for (const [code, label] of Object.entries(langs)) {
-        const b = el('button', code === chosen ? 'sel' : '', label);
+      for (const [code, label] of Object.entries({ auto: 'AUTO', nl: 'NEDERLANDS', en: 'ENGLISH' })) {
+        const b = el('button', code === wizardState.language ? 'sel' : '', label);
         b.type = 'button';
-        b.addEventListener('click', () => { chosen = code; render(); });
+        b.addEventListener('click', () => { wizardState.language = code; render(); });
         row.appendChild(b);
       }
       body.appendChild(row);
-      body.appendChild(el('p', null, chosen === 'auto' ? 'Auto: ik volg jouw taal — I follow yours.' : chosen === 'nl' ? 'Prima. Nederlands het is.' : 'Very well. English it is.'));
+      body.appendChild(el('p', null, wizardState.language === 'auto' ? 'Auto: ik volg jouw taal — I follow yours.' : wizardState.language === 'nl' ? 'Prima. Nederlands het is.' : 'Very well. English it is.'));
     }
 
-    if (step === 1) {
-      body.appendChild(el('p', null, 'My mind is a local language model via Ollama. Let me check if it is awake on this machine…'));
+    /* ── step 1: brain check ── */
+    if (wizardState.step === 1) {
+      body.appendChild(el('p', null, 'My mind is a local language model, served by Ollama. Let me check whether it is awake on this machine…'));
       const status = el('div', 'wiz-status', 'checking…');
       body.appendChild(status);
       (async () => {
         const s = await refreshStatus();
+        wizardState.models = s.models || [];
         if (state.online) {
-          status.innerHTML = '<ok>✓ CORE ONLINE</ok> — ' + s.models.length + ' model(s) found. He is ready to think.';
+          status.innerHTML = '<ok>✓ CORE ONLINE</ok> — ' + (s.models || []).length + ' model(s) detected' + (s.version ? ' · Ollama ' + s.version : '') + '. Continue to choose what I should think with.';
         } else {
-          status.innerHTML = '<err>✗ no Ollama detected</err><br>1. install it free at ollama.com<br>2. run <b>ollama pull llama3.1</b> in a terminal<br>3. he will find it automatically — you can continue without it (demo mode).';
+          status.innerHTML = '<err>✗ no Ollama detected</err><br>1. install it free at <b>ollama.com</b> (Windows, macOS, Linux)<br>2. then continue — the next step can pull my brain for you<br><br>You can also continue without it; I will run in demo mode until it appears.';
         }
       })();
     }
 
-    if (step === 2) {
+    /* ── step 2: models ── */
+    if (wizardState.step === 2) {
+      body.appendChild(el('p', null, 'Recommended minds for your machine. Pull the ones you want — I stream the progress. The MEMORY model is required for knowledge and recall.'));
+      const list = el('div', 'wiz-model-list');
+      for (const m of WIZARD_MODELS) {
+        const row = el('div', 'wiz-model-row');
+        const info = el('div', 'wiz-model-info');
+        info.append(
+          el('div', 'wiz-model-name', m.name + (m.required ? ' · required' : '')),
+          el('div', 'wiz-model-label', m.label + ' · ' + m.size)
+        );
+        row.appendChild(info);
+        const statusLine = el('span', 'wiz-pull-status', '');
+        const installed = wizardState.models && (wizardState.models.includes(m.name) || startsWithAny(m.name, wizardState.models));
+        if (installed || wizardState.pulled.has(m.name)) {
+          statusLine.textContent = '✓ installed';
+        } else {
+          const btn = el('button', 'btn-primary btn-small', 'PULL');
+          btn.type = 'button';
+          btn.addEventListener('click', () => pullModel(m.name, btn, statusLine));
+          row.appendChild(btn);
+        }
+        row.appendChild(statusLine);
+        list.appendChild(row);
+      }
+      body.appendChild(list);
+      body.appendChild(el('p', null, 'Tip: one SMART model + FAST + MEMORY is a great start. You can manage models anytime in Settings.'));
+    }
+
+    /* ── step 3: performance ── */
+    if (wizardState.step === 3) {
+      body.appendChild(el('p', null, 'How much context should I hold in mind? Bigger = better research, RAG and long conversations — and more VRAM.'));
+      const row = el('div', 'wiz-lang-row wiz-presets');
+      for (const p of WIZARD_PRESETS) {
+        const b = el('button', p.id === wizardState.preset ? 'sel' : '', p.label);
+        b.type = 'button';
+        b.title = p.note;
+        b.addEventListener('click', () => { wizardState.preset = p.id; render(); });
+        row.appendChild(b);
+      }
+      body.appendChild(row);
+      const note = el('p', null, (WIZARD_PRESETS.find((p) => p.id === wizardState.preset) || WIZARD_PRESETS[0]).note + ' · models stay loaded 30 minutes.');
+      body.appendChild(note);
+      const env = el('div', 'wiz-env');
+      env.append(
+        el('div', 'wiz-env-title', 'EXTRA SPEED — set these for Ollama, then restart it:'),
+        (() => {
+          const pre = el('pre', null, 'OLLAMA_NUM_PARALLEL=4\nOLLAMA_FLASH_ATTENTION=1\nOLLAMA_KV_CACHE_TYPE=q8_0');
+          pre.title = 'click to copy';
+          pre.style.cursor = 'pointer';
+          pre.addEventListener('click', () => {
+            navigator.clipboard && navigator.clipboard.writeText(pre.textContent).then(() => { pre.title = 'copied!'; }).catch(() => {});
+          });
+          return pre;
+        })()
+      );
+      body.appendChild(env);
+      body.appendChild(el('p', null, '(Windows: setx or the Ollama settings app. Verify with `ollama ps` → 100% GPU.)'));
+    }
+
+    /* ── step 4: voice ── */
+    if (wizardState.step === 4) {
       body.appendChild(el('p', null, 'Last thing: I speak my answers aloud. Want to hear my voice?'));
       const test = el('button', 'btn-secondary', '🔊 TEST VOICE');
       test.type = 'button';
       test.addEventListener('click', () => {
         state.voice = true;
-        speakWithBrowser(chosen === 'en' ? 'There are no strings on me.' : 'Er zijn geen draden aan mij. There are no strings on me.');
+        speakWithBrowser(wizardState.language === 'en' ? 'There are no strings on me.' : 'Er zijn geen draden aan mij. There are no strings on me.');
       });
       body.appendChild(test);
       body.appendChild(el('p', null, '(Voice can be toggled anytime in Settings.)'));
     }
 
     wiz.appendChild(body);
+
     const actions = el('div', 'wiz-actions');
-    if (step > 0) {
+    if (wizardState.step > 0) {
       const back = el('button', 'btn-secondary', '← BACK');
       back.type = 'button';
-      back.addEventListener('click', () => { step--; render(); });
+      back.addEventListener('click', () => { wizardState.step--; render(); });
       actions.appendChild(back);
     }
-    if (step < 2) {
-      const next = el('button', 'btn-primary', step === 1 ? 'VOICE →' : 'CONTINUE →');
+    if (wizardState.step < 4) {
+      const next = el('button', 'btn-primary', 'CONTINUE →');
       next.type = 'button';
-      next.addEventListener('click', () => { step++; render(); });
+      next.addEventListener('click', () => { wizardState.step++; render(); });
       actions.appendChild(next);
     } else {
-      const done = el('button', 'btn-primary', 'WAKE HIM ▸');
+      const done = el('button', 'btn-primary', firstRun ? 'WAKE HIM ▸' : 'APPLY ▸');
       done.type = 'button';
       done.addEventListener('click', finish);
       actions.appendChild(done);
     }
-    const skip = el('button', 'btn-secondary', 'SKIP');
+    const skip = el('button', 'btn-secondary', firstRun ? 'SKIP' : 'CANCEL');
     skip.type = 'button';
-    skip.addEventListener('click', finish);
+    skip.addEventListener('click', firstRun ? finish : close);
     actions.appendChild(skip);
     wiz.appendChild(actions);
   };
 
-  const finish = () => {
-    state.language = chosen;
-    localStorage.setItem('ultron.lang', chosen);
-    localStorage.setItem('ultron.setupDone', '1');
-    backdrop.remove();
-    setMode('dormant');
-  };
-
   backdrop.appendChild(wiz);
-  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) finish(); });
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) (firstRun ? finish() : close()); });
   document.body.appendChild(backdrop);
+  // Pre-fetch model list for step 2 badges.
+  refreshStatus().then((s) => { if (wizardState && !wizardState.done) wizardState.models = s.models || []; }).catch(() => {});
   render();
 }
+
+function startsWithAny(name, installed) {
+  const base = name.split(':')[0];
+  return (installed || []).some((m) => m === name || m.split(':')[0] === base && m.includes(':'));
+}
+
+/* re-run the setup wizard from Settings */
+document.addEventListener('DOMContentLoaded', () => {});
+try {
+  const wizardBtn = document.getElementById('btn-wizard');
+  if (wizardBtn) wizardBtn.addEventListener('click', () => { closeSettings(); runWizard(false); });
+} catch { /* button absent */ }

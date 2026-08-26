@@ -93,7 +93,7 @@ npm install
 npm start
 ```
 
-Open **http://localhost:3000** — a small setup wizard greets you on first boot (language, brain check, voice test). The status chip burns red: `CORE ONLINE`.
+Open **http://localhost:3000** — a **setup wizard** greets you: language → brain check → **pull recommended models with live progress** → performance preset (context window + the Ollama speed env-vars, click-to-copy) → voice test. Re-run it anytime via Settings → 🧙 SETUP WIZARD. The status chip burns red: `CORE ONLINE`.
 
 > If you start Ultron before Ollama is up, he'll answer in **demo mode** — open *Settings → Re-check core* once Ollama is running.
 

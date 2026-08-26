@@ -1157,3 +1157,42 @@ body.mini .brand { display: none; }
 .wiz-status { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); line-height: 1.7; }
 .wiz-status ok { color: #7dd8a0; }
 .wiz-status err { color: #ff8d84; }
+
+/* ═══════════════════════════════════════════════════════════════
+   v11 additions — full setup wizard (models, presets)
+   ═══════════════════════════════════════════════════════════════ */
+
+.wizard { max-height: 88vh; overflow-y: auto; }
+.wizard::-webkit-scrollbar { width: 6px; }
+.wizard::-webkit-scrollbar-thumb { background: #1d222d; border-radius: 4px; }
+.wiz-model-list { display: flex; flex-direction: column; gap: 8px; }
+.wiz-model-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg-raise);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.wiz-model-info { flex: 1; min-width: 0; }
+.wiz-model-name { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.wiz-model-name + .wiz-model-label { color: var(--text-faint); font-size: 11px; margin-top: 2px; }
+.wiz-model-row .btn-small { flex: 0 0 auto; padding: 8px 14px; }
+.wiz-pull-status { font-family: var(--mono); font-size: 10px; color: #7dd8a0; white-space: nowrap; }
+.wiz-presets { flex-wrap: wrap; }
+.wiz-presets button { min-width: 110px; }
+.wiz-env { margin-top: 6px; }
+.wiz-env-title {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.18em;
+  color: var(--amber); text-transform: uppercase; margin-bottom: 6px;
+}
+.wiz-env pre {
+  background: #090b10;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #ffb0a8;
+  margin: 0;
+  white-space: pre-wrap;
+}
