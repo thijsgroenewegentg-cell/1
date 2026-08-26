@@ -14,7 +14,7 @@ $ErrorActionPreference = "Continue"
 
 if ($Minimal) { $Models = @("qwen3:4b", "nomic-embed-text") }
 elseif ($Full) { $Models = @("nomic-embed-text", "qwen3:4b", "gemma3:12b", "qwen3:14b", "mistral-small3.2", "qwen3-coder:30b", "qwen3:30b-a3b") }
-else { $Models = @("nomic-embed-text", "qwen3:4b", "gemma3:12b", "qwen3:14b") }
+else { $Models = @("nomic-embed-text", "qwen3:4b", "mistral-small3.2", "gemma3:12b") }
 
 function Say($t)  { Write-Host ""; Write-Host "> $t" -ForegroundColor Red }
 function Ok($t)   { Write-Host "  [OK] $t" -ForegroundColor Green }

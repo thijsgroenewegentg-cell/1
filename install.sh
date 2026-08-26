@@ -30,7 +30,7 @@ done
 
 case "$PROFILE" in
   minimal)  MODELS="qwen3:4b nomic-embed-text" ;;
-  standard) MODELS="qwen3:14b qwen3:4b gemma3:12b nomic-embed-text" ;;
+  standard) MODELS="mistral-small3.2 qwen3:4b gemma3:12b nomic-embed-text" ;;
   full)     MODELS="nomic-embed-text qwen3:4b gemma3:12b qwen3:14b mistral-small3.2 qwen3-coder:30b qwen3:30b-a3b" ;;
 esac
 
@@ -105,6 +105,14 @@ else
   curl -s --max-time 2 http://localhost:11434/api/version >/dev/null 2>&1 \
     && ok "ollama serve is up" \
     || warn "could not reach :11434 — if you installed the desktop app, open it once; otherwise run: ollama serve"
+
+  # Performance tuning (big speed win, safe defaults)
+  say "tuning Ollama for speed"
+  run bash -c 'export OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_NUM_PARALLEL=4'
+  if [ -f ~/.bashrc ]; then
+    run bash -c 'grep -q OLLAMA_FLASH_ATTENTION ~/.bashrc || echo "export OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_NUM_PARALLEL=4" >> ~/.bashrc'
+  fi
+  ok "performance variables set (takes effect on next Ollama start)"
 fi
 
 # ── 4. Dependencies ───────────────────────────────────────────
