@@ -228,6 +228,26 @@
         <input id="set-tts" type="text" spellcheck="false" placeholder="http://localhost:5000 (piper)" />
         <span class="field-help">Optional. When set, Ultron's voice comes from this endpoint (piper-http style: POST /api/tts) instead of the browser.</span>
       </label>
+
+      <div class="field sub-field">
+        <span class="field-label">ElevenLabs voice — cloud, optional</span>
+        <input id="set-eleven-key" type="password" spellcheck="false" autocomplete="off" placeholder="API key — paste it here, it stays on your machine" />
+        <div class="eleven-row">
+          <select id="set-eleven-voice"></select>
+          <button type="button" id="btn-eleven-test" class="btn-secondary btn-small">TEST VOICE</button>
+        </div>
+        <label class="field sub-field">
+          <span class="field-label">Model</span>
+          <select id="set-eleven-model">
+            <option value="eleven_multilingual_v2">Multilingual v2 — best quality (Dutch ✓)</option>
+            <option value="eleven_turbo_v2_5">Turbo v2.5 — faster (Dutch ✓)</option>
+            <option value="eleven_v3">v3 — most expressive (Dutch ✓)</option>
+          </select>
+        </label>
+        <div class="eleven-status" id="eleven-status">—</div>
+        <button type="button" id="btn-eleven-clear" class="btn-secondary btn-small">REMOVE KEY</button>
+        <span class="field-help">Your key is stored only in this server's <code>data/config.json</code> and sent solely to ElevenLabs when speaking. Multilingual voices speak whatever language he replied in — Dutch included. Free tier ≈ 10 min of voice per month; remove the key anytime to fall back to local voice.</span>
+      </div>
       <span class="field-help" id="voice-support-note"></span>
     </div>
 

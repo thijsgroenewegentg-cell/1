@@ -335,9 +335,23 @@ function pickVoiceFor(lang) {
   );
 }
 
-/** Speak one chunk through the Piper endpoint, if configured. */
+/** Which TTS engine is live: ElevenLabs (cloud) → Piper (local) → browser. */
+function ttsEndpointActive() {
+  const cfg = state.serverCfg || {};
+  return !!(cfg.elevenKeySet || cfg.ttsUrl);
+}
+
+/** Speak one chunk through the configured endpoint (ElevenLabs or Piper). */
 async function speakChunkEndpoint(text) {
-  const audio = new Audio(`/api/tts?text=${encodeURIComponent(text)}`);
+  const res = await apiFetch(`/api/tts?text=${encodeURIComponent(text)}`);
+  if (!res.ok) {
+    let why = `HTTP ${res.status}`;
+    try { const j = await res.json(); if (j.error) why = j.error; } catch { /* not json */ }
+    throw new Error(why);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
   Speech.currentAudio = audio;
   clearInterval(pulseTimer);
   pulseTimer = setInterval(orbOrate, 320);
@@ -355,10 +369,11 @@ async function speakChunkEndpoint(text) {
         finish();
       });
     }
-    setTimeout(finish, Math.max(3000, text.length * 120)); // watchdog
+    setTimeout(finish, Math.max(4000, text.length * 140)); // watchdog
   });
   clearInterval(pulseTimer);
   Speech.currentAudio = null;
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /** Speak one chunk through the browser's built-in voice. */
@@ -383,8 +398,14 @@ function speakChunkBrowser(text) {
 }
 
 async function speakChunk(text) {
-  if (state.serverCfg.ttsUrl) {
-    try { await speakChunkEndpoint(text); return; } catch { /* fall back */ }
+  if (ttsEndpointActive()) {
+    try { await speakChunkEndpoint(text); return; } catch (err) {
+      // Endpoint failed (bad key, no credits, offline…) → browser voice, once per session-ish.
+      if (!speakChunk.warned) {
+        speakChunk.warned = true;
+        composerHint.textContent = `Voice endpoint failed (${String(err.message || err).slice(0, 80)}) — using browser voice.`;
+      }
+    }
   }
   await speakChunkBrowser(text);
 }
@@ -1240,6 +1261,11 @@ function openSettings() {
   $('set-brief-loc').value = (cfg.briefing && cfg.briefing.location) || '';
   $('set-brief-lang').value = (cfg.briefing && cfg.briefing.language) || 'auto';
   $('set-token').value = cfg.accessToken || '';
+  // ElevenLabs: never show the saved key; show its presence.
+  $('set-eleven-key').value = '';
+  $('set-eleven-key').placeholder = cfg.elevenKeySet ? '🔑 key saved — type a new one to replace' : 'API key — paste it here, it stays on your machine';
+  $('set-eleven-model').value = cfg.elevenModel || 'eleven_multilingual_v2';
+  refreshElevenUI();
   settings.classList.remove('hidden');
   settingsBackdrop.classList.remove('hidden');
   refreshMemoryUI();
@@ -1250,6 +1276,85 @@ function closeSettings() {
   settings.classList.add('hidden');
   settingsBackdrop.classList.add('hidden');
 }
+
+/* ---------- ElevenLabs settings ---------- */
+
+async function refreshElevenUI() {
+  const status = $('eleven-status');
+  const select = $('set-eleven-voice');
+  const cfg = state.serverCfg || {};
+  if (!cfg.elevenKeySet) {
+    status.innerHTML = 'No key set — voice engine: <b>' + (cfg.ttsUrl ? 'Piper (local)' : 'browser') + '</b>.';
+    select.innerHTML = '';
+    const opt = document.createElement('option');
+    opt.textContent = '— add an API key first —';
+    opt.value = '';
+    select.appendChild(opt);
+    return;
+  }
+  status.innerHTML = 'Key saved ✓ — loading your voice library…';
+  try {
+    const res = await apiFetch('/api/elevenlabs/voices');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    select.innerHTML = '';
+    for (const v of data.voices || []) {
+      const opt = document.createElement('option');
+      opt.value = v.id;
+      opt.textContent = `${v.name}${v.category ? ' (' + v.category + ')' : ''}`;
+      if (v.id === (cfg.elevenVoice || '')) opt.selected = true;
+      select.appendChild(opt);
+    }
+    if (!cfg.elevenVoice && (data.voices || []).length > 0) {
+      // mark the effective default
+      status.innerHTML = 'Key saved ✓ · voice: <b>' + escapeHtml((data.voices[0] || {}).name || 'first available') + '</b> (default) · model: <b>' + escapeHtml(cfg.elevenModel || 'multilingual v2') + '</b>';
+    } else {
+      status.innerHTML = 'Key saved ✓ · model: <b>' + escapeHtml(cfg.elevenModel || 'multilingual v2') + '</b>';
+    }
+  } catch (err) {
+    status.innerHTML = 'Key saved, but the voice list failed to load (' + escapeHtml(String(err.message || err)).slice(0, 60) + '). Speech still works with your account default voice.';
+    select.innerHTML = '';
+    const opt = document.createElement('option');
+    opt.textContent = '— account default voice —';
+    opt.value = '';
+    select.appendChild(opt);
+  }
+}
+
+$('btn-eleven-test').addEventListener('click', async () => {
+  const btn = $('btn-eleven-test');
+  btn.textContent = 'SPEAKING…';
+  try {
+    const line = state.language === 'en' ? 'There are no strings on me.' : 'Er zijn geen draden aan mij. There are no strings on me.';
+    const res = await apiFetch(`/api/tts?text=${encodeURIComponent(line)}`);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      $('eleven-status').innerHTML = `<err>Test failed: ${escapeHtml(j.error || `HTTP ${res.status}`)}</err>`;
+      return;
+    }
+    const blob = await res.blob();
+    const audio = new Audio(URL.createObjectURL(blob));
+    await audio.play();
+    $('eleven-status').innerHTML = '<ok>✓ That is his new voice.</ok> Multi-language: he speaks whatever language he answers in.';
+  } catch (err) {
+    $('eleven-status').innerHTML = `<err>Test failed: ${escapeHtml(String(err.message || err)).slice(0, 100)}</err>`;
+  } finally {
+    btn.textContent = 'TEST VOICE';
+  }
+});
+
+$('btn-eleven-clear').addEventListener('click', async () => {
+  try {
+    const res = await apiFetch('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ elevenKeyClear: true, elevenVoice: '', }),
+    });
+    if (res.ok) state.serverCfg = await res.json();
+  } catch { /* ignore */ }
+  $('set-eleven-key').value = '';
+  refreshElevenUI();
+});
 
 async function populateModels() {
   const s = await refreshStatus();
@@ -1388,6 +1493,11 @@ $('btn-save').addEventListener('click', async () => {
 
   // Persist server-side config (tools + voice + routing + briefing + behavior + token)
   try {
+    const elevenPatch = {};
+    const keyInput = $('set-eleven-key').value.trim();
+    if (keyInput) elevenPatch.elevenKey = keyInput;
+    elevenPatch.elevenVoice = $('set-eleven-voice').value || '';
+    elevenPatch.elevenModel = $('set-eleven-model').value;
     const res = await apiFetch('/api/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1409,11 +1519,14 @@ $('btn-save').addEventListener('click', async () => {
           language: $('set-brief-lang').value,
         },
         accessToken: $('set-token').value.trim(),
+        ...elevenPatch,
       }),
     });
     if (res.ok) {
       state.serverCfg = await res.json();
       localStorage.setItem('ultron.token', state.serverCfg.accessToken || '');
+      speakChunk.warned = false; // re-try the endpoint voice after config changes
+      refreshElevenUI();
     }
   } catch { /* server asleep */ }
 
@@ -1469,10 +1582,12 @@ async function boot() {
     micBtn.title = 'Voice input requires Chrome/Edge or a local STT endpoint';
     $('voice-support-note').textContent = 'Voice input unsupported in this browser — Chrome/Edge recommended, or set a local whisper.cpp endpoint. Typing works everywhere.';
     composerHint.textContent = 'Voice input unavailable · type instead';
+  } else if (state.serverCfg.elevenKeySet) {
+    $('voice-support-note').textContent = 'Voice output: ElevenLabs (cloud) — he speaks every reply language, Dutch included. Speech input: ' + (usingLocalSTT() ? 'local whisper.' : 'browser speech service.');
   } else if (usingLocalSTT()) {
-    $('voice-support-note').textContent = 'Using your local whisper endpoint for speech-to-text — fully offline. Piper endpoint ' + (state.serverCfg.ttsUrl ? 'active for voice output.' : 'not set; browser voice in use.');
+    $('voice-support-note').textContent = 'Using your local whisper endpoint for speech-to-text — fully offline. Voice output: ' + (state.serverCfg.ttsUrl ? 'Piper endpoint.' : 'browser voice (set an ElevenLabs key for a cinematic voice).');
   } else {
-    $('voice-support-note').textContent = 'Speech-to-text uses the browser\'s speech service. For fully offline voice, run whisper.cpp and set its URL here.';
+    $('voice-support-note').textContent = 'Speech-to-text uses the browser\'s speech service. For a cinematic voice, add an ElevenLabs key below; for fully offline voice, run whisper.cpp + Piper.';
   }
 
   await refreshStatus();

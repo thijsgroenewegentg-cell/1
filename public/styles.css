@@ -780,3 +780,33 @@ input[type="time"] {
   width: 100%;
 }
 input[type="time"]:focus { border-color: var(--accent-soft); }
+
+/* ═══════════════════════════════════════════════════════════════
+   v5 additions — ElevenLabs voice settings
+   ═══════════════════════════════════════════════════════════════ */
+
+input[type="password"] {
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 10px 12px;
+  outline: none;
+  width: 100%;
+}
+input[type="password"]:focus { border-color: var(--accent-soft); }
+input[type="password"]::placeholder { color: var(--text-faint); }
+
+.eleven-row { display: flex; gap: 8px; margin-top: 8px; }
+.eleven-row select { flex: 1; }
+.eleven-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 8px 0;
+  line-height: 1.6;
+}
+.eleven-status err { color: #ff8d84; }
+.eleven-status ok { color: #7dd8a0; }

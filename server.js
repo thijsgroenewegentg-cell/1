@@ -55,10 +55,21 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'ultron' }));
 app.get('/api/auth', (_req, res) => res.json({ required: !!config.load().accessToken }));
 
 /* ---------- config ---------- */
-app.get('/api/config', (_req, res) => res.json(config.load()));
+
+/** Never echo the ElevenLabs key back to the browser. */
+function maskConfig(cfg) {
+  return { ...cfg, elevenKey: '', elevenKeySet: !!cfg.elevenKey };
+}
+
+app.get('/api/config', (_req, res) => res.json(maskConfig(config.load())));
 
 app.put('/api/config', (req, res) => {
-  res.json(config.save(req.body || {}));
+  const body = { ...(req.body || {}) };
+  // Empty key input means "leave as is"; explicit clear means remove it.
+  if (body.elevenKeyClear) body.elevenKey = '';
+  else if (typeof body.elevenKey === 'string' && body.elevenKey.trim() === '') delete body.elevenKey;
+  delete body.elevenKeyClear;
+  res.json(maskConfig(config.save(body)));
 });
 
 /* ---------- status ---------- */
@@ -442,29 +453,93 @@ app.post('/api/transcribe', async (req, res) => {
   }
 });
 
-/* ---------- text-to-speech proxy ---------- */
+/* ---------- text-to-speech proxy ----------
+   Priority: ElevenLabs (cloud, optional) → Piper (local) → error (client falls back to browser). */
+
+function elevenBase(cfg) {
+  const url = String(cfg.elevenUrl || '').trim().replace(/\/+$/, '');
+  return /^https?:\/\//i.test(url) ? url : 'https://api.elevenlabs.io';
+}
+
+async function elevenVoices(cfg) {
+  const res = await fetch(elevenBase(cfg) + '/v1/voices', { headers: { 'xi-api-key': cfg.elevenKey } });
+  if (!res.ok) throw new Error(`ElevenLabs responded ${res.status}`);
+  const data = await res.json();
+  return (data.voices || []).map((v) => ({ id: v.voice_id, name: v.name, category: v.category }));
+}
+
+async function elevenSpeak(cfg, text) {
+  let voice = cfg.elevenVoice;
+  if (!voice) {
+    const voices = await elevenVoices(cfg); // default to the account's first voice
+    if (voices.length === 0) throw new Error('no voices available on this ElevenLabs account');
+    voice = voices[0].id;
+  }
+  const res = await fetch(`${elevenBase(cfg)}/v1/text-to-speech/${encodeURIComponent(voice)}`, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': cfg.elevenKey,
+      'Content-Type': 'application/json',
+      Accept: 'audio/mpeg',
+    },
+    body: JSON.stringify({
+      text,
+      model_id: cfg.elevenModel || 'eleven_multilingual_v2',
+      voice_settings: {
+        stability: 0.45,
+        similarity_boost: 0.8,
+        style: 0.15,
+        use_speaker_boost: true,
+      },
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`ElevenLabs ${res.status}: ${t.slice(0, 180)}`);
+  }
+  return { buf: Buffer.from(await res.arrayBuffer()), type: res.headers.get('content-type') || 'audio/mpeg' };
+}
+
+app.get('/api/elevenlabs/voices', async (_req, res) => {
+  const cfg = config.load();
+  if (!cfg.elevenKey) return res.status(400).json({ error: 'No ElevenLabs key set.' });
+  try {
+    res.json({ voices: await elevenVoices(cfg) });
+  } catch (err) {
+    res.status(502).json({ error: String(err.message || err) });
+  }
+});
+
 app.get('/api/tts', async (req, res) => {
   const cfg = config.load();
-  if (!cfg.ttsUrl) return res.status(400).json({ error: 'No TTS endpoint configured.' });
   const text = String(req.query.text || '').slice(0, 2000);
   if (!text.trim()) return res.status(400).json({ error: 'No text provided.' });
 
   try {
-    const upstream = await fetch(cfg.ttsUrl.replace(/\/+$/, '') + '/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    if (!upstream.ok) {
-      const t = await upstream.text().catch(() => '');
-      return res.status(502).json({ error: `TTS endpoint responded ${upstream.status}: ${t.slice(0, 200)}` });
+    if (cfg.elevenKey) {
+      const out = await elevenSpeak(cfg, text);
+      res.setHeader('Content-Type', out.type);
+      res.setHeader('Cache-Control', 'no-store');
+      return res.send(out.buf);
     }
-    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'audio/wav');
-    res.setHeader('Cache-Control', 'no-store');
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    res.send(buf);
+    if (cfg.ttsUrl) {
+      const upstream = await fetch(cfg.ttsUrl.replace(/\/+$/, '') + '/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!upstream.ok) {
+        const t = await upstream.text().catch(() => '');
+        return res.status(502).json({ error: `TTS endpoint responded ${upstream.status}: ${t.slice(0, 200)}` });
+      }
+      res.setHeader('Content-Type', upstream.headers.get('content-type') || 'audio/wav');
+      res.setHeader('Cache-Control', 'no-store');
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      return res.send(buf);
+    }
+    return res.status(400).json({ error: 'No TTS engine configured.' });
   } catch (err) {
-    res.status(502).json({ error: `TTS endpoint unreachable: ${String(err.message || err)}` });
+    res.status(502).json({ error: `TTS failed: ${String(err.message || err)}` });
   }
 });
 

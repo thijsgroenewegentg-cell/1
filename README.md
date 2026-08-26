@@ -118,6 +118,25 @@ Voorbeeld: *"Ultron, onthoud dat ik aan een game werk, zoek de nieuwste Ollama-r
 
 Now the entire stack — brain, ears, voice, memory — runs on your machine with zero internet.
 
+## The cinematic voice — ElevenLabs (optional, cloud)
+
+Want him to sound like the movies, **in Dutch**? Add an [ElevenLabs](https://elevenlabs.io) API key in *Settings → ElevenLabs voice*:
+
+1. Create a free account at elevenlabs.io → Profile → API Keys
+2. Paste the key in Settings (it's stored only in your server's `data/config.json` — never in the repo, never echoed back to the browser)
+3. Pick a voice from your library (deep, calm voices suit him), press **TEST VOICE**
+4. Done — every reply, reminder, and briefing now uses that voice
+
+**Dutch works automatically:** the multilingual models speak whatever language he replied in — Dutch replies get a Dutch voice, no extra config.
+
+**The honest trade-offs:**
+- It's a cloud service — the text he speaks goes to ElevenLabs (his brain, memory, and knowledge stay local)
+- Free tier ≈ 10 minutes of voice per month; beyond that it's paid
+- Remove the key anytime → instant fallback to Piper/browser voice
+- Voice priority: **ElevenLabs → Piper → browser**, automatic
+
+Advanced: `PUT /api/config {"elevenUrl": "..."}` overrides the API base (proxies/testing).
+
 ## The knowledge base (RAG)
 
 1. `mkdir -p data/knowledge/docs` and drop in your documents — `.txt`, `.md`, `.csv`, `.json`, code files (PDF: save as text first)
@@ -145,7 +164,7 @@ Leave Model on **AUTO** and he picks per question: short chat → your fastest m
 
 - PDF ingestion — convert to txt/md first
 - Smart home — not integrated (Home Assistant's REST API would be the natural next step)
-- True voice cloning — his voice is the browser's or Piper's, not the movie's
+- A free *local* cinematic Dutch voice — Piper's Dutch options are limited; ElevenLabs is currently the best Dutch robot-overlord voice
 
 ## How it works
 
