@@ -957,6 +957,7 @@ async function doStream() {
         ollamaUrl: state.ollamaUrl,
         temperature: state.temperature,
         language: state.language,
+        mode: state.research ? 'research' : 'chat',
       }),
     });
     if (!res.ok || !res.body) throw new Error(`server responded ${res.status}`);
@@ -1038,6 +1039,19 @@ function addRegenerateButton(wrap) {
   btn.addEventListener('click', regenerate);
   meta.appendChild(btn);
 }
+
+/* ---------- research mode toggle ---------- */
+const researchBtn = $('btn-research');
+researchBtn.addEventListener('click', () => {
+  state.research = !state.research;
+  researchBtn.classList.toggle('active', state.research);
+  input.placeholder = state.research
+    ? 'Deep research — he searches extensively and writes a cited report…'
+    : 'Speak, type, or attach an image…';
+  composerHint.textContent = state.research
+    ? 'RESEARCH MODE — he will use many search/read/write rounds autonomously. Ask something worthy.'
+    : 'Tap the mic and speak · type if you prefer · Esc silences me';
+});
 
 /* ═══════════════ COMPOSER ═══════════════ */
 function autoGrow() {
@@ -1206,6 +1220,14 @@ function connectEvents() {
             else setMode('dormant');
           });
         }
+      } else if (evt.type === 'directive') {
+        const shell = messageShell('ultron');
+        shell.content.classList.add('md');
+        shell.content.innerHTML = renderMarkdown(`📋 **Standing order** — *${evt.instruction}*\n\n${evt.text}`);
+        chat.scrollTop = chat.scrollHeight;
+        if (!state.streaming && state.voice && (state.micSession || state.wake)) {
+          Speech.speakOnce(`${evt.instruction}. ${evt.text}`, () => setMode(state.micSession || state.wake ? 'listening' : 'dormant'));
+        }
       } else if (evt.type === 'memory') {
         for (const fact of evt.facts || []) {
           const div = el('div', 'msg-tool tool-done', `🧠 remembered: ${fact}`);
@@ -1216,6 +1238,140 @@ function connectEvents() {
       }
     };
   } catch { /* SSE unsupported — reminders simply won't push */ }
+}
+
+/* ---------- standing orders UI ---------- */
+
+async function refreshDirectivesUI() {
+  const box = $('directive-list');
+  try {
+    const res = await apiFetch('/api/directives');
+    const data = await res.json();
+    box.innerHTML = '';
+    const items = data.directives || [];
+    if (items.length === 0) {
+      box.appendChild(el('div', 'dir-empty', 'NO STANDING ORDERS — he acts only when asked.'));
+      return;
+    }
+    for (const d of items) {
+      const row = el('div', 'directive-row');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = d.enabled;
+      cb.addEventListener('change', () => {
+        apiFetch('/api/directives/' + d.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: cb.checked }) }).then(() => refreshDirectivesUI());
+      });
+      const text = el('div', 'dir-text');
+      const strong = el('b', null, d.instruction);
+      const small = el('small', null, `${d.schedule} · ${d.enabled ? 'active' : 'paused'}`);
+      text.append(strong, small);
+      const run = el('button', 'dir-run', 'RUN NOW');
+      run.addEventListener('click', async () => {
+        run.textContent = '…';
+        await apiFetch(`/api/directives/${d.id}/run`, { method: 'POST' }).catch(() => {});
+        setTimeout(refreshDirectivesUI, 1500);
+      });
+      const del = el('button', 'dir-del', '✕');
+      del.addEventListener('click', () => {
+        apiFetch(`/api/directives?contains=${encodeURIComponent(d.instruction.slice(0, 60))}`, { method: 'DELETE' }).then(() => refreshDirectivesUI());
+      });
+      row.append(cb, text, run, del);
+      box.appendChild(row);
+    }
+  } catch {
+    box.innerHTML = '';
+    box.appendChild(el('div', 'dir-empty', 'directives unavailable'));
+  }
+}
+
+$('btn-dir-add').addEventListener('click', async () => {
+  const instruction = $('set-dir-text').value.trim();
+  const type = $('set-dir-type').value;
+  const value = $('set-dir-value').value.trim();
+  if (!instruction) return;
+  const body = type === 'interval'
+    ? { instruction, every_minutes: parseFloat(value) || 60 }
+    : { instruction, at: value || '09:00' };
+  const res = await apiFetch('/api/directives', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+  if (res && res.ok) {
+    $('set-dir-text').value = '';
+    $('set-dir-value').value = '';
+    refreshDirectivesUI();
+  }
+});
+
+/* ---------- push notifications ---------- */
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+$('btn-push-enable').addEventListener('click', async () => {
+  const status = $('push-status');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    status.innerHTML = '<err>Push not supported in this browser.</err>';
+    return;
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      status.innerHTML = '<err>Permission denied — allow notifications for this site.</err>';
+      return;
+    }
+    const keyRes = await apiFetch('/api/push/key');
+    const { publicKey } = await keyRes.json();
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    }
+    const res = await apiFetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sub.toJSON()),
+    });
+    const data = await res.json();
+    status.innerHTML = data.error ? `<err>${escapeHtml(data.error)}</err>` : '<ok>✓ Push enabled — he can reach you with the tab closed.</ok>';
+  } catch (err) {
+    status.innerHTML = `<err>${escapeHtml(String(err.message || err)).slice(0, 120)}</err>`;
+  }
+});
+
+$('btn-push-test').addEventListener('click', async () => {
+  const status = $('push-status');
+  status.textContent = 'sending…';
+  try {
+    const res = await apiFetch('/api/push/test', { method: 'POST' });
+    const data = await res.json();
+    if (data.skipped) status.innerHTML = '<err>Not subscribed yet — press ENABLE PUSH first (and install the app for phone delivery).</err>';
+    else status.innerHTML = `sent: <b>${data.sent}</b> · failed: <b>${data.failed || 0}</b>`;
+  } catch (err) {
+    status.innerHTML = `<err>${escapeHtml(String(err.message || err)).slice(0, 120)}</err>`;
+  }
+});
+
+/* ---------- skills status ---------- */
+
+async function refreshSkillsUI() {
+  try {
+    const res = await apiFetch('/api/skills');
+    const data = await res.json();
+    $('skills-status').innerHTML = data.count > 0
+      ? `<b>${data.count}</b> skill(s) loaded: ${escapeHtml(data.names.join(', '))} · folder: <code>${data.dir}</code>`
+      : `No custom skills. Drop JSON files in <code>data/skills/</code> — see README.`;
+  } catch {
+    $('skills-status').textContent = 'skills status unavailable';
+  }
 }
 
 /* ═══════════════ SETTINGS ═══════════════ */
@@ -1270,6 +1426,8 @@ function openSettings() {
   settingsBackdrop.classList.remove('hidden');
   refreshMemoryUI();
   refreshKnowledgeUI();
+  refreshDirectivesUI();
+  refreshSkillsUI();
   populateModels();
 }
 function closeSettings() {

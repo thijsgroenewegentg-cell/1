@@ -810,3 +810,59 @@ input[type="password"]::placeholder { color: var(--text-faint); }
 }
 .eleven-status err { color: #ff8d84; }
 .eleven-status ok { color: #7dd8a0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   v6 additions — research mode, standing orders, push
+   ═══════════════════════════════════════════════════════════════ */
+
+.research-btn.active {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+  box-shadow: 0 0 12px var(--accent-faint);
+  background: var(--accent-faint);
+}
+
+.directive-list { display: flex; flex-direction: column; gap: 6px; }
+.directive-row {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-raise);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.directive-row .dir-text {
+  flex: 1; min-width: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.directive-row .dir-text b { color: var(--text); display: block; font-weight: 600; }
+.directive-row .dir-text small { color: var(--text-faint); font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; }
+.directive-row input[type="checkbox"] { accent-color: var(--accent); }
+.directive-row .dir-del {
+  border: none; background: none; color: var(--text-faint);
+  cursor: pointer; font-size: 13px; padding: 0 2px;
+}
+.directive-row .dir-del:hover { color: #ff6b5e; }
+.directive-row .dir-run {
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  color: var(--text-faint);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.directive-row .dir-run:hover { color: var(--accent); border-color: var(--accent-soft); }
+.dir-empty {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  padding: 6px 2px;
+}
+.dir-schedule-row { display: flex; gap: 8px; margin-top: 4px; }
+.dir-schedule-row select { flex: 0 0 90px; }
+.dir-schedule-row input { flex: 1; }
+.dir-schedule-row .btn-small { flex: 0 0 auto; }

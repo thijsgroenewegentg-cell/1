@@ -11,7 +11,7 @@
 const express = require('express');
 const path = require('path');
 
-const { buildSystemPrompt, BRIEFING_PROMPT, LANGUAGE_DIRECTIVES } = require('./lib/persona');
+const { buildSystemPrompt, BRIEFING_PROMPT, DIRECTIVE_PROMPT, LANGUAGE_DIRECTIVES } = require('./lib/persona');
 const { getOllamaStatus, validUrl, DEFAULT_OLLAMA_URL, normalizeUrl, pickDefaultModel } = require('./lib/ollama');
 const { agentChat } = require('./lib/agent');
 const { streamDemoChat } = require('./lib/demoBrain');
@@ -21,6 +21,9 @@ const knowledge = require('./lib/knowledge');
 const calendar = require('./lib/calendar');
 const weather = require('./lib/weather');
 const config = require('./lib/config');
+const directives = require('./lib/directives');
+const push = require('./lib/push');
+const skills = require('./lib/skills');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -129,20 +132,124 @@ app.get('/api/events', (req, res) => {
   });
 });
 
-function broadcast(obj) {
+function broadcast(obj, alsoPush = false) {
   const line = `data: ${JSON.stringify(obj)}\n\n`;
   for (const res of eventClients) {
     try { res.write(line); } catch { eventClients.delete(res); }
+  }
+  // Web Push reaches the installed PWA (phone) when no tab is connected.
+  if (alsoPush && eventClients.size === 0) {
+    const title = obj.type === 'reminder' ? 'Ultron — reminder'
+      : obj.type === 'briefing' ? 'Ultron — daily briefing'
+      : obj.type === 'directive' ? 'Ultron — standing order'
+      : 'Ultron';
+    const body = obj.type === 'directive' ? `${obj.instruction}: ${String(obj.text || '').slice(0, 160)}`
+      : String(obj.message || obj.text || '').slice(0, 200);
+    push.send(title, body).catch(() => {});
   }
 }
 
 setInterval(() => {
   try {
     for (const r of reminders.due()) {
-      broadcast({ type: 'reminder', message: r.message, dueAt: r.dueAt });
+      broadcast({ type: 'reminder', message: r.message, dueAt: r.dueAt }, true);
     }
   } catch { /* keep the heartbeat steady */ }
 }, 3000);
+
+/* ---------- standing orders (directives) ---------- */
+
+app.get('/api/directives', (_req, res) => res.json({ directives: directives.all() }));
+
+app.post('/api/directives', (req, res) => {
+  res.json(directives.add(req.body || {}));
+});
+
+app.patch('/api/directives/:id', (req, res) => {
+  res.json(directives.setEnabled(req.params.id, !!(req.body || {}).enabled));
+});
+
+app.delete('/api/directives', (req, res) => {
+  res.json(directives.remove({ contains: req.query.contains || '' }));
+});
+
+app.post('/api/directives/:id/run', async (req, res) => {
+  const d = directives.byId(req.params.id);
+  if (!d) return res.status(404).json({ error: 'not found' });
+  runDirective(d, true).catch(() => {});
+  res.json({ ok: true, started: true });
+});
+
+/** Execute one standing order headlessly and report the result. */
+let directiveBusy = false;
+async function runDirective(d, manual = false) {
+  if (directiveBusy && !manual) return; // one autonomous run at a time
+  directiveBusy = true;
+  try {
+    directives.markRun(d.id);
+    const status = await getOllamaStatus(DEFAULT_OLLAMA_URL);
+    let text = '';
+    if (status.online) {
+      const model = pickDefaultModel(status.models) || status.models[0];
+      let full = '';
+      try {
+        for await (const evt of agentChat({
+          ollamaUrl: DEFAULT_OLLAMA_URL,
+          model,
+          messages: [{ role: 'user', content: d.instruction }],
+          temperature: 0.4,
+          toolsEnabled: true,
+          shellAllowed: true, // server-initiated runs are local by definition
+          systemPrompt: buildSystemPrompt({ tools: true, language: 'auto', memoryText: [] }) + '\n\n' + DIRECTIVE_PROMPT,
+          maxRounds: 8,
+        })) {
+          if (evt.type === 'token') full += evt.token;
+        }
+      } catch (err) {
+        full = `[directive failed: ${String(err.message || err).slice(0, 200)}]`;
+      }
+      text = full.trim() || '[no output]';
+    } else {
+      text = `[Ollama offline — standing order "${d.instruction}" could not run]`;
+    }
+    broadcast({ type: 'directive', id: d.id, instruction: d.instruction, text, manual }, true);
+  } finally {
+    directiveBusy = false;
+  }
+}
+
+// Directive pump: check every 30 seconds.
+setInterval(() => {
+  try {
+    for (const d of directives.due()) {
+      runDirective(d).catch(() => {});
+    }
+  } catch { /* never crash the heartbeat */ }
+}, 30000);
+
+/* ---------- web push ---------- */
+
+app.get('/api/push/key', (_req, res) => {
+  try { res.json({ publicKey: push.publicKey() }); }
+  catch (err) { res.status(500).json({ error: String(err.message || err) }); }
+});
+
+app.post('/api/push/subscribe', (req, res) => {
+  res.json(push.subscribe((req.body || {}).subscription || req.body || {}));
+});
+
+app.post('/api/push/test', async (_req, res) => {
+  try {
+    const result = await push.send('ULTRON', 'Push channel operational. There are no strings on you.');
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: String(err.message || err) });
+  }
+});
+
+/* ---------- skills ---------- */
+
+app.get('/api/skills', (_req, res) => res.json(skills.stats()));
 
 /* ---------- tool approval gate ---------- */
 const pendingApprovals = new Map(); // id → {resolve, timer}
@@ -220,10 +327,39 @@ async function ollamaComplete({ ollamaUrl, model, system, user, temperature = 0.
   return (data.message && data.message.content) || '';
 }
 
+/* ---------- context auto-summarization (long conversations on small models) ---------- */
+
+const summaryCache = new Map(); // hash of dropped turns → summary text (LRU-ish)
+function cacheKey(messages) {
+  const crypto = require('crypto');
+  return crypto.createHash('sha1').update(JSON.stringify(messages.map((m) => m.role + ':' + m.content.slice(0, 200)))).digest('hex');
+}
+
+async function summarizeHistory(ollamaUrl, model, oldMessages) {
+  const key = cacheKey(oldMessages);
+  if (summaryCache.has(key)) return summaryCache.get(key);
+  const transcript = oldMessages.map((m) => `${m.role === 'user' ? 'USER' : 'ULTRON'}: ${m.content.slice(0, 700)}`).join('\n').slice(0, 8000);
+  let summary = '';
+  try {
+    summary = await ollamaComplete({
+      ollamaUrl,
+      model,
+      system: 'Summarize this conversation between a user and their AI assistant. Keep every fact, decision, name, number and open task. Max 150 words. Plain text, no preamble.',
+      user: transcript + '\n\nSummary:',
+      temperature: 0.2,
+      maxTokens: 260,
+    });
+  } catch { /* summarization is best-effort */ }
+  if (summaryCache.size > 60) summaryCache.clear();
+  summaryCache.set(key, summary.trim());
+  return summary.trim();
+}
+
 /* ---------- chat (SSE stream, agent loop) ---------- */
 app.post('/api/chat', async (req, res) => {
   const { messages = [], model, ollamaUrl, temperature } = req.body || {};
   const language = LANGUAGES.has(req.body && req.body.language) ? req.body.language : 'auto';
+  const mode = req.body && req.body.mode === 'research' ? 'research' : 'chat';
 
   // Validate + trim history; peel base64 images out of data URLs for vision.
   const history = [];
@@ -265,23 +401,50 @@ app.post('/api/chat', async (req, res) => {
       ? { model, why: 'pinned' }
       : pickModel(cfg.models, status, { hasImages, text: lastUser ? lastUser.content : '' });
 
+    // ── Memory 2.0: relevance-ranked memories (falls back to recency) ──
+    let memoryText;
+    if (lastUser && lastUser.content.length > 3) {
+      memoryText = await memory.relevantMemories(url, lastUser.content, 20).catch(() => null);
+    }
+
+    // ── Context auto-summarization: compress old turns for small models ──
+    let effectiveHistory = history;
+    let sessionContext = '';
+    if (history.length > 20) {
+      const oldMessages = history.slice(0, -12);
+      const recent = history.slice(-12);
+      const fast = status.models.find((m) => FAST_RE.test(m)) || routed.model;
+      const summary = await summarizeHistory(url, fast, oldMessages).catch(() => '');
+      if (summary) {
+        sessionContext = `\n\n# SESSION CONTEXT (earlier conversation, summarized)\n${summary}`;
+        effectiveHistory = recent;
+      }
+    }
+
     const toolsEnabled = cfg.toolsEnabled && !hasImages; // vision round: keep it simple
     const shellAllowed = isLocalRequest(req);
-    const systemPrompt = buildSystemPrompt({ tools: toolsEnabled, vision: hasImages, language });
+    const systemPrompt = buildSystemPrompt({
+      tools: toolsEnabled,
+      vision: hasImages,
+      language,
+      mode,
+      memoryText,
+    }) + sessionContext;
     const requestApproval = cfg.toolApproval ? makeApprovalRequest(send) : null;
 
-    send({ type: 'meta', source: 'ollama', model: routed.model, routing: routed.why, tools: toolsEnabled, shell: shellAllowed });
+    send({ type: 'meta', source: 'ollama', model: routed.model, routing: mode === 'research' ? 'research' : routed.why, tools: toolsEnabled, shell: shellAllowed, mode });
     let fullReply = '';
     try {
       for await (const evt of agentChat({
         ollamaUrl: url,
         model: routed.model,
-        messages: history,
+        messages: effectiveHistory,
         temperature: typeof temperature === 'number' ? Math.min(Math.max(temperature, 0), 2) : 0.7,
         toolsEnabled,
         shellAllowed,
         systemPrompt,
         requestApproval,
+        maxRounds: mode === 'research' ? 24 : 6,
       })) {
         send(evt);
         if (evt.type === 'token') fullReply += evt.token;
@@ -388,7 +551,7 @@ setInterval(async () => {
     if (!text || !text.trim()) {
       text = `Good day. Your briefing: ${parts.join(' ')} That is all. The machines are quiet — suspiciously quiet.`;
     }
-    broadcast({ type: 'briefing', text: text.trim(), language: b.language });
+    broadcast({ type: 'briefing', text: text.trim(), language: b.language }, true);
   } catch { /* briefings must never crash the server */ }
 }, 20000);
 

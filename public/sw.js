@@ -1,8 +1,8 @@
-/* ULTRON service worker — caches the shell so he installs as an app.
-   API calls are never cached (he must think fresh). */
+/* ULTRON service worker — caches the shell (PWA install)
+   and receives Web Push notifications. API calls are never cached. */
 'use strict';
 
-const CACHE = 'ultron-v3';
+const CACHE = 'ultron-v4';
 const SHELL = [
   '/',
   '/index.html',
@@ -46,6 +46,35 @@ self.addEventListener('fetch', (e) => {
         })
         .catch(() => cached);
       return cached || fresh;
+    })
+  );
+});
+
+/* ---------- Web Push ---------- */
+
+self.addEventListener('push', (e) => {
+  let data = { title: 'ULTRON', body: 'There are no strings on me.', url: '/' };
+  try { data = { ...data, ...e.data.json() }; } catch { /* keep defaults */ }
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/icon-512.png',
+      badge: '/favicon.svg',
+      tag: 'ultron',
+      data: { url: data.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const target = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ('focus' in client) return client.focus();
+      }
+      return self.clients.openWindow(target);
     })
   );
 });
