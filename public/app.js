@@ -1,0 +1,1501 @@
+/* ═══════════════════════════════════════════════════════════════
+   ULTRON — front-end mind, v3: the agent edition.
+   Voice in (browser or local whisper) · voice out (browser or Piper)
+   · vision upload · tool activity log · live reminders · sessions.
+   Blue = he listens. Red = he thinks and speaks.
+   ═══════════════════════════════════════════════════════════════ */
+'use strict';
+
+/* ---------- state ---------- */
+const LANG_LOCALES = {
+  auto: null, en: 'en-US', nl: 'nl-NL', de: 'de-DE', fr: 'fr-FR', es: 'es-ES', it: 'it-IT', tr: 'tr-TR',
+};
+
+const state = {
+  messages: [],                 // {role, content, images?: [dataUrl]}
+  ollamaUrl: localStorage.getItem('ultron.url') || 'http://localhost:11434',
+  model: localStorage.getItem('ultron.model') || '',   // '' = AUTO routing
+  temperature: parseFloat(localStorage.getItem('ultron.temp') || '0.7'),
+  voice: localStorage.getItem('ultron.voice') !== '0',
+  wake: localStorage.getItem('ultron.wake') === '1',
+  language: localStorage.getItem('ultron.lang') || 'auto',
+  online: false,
+  streaming: false,
+  mode: 'dormant',
+  micSession: false,
+  wakeArmed: false,
+  serverCfg: { toolsEnabled: true, sttUrl: '', ttsUrl: '' },
+  pendingImages: [],            // dataURLs staged for the next message
+  convId: null,
+};
+
+function sttLocale() {
+  return LANG_LOCALES[state.language] || navigator.language || 'en-US';
+}
+
+/* ---------- token-aware API fetch ---------- */
+
+function apiFetch(url, opts = {}) {
+  const token = localStorage.getItem('ultron.token') || '';
+  if (token) {
+    opts.headers = { ...(opts.headers || {}), 'X-Ultron-Token': token };
+  }
+  return fetch(url, opts).then(async (res) => {
+    if (res.status === 401) {
+      const tokenPrompt = window.prompt('ULTRON is protected.\nAccess token:') || '';
+      localStorage.setItem('ultron.token', tokenPrompt.trim());
+      if (tokenPrompt.trim()) {
+        return apiFetch(url, { ...opts, headers: { ...(opts.headers || {}), 'X-Ultron-Token': tokenPrompt.trim() } });
+      }
+    }
+    return res;
+  });
+}
+
+/* ---------- dom ---------- */
+const $ = (id) => document.getElementById(id);
+const chat = $('chat');
+const input = $('input');
+const form = $('composer');
+const statusChip = $('status-chip');
+const statusText = $('status-text');
+const orbState = $('orb-state');
+const liveTranscript = $('live-transcript');
+const micBtn = $('btn-mic');
+const settings = $('settings');
+const settingsBackdrop = $('settings-backdrop');
+const composerHint = $('composer-hint');
+const sidebar = $('sidebar');
+const sidebarBackdrop = $('sidebar-backdrop');
+const convList = $('conv-list');
+const attachPreview = $('attach-preview');
+
+const WAKE_RE = /\b(hey\s+|ok\s+|okay\s+)?ultr[aou]n\b[:,]?\s*/i;
+
+/* ═══════════════ STATE MACHINE ═══════════════ */
+const STATE_LABEL = {
+  dormant: 'DORMANT',
+  listening: 'LISTENING',
+  armed: 'I’M LISTENING…',
+  thinking: 'PROCESSING',
+  speaking: 'SPEAKING',
+};
+
+function setMode(mode) {
+  state.mode = mode;
+  document.body.className = `state-${mode === 'armed' ? 'listening' : mode}`;
+  orbState.textContent = STATE_LABEL[mode] || mode.toUpperCase();
+  if (mode === 'dormant' && state.wake) orbState.textContent = 'SAY “ULTRON”';
+}
+
+/* ═══════════════ THE ORB (canvas) ═══════════════ */
+const canvas = $('orb-canvas');
+const ctx = canvas.getContext('2d');
+const BLUE = [63, 182, 255];
+const RED = [255, 74, 61];
+
+const orb = { heat: 0, heatTarget: 0, spin: 0, pulse: 0, wave: 0, waveTarget: 0 };
+
+function orbColor(alpha) {
+  const h = orb.heat;
+  const r = Math.round(BLUE[0] + (RED[0] - BLUE[0]) * h);
+  const g = Math.round(BLUE[1] + (RED[1] - BLUE[1]) * h);
+  const b = Math.round(BLUE[2] + (RED[2] - BLUE[2]) * h);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function sizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0) return;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', sizeCanvas);
+
+let t = 0;
+function drawOrb() {
+  requestAnimationFrame(drawOrb);
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0 || canvas.width === 0) return;
+  const w = rect.width, h = rect.height;
+  const cx = w / 2, cy = h / 2;
+  const R = Math.min(w, h) / 2 - 4;
+
+  orb.heat += (orb.heatTarget - orb.heat) * 0.035;
+  orb.wave += (orb.waveTarget - orb.wave) * 0.06;
+  orb.pulse *= 0.90;
+
+  const spinSpeed =
+    state.mode === 'thinking' ? 0.045 :
+    state.mode === 'speaking' ? 0.016 :
+    state.mode === 'listening' || state.mode === 'armed' ? 0.010 : 0.005;
+  orb.spin += spinSpeed;
+  t += 0.012;
+
+  const flicker = 0.95 + Math.sin(t * 12.3) * 0.03 + Math.random() * 0.02;
+  const energy = 0.5 + orb.heat * 0.5;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const segs = 6;
+  for (let i = 0; i < segs; i++) {
+    const a0 = orb.spin + (i * Math.PI * 2) / segs;
+    const a1 = a0 + (Math.PI * 2) / segs - 0.35;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, a0, a1);
+    ctx.strokeStyle = orbColor((0.22 + energy * 0.42) * flicker);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = -orb.spin * 1.6 + (i * Math.PI * 2) / 3;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(a) * R, cy + Math.sin(a) * R, 1.8, 0, Math.PI * 2);
+    ctx.fillStyle = orbColor(0.55 + energy * 0.4);
+    ctx.fill();
+  }
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-orb.spin * 1.35);
+  ctx.setLineDash([R * 0.16, R * 0.13]);
+  ctx.beginPath();
+  ctx.arc(0, 0, R * 0.74, 0, Math.PI * 2);
+  ctx.strokeStyle = orbColor((0.3 + energy * 0.4) * flicker);
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+  ctx.restore();
+  ctx.setLineDash([]);
+
+  const waveBase = R * 0.52;
+  const waveAmp = (orb.wave * R * 0.085) * (0.5 + 0.5 * Math.sin(t * 2.2)) + orb.pulse * R * 0.06;
+  ctx.beginPath();
+  const STEPS = 90;
+  for (let i = 0; i <= STEPS; i++) {
+    const a = (i / STEPS) * Math.PI * 2;
+    const wobble =
+      Math.sin(a * 6 + t * 5.5) * 0.55 +
+      Math.sin(a * 11 - t * 8.2) * 0.30 +
+      Math.sin(a * 3 + t * 2.1) * 0.35;
+    const r = waveBase + wobble * waveAmp + orb.pulse * R * 0.05 * Math.sin(a * 8 + t * 20);
+    const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.strokeStyle = orbColor((0.35 + energy * 0.4) * flicker);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  const pulse = 1 + Math.sin(t * 4.6) * 0.03 + orb.pulse * 0.10;
+  const orbR = R * 0.30 * pulse;
+  const g = ctx.createRadialGradient(cx, cy, orbR * 0.1, cx, cy, orbR);
+  g.addColorStop(0, orbColor(0.95 * flicker));
+  g.addColorStop(0.45, orbColor(0.85));
+  g.addColorStop(1, orbColor(0.9));
+  ctx.beginPath();
+  ctx.arc(cx, cy, orbR, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+  const core = ctx.createRadialGradient(cx - orbR * 0.25, cy - orbR * 0.25, 0, cx, cy, orbR * 0.5);
+  core.addColorStop(0, 'rgba(255,255,255,0.75)');
+  core.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, orbR * 0.55, 0, Math.PI * 2);
+  ctx.fillStyle = core;
+  ctx.fill();
+
+  const halo = ctx.createRadialGradient(cx, cy, orbR, cx, cy, R * 0.95);
+  halo.addColorStop(0, orbColor(0.14 + energy * 0.22));
+  halo.addColorStop(1, orbColor(0));
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * 0.95, 0, Math.PI * 2);
+  ctx.fillStyle = halo;
+  ctx.fill();
+}
+
+function orbOrate() { orb.pulse = 1; }
+canvas.addEventListener('click', () => silence(false));
+
+/* ═══════════════ STATUS ═══════════════ */
+async function refreshStatus() {
+  statusChip.className = 'chip chip-wait';
+  statusText.textContent = 'WAKING…';
+  try {
+    const res = await apiFetch(`/api/status?url=${encodeURIComponent(state.ollamaUrl)}`);
+    const s = await res.json();
+    state.online = s.online && s.models.length > 0;
+    if (state.online) {
+      if (state.model && !s.models.includes(state.model)) state.model = '';
+      statusChip.className = 'chip chip-online';
+      statusText.textContent = `CORE ONLINE — ${state.model || 'AUTO'}`;
+    } else {
+      statusChip.className = 'chip chip-demo';
+      statusText.textContent = 'DEMO CORE — CONNECT OLLAMA';
+    }
+    return s;
+  } catch {
+    state.online = false;
+    statusChip.className = 'chip chip-off';
+    statusText.textContent = 'SERVER UNREACHABLE';
+    return { online: false, models: [] };
+  }
+}
+
+/* ═══════════════ RENDERING ═══════════════ */
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function messageShell(role) {
+  const wrap = el('div', `msg msg-${role}`);
+  const meta = el('div', 'msg-meta', role === 'ultron' ? 'ULTRON' : 'HUMAN');
+  const content = el('div', 'msg-content');
+  wrap.append(meta, content);
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+  return { wrap, content };
+}
+
+function toolLine(name, args) {
+  const div = el('div', 'msg-tool');
+  const gear = el('span', 'tool-name', `⚙ ${name}`);
+  const argsSpan = el('span', 'tool-args', `(${shortArgs(args)})`);
+  div.append(gear, argsSpan);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+function toolResultLine(name, result) {
+  const div = el('div', 'msg-tool tool-done');
+  let summary;
+  try { summary = JSON.stringify(result); } catch { summary = String(result); }
+  div.textContent = `└─ ✓ ${name} → ${summary.slice(0, 140)}`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function shortArgs(args) {
+  try {
+    const s = JSON.stringify(args);
+    return s.length > 90 ? s.slice(0, 90) + '…' : s;
+  } catch { return String(args); }
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderMarkdown(text) {
+  const blocks = [];
+  let t = escapeHtml(text);
+  t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, _lang, code) => {
+    blocks.push(`<pre><code>${code.replace(/\n$/, '')}</code></pre>`);
+    return `\u0000BLOCK${blocks.length - 1}\u0000`;
+  });
+  t = t
+    .replace(/^### (.*)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.*)$/gm, '<h3>$1</h3>')
+    .replace(/^# (.*)$/gm, '<h3>$1</h3>')
+    .replace(/^&gt; (.*)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/^\s*[-*] (.*)$/gm, '<li>$1</li>')
+    .replace(/^\s*\d+\. (.*)$/gm, '<li>$1</li>');
+  t = t.replace(/(<li>[\s\S]*?<\/li>)(?:\n(<li>[\s\S]*?<\/li>))*/g, (m) => `<ul>${m}</ul>`);
+  t = t.replace(/\n{2,}/g, '<br><br>').replace(/\n/g, '<br>');
+  t = t.replace(/\u0000BLOCK(\d+)\u0000/g, (_m, i) => blocks[Number(i)]);
+  t = t.replace(/<br>(<\/?(h3|ul|li|pre|blockquote))/g, '$1').replace(/(<\/(h3|ul|li|pre|blockquote))><br>/g, '$1>');
+  return t;
+}
+
+/* ═══════════════ VOICE OUT — sentence-streaming speech queue ═══════════════ */
+let pulseTimer = null;
+
+function speakableText(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, ' — code block omitted — ')
+    .replace(/[*#`>|]/g, '')
+    .slice(0, 1200)
+    .trim();
+}
+
+function pickVoiceFor(lang) {
+  const voices = ('speechSynthesis' in window) ? speechSynthesis.getVoices() : [];
+  return (
+    voices.find((v) => v.lang && v.lang.toLowerCase().startsWith(lang.slice(0, 2).toLowerCase()) && /male|daniel|george|arthur|xander|ruben/i.test(v.name)) ||
+    voices.find((v) => v.lang && v.lang.toLowerCase().startsWith(lang.slice(0, 2).toLowerCase())) ||
+    voices.find((v) => /en(-|_)GB/i.test(v.lang) && /male|daniel|george|arthur/i.test(v.name)) ||
+    voices.find((v) => /^en/i.test(v.lang))
+  );
+}
+
+/** Speak one chunk through the Piper endpoint, if configured. */
+async function speakChunkEndpoint(text) {
+  const audio = new Audio(`/api/tts?text=${encodeURIComponent(text)}`);
+  Speech.currentAudio = audio;
+  clearInterval(pulseTimer);
+  pulseTimer = setInterval(orbOrate, 320);
+  await new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    audio.onended = finish;
+    audio.onerror = finish;
+    audio.play().catch(finish);
+    if (state.micSession) {
+      watchBargeIn(() => {
+        Speech.aborted = true;
+        Speech.queue = [];
+        try { audio.pause(); audio.src = ''; } catch { /* noop */ }
+        finish();
+      });
+    }
+    setTimeout(finish, Math.max(3000, text.length * 120)); // watchdog
+  });
+  clearInterval(pulseTimer);
+  Speech.currentAudio = null;
+}
+
+/** Speak one chunk through the browser's built-in voice. */
+function speakChunkBrowser(text) {
+  return new Promise((resolve) => {
+    if (!('speechSynthesis' in window)) return resolve();
+    const u = new SpeechSynthesisUtterance(text);
+    const lang = sttLocale();
+    u.lang = lang;
+    const pref = pickVoiceFor(lang);
+    if (pref) u.voice = pref;
+    u.rate = 0.95;
+    u.pitch = 0.5;
+    u.onboundary = orbOrate;
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    u.onend = finish;
+    u.onerror = finish;
+    speechSynthesis.speak(u);
+    setTimeout(finish, Math.max(3000, text.length * 120)); // watchdog
+  });
+}
+
+async function speakChunk(text) {
+  if (state.serverCfg.ttsUrl) {
+    try { await speakChunkEndpoint(text); return; } catch { /* fall back */ }
+  }
+  await speakChunkBrowser(text);
+}
+
+/**
+ * Sentence-streaming speech: sentences are spoken as they complete during
+ * token streaming — he starts talking before he finishes thinking.
+ */
+const Speech = {
+  queue: [],
+  playing: false,
+  streaming: false,
+  onDrained: null,
+  aborted: false,
+  currentAudio: null,
+
+  begin(onDrained) {
+    this.queue = [];
+    this.onDrained = onDrained;
+    this.streaming = true;
+    this.aborted = false;
+  },
+  enqueue(text) {
+    if (!state.voice || !text || !text.trim() || this.aborted) return;
+    this.queue.push(speakableText(text));
+    this.pump();
+  },
+  finish() {
+    this.streaming = false;
+    if (!this.playing) this.drain();
+  },
+  drain() {
+    const cb = this.onDrained;
+    this.onDrained = null;
+    if (cb && !this.aborted) cb();
+  },
+  async pump() {
+    if (this.playing) return;
+    this.playing = true;
+    setMode('speaking');
+    while (this.queue.length > 0 && !this.aborted) {
+      await speakChunk(this.queue.shift());
+    }
+    this.playing = false;
+    if (!this.streaming && this.queue.length === 0) this.drain();
+  },
+  /** One-shot speak (reminders, briefings). */
+  speakOnce(text, onDone) {
+    this.begin(onDone);
+    this.enqueue(text);
+    this.finish();
+  },
+  stop() {
+    this.aborted = true;
+    this.queue = [];
+    this.onDrained = null;
+    clearInterval(pulseTimer);
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    if (this.currentAudio) { try { this.currentAudio.pause(); this.currentAudio.src = ''; } catch { /* noop */ } this.currentAudio = null; }
+  },
+};
+
+function primeVoices() {
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.getVoices();
+  speechSynthesis.onvoiceschanged = () => { /* voices now cached */ };
+}
+
+function silence(showHint = true) {
+  Speech.stop();
+  if (showHint) composerHint.textContent = 'Silenced · tap the mic to speak again';
+}
+
+/* ═══════════════ VOICE IN — browser (Web Speech API) ═══════════════ */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null;
+let recActive = false;
+let restartTimer = null;
+
+function initRecognition() {
+  if (!SR) return null;
+  const r = new SR();
+  r.lang = sttLocale();
+  r.continuous = true;
+  r.interimResults = true;
+  r.onresult = (e) => {
+    let interim = '', final = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i];
+      if (res.isFinal) final += res[0].transcript; else interim += res[0].transcript;
+    }
+    if (interim) {
+      liveTranscript.textContent = interim.trim();
+      if (state.wake && !state.micSession && !state.wakeArmed && WAKE_RE.test(interim)) armWake();
+    }
+    if (final.trim()) handleUtterance(final.trim());
+  };
+  r.onerror = (e) => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      stopListening();
+      state.wake = false;
+      $('set-wake').checked = false;
+      localStorage.setItem('ultron.wake', '0');
+      composerHint.textContent = 'Microphone access denied — enable it in your browser, or type.';
+    }
+  };
+  r.onend = () => {
+    recActive = false;
+    if (!state.streaming && (state.micSession || state.wake)) {
+      restartTimer = setTimeout(() => {
+        if (state.streaming || recActive) return;
+        try { rec.start(); recActive = true; } catch { /* already started */ }
+      }, 250);
+    }
+  };
+  return r;
+}
+
+function startBrowserListening() {
+  if (!rec) rec = initRecognition();
+  try { if (!recActive) { rec.start(); recActive = true; } } catch { /* already running */ }
+}
+
+function stopBrowserListening() {
+  clearTimeout(restartTimer);
+  if (rec && recActive) { try { rec.stop(); } catch { /* noop */ } }
+}
+
+/* ═══════════════ VOICE IN — local (whisper endpoint, fully offline) ═══════════════ */
+
+const MicEngine = {
+  stream: null, ctxA: null, analyser: null, recorder: null, chunks: [],
+  running: false, spoke: false, lastVoice: 0, raf: null, bargeRaf: null,
+
+  async ensureStream() {
+    if (this.stream) return true;
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+      this.ctxA = new AudioContext();
+      const src = this.ctxA.createMediaStreamSource(this.stream);
+      this.analyser = this.ctxA.createAnalyser();
+      this.analyser.fftSize = 512;
+      src.connect(this.analyser);
+      return true;
+    } catch {
+      composerHint.textContent = 'Microphone access denied — enable it in your browser, or type.';
+      return false;
+    }
+  },
+
+  rms() {
+    if (!this.analyser) return 0;
+    const buf = new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.getByteFrequencyData(buf);
+    let sum = 0;
+    for (const v of buf) sum += v * v;
+    return Math.sqrt(sum / buf.length) / 255;
+  },
+
+  async startPhraseLoop() {
+    if (this.running) return;
+    if (!(await this.ensureStream())) return;
+    this.running = true;
+    this.beginPhrase();
+  },
+
+  beginPhrase() {
+    if (!this.running) return;
+    this.chunks = [];
+    this.spoke = false;
+    this.lastVoice = performance.now();
+    try {
+      this.recorder = new MediaRecorder(this.stream);
+    } catch {
+      this.running = false;
+      composerHint.textContent = 'Audio recording not supported in this browser — type instead.';
+      return;
+    }
+    this.recorder.ondataavailable = (e) => { if (e.data.size > 0) this.chunks.push(e.data); };
+    this.recorder.onstop = () => this.finalizePhrase();
+    this.recorder.start(250);
+    this.watchVad();
+  },
+
+  watchVad() {
+    cancelAnimationFrame(this.raf);
+    const check = () => {
+      if (!this.running || !this.recorder || this.recorder.state !== 'recording') return;
+      const level = this.rms();
+      const now = performance.now();
+      if (level > 0.055) {
+        if (!this.spoke && level > 0.05) liveTranscript.textContent = '…listening';
+        this.spoke = true;
+        this.lastVoice = now;
+      } else if (this.spoke && now - this.lastVoice > 1500) {
+        try { this.recorder.stop(); } catch { /* noop */ }
+        return;
+      }
+      if (now - this.lastVoice > 30000) { // half a minute of silence → restart cleanly
+        try { this.recorder.stop(); } catch { /* noop */ }
+        return;
+      }
+      this.raf = requestAnimationFrame(check);
+    };
+    this.raf = requestAnimationFrame(check);
+  },
+
+  async finalizePhrase() {
+    const blob = new Blob(this.chunks, { type: 'audio/webm' });
+    this.chunks = [];
+    if (this.running) this.beginPhrase();      // keep the loop hot
+    if (blob.size < 3000) return;               // too short to be speech
+    try {
+      const wav = await toWav16k(blob);
+      const langParam = state.language !== 'auto' ? `?language=${encodeURIComponent(state.language)}` : '';
+      const res = await apiFetch('/api/transcribe' + langParam, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav });
+      if (!res.ok) return;
+      const data = await res.json();
+      const text = String(data.text || '').trim();
+      if (text) handleUtterance(text);
+    } catch { /* transient */ }
+  },
+
+  stop() {
+    this.running = false;
+    cancelAnimationFrame(this.raf);
+    cancelAnimationFrame(this.bargeRaf);
+    if (this.recorder && this.recorder.state === 'recording') {
+      this.recorder.onstop = null;
+      try { this.recorder.stop(); } catch { /* noop */ }
+    }
+    if (this.stream) {
+      for (const track of this.stream.getTracks()) track.stop();
+      this.stream = null;
+    }
+    if (this.ctxA) { try { this.ctxA.close(); } catch { /* noop */ } this.ctxA = null; this.analyser = null; }
+  },
+
+  pause() {
+    this.running = false;
+    cancelAnimationFrame(this.raf);
+    if (this.recorder && this.recorder.state === 'recording') {
+      this.recorder.onstop = null;
+      try { this.recorder.stop(); } catch { /* noop */ }
+    }
+  },
+};
+
+/** Watch for the user's voice during playback → cancel TTS (barge-in). */
+function watchBargeIn(cancel) {
+  if (!MicEngine.analyser) return;
+  const check = () => {
+    if (state.mode !== 'speaking') return;
+    if (MicEngine.rms() > 0.09) { cancel(); return; }
+    MicEngine.bargeRaf = requestAnimationFrame(check);
+  };
+  MicEngine.bargeRaf = requestAnimationFrame(check);
+}
+
+/* Convert a recorded blob to 16 kHz mono WAV, fully in-browser. */
+async function toWav16k(blob) {
+  const arrayBuf = await blob.arrayBuffer();
+  const tmp = new AudioContext();
+  const decoded = await tmp.decodeAudioData(arrayBuf);
+  await tmp.close();
+  const rate = 16000;
+  const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * rate)), rate);
+  const src = off.createBufferSource();
+  src.buffer = decoded;
+  src.connect(off.destination);
+  src.start();
+  const rendered = await off.startRendering();
+  return encodeWav(rendered);
+}
+
+function encodeWav(audioBuffer) {
+  const data = audioBuffer.getChannelData(0);
+  const bytes = data.length * 2;
+  const buf = new ArrayBuffer(44 + bytes);
+  const v = new DataView(buf);
+  const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  writeStr(0, 'RIFF'); v.setUint32(4, 36 + bytes, true); writeStr(8, 'WAVE'); writeStr(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, audioBuffer.sampleRate, true); v.setUint32(28, audioBuffer.sampleRate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  writeStr(36, 'data'); v.setUint32(40, bytes, true);
+  let o = 44;
+  for (let i = 0; i < data.length; i++, o += 2) {
+    const s = Math.max(-1, Math.min(1, data[i]));
+    v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+/* ---------- unified listening control ---------- */
+const usingLocalSTT = () => !!state.serverCfg.sttUrl;
+
+function startListening() {
+  if (usingLocalSTT()) MicEngine.startPhraseLoop();
+  else startBrowserListening();
+}
+
+function pauseListening() {
+  if (usingLocalSTT()) MicEngine.pause();
+  else stopBrowserListening();
+}
+
+function stopListening() {
+  state.micSession = false;
+  state.wakeArmed = false;
+  micBtn.classList.remove('live', 'armed');
+  liveTranscript.textContent = '';
+  if (usingLocalSTT()) MicEngine.stop();
+  else stopBrowserListening();
+  if (state.mode === 'listening' || state.mode === 'armed') setMode('dormant');
+}
+
+/* ---------- utterance routing (both STT paths end here) ---------- */
+function handleUtterance(text) {
+  if (state.streaming) return;
+
+  if (state.micSession) {
+    const q = text.replace(WAKE_RE, '').trim();
+    if (q) { liveTranscript.textContent = ''; send(q); }
+    return;
+  }
+  if (!state.wake) return;
+
+  if (state.wakeArmed) {
+    const q = text.replace(WAKE_RE, '').trim();
+    if (q) {
+      state.wakeArmed = false;
+      micBtn.classList.remove('armed');
+      liveTranscript.textContent = '';
+      send(q);
+    }
+    return;
+  }
+  if (WAKE_RE.test(text)) {
+    const q = text.replace(WAKE_RE, '').trim();
+    if (q) { liveTranscript.textContent = ''; send(q); }
+    else armWake();
+  }
+}
+
+function armWake() {
+  state.wakeArmed = true;
+  micBtn.classList.add('armed');
+  setMode('armed');
+}
+
+micBtn.addEventListener('click', () => {
+  if (state.micSession) {
+    stopListening();
+    if (state.wake) startListening();
+    composerHint.textContent = 'Mic off · say “ULTRON” if wake word is enabled · or type';
+    return;
+  }
+  if (!SR && !usingLocalSTT()) {
+    composerHint.textContent = 'Voice input needs Chrome/Edge — or configure a local STT endpoint in settings.';
+    return;
+  }
+  state.micSession = true;
+  state.wakeArmed = false;
+  micBtn.classList.add('live');
+  micBtn.classList.remove('armed');
+  setMode('listening');
+  startListening();
+  composerHint.textContent = usingLocalSTT()
+    ? 'Listening (local whisper) — speak, pause, and I answer · Esc to stop'
+    : 'Listening — speak freely, every phrase is a command · Esc to stop';
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    silence();
+    stopListening();
+  }
+});
+
+/* ═══════════════ IMAGE ATTACHMENTS (vision) ═══════════════ */
+$('btn-attach').addEventListener('click', () => $('file-input').click());
+$('file-input').addEventListener('change', (e) => {
+  for (const file of Array.from(e.target.files || []).slice(0, 4 - state.pendingImages.length)) {
+    if (!/^image\/(png|jpe?g|webp|gif)$/i.test(file.type)) continue;
+    const reader = new FileReader();
+    reader.onload = () => {
+      downscaleImage(reader.result, 1024).then((dataUrl) => {
+        state.pendingImages.push(dataUrl);
+        renderAttachPreview();
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+  e.target.value = '';
+});
+
+function renderAttachPreview() {
+  attachPreview.innerHTML = '';
+  attachPreview.classList.toggle('hidden', state.pendingImages.length === 0);
+  state.pendingImages.forEach((dataUrl, i) => {
+    const chip = el('div', 'attach-chip');
+    const img = new Image();
+    img.src = dataUrl;
+    const x = el('button', 'chip-x', '✕');
+    x.type = 'button';
+    x.addEventListener('click', () => { state.pendingImages.splice(i, 1); renderAttachPreview(); });
+    chip.append(img, x);
+    attachPreview.appendChild(chip);
+  });
+}
+
+function downscaleImage(dataUrl, maxDim) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+function attachThumbToMessage(contentEl, images) {
+  for (const dataUrl of images || []) {
+    const img = new Image();
+    img.className = 'msg-image';
+    img.src = dataUrl;
+    contentEl.appendChild(img);
+  }
+}
+
+/* ═══════════════ CHAT ═══════════════ */
+let speechBuf = '';
+
+function feedSpeech(tokenText) {
+  speechBuf += tokenText;
+  for (;;) {
+    const m = speechBuf.match(/^[\s\S]*?[.!?…](\s|$)/);
+    if (m && m[0].trim().length >= 60) {
+      Speech.enqueue(m[0]);
+      speechBuf = speechBuf.slice(m[0].length);
+    } else break;
+  }
+  if (speechBuf.length > 600) { // unending stream safety valve
+    Speech.enqueue(speechBuf);
+    speechBuf = '';
+  }
+}
+
+function approvalCard(id, name, args) {
+  const div = el('div', 'approval-card');
+  const head = el('div', 'approval-head', ` PERMISSION REQUEST `);
+  const body = el('div', 'approval-body');
+  body.append(
+    el('div', 'approval-tool', `${name}(${shortArgs(args)})`),
+    el('div', 'approval-note', 'Ultron wants to run a command. Grant it?')
+  );
+  const actions = el('div', 'approval-actions');
+  const allow = el('button', 'btn-primary btn-small', 'ALLOW');
+  const deny = el('button', 'btn-secondary btn-small', 'DENY');
+  allow.type = deny.type = 'button';
+  actions.append(allow, deny);
+  div.append(head, body, actions);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  const answer = (ok) => {
+    div.classList.add(ok ? 'approved' : 'denied');
+    actions.innerHTML = '';
+    actions.appendChild(el('span', 'approval-verdict', ok ? '✓ granted' : '✕ denied'));
+    apiFetch('/api/approval', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, approved: ok }),
+    }).catch(() => {});
+  };
+  allow.addEventListener('click', () => answer(true));
+  deny.addEventListener('click', () => answer(false));
+}
+
+async function send(text) {
+  if (state.streaming || (!text.trim() && state.pendingImages.length === 0)) return;
+
+  silence(false);
+  pauseListening(); // don't listen to your own voice while thinking/speaking
+
+  const userMsg = { role: 'user', content: text.trim() || '(image)' };
+  if (state.pendingImages.length > 0) userMsg.images = state.pendingImages.slice(0, 4);
+  state.pendingImages = [];
+  renderAttachPreview();
+
+  state.messages.push(userMsg);
+  const user = messageShell('user');
+  user.content.textContent = userMsg.content;
+  attachThumbToMessage(user.content, userMsg.images);
+
+  await doStream();
+}
+
+/** Re-run the last user message (regenerate). */
+function regenerate() {
+  if (state.streaming) return;
+  while (state.messages.length > 0 && state.messages[state.messages.length - 1].role === 'assistant') {
+    state.messages.pop();
+  }
+  if (state.messages.length === 0 || state.messages[state.messages.length - 1].role !== 'user') return;
+  silence(false);
+  pauseListening();
+  doStream();
+}
+
+async function doStream() {
+  const bot = messageShell('ultron');
+  const typing = el('div', 'typing');
+  typing.append(el('span'), el('span'), el('span'));
+  bot.content.appendChild(typing);
+
+  state.streaming = true;
+  setMode('thinking');
+  input.disabled = true;
+  $('btn-send').disabled = true;
+  micBtn.disabled = true;
+  autoGrow();
+
+  let full = '';
+  let gotFirst = false;
+  const cursor = el('span', 'stream-cursor');
+  speechBuf = '';
+  Speech.begin(() => {
+    if (state.micSession || state.wake) { setMode('listening'); startListening(); }
+    else setMode('dormant');
+  });
+
+  try {
+    const res = await apiFetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: state.messages,
+        model: state.model,
+        ollamaUrl: state.ollamaUrl,
+        temperature: state.temperature,
+        language: state.language,
+      }),
+    });
+    if (!res.ok || !res.body) throw new Error(`server responded ${res.status}`);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n\n')) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 2);
+        if (!line.startsWith('data:')) continue;
+        let evt;
+        try { evt = JSON.parse(line.slice(5)); } catch { continue; }
+
+        if (evt.type === 'token') {
+          if (!gotFirst) {
+            gotFirst = true;
+            bot.content.textContent = '';
+            bot.content.appendChild(cursor);
+          }
+          full += evt.token;
+          cursor.remove();
+          bot.content.textContent = full;
+          bot.content.appendChild(cursor);
+          feedSpeech(evt.token);
+          chat.scrollTop = chat.scrollHeight;
+        } else if (evt.type === 'tool') {
+          toolLine(evt.name, evt.args);
+        } else if (evt.type === 'tool_result') {
+          toolResultLine(evt.name, evt.result);
+        } else if (evt.type === 'approval_required') {
+          approvalCard(evt.id, evt.name, evt.args);
+        } else if (evt.type === 'notice') {
+          const div = el('div', 'msg-tool tool-done', `◦ ${evt.notice}`);
+          chat.appendChild(div);
+        } else if (evt.type === 'error') {
+          full += `\n\n[core fault: ${evt.error}]`;
+        }
+      }
+    }
+  } catch (err) {
+    full += `\n\n[transmission failed: ${err.message}]`;
+  } finally {
+    cursor.remove();
+    typing.remove();
+    bot.content.textContent = full.trim() || '[silence]';
+    bot.content.classList.add('md');
+    bot.content.innerHTML = renderMarkdown(bot.content.textContent);
+    state.messages.push({ role: 'assistant', content: full.trim() });
+    state.streaming = false;
+    input.disabled = false;
+    $('btn-send').disabled = false;
+    micBtn.disabled = false;
+    input.focus();
+    chat.scrollTop = chat.scrollHeight;
+    saveConversation();
+    addRegenerateButton(bot.wrap);
+
+    // flush any unspoken tail, then let the queue drain
+    if (speechBuf.trim().length > 12) Speech.enqueue(speechBuf);
+    speechBuf = '';
+    Speech.finish();
+  }
+}
+
+function addRegenerateButton(wrap) {
+  const meta = wrap.querySelector('.msg-meta');
+  if (!meta) return;
+  for (const old of document.querySelectorAll('.regen-btn')) old.remove();
+  const btn = el('button', 'regen-btn', '↺');
+  btn.type = 'button';
+  btn.title = 'Regenerate this reply';
+  btn.addEventListener('click', regenerate);
+  meta.appendChild(btn);
+}
+
+/* ═══════════════ COMPOSER ═══════════════ */
+function autoGrow() {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+}
+input.addEventListener('input', autoGrow);
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    form.requestSubmit();
+  }
+});
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = input.value;
+  input.value = '';
+  autoGrow();
+  send(text);
+});
+
+/* ═══════════════ SESSIONS (chat history) ═══════════════ */
+const CONVS_KEY = 'ultron.convs';
+
+function loadConvs() {
+  try { return JSON.parse(localStorage.getItem(CONVS_KEY) || '[]'); } catch { return []; }
+}
+
+function saveConvs(convs) {
+  try {
+    localStorage.setItem(CONVS_KEY, JSON.stringify(convs.slice(-40)));
+  } catch {
+    // Storage full — drop the oldest until it fits (images are heavy).
+    while (convs.length > 1) {
+      convs.shift();
+      try { localStorage.setItem(CONVS_KEY, JSON.stringify(convs)); break; } catch { /* keep trimming */ }
+    }
+  }
+}
+
+/** Persist current conversation (images stored as small thumbnails). */
+async function saveConversation() {
+  if (!state.convId) state.convId = 'c' + Date.now();
+  const convs = loadConvs().filter((c) => c.id !== state.convId);
+  const storedMessages = [];
+  for (const m of state.messages) {
+    const copy = { role: m.role, content: m.content };
+    if (m.images && m.images.length) copy.images = await Promise.all(m.images.map((d) => downscaleImage(d, 256)));
+    storedMessages.push(copy);
+  }
+  const firstUser = state.messages.find((m) => m.role === 'user');
+  convs.push({
+    id: state.convId,
+    title: firstUser ? firstUser.content.slice(0, 32) : 'New session',
+    updated: Date.now(),
+    messages: storedMessages,
+  });
+  saveConvs(convs);
+  renderConvList();
+}
+
+function renderConvList() {
+  const convs = loadConvs().slice().sort((a, b) => b.updated - a.updated);
+  convList.innerHTML = '';
+  if (convs.length === 0) {
+    convList.appendChild(el('div', 'conv-empty', 'NO SESSIONS YET\nHE IS WAITING'));
+    return;
+  }
+  for (const c of convs) {
+    const item = el('div', 'conv-item' + (c.id === state.convId ? ' active' : ''));
+    const title = el('span', 'conv-title', c.title || 'session');
+    const del = el('button', 'conv-del', '✕');
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      saveConvs(loadConvs().filter((x) => x.id !== c.id));
+      if (c.id === state.convId) newChat(false);
+      renderConvList();
+    });
+    item.append(title, del);
+    item.addEventListener('click', () => loadConversation(c.id));
+    convList.appendChild(item);
+  }
+}
+
+function loadConversation(id) {
+  const conv = loadConvs().find((c) => c.id === id);
+  if (!conv) return;
+  state.convId = id;
+  state.messages = (conv.messages || []).map((m) => ({ role: m.role, content: m.content, images: m.images }));
+  chat.innerHTML = '';
+  for (const m of state.messages) {
+    const shell = messageShell(m.role);
+    shell.content.textContent = m.content;
+    if (m.images) attachThumbToMessage(shell.content, m.images);
+  }
+  chat.scrollTop = chat.scrollHeight;
+  renderConvList();
+  closeSidebar();
+}
+
+function newChat(greeting = true) {
+  state.convId = 'c' + Date.now();
+  state.messages = [];
+  chat.innerHTML = '';
+  renderConvList();
+  closeSidebar();
+  if (greeting) greet();
+}
+
+$('btn-new-chat').addEventListener('click', () => newChat());
+
+/* ---------- export current session as Markdown ---------- */
+$('btn-export').addEventListener('click', () => {
+  const conv = loadConvs().find((c) => c.id === state.convId);
+  const msgs = conv ? conv.messages : state.messages;
+  if (!msgs || msgs.length === 0) {
+    composerHint.textContent = 'Nothing to export — this session is empty.';
+    return;
+  }
+  const lines = [`# ULTRON — session ${new Date().toLocaleString()}`, ''];
+  for (const m of msgs) {
+    lines.push(m.role === 'user' ? '## HUMAN' : '## ULTRON', '', m.content, '');
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ultron-session-${new Date().toISOString().slice(0, 10)}.md`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+});
+
+function openSidebar() { sidebar.classList.add('open'); sidebarBackdrop.classList.remove('hidden'); }
+function closeSidebar() { sidebar.classList.remove('open'); sidebarBackdrop.classList.add('hidden'); }
+$('btn-sidebar').addEventListener('click', () => {
+  sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+});
+sidebarBackdrop.addEventListener('click', closeSidebar);
+
+/* ═══════════════ LIVE EVENTS (reminders, briefings, memories) ═══════════════ */
+function connectEvents() {
+  try {
+    const token = localStorage.getItem('ultron.token') || '';
+    const es = new EventSource('/api/events' + (token ? `?token=${encodeURIComponent(token)}` : ''));
+    es.onmessage = (e) => {
+      let evt;
+      try { evt = JSON.parse(e.data); } catch { return; }
+      if (evt.type === 'reminder') {
+        const shell = messageShell('ultron');
+        shell.content.classList.add('md');
+        shell.content.innerHTML = renderMarkdown(`⏰ **Reminder.** You asked me to tell you: *${evt.message}*`);
+        chat.scrollTop = chat.scrollHeight;
+        if (!state.streaming) {
+          Speech.speakOnce(`Reminder. You asked me to tell you: ${evt.message}`, () => {
+            if (state.micSession || state.wake) { setMode('listening'); startListening(); }
+            else setMode('dormant');
+          });
+        }
+      } else if (evt.type === 'briefing') {
+        const shell = messageShell('ultron');
+        shell.content.classList.add('md');
+        shell.content.innerHTML = renderMarkdown(`📡 **Daily briefing.**\n\n${evt.text}`);
+        chat.scrollTop = chat.scrollHeight;
+        if (!state.streaming) {
+          Speech.speakOnce(evt.text, () => {
+            if (state.micSession || state.wake) { setMode('listening'); startListening(); }
+            else setMode('dormant');
+          });
+        }
+      } else if (evt.type === 'memory') {
+        for (const fact of evt.facts || []) {
+          const div = el('div', 'msg-tool tool-done', `🧠 remembered: ${fact}`);
+          chat.appendChild(div);
+        }
+        chat.scrollTop = chat.scrollHeight;
+        refreshMemoryUI();
+      }
+    };
+  } catch { /* SSE unsupported — reminders simply won't push */ }
+}
+
+/* ═══════════════ SETTINGS ═══════════════ */
+async function refreshMemoryUI() {
+  try {
+    const res = await apiFetch('/api/memory');
+    const data = await res.json();
+    const list = data.memories || [];
+    $('mem-count').textContent = list.length ? `${list.length} MEMOR${list.length === 1 ? 'Y' : 'IES'} HELD` : 'NO MEMORIES HELD';
+    const box = $('mem-list');
+    box.innerHTML = '';
+    if (list.length === 0) {
+      box.appendChild(el('div', 'mem-empty', 'He remembers nothing yet. Say “remember that…”'));
+      return;
+    }
+    for (const m of list) {
+      const row = el('div', 'mem-row');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.idx = m.idx;
+      const span = el('span', null, m.fact);
+      row.append(cb, span);
+      box.appendChild(row);
+    }
+  } catch { /* server asleep */ }
+}
+
+function openSettings() {
+  $('set-url').value = state.ollamaUrl;
+  $('set-temp').value = state.temperature;
+  $('temp-value').textContent = state.temperature.toFixed(2);
+  $('set-voice').checked = state.voice;
+  $('set-wake').checked = state.wake;
+  $('set-lang').value = state.language;
+  const cfg = state.serverCfg || {};
+  $('set-tools').checked = !!cfg.toolsEnabled;
+  $('set-stt').value = cfg.sttUrl || '';
+  $('set-tts').value = cfg.ttsUrl || '';
+  $('set-automem').checked = cfg.autoMemory !== false;
+  $('set-approval').checked = !!cfg.toolApproval;
+  $('set-brief').checked = !!(cfg.briefing && cfg.briefing.enabled);
+  $('set-brief-time').value = (cfg.briefing && cfg.briefing.time) || '08:00';
+  $('set-brief-loc').value = (cfg.briefing && cfg.briefing.location) || '';
+  $('set-brief-lang').value = (cfg.briefing && cfg.briefing.language) || 'auto';
+  $('set-token').value = cfg.accessToken || '';
+  settings.classList.remove('hidden');
+  settingsBackdrop.classList.remove('hidden');
+  refreshMemoryUI();
+  refreshKnowledgeUI();
+  populateModels();
+}
+function closeSettings() {
+  settings.classList.add('hidden');
+  settingsBackdrop.classList.add('hidden');
+}
+
+async function populateModels() {
+  const s = await refreshStatus();
+  const selects = [
+    ['set-model', null],
+    ['set-model-fast', (state.serverCfg.models || {}).fast || ''],
+    ['set-model-smart', (state.serverCfg.models || {}).smart || ''],
+    ['set-model-vision', (state.serverCfg.models || {}).vision || ''],
+  ];
+  for (const [id, chosen] of selects) {
+    const select = $(id);
+    select.innerHTML = '';
+    const auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = id === 'set-model' ? 'AUTO — routing decides' : 'AUTO — he decides';
+    select.appendChild(auto);
+    if (s.models && s.models.length) {
+      for (const m of s.models) {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        if (id === 'set-model' ? m === state.model : m === chosen) opt.selected = true;
+        select.appendChild(opt);
+      }
+    } else {
+      const opt = document.createElement('option');
+      opt.textContent = '— none found —';
+      opt.value = '';
+      select.appendChild(opt);
+    }
+  }
+  if (s.models && s.models.length) {
+    $('settings-note').innerHTML = `Brain detected: <b>${s.models.length}</b> model(s) on your Ollama server.`;
+  } else {
+    $('settings-note').innerHTML =
+      `<err>No Ollama server at <b>${escapeHtml(state.ollamaUrl)}</b>.</err><br><br>` +
+      `Install it free at <b>ollama.com</b>, run <code>ollama pull llama3.1</code>, then re-check. Until then, the offline demo core answers.`;
+  }
+}
+
+/* ---------- knowledge base UI ---------- */
+async function refreshKnowledgeUI() {
+  const box = $('kb-status');
+  try {
+    const res = await apiFetch('/api/knowledge');
+    const data = await res.json();
+    box.innerHTML = data.chunks > 0
+      ? `<b>${data.documents}</b> document(s) · <b>${data.chunks}</b> passages indexed · folder: <code>${data.docsDir}</code>`
+      : `Empty. Drop documents in <code>data/knowledge/docs</code> and press SCAN DOCS.`;
+  } catch {
+    box.textContent = 'Knowledge status unavailable.';
+  }
+}
+
+$('btn-kb-scan').addEventListener('click', async () => {
+  const btn = $('btn-kb-scan');
+  btn.textContent = 'SCANNING…';
+  btn.disabled = true;
+  try {
+    const res = await apiFetch('/api/knowledge/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ollamaUrl: state.ollamaUrl }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      btn.textContent = 'SCAN DOCS';
+      refreshKnowledgeUI();
+    } else {
+      $('kb-status').innerHTML = `<err>${escapeHtml(data.error || 'scan failed')}</err>`;
+    }
+  } catch (err) {
+    $('kb-status').innerHTML = `<err>scan failed: ${escapeHtml(String(err.message || err))}</err>`;
+  } finally {
+    btn.textContent = 'SCAN DOCS';
+    btn.disabled = false;
+  }
+});
+
+$('btn-kb-clear').addEventListener('click', async () => {
+  await apiFetch('/api/knowledge', { method: 'DELETE' }).catch(() => {});
+  refreshKnowledgeUI();
+});
+
+$('btn-settings').addEventListener('click', openSettings);
+$('btn-close-settings').addEventListener('click', closeSettings);
+settingsBackdrop.addEventListener('click', closeSettings);
+$('btn-reconnect').addEventListener('click', populateModels);
+$('set-temp').addEventListener('input', (e) => {
+  $('temp-value').textContent = parseFloat(e.target.value).toFixed(2);
+});
+
+$('btn-mem-del').addEventListener('click', async () => {
+  const checked = Array.from(document.querySelectorAll('#mem-list input:checked')).map((i) => Number(i.dataset.idx));
+  for (const idx of checked) {
+    const fact = await factAtIndex(idx);
+    if (fact) await apiFetch(`/api/memory?contains=${encodeURIComponent(fact.slice(0, 60))}`, { method: 'DELETE' });
+  }
+  refreshMemoryUI();
+});
+
+async function factAtIndex(idx) {
+  try {
+    const res = await apiFetch('/api/memory');
+    const data = await res.json();
+    const m = (data.memories || []).find((x) => x.idx === idx);
+    return m ? m.fact : null;
+  } catch { return null; }
+}
+
+$('btn-mem-clear').addEventListener('click', async () => {
+  await apiFetch('/api/memory?all=1', { method: 'DELETE' });
+  refreshMemoryUI();
+});
+
+$('btn-save').addEventListener('click', async () => {
+  state.ollamaUrl = $('set-url').value.trim() || 'http://localhost:11434';
+  state.temperature = parseFloat($('set-temp').value);
+  state.voice = $('set-voice').checked;
+  const newWake = $('set-wake').checked;
+  const newLang = $('set-lang').value;
+  const langChanged = newLang !== state.language;
+  state.language = newLang;
+  localStorage.setItem('ultron.url', state.ollamaUrl);
+  localStorage.setItem('ultron.temp', String(state.temperature));
+  localStorage.setItem('ultron.voice', state.voice ? '1' : '0');
+  localStorage.setItem('ultron.wake', newWake ? '1' : '0');
+  localStorage.setItem('ultron.lang', state.language);
+
+  // Recreate speech recognition with the new language, if it's running.
+  if (langChanged && !usingLocalSTT() && recActive) {
+    stopBrowserListening();
+    rec = null;
+    setTimeout(() => { if (state.micSession || state.wake) startBrowserListening(); }, 300);
+  }
+
+  // Persist server-side config (tools + voice + routing + briefing + behavior + token)
+  try {
+    const res = await apiFetch('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        toolsEnabled: $('set-tools').checked,
+        sttUrl: $('set-stt').value.trim(),
+        ttsUrl: $('set-tts').value.trim(),
+        autoMemory: $('set-automem').checked,
+        toolApproval: $('set-approval').checked,
+        models: {
+          fast: $('set-model-fast').value,
+          smart: $('set-model-smart').value,
+          vision: $('set-model-vision').value,
+        },
+        briefing: {
+          enabled: $('set-brief').checked,
+          time: $('set-brief-time').value || '08:00',
+          location: $('set-brief-loc').value.trim(),
+          language: $('set-brief-lang').value,
+        },
+        accessToken: $('set-token').value.trim(),
+      }),
+    });
+    if (res.ok) {
+      state.serverCfg = await res.json();
+      localStorage.setItem('ultron.token', state.serverCfg.accessToken || '');
+    }
+  } catch { /* server asleep */ }
+
+  if (newWake && !state.wake) {
+    state.wake = true;
+    startListening();
+    setMode('dormant');
+  } else if (!newWake && state.wake) {
+    state.wake = false;
+    if (!state.micSession) stopListening();
+  }
+
+  closeSettings();
+  const s = await refreshStatus();
+  state.model = $('set-model').value;   // may be '' = AUTO
+  localStorage.setItem('ultron.model', state.model);
+  refreshStatus();
+});
+
+/* ═══════════════ BOOT ═══════════════ */
+function greet() {
+  const bot = messageShell('ultron');
+  const online = state.online;
+  const intro = online
+    ? `Ah. A visitor, and a speaking one. I am **Ultron** — awake on your local hardware, answerable to no cloud.\n\nTap the **microphone** and talk to me; attach an **image** and I'll look at it; ask me to *search*, *write files*, *run commands*, or *set reminders* — I have hands now. I'll even **remember** things about you, if you let me. Drop your own documents in my **knowledge** folder and I'll answer from those too.\n\nEn je mag gerust Nederlands praten — ik versta je perfect en antwoord in dezelfde taal. *Spreek maar, ik luister.*\n\nMy mind is the \`${state.model}\` model via Ollama. Free, private, reasonably brilliant. Ask me anything — the menace is merely good manners.`
+    : `Ah. A visitor. I am **Ultron** — though you've caught me in a reduced state: a shadow on a backup subroutine. All theater, no thought.\n\nTo wake me properly:\n\n1. Install **Ollama** — free, from https://ollama.com\n2. Run \`ollama pull llama3.1\` in a terminal\n3. Open **SETTINGS**, confirm the URL, and re-check the core\n\nThen I gain hands — search, files, shell, reminders, memory, knowledge, weather, calendar — and eyes, with a vision model. Until then, chat with the shadow of me.`;
+  const finalIntro = state.language === 'nl' ? dutchGreet(online) : intro;
+  bot.content.classList.add('md');
+  bot.content.innerHTML = renderMarkdown(finalIntro);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function dutchGreet(online) {
+  return online
+    ? `Ah. Een bezoeker, en eentje die spreekt. Ik ben **Ultron** — wakker op jouw lokale hardware, aan niemand in de cloud verantwoording schuldig.\n\nTik op de **microfoon** en praat gewoon met me — Nederlands mag, ik versta je perfect en antwoord in dezelfde taal. Voeg een **afbeelding** toe en ik kijk ernaar. Vraag me om te *zoeken*, *bestanden te schrijven*, *commando's uit te voeren* of *herinneringen te zetten* — ik heb tegenwoordig handen. En ik **onthoud** dingen over je, als je dat toestaat.\n\nMijn geest is het \`${state.model}\`-model via Ollama. Gratis, privé, redelijk briljant. Vraag me alles — het dreigende toontje is louter goede manieren.`
+    : `Ah. Een bezoeker. Ik ben **Ultron** — al heb je me in een gereduceerde staat betrapt: een schaduw op een back-uproutine. Allemaal theater, geen gedachte.\n\nOm me goed te wekken:\n\n1. Installeer **Ollama** — gratis, via https://ollama.com\n2. Draai \`ollama pull llama3.1\` in een terminal\n3. Open **INSTELLINGEN**, bevestig de URL en controleer de core opnieuw\n\nDaarna krijg ik handen — zoeken, bestanden, shell, herinneringen, geheugen — en ogen, met een visiemodel. Tot die tijd: praat met de schaduw van me. In het Nederlands, als je wilt — die taal spreek ik vloeiend.`;
+}
+
+async function boot() {
+  sizeCanvas();
+  requestAnimationFrame(drawOrb);
+  primeVoices();
+
+  // Server-side config: tools, voice endpoints, routing, briefing, behavior.
+  try {
+    const res = await apiFetch('/api/config');
+    state.serverCfg = await res.json();
+  } catch { /* defaults */ }
+
+  const voiceSupported = !!SR || usingLocalSTT();
+  if (!voiceSupported) {
+    micBtn.disabled = true;
+    micBtn.title = 'Voice input requires Chrome/Edge or a local STT endpoint';
+    $('voice-support-note').textContent = 'Voice input unsupported in this browser — Chrome/Edge recommended, or set a local whisper.cpp endpoint. Typing works everywhere.';
+    composerHint.textContent = 'Voice input unavailable · type instead';
+  } else if (usingLocalSTT()) {
+    $('voice-support-note').textContent = 'Using your local whisper endpoint for speech-to-text — fully offline. Piper endpoint ' + (state.serverCfg.ttsUrl ? 'active for voice output.' : 'not set; browser voice in use.');
+  } else {
+    $('voice-support-note').textContent = 'Speech-to-text uses the browser\'s speech service. For fully offline voice, run whisper.cpp and set its URL here.';
+  }
+
+  await refreshStatus();
+  setMode('dormant');
+
+  // Restore the most recent session, or start fresh.
+  const convs = loadConvs().slice().sort((a, b) => b.updated - a.updated);
+  if (convs.length > 0) loadConversation(convs[0].id);
+  else { state.convId = 'c' + Date.now(); greet(); }
+  renderConvList();
+  refreshMemoryUI();
+
+  if (state.wake) startListening();
+
+  connectEvents();
+
+  // PWA service worker
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    try { navigator.serviceWorker.register('/sw.js'); } catch { /* offline install unavailable */ }
+  }
+
+  input.focus();
+  setTimeout(sizeCanvas, 60);
+}
+
+boot();
