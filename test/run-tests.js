@@ -18,6 +18,8 @@ process.env.OLLAMA_URL = 'http://127.0.0.1:11439';
 process.env.ULTRON_NOMINATIM = 'http://127.0.0.1:9972';
 process.env.ULTRON_OSRM = 'http://127.0.0.1:9973';
 process.env.ULTRON_OVERPASS = 'http://127.0.0.1:9974';
+process.env.ULTRON_LAUNCHER_DRY = '1';
+process.env.ULTRON_MENU_DIRS = '/tmp/ultron-test-menu';
 
 const OLLAMA = process.env.OLLAMA_URL;
 const DEAD_OLLAMA = 'http://127.0.0.1:9'; // demo mode
@@ -805,6 +807,47 @@ async function main() {
     ok('play_music returns service links', tr && tr.result && tr.result.ok === true && tr.result.service === 'spotify');
     ok('spotify link is a keyless web search', tr && /https:\/\/open\.spotify\.com\/search\/pink%20floyd%20echoes/.test(tr.result.links.spotify));
     ok('youtube + ytmusic alternatives included', tr && /youtube\.com\/results/.test(tr.result.links.youtube) && /music\.youtube\.com/.test(tr.result.links.ytmusic));
+  }
+
+  /* ---------- launcher (open apps & games) ---------- */
+  console.log('launcher');
+  {
+    // Fake applications menu with an app and a Steam-game-style entry.
+    fs.mkdirSync('/tmp/ultron-test-menu', { recursive: true });
+    fs.writeFileSync('/tmp/ultron-test-menu/spotify.desktop', '[Desktop Entry]\nName=Spotify\nExec=spotify %U\n');
+    fs.writeFileSync('/tmp/ultron-test-menu/cyberpunk2077.desktop', '[Desktop Entry]\nName=Cyberpunk 2077\nExec=steam steam://rungameid/1091500\n');
+
+    const launcher = require('../lib/launcher');
+    const menu = launcher.scanMenu();
+    ok('menu scan finds installed apps', menu.some((m) => m.name === 'spotify') && menu.some((m) => /cyberpunk/.test(m.name)));
+
+    const r1 = launcher.resolveTarget({ name: 'spotify', search: 'pink floyd' });
+    ok('spotify search deep link', r1.kind === 'uri' && r1.uri === 'spotify:search:pink%20floyd');
+
+    const r2 = launcher.resolveTarget({ name: 'cyberpunk 2077' });
+    ok('game found by name', r2.display === 'cyberpunk 2077' && r2.kind === 'desktop');
+
+    const r3 = launcher.resolveTarget({ name: 'steam' });
+    ok('alias resolution', ['uri', 'app'].includes(r3.kind) && /steam/.test(r3.uri || r3.target || ''));
+
+    const r4 = launcher.resolveTarget({ name: 'doesnotexist xyzzy' });
+    ok('unknown app → helpful error', !!r4.error && /not found/i.test(r4.error));
+
+    const evil = launcher.resolveTarget({ name: 'spotify; rm -rf /' });
+    ok('input is sanitized (never executed raw)', !evil || evil.error || evil.display === 'spotify');
+
+    const opened = await launcher.openApp({ name: 'spotify', search: 'pink floyd' });
+    ok('open_app launches (dry-run)', opened.ok === true && opened.dry === true && /Spotify/.test(opened.resolved));
+
+    // Through the agent loop.
+    const r5 = await chatUntil([{ role: 'user', content: 'opentest spotify' }]);
+    const tr = r5.events.find((e) => e.type === 'tool_result' && e.name === 'open_app');
+    ok('agent opens apps via tool', tr && tr.result && tr.result.ok === true);
+
+    // play_music now carries the in-app deep link.
+    const r6 = await chatUntil([{ role: 'user', content: 'musiektest again' }]);
+    const tr2 = r6.events.find((e) => e.type === 'tool_result' && e.name === 'play_music');
+    ok('play_music includes app deep link', tr2 && tr2.result && tr2.result.app_link === 'spotify:search:pink%20floyd%20echoes');
   }
 
   /* ---------- security (unit) ---------- */

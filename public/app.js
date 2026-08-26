@@ -380,6 +380,19 @@ function toolResultLine(name, result) {
       chip.addEventListener('click', () => window.open(url, '_blank', 'noopener'));
       chips.appendChild(chip);
     }
+    if (result.app_link) {
+      const appChip = el('button', 'play-chip primary', '▶ IN SPOTIFY APP');
+      appChip.type = 'button';
+      appChip.title = 'opens the Spotify desktop app and searches (Premium)';
+      appChip.addEventListener('click', () => {
+        const anchor = document.createElement('a');
+        anchor.href = result.app_link;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+      });
+      chips.appendChild(appChip);
+    }
     div.appendChild(document.createElement('br'));
     div.appendChild(chips);
   }

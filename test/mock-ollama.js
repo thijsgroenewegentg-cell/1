@@ -96,6 +96,7 @@ function start(port, host = '127.0.0.1') {
           if (/maaktekening|tekentest/i.test(text)) calls.push({ function: { name: 'generate_image', arguments: { prompt: 'a red glowing orb in a dark room' } } });
           if (/kaarttest/i.test(text)) calls.push({ function: { name: 'maps', arguments: { action: 'route', from: 'Leiden', to: 'Amsterdam', mode: 'driving' } } });
           if (/musiektest/i.test(text)) calls.push({ function: { name: 'play_music', arguments: { query: 'pink floyd echoes', service: 'spotify' } } });
+          if (/opentest/i.test(text)) calls.push({ function: { name: 'open_app', arguments: { name: 'spotify', search: 'pink floyd' } } });
           if (/runcommand/i.test(text)) calls.push({ function: { name: 'run_command', arguments: { command: 'echo approved > approved.txt' } } });
           else if (/crypto|skilltest/i.test(text)) calls.push({ function: { name: 'get_crypto_price', arguments: { coin: 'bitcoin' } } });
           else if (/neko|kat|kennis|knowledge|document/i.test(text)) calls.push({ function: { name: 'search_knowledge', arguments: { query: text } } });
