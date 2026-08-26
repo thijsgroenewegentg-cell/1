@@ -66,12 +66,25 @@ Fan project. Not affiliated with Marvel/Disney. Ultron does not, in fact, want t
 ## Quick test
 
 ```bash
-npm test    # 49 integration tests, ~5 seconds
+npm test    # 100 integration tests, ~10 seconds
 ```
 
+### ⚡ One-press install
 
+**Windows:** double-click **`install.bat`**
+**Linux / macOS:**
 
-### 1. Install Ollama (free)
+```bash
+./install.sh            # standard brain set (~20 GB)
+./install.sh --full     # everything, incl. the MoE wildcard (~55 GB)
+./install.sh --minimal  # just enough to talk (~4 GB)
+```
+
+One press installs **everything**: Node.js and Ollama themselves if missing, the npm dependencies, the model set, and then wakes him at http://localhost:3000 (running his 100-test suite along the way). Add `--dev` for auto-restart mode, `--dry-run` to preview. In the app, Settings → Model manager has a **⚡ PULL EVERYTHING** button that downloads all recommended models with one press.
+
+### Manual install
+
+#### 1. Install Ollama (free)
 
 Download from **https://ollama.com** (Windows, macOS, Linux). It runs as a local server on port `11434`.
 
