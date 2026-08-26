@@ -2316,6 +2316,64 @@ boot();
 
 /* ═══════════════ SETUP WIZARD (first run, and re-runnable from Settings) ═══════════════ */
 
+/** One-press: pull every recommended model that isn't installed yet. */
+async function pullEverything(statusEl, onDone) {
+  const ORDER = ['nomic-embed-text', 'qwen3:4b', 'gemma3:12b', 'qwen3:14b', 'mistral-small3.2', 'qwen3:30b-a3b'];
+  const LABELS = {
+    'nomic-embed-text': 'memory',
+    'qwen3:4b': 'fast brain',
+    'gemma3:12b': 'vision',
+    'qwen3:14b': 'smart brain',
+    'mistral-small3.2': 'smart brain (24B)',
+    'qwen3:30b-a3b': 'MoE wildcard',
+  };
+  const s = await refreshStatus();
+  const installed = new Set((s.models || []).map((m) => m.split(':')[0]));
+  const todo = ORDER.filter((m) => !installed.has(m.split(':')[0]));
+  if (todo.length === 0) {
+    statusEl.textContent = '✓ everything already installed';
+    if (onDone) onDone();
+    return;
+  }
+  let i = 0;
+  for (const name of todo) {
+    i++;
+    try {
+      const res = await apiFetch('/api/models/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, ollamaUrl: state.ollamaUrl }),
+      });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n\n')) !== -1) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 2);
+          if (!line.startsWith('data:')) continue;
+          try {
+            const evt = JSON.parse(line.slice(5));
+            const pct = evt.pct != null ? ' ' + evt.pct + '%' : '';
+            const st = evt.status ? ' · ' + String(evt.status).slice(0, 30) : '';
+            statusEl.textContent = '(' + i + '/' + todo.length + ') ' + name + ' — ' + (LABELS[name] || '') + pct + st;
+            if (evt.type === 'error') statusEl.textContent = '(' + i + '/' + todo.length + ') ' + name + ' — ✗ ' + String(evt.error).slice(0, 50);
+          } catch { /* skip */ }
+        }
+      }
+    } catch (err) {
+      statusEl.textContent = '(' + i + '/' + todo.length + ') ' + name + ' — ✗ ' + String(err.message || err).slice(0, 50);
+    }
+  }
+  statusEl.textContent = '✓ all done — ' + todo.length + ' model(s) pulled';
+  await refreshStatus();
+  if (onDone) onDone();
+}
+
 const WIZARD_MODELS = [
   { name: 'mistral-small3.2', label: 'SMART — 24B, tools + vision in one brain', size: '~14 GB VRAM', role: 'smart' },
   { name: 'qwen3:14b', label: 'SMART — thinking mode, big headroom', size: '~9 GB', role: 'smart-alt' },
@@ -2459,7 +2517,22 @@ function runWizard(firstRun) {
 
     /* ── step 2: models ── */
     if (wizardState.step === 2) {
-      body.appendChild(el('p', null, 'Recommended minds for your machine. Pull the ones you want — I stream the progress. The MEMORY model is required for knowledge and recall.'));
+      body.appendChild(el('p', null, 'Recommended minds for your machine. One press downloads everything missing (~55 GB — go make coffee), or pull them individually.'));
+      const allRow = el('div', 'wiz-pull-all');
+      const allBtn = el('button', 'btn-primary', '⚡ PULL EVERYTHING');
+      allBtn.type = 'button';
+      const allStatus = el('span', 'wiz-pull-status', '');
+      allBtn.addEventListener('click', () => {
+        allBtn.disabled = true;
+        allBtn.textContent = 'DOWNLOADING…';
+        pullEverything(allStatus, () => {
+          allBtn.textContent = '⚡ PULL EVERYTHING';
+          allBtn.disabled = false;
+          render(); // refresh installed badges
+        });
+      });
+      allRow.append(allBtn, allStatus);
+      body.appendChild(allRow);
       const list = el('div', 'wiz-model-list');
       for (const m of WIZARD_MODELS) {
         const row = el('div', 'wiz-model-row');
@@ -2576,3 +2649,18 @@ try {
   const wizardBtn = document.getElementById('btn-wizard');
   if (wizardBtn) wizardBtn.addEventListener('click', () => { closeSettings(); runWizard(false); });
 } catch { /* button absent */ }
+
+/* one-press pull everything (Settings → Model manager) */
+(function () {
+  const btn = document.getElementById('btn-pull-all');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    btn.textContent = 'DOWNLOADING…';
+    pullEverything(document.getElementById('pull-all-status'), () => {
+      btn.disabled = false;
+      btn.textContent = '⚡ PULL EVERYTHING';
+      populateModels();
+    });
+  });
+})();

@@ -273,6 +273,10 @@
         <input id="set-pull-name" type="text" spellcheck="false" placeholder="llama3.2:3b" />
         <button type="button" id="btn-model-pull" class="btn-secondary btn-small">PULL</button>
       </div>
+      <div class="wiz-pull-all">
+        <button type="button" id="btn-pull-all" class="btn-primary btn-small">⚡ PULL EVERYTHING</button>
+        <span class="wiz-pull-status" id="pull-all-status"></span>
+      </div>
       <div class="pull-progress hidden" id="pull-progress"><div class="pull-bar-track"><div class="pull-bar" id="pull-bar"></div></div><span id="pull-status">…</span></div>
       <span class="field-help">Download and remove models straight from the browser — no terminal needed. Pull streams live progress from Ollama.</span>
     </div>

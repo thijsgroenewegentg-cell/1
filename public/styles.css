@@ -1196,3 +1196,7 @@ body.mini .brand { display: none; }
   margin: 0;
   white-space: pre-wrap;
 }
+
+/* one-press pull everything */
+.wiz-pull-all { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.wiz-pull-all .btn-primary { padding: 10px 16px; }
