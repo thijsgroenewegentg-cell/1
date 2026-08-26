@@ -14,6 +14,10 @@ const path = require('path');
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ultron-test-'));
 process.env.ULTRON_DATA = DATA_DIR;
 process.env.OLLAMA_URL = 'http://127.0.0.1:11439';
+// Maps endpoints point at local mocks (set BEFORE the server loads lib/maps.js).
+process.env.ULTRON_NOMINATIM = 'http://127.0.0.1:9972';
+process.env.ULTRON_OSRM = 'http://127.0.0.1:9973';
+process.env.ULTRON_OVERPASS = 'http://127.0.0.1:9974';
 
 const OLLAMA = process.env.OLLAMA_URL;
 const DEAD_OLLAMA = 'http://127.0.0.1:9'; // demo mode
@@ -734,6 +738,63 @@ async function main() {
     ok('modern vision routing → gemma3:12b', vis.model === 'gemma3:12b' && vis.why === 'vision');
     const moe = pickModel({}, { models: ['qwen3:30b-a3b', 'qwen3:4b'] }, { hasImages: false, text: 'please analyze this in depth and explain why' });
     ok('MoE model routed as smart', moe.model === 'qwen3:30b-a3b' && moe.why === 'deep');
+  }
+
+  /* ---------- maps (OpenStreetMap, mocked endpoints) ---------- */
+  console.log('maps');
+  {
+    // Mock Nominatim / OSRM / Overpass.
+    const geo = { Leiden: { lat: 52.1601, lon: 4.4970, display_name: 'Leiden, Netherlands' }, Amsterdam: { lat: 52.3702, lon: 4.8952, display_name: 'Amsterdam, Netherlands' } };
+    const nomSrv = await new Promise((resolve) => {
+      const srv = require('http').createServer((req, res) => {
+        const q = decodeURIComponent((req.url.match(/q=([^&]+)/) || [])[1] || '');
+        const hit = Object.entries(geo).find(([k]) => q.toLowerCase().includes(k.toLowerCase()));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(hit ? [{ display_name: hit[1].display_name, lat: String(hit[1].lat), lon: String(hit[1].lon), type: 'city' }] : []));
+      });
+      srv.listen(9972, '127.0.0.1', () => resolve(srv));
+    });
+    const osrmSrv = await new Promise((resolve) => {
+      const srv = require('http').createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ code: 'Ok', routes: [{ distance: 41000, duration: 2280, legs: [{ steps: [
+          { maneuver: { type: 'depart' }, name: 'Rijnsburgerweg', distance: 1200 },
+          { maneuver: { type: 'turn', modifier: 'right' }, name: 'A4', distance: 35000 },
+          { maneuver: { type: 'arrive' }, name: 'Amsterdam', distance: 0 },
+        ] }] }] }));
+      });
+      srv.listen(9973, '127.0.0.1', () => resolve(srv));
+    });
+    const overpassSrv = await new Promise((resolve) => {
+      const srv = require('http').createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ elements: [
+          { lat: 52.161, lon: 4.498, tags: { name: 'Café de Bonte Koe', amenity: 'cafe' } },
+          { lat: 52.159, lon: 4.495, tags: { name: 'Koffiehuis Fontein', amenity: 'cafe' } },
+        ] }));
+      });
+      srv.listen(9974, '127.0.0.1', () => resolve(srv));
+    });
+
+    const maps = require('../lib/maps');
+    const g = await maps.geocode('leiden');
+    ok('geocode finds places', g.results && g.results[0].name.includes('Leiden'));
+
+    const rt = await maps.route({ from: 'Leiden', to: 'Amsterdam', mode: 'driving' });
+    ok('route with distance + duration', rt.distance === '41.0 km' && rt.duration === '38 min');
+    ok('turn-by-turn steps', rt.steps.length >= 3 && /A4/.test(rt.steps.join(' ')));
+    ok('route includes an OSM map link', /openstreetmap\.org\/directions/.test(rt.map));
+
+    const nb = await maps.nearby({ what: 'cafe', place: 'Leiden', radius_m: 1000 });
+    ok('nearby POIs sorted by distance', nb.results && nb.results[0].distance_km <= nb.results[1].distance_km && nb.results.length === 2);
+    ok('nearby has map link', /openstreetmap\.org\/\#map/.test(nb.map));
+
+    // Through the agent loop.
+    const r2 = await chatUntil([{ role: 'user', content: 'kaarttest van leiden naar amsterdam' }]);
+    const tr = r2.events.find((e) => e.type === 'tool_result' && e.name === 'maps');
+    ok('agent routes via maps tool', tr && tr.result && tr.result.distance === '41.0 km');
+
+    nomSrv.close(); osrmSrv.close(); overpassSrv.close();
   }
 
   /* ---------- security (unit) ---------- */

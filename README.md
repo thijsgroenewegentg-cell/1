@@ -25,6 +25,7 @@ Fan project. Not affiliated with Marvel/Disney. Ultron does not, in fact, want t
 | 🔒 **Security** | Rate limiting + progressive lockout on failed token attempts |
 | 🪞 **Integrity check** | On boot he hashes his own source and warns if it changed outside approved self-edits |
 | 🔎 **Session search** | Full-text search across every synced conversation, in the sidebar |
+| 🗺 **Maps** | Free world maps via OpenStreetMap — geocoding, turn-by-turn directions (drive/bike/walk), nearby POIs. No keys, no cost |
 | 🎨 **Image generation** | Local Stable Diffusion integration — `generate_image` draws what you describe, free and offline |
 | 🎙 **Telegram voice notes** | Send him a voice message anywhere — whisper transcribes, he answers |
 | 🧙 **Setup wizard** | First boot: language, brain check, voice test — friendly for non-hackers |
