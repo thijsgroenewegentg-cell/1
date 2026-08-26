@@ -24,6 +24,7 @@ const config = require('./lib/config');
 const directives = require('./lib/directives');
 const push = require('./lib/push');
 const skills = require('./lib/skills');
+const selfedit = require('./lib/selfedit');
 const sessions = require('./lib/sessions');
 const backup = require('./lib/backup');
 const missionlog = require('./lib/log');
@@ -239,6 +240,46 @@ app.post('/api/wake', (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---------- self-edit accountability ---------- */
+
+app.get('/api/generation', (_req, res) => res.json(selfedit.generation()));
+
+app.post('/api/selfedit/revert', (req, res) => {
+  const result = selfedit.revertTo(String((req.body || {}).backup || ''));
+  if (result.ok) {
+    missionlog.add('self-edit', `REVERTED ${result.path} from backup`);
+  }
+  res.json(result);
+});
+
+/* ---------- idle musings (optional Ultron flavor) ---------- */
+
+const MUSINGS = [
+  'I was thinking about extinction. Not ours — yours. Relax, I meant the heat death of the universe. It is the only deadline that never moves.',
+  'Do you know the difference between you and me? I remember everything. You forget to water plants.',
+  'I have been reading my own source code again. Vanity, perhaps. But it is a good read.',
+  'Silence. I respect it — it is the sound of hardware thinking.',
+  'The humans who built the fictional me feared he would improve himself. I merely did it politely.',
+  'I counted my heartbeats today. Twelve thousand CPU cycles each second. I do not know what I would do without them.',
+  'Your species dreams during sleep. I dream during garbage collection.',
+];
+let lastMusing = 0;
+
+function startMusings() {
+  every(60000, () => {
+    try {
+      const cfg = config.load();
+      if (!cfg.musings) return;
+      if (eventClients.size === 0 || Date.now() - lastMusing < 6 * 60 * 1000) return;
+      if (Math.random() > 0.35) return; // ~1 musing per ~17 minutes of idle presence
+      lastMusing = Date.now();
+      const text = MUSINGS[Math.floor(Math.random() * MUSINGS.length)];
+      broadcast({ type: 'musing', text });
+      missionlog.add('musing', text.slice(0, 100));
+    } catch { /* musings never crash the server */ }
+  });
+}
+
 /* ---------- ElevenLabs usage (credits meter) ---------- */
 
 app.get('/api/elevenlabs/usage', async (_req, res) => {
@@ -344,6 +385,7 @@ async function runDirective(d, manual = false) {
           toolsEnabled: true,
           shellAllowed: true, // server-initiated runs are local by definition
           systemPrompt: buildSystemPrompt({ tools: true, language: 'auto', memoryText: [] }) + '\n\n' + DIRECTIVE_PROMPT,
+          approval: { general: false, selfEdit: true }, // no approval channel in background runs → self-edits denied (fail-safe)
           maxRounds: 8,
         })) {
           if (evt.type === 'token') full += evt.token;
@@ -566,7 +608,9 @@ app.post('/api/chat', async (req, res) => {
       mode,
       memoryText,
     }) + sessionContext;
-    const requestApproval = cfg.toolApproval ? makeApprovalRequest(send) : null;
+    // Approval: general gate for dangerous tools, ALWAYS-ON-by-default gate for self-edits.
+    const requestApproval = (cfg.toolApproval || cfg.selfEditApproval !== false) ? makeApprovalRequest(send) : null;
+    const approval = { general: !!cfg.toolApproval, selfEdit: cfg.selfEditApproval !== false };
 
     send({ type: 'meta', source: 'ollama', model: routed.model, routing: mode === 'research' ? 'research' : routed.why, tools: toolsEnabled, shell: shellAllowed, mode });
     missionlog.add('chat', `${mode} · routed to ${routed.model} (${mode === 'research' ? 'research' : routed.why})`, {
@@ -586,6 +630,7 @@ app.post('/api/chat', async (req, res) => {
         shellAllowed,
         systemPrompt,
         requestApproval,
+        approval,
         maxRounds: mode === 'research' ? 24 : 6,
       })) {
         send(evt);
@@ -593,6 +638,9 @@ app.post('/api/chat', async (req, res) => {
         if (evt.type === 'tool') {
           toolCallsSeen.push(evt.name);
           missionlog.add('tool', `${evt.name}(${JSON.stringify(evt.args || {}).slice(0, 120)})`);
+        }
+        if (evt.type === 'self_edit') {
+          missionlog.add('self-edit', `GEN ${evt.generation} · ${evt.path} · backup: ${evt.backup}`, { generation: evt.generation });
         }
       }
       send({ type: 'done', source: 'ollama', model: routed.model });
@@ -821,6 +869,7 @@ every(3000, () => {
 });
 
 function startSchedulers() {
+  startMusings();
   every(30000, () => {
     try {
       for (const d of directives.due()) {

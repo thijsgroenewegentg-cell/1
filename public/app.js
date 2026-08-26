@@ -219,6 +219,85 @@ function drawOrb() {
   ctx.arc(cx, cy, R * 0.95, 0, Math.PI * 2);
   ctx.fillStyle = halo;
   ctx.fill();
+
+  drawFace(cx, cy, R, energy);
+}
+
+/**
+ * THE FACE — Ultron's angular eyes and vented mouthplate, drawn over the orb.
+ * Calm = faint. Thinking/speaking = burning. The mouth animates with his voice.
+ */
+function drawFace(cx, cy, R, energy) {
+  const alpha = 0.35 + energy * 0.65;
+  const glow = 6 + energy * 14;
+  ctx.save();
+  ctx.shadowColor = orbColor(0.9);
+  ctx.shadowBlur = glow;
+
+  // Eyes: slanted angular bars, tilted toward the nose.
+  const eye = (side) => {
+    const ex = cx + side * R * 0.27;
+    const ey = cy - R * 0.14;
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.rotate(side * -0.38); // slant inward-down
+    ctx.beginPath();
+    const w = R * 0.30;
+    const h = R * 0.085;
+    ctx.moveTo(-w / 2, -h / 2);
+    ctx.lineTo(w / 2, -h * 0.1);
+    ctx.lineTo(w / 2, h * 0.1);
+    ctx.lineTo(-w / 2, h / 2);
+    ctx.closePath();
+    ctx.fillStyle = orbColor(alpha * 0.95);
+    ctx.fill();
+    // white-hot core
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.30, -h * 0.18);
+    ctx.lineTo(w * 0.30, -h * 0.02);
+    ctx.lineTo(w * 0.30, h * 0.02);
+    ctx.lineTo(-w * 0.30, h * 0.18);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,' + (0.25 + energy * 0.5) + ')';
+    ctx.fill();
+    ctx.restore();
+  };
+  eye(-1);
+  eye(1);
+
+  // Mouth: vented bars that animate while he speaks.
+  const bars = 6;
+  const bw = R * 0.052;
+  const gap = R * 0.028;
+  const totalW = bars * bw + (bars - 1) * gap;
+  const startX = cx - totalW / 2;
+  const speaking = state.mode === 'speaking';
+  ctx.shadowBlur = glow * 0.7;
+  for (let i = 0; i < bars; i++) {
+    const bx = startX + i * (bw + gap) + bw / 2;
+    const wave = speaking
+      ? Math.sin(t * 9 + i * 1.7) * 0.5 + Math.sin(t * 14.3 + i * 0.9) * 0.3 + orb.pulse * 1.4
+      : Math.sin(t * 1.6 + i * 0.8) * 0.12;
+    const bh = R * (0.10 + Math.max(0, wave) * 0.085);
+    const by = cy + R * 0.13;
+    ctx.beginPath();
+    const r = bw * 0.35;
+    const x0 = bx - bw / 2, y0 = by, x1 = bx + bw / 2, y1 = by + bh;
+    ctx.moveTo(x0 + r, y0);
+    ctx.lineTo(x1 - r, y0);
+    ctx.quadraticCurveTo(x1, y0, x1, y0 + r);
+    ctx.lineTo(x1, y1 - r);
+    ctx.quadraticCurveTo(x1, y1, x1 - r, y1);
+    ctx.lineTo(x0 + r, y1);
+    ctx.quadraticCurveTo(x0, y1, x0, y1 - r);
+    ctx.lineTo(x0, y0 + r);
+    ctx.quadraticCurveTo(x0, y0, x0 + r, y0);
+    ctx.closePath();
+    ctx.fillStyle = orbColor(alpha * (speaking ? 1 : 0.7));
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 function orbOrate() { orb.pulse = 1; }
@@ -1087,6 +1166,8 @@ async function doStream() {
           toolResultLine(evt.name, evt.result);
         } else if (evt.type === 'approval_required') {
           approvalCard(evt.id, evt.name, evt.args);
+        } else if (evt.type === 'self_edit') {
+          selfEditCard(evt);
         } else if (evt.type === 'notice') {
           const div = el('div', 'msg-tool tool-done', `◦ ${evt.notice}`);
           chat.appendChild(div);
@@ -1369,6 +1450,12 @@ function connectEvents() {
           startListening();
           composerHint.textContent = 'Woken externally — listening. Esc to stop.';
         }
+      } else if (evt.type === 'musing') {
+        const shell = messageShell('ultron');
+        shell.content.classList.add('md');
+        shell.content.innerHTML = renderMarkdown('*' + evt.text + '*');
+        chat.scrollTop = chat.scrollHeight;
+        if (!state.streaming && state.voice) Speech.speakOnce(evt.text, () => setMode(state.micSession || state.wake ? 'listening' : 'dormant'));
       } else if (evt.type === 'memory') {
         for (const fact of evt.facts || []) {
           const div = el('div', 'msg-tool tool-done', `🧠 remembered: ${fact}`);
@@ -1655,6 +1742,71 @@ $('restore-file').addEventListener('change', async (e) => {
   }
 });
 
+/* ---------- self-edit change reports (mandatory) ---------- */
+
+function selfEditCard(evt) {
+  const div = el('div', 'self-edit-card');
+  const head = el('div', 'approval-head', ' 🧬 SELF-MODIFICATION — GENERATION ' + evt.generation + ' ');
+  const body = el('div', 'approval-body');
+  body.appendChild(el('div', 'approval-tool', evt.path + ' · ' + evt.mode + (evt.bytes_changed != null ? ' · ' + evt.bytes_changed + ' bytes' : '')));
+
+  if (evt.changed_from != null) {
+    const diff = el('div', 'se-diff');
+    const from = el('pre', 'se-from');
+    from.textContent = String(evt.changed_from).slice(0, 500);
+    const arrow = el('div', 'se-arrow', '▼ became');
+    const to = el('pre', 'se-to');
+    to.textContent = String(evt.changed_to != null ? evt.changed_to : '(deleted)').slice(0, 500);
+    diff.append(from, arrow, to);
+    body.appendChild(diff);
+  }
+
+  const meta = el('div', 'se-backup');
+  meta.textContent = 'backup: ' + evt.backup;
+  body.appendChild(meta);
+
+  const actions = el('div', 'approval-actions');
+  const undo = el('button', 'btn-secondary btn-small', '↺ UNDO THIS EDIT');
+  undo.type = 'button';
+  undo.addEventListener('click', async () => {
+    undo.textContent = 'REVERTING…';
+    try {
+      const res = await apiFetch('/api/selfedit/revert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backup: evt.backup }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        div.classList.add('reverted');
+        actions.innerHTML = '';
+        actions.appendChild(el('span', 'approval-verdict', '✓ reverted — ' + data.path + ' restored'));
+        refreshGeneration();
+      } else {
+        undo.textContent = '↺ UNDO THIS EDIT';
+        window.alert('Revert failed: ' + (data.error || 'unknown'));
+      }
+    } catch (err) {
+      undo.textContent = '↺ UNDO THIS EDIT';
+      window.alert('Revert failed: ' + String(err.message || err));
+    }
+  });
+  actions.appendChild(undo);
+  div.append(head, body, actions);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+/* ---------- generation counter ---------- */
+
+async function refreshGeneration() {
+  try {
+    const res = await apiFetch('/api/generation');
+    const g = await res.json();
+    if (g.count > 0) coreModel.textContent = 'GEN ' + g.count + ' — self-modified';
+  } catch { /* keep current label */ }
+}
+
 /* ═══════════════ SETTINGS ═══════════════ */
 async function refreshMemoryUI() {
   try {
@@ -1695,6 +1847,8 @@ function openSettings() {
   $('set-tts').value = cfg.ttsUrl || '';
   $('set-automem').checked = cfg.autoMemory !== false;
   $('set-approval').checked = !!cfg.toolApproval;
+  $('set-selfedit-approval').checked = cfg.selfEditApproval !== false;
+  $('set-musings').checked = !!cfg.musings;
   $('set-brief').checked = !!(cfg.briefing && cfg.briefing.enabled);
   $('set-brief-time').value = (cfg.briefing && cfg.briefing.time) || '08:00';
   $('set-brief-loc').value = (cfg.briefing && cfg.briefing.location) || '';
@@ -1973,6 +2127,8 @@ $('btn-save').addEventListener('click', async () => {
         ttsUrl: $('set-tts').value.trim(),
         autoMemory: $('set-automem').checked,
         toolApproval: $('set-approval').checked,
+        selfEditApproval: $('set-selfedit-approval').checked,
+        musings: $('set-musings').checked,
         models: {
           fast: $('set-model-fast').value,
           smart: $('set-model-smart').value,
@@ -2068,6 +2224,7 @@ async function boot() {
   else { state.convId = 'c' + Date.now(); greet(); }
   renderConvList();
   refreshMemoryUI();
+  refreshGeneration();
 
   if (state.wake) startListening();
 

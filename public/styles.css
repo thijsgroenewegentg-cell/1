@@ -996,3 +996,54 @@ body.mini .brand { display: none; }
   outline: none;
   resize: vertical;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 additions — self-edit change reports (mandatory accountability)
+   ═══════════════════════════════════════════════════════════════ */
+
+.self-edit-card {
+  max-width: 720px;
+  margin: -6px 0 16px 14px;
+  border: 1px solid rgba(184,160,255,0.5);
+  border-radius: 10px;
+  background: rgba(184,160,255,0.05);
+  padding: 12px 14px;
+  animation: msgIn 0.25s ease both;
+}
+.self-edit-card .approval-head { color: #b8a0ff; }
+.self-edit-card.reverted { opacity: 0.6; border-color: var(--line); }
+.self-edit-card.reverted .approval-head { color: var(--text-faint); }
+
+.se-diff { margin: 8px 0 4px; }
+.se-diff pre {
+  margin: 0;
+  background: #090b10;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: #d9dee6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 130px;
+  overflow-y: auto;
+}
+.se-diff .se-from { border-left: 2px solid #ff6b5e; color: #c9a8a5; }
+.se-diff .se-to { border-left: 2px solid #7dd8a0; }
+.se-arrow {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--text-faint);
+  margin: 4px 0 4px 8px;
+  text-transform: uppercase;
+}
+.se-backup {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}

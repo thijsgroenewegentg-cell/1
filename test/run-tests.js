@@ -78,6 +78,51 @@ async function chatUntil(messages, extra = {}, opts = {}) {
   return sseCollect(p, { until: (ev) => ev.some((e) => e.type === 'done'), ...opts });
 }
 
+/** Chat that auto-approves approval requests mid-stream (persistent read, no orphans). */
+async function chatWithApproval(messages, extra = {}) {
+  const res = await fetch(BASE + '/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, ollamaUrl: OLLAMA, ...extra }),
+  });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  const events = [];
+  const answered = new Set();
+  let readPromise = null;
+  const deadline = Date.now() + 15000;
+  try {
+    while (Date.now() < deadline) {
+      if (!readPromise) readPromise = reader.read();
+      const result = await Promise.race([readPromise, new Promise((r) => setTimeout(() => r(null), 150))]);
+      if (result === null) continue;
+      readPromise = null;
+      if (result.done) break;
+      buf += decoder.decode(result.value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n\n')) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 2);
+        if (!line.startsWith('data:')) continue;
+        try { events.push(JSON.parse(line.slice(5))); } catch { /* skip */ }
+      }
+      const ap = events.find((e) => e.type === 'approval_required' && !answered.has(e.id));
+      if (ap) {
+        answered.add(ap.id);
+        await fetch(BASE + '/api/approval', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: ap.id, approved: true }),
+        });
+      }
+      if (events.some((e) => e.type === 'done')) break;
+    }
+  } finally {
+    try { reader.cancel(); } catch { /* noop */ }
+  }
+  return { events, text: events.filter((e) => e.type === 'token').map((e) => e.token).join('') };
+}
+
 const j = (r) => r.json();
 
 async function main() {
@@ -395,10 +440,29 @@ async function main() {
     ok('.git off-limits', !!(await selfedit.editSource({ path: '.git/config', content: 'x' })).error);
     ok('path escape blocked', !!(await selfedit.editSource({ path: '../outside.js', content: 'x' })).error);
 
-    // Agent-level: he edits his own code through the tool loop.
-    const r = await chatUntil([{ role: 'user', content: 'selfedittest please' }]);
+    // Agent-level: self-edits are gated by default, reported, and undoable.
+    const genBefore = (await j(await fetch(BASE + '/api/generation'))).count;
+    const r = await chatWithApproval([{ role: 'user', content: 'selfedittest please' }]);
+    const approval = r.events.find((e) => e.type === 'approval_required' && e.name === 'edit_source');
+    ok('self-edit requires approval by default', !!approval);
     const tr = r.events.find((e) => e.type === 'tool_result' && e.name === 'edit_source');
-    ok('agent self-edits via tool loop', tr && tr.result && tr.result.ok === true && fs.readFileSync(fixture, 'utf8').includes('tot ziens'));
+    ok('approved self-edit applied', tr && tr.result && tr.result.ok === true && fs.readFileSync(fixture, 'utf8').includes('tot ziens'));
+    const se = r.events.find((e) => e.type === 'self_edit');
+    ok('mandatory change report emitted', se && se.path === fixtureRel && se.generation === genBefore + 1 && String(se.changed_from).includes('goedendag'));
+    const genAfter = (await j(await fetch(BASE + '/api/generation'))).count;
+    ok('generation counter increments', genAfter === genBefore + 1);
+
+    // One-click undo via the revert endpoint.
+    const rv = await j(await fetch(BASE + '/api/selfedit/revert', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backup: se.backup }),
+    }));
+    ok('revert endpoint restores backup', rv.ok === true && fs.readFileSync(fixture, 'utf8').includes('goedendag'));
+    const rvBad = await j(await fetch(BASE + '/api/selfedit/revert', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backup: 'data/memory.json' }),
+    }));
+    ok('revert rejects paths outside code-backups', !!rvBad.error);
 
     const st = await selfedit.git('status');
     ok('git status works', typeof st.out === 'string' && st.out.length > 0);
