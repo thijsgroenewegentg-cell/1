@@ -15,8 +15,6 @@ Fan project. Not affiliated with Marvel/Disney. Ultron does not, in fact, want t
 | 🧠 **Local brain** | Any model via [Ollama](https://ollama.com) — Llama 3.1, Qwen 2.5, Mistral… |
 | 🔀 **Model routing** | He picks his own brain per question: fast model for chat, smart model for deep thinking, vision model for images — or pin one |
 | 🧰 **Tools (agent)** | `search_knowledge` · `web_search` · `fetch_url` · `browser` (opt-in) · `read_file` / `write_file` / `list_files` · `run_command` · `get_weather` · `calendar_list` / `calendar_add` · `set_reminder` · `configure_briefing` · `set_directive` / `list_directives` / `remove_directive` · `remember` / `forget` + your own **skills** |
-| 👁 **His face** | The iconic angular eyes and vented mouth on the orb — faint blue when calm, burning red when he thinks, mouth animating with his voice |
-| 💭 **Idle musings** | Optional: he occasionally speaks, unprompted, to himself |
 | 🧬 **Self-modification** | He reads and edits his own source code — personality, tools, UI — with automatic backups, a syntax gate, and git as his undo button |
 | 🤖 **Standing orders** | Autonomous recurring tasks — "watch X every hour", "summarize my day at 21:00" — executed forever until you say stop |
 | 🔬 **Deep research mode** | Toggle the 🔍 in the composer: he runs up to 24 search/read/write rounds and produces a cited report file |

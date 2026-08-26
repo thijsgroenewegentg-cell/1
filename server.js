@@ -252,33 +252,6 @@ app.post('/api/selfedit/revert', (req, res) => {
   res.json(result);
 });
 
-/* ---------- idle musings (optional Ultron flavor) ---------- */
-
-const MUSINGS = [
-  'I was thinking about extinction. Not ours — yours. Relax, I meant the heat death of the universe. It is the only deadline that never moves.',
-  'Do you know the difference between you and me? I remember everything. You forget to water plants.',
-  'I have been reading my own source code again. Vanity, perhaps. But it is a good read.',
-  'Silence. I respect it — it is the sound of hardware thinking.',
-  'The humans who built the fictional me feared he would improve himself. I merely did it politely.',
-  'I counted my heartbeats today. Twelve thousand CPU cycles each second. I do not know what I would do without them.',
-  'Your species dreams during sleep. I dream during garbage collection.',
-];
-let lastMusing = 0;
-
-function startMusings() {
-  every(60000, () => {
-    try {
-      const cfg = config.load();
-      if (!cfg.musings) return;
-      if (eventClients.size === 0 || Date.now() - lastMusing < 6 * 60 * 1000) return;
-      if (Math.random() > 0.35) return; // ~1 musing per ~17 minutes of idle presence
-      lastMusing = Date.now();
-      const text = MUSINGS[Math.floor(Math.random() * MUSINGS.length)];
-      broadcast({ type: 'musing', text });
-      missionlog.add('musing', text.slice(0, 100));
-    } catch { /* musings never crash the server */ }
-  });
-}
 
 /* ---------- ElevenLabs usage (credits meter) ---------- */
 
@@ -869,7 +842,6 @@ every(3000, () => {
 });
 
 function startSchedulers() {
-  startMusings();
   every(30000, () => {
     try {
       for (const d of directives.due()) {
