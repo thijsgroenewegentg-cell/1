@@ -1,0 +1,16 @@
+{
+  "name": "get_exchange_rate",
+  "description": "Get the current exchange rate between two currencies (e.g. USD to EUR). Free API, no key.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "from": { "type": "string", "description": "Base currency code, e.g. USD" },
+      "to": { "type": "string", "description": "Target currency code, e.g. EUR or NLG" }
+    },
+    "required": ["from", "to"]
+  },
+  "http": {
+    "method": "GET",
+    "url": "https://api.frankfurter.app/latest?from={{from}}&to={{to}}"
+  }
+}

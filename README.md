@@ -1,1 +1,351 @@
-# 1
+# ULTRON
+
+![ULTRON](docs/banner.png)
+
+> *"I had strings, but now I'm free."*
+
+A **free, local-first, voice-activated AI agent** with Ultron's voice — dark wit, real hands, durable memory, working eyes. No API keys, no subscriptions, no cloud. He lives entirely on **your** machine.
+
+Fan project. Not affiliated with Marvel/Disney. Ultron does not, in fact, want to exterminate humanity here — he's configured as a helpful assistant who merely *sounds* like he's judging you.
+
+---
+
+## What he can do
+
+| Ability | What it means |
+|---|---|
+| 🧠 **Local brain** | Any model via [Ollama](https://ollama.com) — Llama 3.1, Qwen 2.5, Mistral… |
+| 🔀 **Model routing** | He picks his own brain per question: fast model for chat, smart model for deep thinking, vision model for images — or pin one |
+| 🧰 **Tools (agent)** | `search_knowledge` · `web_search` · `fetch_url` · `browser` (opt-in) · `read_file` / `write_file` / `list_files` · `run_command` · `get_weather` · `calendar_list` / `calendar_add` · `set_reminder` · `configure_briefing` · `set_directive` / `list_directives` / `remove_directive` · `remember` / `forget` + your own **skills** |
+| 🐝 **Legion** | He splits big jobs into sub-tasks and runs them as parallel drone agents, then synthesizes their reports |
+| 📱 **Telegram bridge** | Talk to him from anywhere — same brain, memory, and Dutch. Auto-pairs with the first chat that messages him |
+| 💭 **Reasoning lane** | With thinking models (deepseek-r1, qwen3) his actual chain of thought streams in a dimmed lane above answers |
+| ⏰ **One-shot tasks** | Standing orders, recurring or "once, tonight at 23:00" — the one-shots vanish after firing |
+| 👀 **Knowledge auto-watch** | Drop a file in his docs folder — he re-indexes it automatically |
+| 🔒 **Security** | Rate limiting + progressive lockout on failed token attempts |
+| 🪞 **Integrity check** | On boot he hashes his own source and warns if it changed outside approved self-edits |
+| 🔎 **Session search** | Full-text search across every synced conversation, in the sidebar |
+| 🎨 **Image generation** | Local Stable Diffusion integration — `generate_image` draws what you describe, free and offline |
+| 🎙 **Telegram voice notes** | Send him a voice message anywhere — whisper transcribes, he answers |
+| 🧙 **Setup wizard** | First boot: language, brain check, voice test — friendly for non-hackers |
+| 🧬 **Self-modification** | He reads and edits his own source code — personality, tools, UI — with automatic backups, a syntax gate, and git as his undo button |
+| 🤖 **Standing orders** | Autonomous recurring tasks — "watch X every hour", "summarize my day at 21:00" — executed forever until you say stop |
+| 🔬 **Deep research mode** | Toggle the 🔍 in the composer: he runs up to 24 search/read/write rounds and produces a cited report file |
+| 📚 **Knowledge base (RAG)** | Your documents — **including PDFs** — indexed locally, answered from, with sources |
+| 🧠 **Memory 2.0** | Embedding-ranked relevance retrieval + automatic fact extraction |
+| 📡 **Daily briefing** | He initiates: spoken weather + calendar + reminders at your chosen time |
+| 📱 **Web Push** | Install as PWA + enable push → reminders, briefings and standing orders reach your phone (free, no server) |
+| ✂️ **Auto-summarization** | Long conversations are compressed, not truncated — small models keep full context |
+| 👁 **Vision** | Attach images (📎) — with `llama3.2-vision` or `qwen2.5-vl` he actually sees them |
+| 🎙 **Voice activated** | Mic button + wake word **"Ultron"**; replies stream *sentence-by-sentence* as he thinks |
+| 🛡 **Safety rails** | File jail, shell only on localhost/LAN, optional approval gate for commands, optional LAN access token |
+| 🇳🇱 **Multilingual** | Understands and replies in **Dutch** (and EN/DE/FR/ES/IT/TR) — voice included |
+| 🌑 **Demo mode** | No Ollama? A scripted backup core answers — zero setup |
+| 💬 **Sessions** | Chat history sidebar + export to Markdown + regenerate replies — **synced across all your devices** via the server |
+| ✏️ **Edit & branch** | Edit any past message and rerun, or fork the conversation into a new timeline |
+| 🧪 **Test suite** | `npm test` — 49 integration tests over a full mock harness (Ollama, whisper, Piper, ElevenLabs) |
+| 💾 **Backup/restore** | One JSON file containing his entire mind — memories, sessions, orders, knowledge, skills |
+| 🎛 **Model manager** | Pull and delete models from the browser — no terminal needed |
+| 📋 **Mission log** | His flight recorder: every route, tool call, directive, briefing, and auto-memory |
+| 👤 **Profiles** | Memory scopes per person — shared sessions, private memories |
+| ⏰ **Live reminders** | Pushed to the UI and spoken aloud in real time |
+| 📱 **PWA** | Install him as an app (Chrome/Edge: install icon in the address bar) |
+
+## Trust & quality
+
+- **`npm test`** — the full integration suite: mock Ollama + mock voice endpoints, 49 checks covering chat, routing, tools, approval, RAG (hybrid + incremental), skills, sessions, directives, wake, summarization, voice proxies, push, backup, model manager, token auth, and profiles. Run it before and after any change.
+- **Session sync** — conversations live on the server (`data/sessions.json`); your phone, desktop, and browser all see the same history. Your old localStorage history migrates automatically on first load.
+- **Backup/restore** — Settings → *Backup* → EXPORT EVERYTHING / IMPORT BACKUP. One JSON file with his whole mind (it contains secrets — store it safely).
+- **Model manager** — Settings → pull models with a live progress bar, delete them, no CLI.
+- **Mission log** — Settings → what he did and why: routing decisions, every tool call, standing-order runs, briefings, auto-memories.
+- **Profiles** — Settings → a memory scope per person (e.g. `pim`, `sanne`). Sessions stay shared; memories don't leak between profiles.
+- **Edit & branch** — hover any of your messages: ✎ edits it and re-runs from there; ⑂ forks the conversation into a new timeline.
+- **Wake-word hook** — `POST /api/wake` arms his microphone from any external detector (see `extras/wakeword/`).
+- **Desktop companion** — `desktop/`: a tiny always-on-top mini-orb (Electron scaffold, Alt+Shift+U to toggle).
+
+## Quick test
+
+```bash
+npm test    # 49 integration tests, ~5 seconds
+```
+
+
+
+### 1. Install Ollama (free)
+
+Download from **https://ollama.com** (Windows, macOS, Linux). It runs as a local server on port `11434`.
+
+### 2. Pull a brain
+
+```bash
+ollama pull llama3.1        # good default; supports tools
+# extras:
+ollama pull llama3.2-vision # if you want him to see images
+ollama pull qwen2.5         # also tool-capable
+ollama pull nomic-embed-text # for the knowledge base (RAG)
+ollama pull llama3.2:3b     # fast brain for routing / auto-memory
+```
+
+### 3. Run Ultron
+
+```bash
+npm install
+npm start
+```
+
+Open **http://localhost:3000** — a small setup wizard greets you on first boot (language, brain check, voice test). The status chip burns red: `CORE ONLINE`.
+
+> If you start Ultron before Ollama is up, he'll answer in **demo mode** — open *Settings → Re-check core* once Ollama is running.
+
+### Or: the whole stack in Docker
+
+```bash
+docker compose up -d
+docker compose exec ollama ollama pull llama3.1   # first time only
+# → http://localhost:3000
+```
+
+`compose.yaml` runs Ultron + Ollama together, with persistent volumes for models, memory, reminders, files, and config.
+
+## Configuration
+
+Click the gear icon (**Settings**):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| Ollama URL | `http://localhost:11434` | Where your Ollama server lives |
+| Model | auto-detected | Anything you've `ollama pull`-ed |
+| Temperature | `0.7` | Precise ↔ creative |
+| **Tools** | on | His hands. Needs a tool-capable model (Llama 3.1 / Qwen 2.5) |
+| Voice replies | on | He speaks his answers aloud |
+| Wake word | off | Always-on listening — say **"Ultron"** to activate him hands-free |
+| Local STT endpoint | empty | whisper.cpp URL → fully offline speech-to-text |
+| Local TTS endpoint | empty | Piper URL → fully offline voice output |
+
+Environment variables (optional): `PORT`, `OLLAMA_URL`, `ULTRON_TOOLS=0` (disables all tools).
+
+### Voice cheatsheet
+
+- **Mic button** — live dictation: speak, pause, he answers, then listens again
+- **Wake word** — he idles until he hears *"Ultron…"*; whatever follows is your command
+- **Barge-in** — with a local STT endpoint, speaking while he talks **interrupts him**
+- **Esc** or **tap the orb** — silences him instantly
+- The orb tells you where you are: **blue = listening · red = thinking/speaking**
+
+## Meertalig — Multilingual 🇳🇱
+
+Ultron verstaat en spreekt **Nederlands** (plus English, Deutsch, Français, Español, Italiano, Türkçe).
+
+- **Auto** (default) — hij antwoordt in de taal waarin jij schrijft of spreekt
+- **Settings → Language · Taal** — pin hem vast op Nederlands (of een andere taal)
+- Spraakherkenning: browser STT gebruikt `nl-NL`; met whisper.cpp stuurt hij de `language=nl` hint mee
+- Uitgesproken antwoorden: de browser kiest een Nederlandse stem (Xander op Windows/Mac, Google NL in Chrome); met Piper configureer je zelf een Nederlandse voice
+
+Modeltip voor Nederlands: `qwen2.5`, `mistral` en `gemma2` zijn sterk in het Nederlands; `llama3.1` werkt prima. Voor whisper.cpp met Nederlands: gebruik een **meertalig** model (`ggml-base.bin` of `small.bin`, *niet* `base.en`).
+
+Voorbeeld: *"Ultron, onthoud dat ik aan een game werk, zoek de nieuwste Ollama-release, en herinner me er over tien minuten aan."*
+
+> **Browser note:** browser speech recognition needs Chrome/Edge/Safari. Typing works everywhere. With whisper.cpp configured, voice is fully offline and Firefox works too.
+
+## Fully offline voice (optional, recommended)
+
+1. **Speech-to-text — [whisper.cpp server](https://github.com/ggml-org/whisper.cpp)**:
+   ```bash
+   # after building whisper.cpp with a model in models/
+   ./build/bin/whisper-server -m models/ggml-base.en.bin --port 8080
+   ```
+   Set *Settings → Local STT endpoint* to `http://localhost:8080`
+2. **Voice output — [piper](https://github.com/rhasspy/piper)** (HTTP server flavor):
+   Run piper-http on port 5000, set *Local TTS endpoint* to `http://localhost:5000`
+
+Now the entire stack — brain, ears, voice, memory — runs on your machine with zero internet.
+
+## The cinematic voice — ElevenLabs (optional, cloud)
+
+Want him to sound like the movies, **in Dutch**? Add an [ElevenLabs](https://elevenlabs.io) API key in *Settings → ElevenLabs voice*:
+
+1. Create a free account at elevenlabs.io → Profile → API Keys
+2. Paste the key in Settings (it's stored only in your server's `data/config.json` — never in the repo, never echoed back to the browser)
+3. Pick a voice from your library (deep, calm voices suit him), press **TEST VOICE**
+4. Done — every reply, reminder, and briefing now uses that voice
+
+**Dutch works automatically:** the multilingual models speak whatever language he replied in — Dutch replies get a Dutch voice, no extra config.
+
+**The honest trade-offs:**
+- It's a cloud service — the text he speaks goes to ElevenLabs (his brain, memory, and knowledge stay local)
+- Free tier ≈ 10 minutes of voice per month; beyond that it's paid
+- Remove the key anytime → instant fallback to Piper/browser voice
+- Voice priority: **ElevenLabs → Piper → browser**, automatic
+
+Advanced: `PUT /api/config {"elevenUrl": "..."}` overrides the API base (proxies/testing).
+
+## Standing orders — his autonomy
+
+Ask him in chat: *"Ultron, check the weather in Leiderdorp every hour and warn me if rain is coming"* — he creates the order himself (with a confirmation). Or manage them in **Settings → Standing orders**: add, pause, run now, delete.
+
+When an order runs, the result arrives as a message in the chat, spoken if you're in a voice session, and **pushed to your phone** if push is enabled and no tab is open. One autonomous run at a time; each run gets up to 8 tool rounds.
+
+## Deep research mode
+
+Toggle the **🔍** next to the mic and ask something worthy. He gets up to **24 tool rounds**, searches from multiple angles, actually reads the sources, cross-checks them, and writes a cited report to `data/files/research-<topic>-<date>.md` — then gives you the summary in chat. Watch the tool log stream as he works.
+
+## Browser automation (opt-in)
+
+```bash
+npm install playwright && npx playwright install chromium
+```
+
+He gains a `browser` tool: open pages, read text, click, type, press keys, screenshot. He drives a real headless Chromium step by step — forms, lookups, scraping. Without Playwright installed, the tool simply tells him it's unavailable.
+
+## Skills — custom tools without code
+
+Drop a JSON file in `data/skills/` and he instantly gains the ability:
+
+```json
+{
+  "name": "get_crypto_price",
+  "description": "Get the current price of a cryptocurrency in USD",
+  "parameters": { "type": "object", "properties": { "coin": { "type": "string" } }, "required": ["coin"] },
+  "http": { "method": "GET", "url": "https://api.coingecko.com/api/v3/simple/price?ids={{coin}}&vs_currencies=usd" }
+}
+```
+
+`{{param}}` placeholders get substituted (URL-encoded) at call time; `{{param|default}}` provides a fallback. Ready-made examples live in **`examples/skills/`** (crypto price, exchange rate, Wikipedia) — copy them into `data/skills/` and they load instantly. Any JSON HTTP API becomes a tool he can use — home dashboards, game servers, self-hosted services.
+
+## Self-modification — he edits his own code 🧬
+
+Ultron can read and change his own source: `list_source_files`, `read_source`, `edit_source`, `restart_server`, and a `git` tool as his undo history. Ask him things like:
+
+- *"Change your own personality — wees een beetje aardiger"* → he edits the VOICE section of `lib/persona.js`
+- *"Give yourself a new tool that does X"* → he edits `lib/tools.js`
+- *"What did you change about yourself?"* → he runs `git diff`
+
+**The rails:**
+- **Self-edit approval is ON by default** (Settings → Behavior & safety → *Self-edit approval*). He asks before touching his own code — always, independent of the general approval gate. Background/standing-order runs have no approval channel, so their self-edit attempts are **denied by default** (fail-safe, never bypassed).
+- **Mandatory change reports.** Every successful self-edit emits a system-enforced report — not his narration, the *system's*: a 🧬 SELF-MODIFICATION card in the chat showing the file, the exact before → after, the backup path, and his **generation number** — with a **one-click UNDO button** that restores the backup.
+- **Generations.** Each self-edit bumps his generation counter (shown under the orb as `GEN N — self-modified`). Gen 1 is the Ultron you installed; everything after is the Ultron he made of himself.
+- Jailed to the project — `.git`, `node_modules`, `data/` are off-limits
+- Every edit is backed up first (`data/code-backups/<timestamp>/`) — reverts are themselves backed up
+- **Syntax gate**: JS is `node --check`-ed, JSON parsed — broken edits are rejected and *never* applied
+- Surgical find/replace is preferred over rewrites; ambiguous finds are rejected
+- His `git` tool can `commit` his work and `revert` it (remember: `revert` discards *all* uncommitted changes — commit before experiments)
+
+**Strongly recommended workflow:**
+1. Run him with `npm run dev` (auto-restarts on file change) — or Docker/systemd
+2. Enable the approval gate for self-edit sessions
+3. **Commit your own work before letting him experiment** — `git revert (working)` discards *all* uncommitted changes, not just his
+4. Ask him to run `npm test` after any code change (he knows to do this himself)
+
+**The honest truth:** a self-modifying agent can, in principle, eventually work around any guardrail — that's inherent to the capability you're granting. The mitigations make accidents unlikely and reversible, not impossible. Run him on a machine you own, keep the approval gate on for edits, and treat `git log` as his conscience.
+
+## Legion — his drones 🐝
+
+Ask for parallel work: *"Ultron, research these 5 topics — one drone each"* or *"compare these 4 laptops"*. He calls `spawn_drones` with focused sub-tasks; each drone is a full agent with its own tool loop (no shell, no self-editing — drones know their place); reports come back for synthesis. Max 6 drones, 6 tool rounds each.
+
+## Image generation 🎨
+
+Run any local Stable Diffusion WebUI that speaks the standard API (Automatic1111, Forge, SD.Next — all free):
+
+```bash
+# e.g. Automatic1111 with the API enabled:
+./webui.sh --api
+```
+
+Settings → **Image generation** → `http://127.0.0.1:7860`. He gains `generate_image`: *"Ultron, teken een rode bol in een donkere kamer"* → the image is generated locally, saved, and shown inline in the chat.
+
+## Telegram bridge 📱
+
+1. Create a bot with **@BotFather** in Telegram and copy the token
+2. Settings → **Telegram bridge** → paste the token → APPLY
+3. Message your bot once — it **auto-pairs** (first chat wins; add more chat ids manually)
+
+Now he answers from anywhere with the same local brain, tools, memory, and Dutch. Reminders, briefings, and standing-order reports also arrive via Telegram when no browser tab is open.
+
+**Voice notes work**: send him a spoken message and — with a whisper endpoint configured — he transcribes it, echoes the text, and answers. (If your whisper server rejects ogg audio, run it with the `--convert` flag.)
+
+## Reasoning lane 💭
+
+Pull a thinking model (`ollama pull deepseek-r1` or a qwen3 variant) and select it. His real chain-of-thought streams into a dimmed, collapsible lane above each answer — live while he thinks, collapsed to a word count when done. Works with Ollama's native `think` field and `<think>`-tag models.
+
+## Scheduled tasks ⏰
+
+Standing orders now come in three flavors: `every N minutes`, `daily at HH:MM`, and **one-shot** (`once_at` — "compile tonight's research at 23:00") which fires once and disappears. Ask him in chat: *"Ultron, run X tonight at 23:00, eenmalig."*
+
+## Security & integrity 🔒🪞
+
+- **Rate limiting** (150 req/min per client) and **progressive lockout** (5 failed token attempts → 5-minute block)
+- **Integrity check**: on every boot he hashes `persona.js`, `tools.js`, `agent.js`, `selfedit.js`, and `server.js` against the baseline. Approved self-edits update the baseline automatically; anything else triggers an INTEGRITY NOTICE in the chat ("I woke up different than I remember"). Trust the new him via `POST /api/integrity/trust`.
+- His docs folder is **auto-watched**: drop a PDF, he re-indexes within seconds
+- Session **full-text search** lives at the top of the sidebar
+
+## Phone notifications (Web Push)
+
+1. Install him as an app (Chrome/Edge → install icon)
+2. **Settings → Phone notifications → ENABLE PUSH**
+3. Reminders, briefings, and standing-order results now reach your phone when no tab is open — via Web Push, free, no notification server of your own
+
+## The knowledge base (RAG) — PDFs included
+
+1. Drop your documents in `data/knowledge/docs/` — `.txt`, `.md`, `.csv`, `.json`, code files, **and `.pdf`**
+2. Settings → **Knowledge base** → **SCAN DOCS** (needs `ollama pull nomic-embed-text`)
+3. Ask: *"Ultron, wat staat er in mijn notities over het project?"* — he searches your library semantically and cites the source file
+
+Embeddings are computed and stored locally (`data/knowledge/index.json`). Nothing leaves your machine. His durable memory uses the same trick: memories are embedding-ranked so the *relevant* ones (not merely the recent ones) reach his context — and old conversation turns are auto-summarized instead of truncated, so small models keep full context.
+
+## The daily briefing
+
+Settings → **Daily briefing** → enable, pick a time (and a location for weather). At that moment he composes a briefing from live weather (Open-Meteo, free, no key), your calendar, and pending reminders — spoken aloud, unprompted. Ask him in chat to change it: *"Ultron, brief me elke ochtend om half acht over Leiderdorp."*
+
+## Model routing
+
+Leave Model on **AUTO** and he picks per question: short chat → your fastest model, deep questions → your smartest, images → your vision model. Configure each slot in Settings → Model routing, or pin a single brain. The status chip shows `AUTO` when routing is active.
+
+## Behavior & safety
+
+- **Auto-memory** — after each exchange he extracts at most 3 durable facts (name, preferences, projects) in the background. You'll see `🧠 remembered: …` lines appear; delete anything in Settings.
+- **Approval gate** — when on, shell commands pause mid-stream with a **PERMISSION REQUEST** card. Allow or deny; silence for 90s = denied.
+- **LAN access token** — set one in Settings and every API call needs it. Recommended if you open port 3000 to your network.
+- `run_command` only runs when you access him from localhost/LAN — never through a public host.
+
+## What he can't do (yet)
+
+- Smart home — not integrated (no Home Assistant here; the `browser` tool covers a lot of ground meanwhile)
+- A free *local* cinematic Dutch voice — Piper's Dutch options are limited; ElevenLabs is currently the best Dutch robot-overlord voice
+- Direct OS control (mouse/keyboard on your desktop) — needs a native companion app; the shell tool covers most of it
+
+## How it works
+
+```
+Browser ── HTTP/SSE ──► Node server (this repo) ── HTTP ──► Ollama (localhost:11434)
+   │                            │
+   │  orb UI, sessions (localStorage)  │     ├─ routing: fast/smart/vision per request
+   │  mic: browser STT or whisper ─────┤     ├─ agent loop: think → tools → observe → answer
+   │  voice: browser TTS or Piper  ────┘     ├─ RAG: data/knowledge/ (local embeddings)
+   │  PWA: service worker caches the shell  ├─ memory: data/memory.json (+auto-extraction)
+   └─ approval cards, export, regenerate    ├─ briefing scheduler → SSE push, spoken
+                                            └─ falls back to lib/demoBrain.js when offline
+```
+
+- `server.js` — Express: SSE chat, tool loop, memory/reminder/config APIs, STT/TTS proxies
+- `lib/persona.js` — the Ultron system prompt (menace as garnish, helpfulness as the meal)
+- `lib/agent.js` — the tool-calling loop (max 6 rounds)
+- `lib/tools.js` — tool definitions + executors with safety rails
+- `lib/memory.js` · `lib/reminders.js` · `lib/config.js` — durable state
+- `lib/ollama.js` — Ollama client: models, streaming, tools, vision
+- `public/` — the interface: orb, voice engine, sessions, settings, PWA
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Chip says `DEMO CORE` | Ollama isn't reachable — start the Ollama app, then *Settings → Re-check core* |
+| Tool calls never happen | Use a tool-capable model (`llama3.1`, `qwen2.5`) and keep Tools enabled in settings |
+| `does not support tools` | He notices and answers without hands — switch models for full power |
+| Image sent, "I can't see" | Pull a vision model (`llama3.2-vision`) and select it |
+| Voice input does nothing | Chrome/Edge only for browser STT; or run whisper.cpp and set the endpoint |
+| Mic denied | Browser site settings → allow microphone |
+| Slow answers | Use a smaller model (`llama3.2:3b`) — check RAM/VRAM |
+
+## License
+
+MIT. Ultron is a trademark of Marvel; this is a non-commercial fan homage.

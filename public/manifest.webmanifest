@@ -1,0 +1,23 @@
+{
+  "name": "ULTRON — local AI agent",
+  "short_name": "ULTRON",
+  "description": "A free, local-first, voice-activated AI agent with Ultron's voice, powered by Ollama.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#05070b",
+  "theme_color": "#05070b",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "get_crypto_price",
+  "description": "Get the current price of a cryptocurrency in USD (and EUR). Free API, no key.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "coin": { "type": "string", "description": "Coin id, e.g. bitcoin, ethereum, solana" }
+    },
+    "required": ["coin"]
+  },
+  "http": {
+    "method": "GET",
+    "url": "https://api.coingecko.com/api/v3/simple/price?ids={{coin}}&vs_currencies=usd,eur"
+  }
+}

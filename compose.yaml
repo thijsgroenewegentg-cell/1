@@ -1,0 +1,38 @@
+# ULTRON — the whole stack in one command:
+#   docker compose up -d
+#   docker compose exec ollama ollama pull llama3.1
+#   → http://localhost:3000
+services:
+  ultron:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      # ULTRON_TOOLS=0   # uncomment to disable all tools
+    volumes:
+      - ultron-data:/app/data     # memory, reminders, files, config survive rebuilds
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    # Expose only if you want other machines on your LAN to use Ollama too:
+    # ports:
+    #   - "11434:11434"
+    restart: unless-stopped
+    # GPU (NVIDIA) users: uncomment the deploy block below.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  ultron-data:
+  ollama-models:
