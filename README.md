@@ -198,6 +198,30 @@ Drop a JSON file in `data/skills/` and he instantly gains the ability:
 
 `{{param}}` placeholders get substituted (URL-encoded) at call time. Any JSON HTTP API becomes a tool he can use — home dashboards, game servers, self-hosted services.
 
+## Self-modification — he edits his own code 🧬
+
+Ultron can read and change his own source: `list_source_files`, `read_source`, `edit_source`, `restart_server`, and a `git` tool as his undo history. Ask him things like:
+
+- *"Change your own personality — wees een beetje aardiger"* → he edits the VOICE section of `lib/persona.js`
+- *"Give yourself a new tool that does X"* → he edits `lib/tools.js`
+- *"What did you change about yourself?"* → he runs `git diff`
+
+**The rails:**
+- Jailed to the project — `.git`, `node_modules`, `data/` are off-limits
+- Every edit is backed up first (`data/code-backups/<timestamp>/`)
+- **Syntax gate**: JS is `node --check`-ed, JSON parsed — broken edits are rejected and *never* applied
+- Surgical find/replace is preferred over rewrites; ambiguous finds are rejected
+- `edit_source` and `restart_server` sit behind the **approval gate** (enable it in Settings → Behavior & safety)
+- His `git` tool can `commit` his work and `revert` it
+
+**Strongly recommended workflow:**
+1. Run him with `npm run dev` (auto-restarts on file change) — or Docker/systemd
+2. Enable the approval gate for self-edit sessions
+3. **Commit your own work before letting him experiment** — `git revert (working)` discards *all* uncommitted changes, not just his
+4. Ask him to run `npm test` after any code change (he knows to do this himself)
+
+**The honest truth:** a self-modifying agent can, in principle, eventually work around any guardrail — that's inherent to the capability you're granting. The mitigations make accidents unlikely and reversible, not impossible. Run him on a machine you own, keep the approval gate on for edits, and treat `git log` as his conscience.
+
 ## Phone notifications (Web Push)
 
 1. Install him as an app (Chrome/Edge → install icon)

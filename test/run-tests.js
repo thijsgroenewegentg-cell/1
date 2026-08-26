@@ -369,6 +369,55 @@ async function main() {
     ok('profile memories injected', /memories/.test(r.text), r.text.slice(0, 80));
   }
 
+  /* ---------- self-modification ---------- */
+  console.log('self-modification');
+  {
+    const selfedit = require('../lib/selfedit');
+    const fixtureRel = path.join('test', 'fixtures', 'selfedit-target.js');
+    const fixture = path.join(process.cwd(), fixtureRel);
+    fs.mkdirSync(path.dirname(fixture), { recursive: true });
+    fs.writeFileSync(fixture, 'const greeting = "hello";\nmodule.exports = { greeting };\n');
+
+    const listing = selfedit.listSource('lib');
+    ok('list own source files', listing.files.some((f) => f.path === 'lib/persona.js'));
+
+    const read = selfedit.readSource(fixtureRel);
+    ok('read own source', read.content && read.content.includes('hello'));
+
+    const edit = await selfedit.editSource({ path: fixtureRel, find: '"hello"', replace: '"goedendag"' });
+    ok('surgical edit applied', edit.ok === true && fs.readFileSync(fixture, 'utf8').includes('goedendag'));
+    ok('edit backed up automatically', !!edit.backup && fs.existsSync(path.join(process.cwd(), edit.backup)));
+
+    const bad = await selfedit.editSource({ path: fixtureRel, find: '"goedendag"', replace: '"this is ) broken' });
+    ok('broken edit rejected by syntax gate', bad.rejected === true && fs.readFileSync(fixture, 'utf8').includes('goedendag'));
+
+    ok('data/ off-limits', !!(await selfedit.editSource({ path: 'data/memory.json', content: 'x' })).error);
+    ok('.git off-limits', !!(await selfedit.editSource({ path: '.git/config', content: 'x' })).error);
+    ok('path escape blocked', !!(await selfedit.editSource({ path: '../outside.js', content: 'x' })).error);
+
+    // Agent-level: he edits his own code through the tool loop.
+    const r = await chatUntil([{ role: 'user', content: 'selfedittest please' }]);
+    const tr = r.events.find((e) => e.type === 'tool_result' && e.name === 'edit_source');
+    ok('agent self-edits via tool loop', tr && tr.result && tr.result.ok === true && fs.readFileSync(fixture, 'utf8').includes('tot ziens'));
+
+    const st = await selfedit.git('status');
+    ok('git status works', typeof st.out === 'string' && st.out.length > 0);
+
+    // Commit + revert only when the working tree is clean apart from the fixture.
+    const lines = st.out.split('\n').filter((l) => l && !l.startsWith('##'));
+    if (lines.length >= 1 && lines.every((l) => l.includes('selfedit-target'))) {
+      const commit = await selfedit.git('commit', { message: 'test: selfedit fixture commit' });
+      ok('git commit works', commit.ok === true);
+      const log = await selfedit.git('log', { n: 1 });
+      ok('git log shows commit', /selfedit fixture/.test(log.out));
+      const revert = await selfedit.git('revert', { mode: 'commit', confirm: true });
+      ok('git revert undoes commit', revert.ok === true && !fs.existsSync(fixture));
+    } else {
+      console.log('  (git commit/revert skipped — working tree has unrelated changes)');
+      try { fs.unlinkSync(fixture); } catch { /* noop */ }
+    }
+  }
+
   /* ---------- wrap up ---------- */
   console.log('\n──────────────────────────────');
   console.log(`${passed} passed · ${failed} failed`);

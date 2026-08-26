@@ -93,6 +93,7 @@ function start(port, host = '127.0.0.1') {
           else if (/neko|kat|kennis|knowledge|document/i.test(text)) calls.push({ function: { name: 'search_knowledge', arguments: { query: text } } });
           else if (/schrijf|writefile/i.test(text)) calls.push({ function: { name: 'write_file', arguments: { path: 'greeting.txt', content: 'no strings on me' } } });
           else if (/onthoud|remember/i.test(text)) calls.push({ function: { name: 'remember', arguments: { fact: 'The user loves test suites' } } });
+          else if (/selfedittest/i.test(text)) calls.push({ function: { name: 'edit_source', arguments: { path: 'test/fixtures/selfedit-target.js', find: '"goedendag"', replace: '"tot ziens"' } } });
           if (calls.length) {
             res.write(JSON.stringify({ message: { role: 'assistant', content: '', tool_calls: calls }, done: false }) + '\n');
             res.write(JSON.stringify({ message: { role: 'assistant', content: '' }, done: true }) + '\n');
