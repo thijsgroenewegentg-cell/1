@@ -80,7 +80,28 @@ fake_bpy.props = types.SimpleNamespace(
 sys.modules["bpy"] = fake_bpy
 
 import addon  # noqa: E402  (imports the fake bpy)
-import agent  # noqa: E402
+
+
+class RawBridge:
+    """Minimal JSON-lines client for talking to the addon server directly."""
+    def __init__(self, host, port, timeout=10):
+        import socket as _sock
+        self.s = _sock.create_connection((host, port), timeout=timeout)
+        self.s.settimeout(timeout)
+        self.buf = b""
+        self.id = 0
+
+    def call(self, cmd, **args):
+        import json as _json
+        self.id += 1
+        self.s.sendall((_json.dumps({"id": self.id, "cmd": cmd, "args": args}) + "\n").encode())
+        while b"\n" not in self.buf:
+            self.buf += self.s.recv(65536)
+        line, self.buf = self.buf.split(b"\n", 1)
+        return _json.loads(line.decode())
+
+    def close(self):
+        self.s.close()
 
 
 def main():
@@ -106,7 +127,7 @@ def main():
     threading.Thread(target=driver, daemon=True).start()
 
     try:
-        bridge = agent.BlenderBridge("127.0.0.1", port, timeout=10)
+        bridge = RawBridge("127.0.0.1", port, timeout=10)
 
         ping = bridge.call("ping")
         assert ping["ok"] and ping["result"]["blender"] == "4.2.0-fake", ping

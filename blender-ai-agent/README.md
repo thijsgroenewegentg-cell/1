@@ -4,70 +4,100 @@ An AI agent that builds 3D scenes, models, materials, lighting and animation
 **inside your live Blender** — you describe what you want in plain English,
 it writes and runs the Blender Python code to create it.
 
-**100% free by default**: it uses [Ollama](https://ollama.com) running on your
-own computer, so there's no API key, no account, no credits and no internet
-requirement for the AI. Blender itself is free too. Free hosted options
-(Groq, Google Gemini) are also built in if you'd rather use those.
+**Works with the BlenderMCP add-on you already have.** The agent auto-detects
+and talks directly to the popular [BlenderMCP](https://github.com/ahujasid/blender-mcp)
+add-on over its socket (port 9876) — no extra MCP process needed. It also
+speaks the generic MCP stdio protocol (`uvx blender-mcp` / `npx …`), or its own
+zero-dependency bridge add-on.
+
+**100% free by default**: [Ollama](https://ollama.com) on your own computer
+(no API key/account/credits/internet for the AI). Free hosted options (Groq,
+Google Gemini) are built in, with automatic fallback and vision-capable models
+that can *look at* their own renders.
 
 ## What you get
 
 | File | What it is |
 |---|---|
-| `addon.py` | Blender add-on. Runs a tiny localhost socket server inside Blender that executes Python (`bpy`) code safely on Blender's main thread. |
-| `bridge_standalone.py` | Same bridge, zero install: `blender --python bridge_standalone.py` (works in GUI and headless `--background`). |
-| `agent.py` | The AI agent. Connects to Blender, chats with an LLM, and turns the model's tool calls into Blender actions. Standard-library Python only — no pip installs. |
-| `examples/demo_scene.py` | A test scene (little house) you can run without any LLM to verify the bridge works. |
-| `tests/` | Automated tests for the socket protocol, standalone bridge and agent loop (mocked Blender + LLM). |
+| `transports.py` | Three ways to reach Blender: our bridge addon, the **BlenderMCP addon (direct socket)**, and a generic **MCP stdio** client. Auto-detected. |
+| `addon.py` | Our own Blender add-on (optional). Localhost server that runs `bpy` code on Blender's main thread. |
+| `bridge_standalone.py` | Zero-install launcher: `blender --python bridge_standalone.py` (GUI and headless). |
+| `agent.py` | The AI agent CLI: LLM tool-use loop, vision routing, presets, watch mode. Stdlib only. |
+| `webui.py` | Browser chat UI (`python webui.py`) — streams the build log and shows renders inline. |
+| `blender_helpers.py` | Version-safe Blender toolkit (`add_primitive`, `make_material`, `quick_setup`, `ground_objects`, `animate_*`, …) injected for the model. |
+| `presets.py` | Scene templates: **product, archviz, dramatic, outdoor, clay** (camera+lights+world). |
+| `examples/demo_scene.py` | Test scene (little house), no LLM needed. |
+| `tests/` | Automated tests for transports (incl. a fake MCP server), agent loop, web UI and presets. |
 
 ## Features
 
+- 🔌 **Three transports** — BlenderMCP addon direct (what you already have),
+  generic MCP stdio (`uvx blender-mcp`), or the bundled bridge. Auto-detected.
 - 🗣️ **Chat to build** — describe what you want in plain English.
-- 👁️ **Vision feedback** (`--vision`) — the agent renders its work, looks at
-  the image, and fixes visual mistakes (floating objects, bad colors, wrong
-  framing) by itself.
+- 👁️ **Vision feedback** (`--vision`) — fast viewport screenshots are attached
+  to the model so it can see and fix floating parts, bad framing, wrong colors.
 - 🖼️ **Reference images** (`--image photo.jpg`) — build from a picture.
-- 💾 **Auto saving** — saves `.blend`, renders PNGs and can export
-  **GLB/STL/FBX/OBJ** (for games or 3D printing) into an `output/` folder.
-- ↩️ **Self-undo** — the agent can undo its own steps when a build goes wrong
-  (plus `Ctrl+Z` works for you).
-- 🛟 **Provider fallback** — if Ollama isn't running it automatically tries
-  Groq, then Gemini (whichever keys you have).
-- 🔒 **Approve mode** (`--approve`) — review each piece of code before it runs.
-- 🧰 **Zero-install launch** — run Blender with `bridge_standalone.py`, no
-  add-on installation required.
+- 🎬 **Presets** (`--preset product|archviz|dramatic|outdoor|clay`) and an
+  `apply_preset` tool — professional camera/lighting/world in one step.
+- 🧰 **Helper toolkit** — version-safe functions for geometry, materials,
+  3-point lighting, cameras, grounding, linear/rotation animation.
+- 💾 **Auto save/export** — `.blend`, PNGs, and **GLB/STL/FBX/OBJ** into `output/`.
+- ↕️ **Model routing** — fast text models for planning, vision models only
+  when an image is in context.
+- 📡 **Watch mode** (`--watch tasks.txt` or stdin) — continuous build queue.
+- 🌐 **Web UI** (`python webui.py`) — chat in the browser, see renders live.
+- ↩️ **Self-undo**, 🛟 **provider fallback**, 🔒 `--approve` review mode.
 
 ## How it works
 
 ```
- you  →  agent.py (LLM tool-use loop)  →  localhost:9876  →  addon.py / bridge_standalone.py
-        Ollama / Groq / Gemini                                   →  Blender / bpy
+ you  →  agent.py / webui.py  →  transport  →  Blender
+        (LLM tool loop)         9876 socket    BlenderMCP addon  ← what you already have
+        Ollama/Groq/Gemini                     or our addon.py / bridge_standalone.py
+                                            or any MCP server over stdio
 ```
 
-1. The bridge inside Blender listens on `127.0.0.1` only (never the network).
-2. The agent asks the LLM "what should I do in Blender?" and gets back tool
-   calls: `get_scene_info`, `execute_blender_code`, `render_and_inspect`,
-   `render_preview`, `save_blend`, `export_model`, `undo_blender`,
-   `task_complete`.
-3. Code runs in Blender; stdout and tracebacks go back to the model, so it
-   can **see its results and fix errors**. In vision mode the rendered PNG is
-   attached too, so it can **see the actual 3D scene**.
-4. Everything is wrapped in undo steps — `Ctrl+Z` in Blender rolls it back.
+1. The agent connects to whatever is listening: it first probes for the
+   **BlenderMCP** addon's protocol (`ping` → `{"status":"success"}`), then
+   for our bridge, so you don't have to change a thing if BlenderMCP is running.
+2. The model calls tools: `get_scene_info`, `execute_blender_code`,
+   `apply_preset`, `render_and_inspect`, `save_blend`, `export_model`,
+   `undo_blender`, `task_complete`.
+3. Stdout/tracebacks return to the model for self-correction; in vision mode
+   the viewport screenshot is attached too.
+4. All changes land on Blender's main thread and are undoable (`Ctrl+Z`).
 
 ## Setup (5 minutes, all free)
 
-### 1. Start the bridge in Blender
+### 1. Connect Blender — use whatever you already have
 
-**Option A — add-on (recommended):**
-1. Install [Blender](https://www.blender.org/) (3.6 or newer; 4.x works).
+**Option A — BlenderMCP add-on (if you have it installed — nothing new to add):**
+just start its server as usual (sidebar **N → BlenderMCP → Connect to Claude**,
+default port 9876). This agent detects it automatically. You can also run the
+standard MCP server in front of it:
+```bash
+python agent.py --transport mcp-stdio --mcp-cmd "uvx blender-mcp" "a windmill"
+```
+
+**Option B — this project's add-on (recommended for full features):**
+1. Install [Blender](https://www.blender.org/) (3.6+; 4.x works).
 2. **Edit → Preferences → Add-ons → Install from Disk…** and pick `addon.py`.
-3. Tick **AI Agent Bridge**, then in the 3D viewport press **N**, open the
-   **AI Agent** tab, and click **Start AI Agent Server** (default port 9876).
+3. Tick **AI Agent Bridge**; press **N** → **AI Agent** tab → **Start AI Agent Server**.
 
-**Option B — zero install:**
+**Option C — zero install:**
 ```bash
 blender --python bridge_standalone.py
 ```
-(Also works headless on a server: `blender --background --python bridge_standalone.py -- --port 9876`)
+(Also headless: `blender --background --python bridge_standalone.py -- --port 9876`)
+
+Auto-detection probes for BlenderMCP first, then the bundled bridge. Force one
+with `--transport blendermcp | bridge | mcp-stdio`.
+
+> Note on transports: the BlenderMCP addon runs code with a **fresh Python
+> namespace per call**, so the agent is told to name objects and re-fetch them
+> by name (its helper toolkit is auto-prepended to every call). Its viewport
+> screenshot reflects the 3D view; the bundled bridge can do full-camera
+> renders — both work, but the bridge gives the richest feedback.
 
 ### 2. Install the free local AI (Ollama)
 
@@ -102,29 +132,37 @@ cd blender-ai-agent
 python agent.py "build a cozy wooden cabin with a smoking chimney and a tree next to it"
 ```
 
-Watch Blender — the agent creates objects, materials, lights and a camera step
-by step, then saves a `.blend` and a render PNG into the `output/` folder.
+Watch Blender — the agent creates objects, materials, lights and camera step
+by step, then saves a `.blend` and a render into the `output/` folder.
 
-With vision (it checks its own work and fixes problems):
+**In the browser instead of the terminal:**
+```bash
+python webui.py            # then open http://localhost:8765
+```
 
+**Vision** (it screenshots its work and fixes visual problems itself):
 ```bash
 python agent.py --vision "build a red sports car on an asphalt road and make it look good"
 ```
 
-Build from a reference photo:
-
+**Reference photo + scene preset:**
 ```bash
-python agent.py --vision --image my_car_photo.jpg "model this car"
+python agent.py --vision --image sneaker.jpg --preset product "model this shoe for a product shot"
 ```
 
-Ask for files for games / 3D printing (it exports automatically when asked):
-
+**3D print / game export:**
 ```bash
-python agent.py "build a low-poly chess knight and export it as STL for 3D printing"
+python agent.py "build a low-poly chess knight and export it as STL"
 ```
 
-Review every piece of code before it runs (safety):
+**Continuous build queue** (one task per line; great for batching or piping
+other tools into the agent):
+```bash
+printf 'a red mug\nblue chair next to it\n' | python agent.py --watch
+python agent.py --watch tasks.txt
+```
 
+**Review each code action before it runs:**
 ```bash
 python agent.py --approve "build a medieval castle"
 ```
@@ -140,34 +178,37 @@ A little house with a roof, door, grass, sun and camera should appear in Blender
 ## Usage reference
 
 ```bash
-# chat-style request (default: free local Ollama)
+# chat-style request (default: free local Ollama, transport auto-detected)
 python agent.py "make a low-poly windmill on a hill"
 
-# vision mode + reference image
-python agent.py --vision "build a futuristic city block, then check the render"
-python agent.py --vision --image reference.jpg "build something like this"
+# use the BlenderMCP addon explicitly, or a generic MCP server over stdio
+python agent.py --transport blendermcp "a windmill"
+python agent.py --transport mcp-stdio --mcp-cmd "uvx blender-mcp" "a windmill"
 
-# review every code action before it runs
-python agent.py --approve "build a chess set"
+# vision + reference image + lighting preset
+python agent.py --vision --image ref.jpg --preset product "model this"
 
-# interactive mode (describe many things in one session)
-python agent.py
+# continuous / queued builds
+printf 'a mug\na spoon next to it\n' | python agent.py --watch
+python agent.py --watch tasks.txt
 
-# force a provider, or use free hosted alternatives:
-python agent.py --provider ollama "build a chess set"
-GROQ_API_KEY=gsk_...   python agent.py --provider groq   "build a chess set"
-GEMINI_API_KEY=AIza... python agent.py --provider gemini "build a space station"
+# browser UI
+python webui.py --vision
+
+# free hosted providers (keys auto-detected, with fallback between them)
+GROQ_API_KEY=gsk_...   python agent.py --provider groq   "a chess set"
+GEMINI_API_KEY=AIza... python agent.py --provider gemini "a space station"
 
 # other options
-python agent.py --model qwen2.5-coder:14b "a medieval castle"   # different model
-python agent.py --port 9900 "..."                               # match the bridge port
-python agent.py --max-iters 50 "..."                            # more steps for complex builds
-python agent.py --no-fallback "..."                            # don't auto-switch providers
+python agent.py --preset archviz "interior scene"   # product|archviz|dramatic|outdoor|clay
+python agent.py --approve "castle"                  # review code before it runs
+python agent.py --max-iters 50 "complex scene"      # more agent steps
+python agent.py --no-fallback "..."                 # don't auto-switch providers
+python agent.py --port 9900 "..."                   # match the bridge port
 ```
 
-Interactive mode commands: type your request and press Enter; `/scene` prints
-scene info, `/undo` undoes the last step, `/render` renders, `/save` saves a
-`.blend`, `/quit` exits.
+Interactive mode (`python agent.py` with no task): `/scene`, `/undo`,
+`/render`, `/save`, `/preset <name>`, `/quit`.
 
 ### Free providers
 
@@ -219,12 +260,15 @@ panel when you're done, or use the add-on's shutdown command.
 ## Development / tests
 
 ```bash
-python3 tests/test_agent.py            # agent loop, vision, JSON repair, fallback
+python3 tests/test_transports.py       # bridge / BlenderMCP / MCP-stdio (incl. fake MCP server)
+python3 tests/test_agent.py            # agent loop, vision routing, presets, watch, helpers
 python3 tests/test_addon_protocol.py   # real addon.py server (save/export/...) vs fake bpy
 python3 tests/test_standalone.py       # zero-install standalone bridge launch
+python3 tests/test_webui.py            # web chat UI endpoints and event stream
 ```
 
-No Blender or LLM is needed to run the tests — everything is mocked.
+No Blender or LLM is needed to run the tests — everything is mocked (the MCP
+stdio test even spawns a local fake MCP server subprocess).
 
 ## License
 
