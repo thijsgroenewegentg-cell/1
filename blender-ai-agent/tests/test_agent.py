@@ -74,7 +74,14 @@ class MockBlenderServer:
                     "result": {"blender": "mock-4.2", "scene": "Scene", "objects": []}}
         if cmd == "render":
             return {"id": request["id"], "ok": True,
-                    "result": {"filepath": "/tmp/mock_render.png"}}
+                    "result": {"filepath": args.get("filepath") or "/tmp/mock_render.png"}}
+        if cmd == "save":
+            return {"id": request["id"], "ok": True,
+                    "result": {"filepath": args.get("filepath", "/tmp/x.blend"), "saved": True}}
+        if cmd == "export":
+            return {"id": request["id"], "ok": True,
+                    "result": {"filepath": args.get("filepath", "/tmp/x.glb"),
+                               "format": args.get("format"), "exported": True}}
         if cmd == "undo":
             return {"id": request["id"], "ok": True, "result": {"ok": True}}
         return {"id": request["id"], "ok": False, "error": "unknown command: %s" % cmd}
@@ -160,11 +167,12 @@ def test_llm_client_parsing():
         llm = agent.LLMClient(provider="ollama",
                               base_url="http://127.0.0.1:%d/v1" % port,
                               model="mock-model")
-        msg = llm.chat([{"role": "user", "content": "hi"}], tools=agent.TOOLS)
+        sent_tools = agent.build_tools(False)
+        msg = llm.chat([{"role": "user", "content": "hi"}], tools=sent_tools)
         assert msg["tool_calls"][0]["function"]["name"] == "get_scene_info"
         payload = MockLLMHandler.last_payload
         assert payload["model"] == "mock-model"
-        assert len(payload["tools"]) == len(agent.TOOLS)
+        assert len(payload["tools"]) == len(sent_tools)
     finally:
         server.shutdown()
     print("PASS: LLM client request/response + tool schema")
@@ -247,7 +255,107 @@ def test_provider_presets():
     # groq/gemini need env keys but must be constructible with explicit key
     llm = agent.LLMClient(provider="groq", api_key="test", model="m")
     assert llm.api_key == "test" and llm.model == "m"
-    print("PASS: provider presets")
+    # vision flag selects the vision model
+    vlm = agent.LLMClient(provider="ollama", vision=True)
+    assert vlm.model == agent.PROVIDERS["ollama"]["vision_model"]
+    print("PASS: provider presets (+vision model selection)")
+
+
+def test_tool_sets():
+    text_tools = {t["function"]["name"] for t in agent.build_tools(vision=False)}
+    vision_tools = {t["function"]["name"] for t in agent.build_tools(vision=True)}
+    assert "render_and_inspect" not in text_tools
+    assert "render_and_inspect" in vision_tools
+    for name in ("save_blend", "export_model", "undo_blender", "task_complete"):
+        assert name in text_tools and name in vision_tools
+    print("PASS: tool sets differ correctly for vision vs text mode")
+
+
+def test_vision_loop_attaches_image():
+    import base64
+    import tempfile
+
+    # Make a tiny valid PNG the agent can read and base64-encode.
+    png_1x1 = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+    render_path = os.path.join(tempfile.gettempdir(), "agent_test_render.png")
+    with open(render_path, "wb") as fh:
+        fh.write(png_1x1)
+
+    mock_blender = MockBlenderServer()
+    httpd = HTTPServer(("127.0.0.1", 0), MockLLMHandler)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+
+    SCRIPTED_REPLIES.extend([
+        tool_call("c1", "render_and_inspect",
+                  {"note": "check the cube", "filepath": render_path}),
+        tool_call("c2", "task_complete", {"summary": "looks good"}),
+    ])
+
+    bridge = agent.BlenderBridge("127.0.0.1", mock_blender.port)
+    llm = agent.LLMClient(provider="ollama",
+                          base_url="http://127.0.0.1:%d/v1" % port,
+                          model="mock-vision", vision=True)
+    try:
+        # Point outputs at the pre-made PNG.
+        agent.dispatch_tool  # touch to ensure import
+        agent.run_task("build and inspect", bridge, [llm], vision=True,
+                       max_iters=5, log=lambda *a: None)
+    finally:
+        bridge.close()
+        httpd.shutdown()
+
+    # The second LLM request must contain the rendered image as a data URI.
+    payload = MockLLMHandler.last_payload
+    image_parts = []
+    for msg in payload["messages"]:
+        content = msg.get("content")
+        if isinstance(content, list):
+            image_parts += [p for p in content if p.get("type") == "image_url"]
+    assert image_parts, "vision render image was not attached to the conversation"
+    assert image_parts[0]["image_url"]["url"].startswith("data:image/png;base64,")
+    print("PASS: vision loop attaches rendered image back to the model")
+
+
+def test_json_repair():
+    assert agent._repair_json('{"code": "print(1)"}') == {"code": "print(1)"}
+    assert agent._repair_json("") == {}
+    # wrapped in prose / newlines
+    messy = 'Sure! {"code": "print(\'hi\')",\n "x": 1}'
+    assert agent._repair_json(messy).get("code") == "print('hi')"
+    # trailing comma after last key (a common model slip) -> scalar extraction
+    trailing = '{"code": "print(\'oops\')",}'
+    assert agent._repair_json(trailing).get("code") == "print('oops')"
+    # single-quoted key/value still salvages the scalar
+    single = "{'summary': 'all done here'}"
+    assert agent._repair_json(single).get("summary") == "all done here"
+    print("PASS: malformed tool-call JSON is repaired")
+
+
+def test_provider_fallback_chain():
+    httpd = HTTPServer(("127.0.0.1", 0), MockLLMHandler)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    SCRIPTED_REPLIES.append(tool_call("c1", "task_complete", {"summary": "done"}))
+
+    bad = agent.LLMClient(provider="ollama", model="m",
+                          base_url="http://127.0.0.1:1/v1")  # nothing listening
+    good = agent.LLMClient(provider="groq", model="good-model", api_key="k",
+                           base_url="http://127.0.0.1:%d/v1" % port)
+    # Don't sleep across the bad client's retries.
+    agent.time.sleep = lambda *_a, **_k: None
+    try:
+        msg, used = agent.chat_with_fallback([bad, good],
+                                             [{"role": "user", "content": "hi"}],
+                                             agent.build_tools(False),
+                                             log=lambda *a: None)
+    finally:
+        httpd.shutdown()
+    assert used == 1, "should have fallen through to the working provider"
+    assert msg["tool_calls"][0]["function"]["name"] == "task_complete"
+    print("PASS: provider fallback recovers from a dead first provider")
 
 
 if __name__ == "__main__":
@@ -256,4 +364,8 @@ if __name__ == "__main__":
     test_full_agent_loop()
     test_recovery_from_python_error()
     test_provider_presets()
+    test_tool_sets()
+    test_vision_loop_attaches_image()
+    test_json_repair()
+    test_provider_fallback_chain()
     print("\nAll tests passed.")

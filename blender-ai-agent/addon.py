@@ -25,6 +25,7 @@ bl_info = {
 import contextlib
 import io
 import json
+import os
 import socket
 import threading
 import traceback
@@ -188,6 +189,63 @@ def _cmd_redo(args):
         return {"error": traceback.format_exc()}
 
 
+def _cmd_save(args):
+    filepath = args.get("filepath")
+    if not filepath:
+        return {"error": "save requires a filepath (absolute path ending in .blend)"}
+    filepath = os.path.abspath(os.path.expanduser(filepath))
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    try:
+        bpy.ops.wm.save_as_mainfile(filepath=filepath)
+    except Exception:
+        return {"error": traceback.format_exc()}
+    return {"filepath": filepath, "saved": True}
+
+
+def _cmd_export(args):
+    filepath = args.get("filepath")
+    fmt = (args.get("format") or "").upper()
+    if not filepath:
+        return {"error": "export requires a filepath"}
+    filepath = os.path.abspath(os.path.expanduser(filepath))
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    # Map format -> extension, export kwargs, and candidate operators
+    # (Blender moved FBX/OBJ/STL between wm and export_scene across versions).
+    formats = {
+        "GLB":  ("glb", {"export_format": 'GLB'},
+                 [("export_scene", "gltf")]),
+        "GLTF": ("gltf", {},
+                 [("export_scene", "gltf")]),
+        "STL":  ("stl", {},
+                 [("wm", "stl_export"), ("export_mesh", "stl")]),
+        "FBX":  ("fbx", {},
+                 [("wm", "fbx_export"), ("export_scene", "fbx")]),
+        "OBJ":  ("obj", {},
+                 [("wm", "obj_export"), ("export_scene", "obj")]),
+    }
+    ext, kwargs, candidates = formats.get(fmt, (None, None, None))
+    if ext is None:
+        return {"error": "Unsupported export format %r. Use GLB, GLTF, STL, FBX or OBJ." % fmt}
+    if not filepath.lower().endswith("." + ext):
+        filepath += "." + ext
+
+    last_error = None
+    for category, op_name in candidates:
+        category_obj = getattr(bpy.ops, category, None)
+        operator = getattr(category_obj, op_name, None) if category_obj else None
+        if operator is None:
+            continue
+        try:
+            operator(filepath=filepath, **kwargs)
+            return {"filepath": filepath, "format": fmt, "exported": True}
+        except Exception as exc:
+            last_error = "%s.%s: %s" % (category, op_name, exc)
+
+    return {"error": "Could not export %s. Last attempt: %s\n%s"
+                     % (fmt, last_error, traceback.format_exc())}
+
+
 def _cmd_reset_namespace(args):
     _state["namespace"] = {}
     return {"ok": True}
@@ -209,6 +267,8 @@ _COMMANDS = {
     "exec": _cmd_exec,
     "scene_info": _cmd_scene_info,
     "render": _cmd_render,
+    "save": _cmd_save,
+    "export": _cmd_export,
     "undo": _cmd_undo,
     "redo": _cmd_redo,
     "reset_namespace": _cmd_reset_namespace,

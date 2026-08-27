@@ -46,6 +46,12 @@ fake_bpy.ops = types.SimpleNamespace(
         undo=lambda: None,
         redo=lambda: None,
     ),
+    wm=types.SimpleNamespace(
+        save_as_mainfile=lambda **kw: None,
+        stl_export=lambda **kw: None,
+        obj_export=lambda **kw: None,
+        fbx_export=lambda **kw: None,
+    ),
 )
 
 
@@ -125,6 +131,20 @@ def main():
         info = bridge.call("scene_info")
         assert info["ok"] and info["result"]["scene"] == "Scene"
         assert info["result"]["render_engine"] == "BLENDER_EEVEE_NEXT"
+
+        # save: writes the .blend path through (fake bpy accepts it)
+        import tempfile
+        blend_path = os.path.join(tempfile.gettempdir(), "agent_test_scene.blend")
+        saved = bridge.call("save", filepath=blend_path)
+        assert saved["ok"] and saved["result"]["saved"] and saved["result"]["filepath"].endswith(".blend")
+
+        # export: STL via the fake bpy.ops.wm.stl_export
+        stl_path = os.path.join(tempfile.gettempdir(), "agent_test_model.stl")
+        exported = bridge.call("export", filepath=stl_path, format="STL")
+        assert exported["ok"] and exported["result"]["exported"] and exported["result"]["format"] == "STL"
+        # bad format is reported cleanly
+        bad_fmt = bridge.call("export", filepath="/tmp/x", format="WRL")
+        assert not bad_fmt["ok"] or "Unsupported" in str(bad_fmt)
 
         # unknown command is a protocol-level failure, not a crash
         bad = bridge.call("not_a_command")
