@@ -17,7 +17,7 @@ What you get:
 
 | File | Trigger | Does |
 | --- | --- | --- |
-| `ci.yml` | every push / PR | runs the 63-check test suite on Windows **and** Linux runners |
+| `ci.yml` | every push / PR | runs the 101-check test suite on Windows **and** Linux runners |
 | `release.yml` | every `v*` tag push | builds `Setup.exe` + portable `exe` + `AppImage` + `deb` and attaches them to the GitHub release |
 
 Both are free for public repos; private repos use the free CI minutes allowance.

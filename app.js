@@ -951,7 +951,7 @@ function buildAction(action, params, raw) {
       const name = Object.keys(APPS).find(a => a.toLowerCase() === String(params.app).toLowerCase());
       if (!name) return makeResponse({
         understood: `Open ${params.app}`, mode: 'agent', action, confidence: .7,
-        parameters: params, response: `${params.app} isn’t on this Mac. Try Mail, Calendar, Messages, Notes, Files.`,
+        parameters: params, response: `${params.app} isn’t available here. Try Mail, Calendar, Messages, Notes, Files, Tasks.`,
       });
       return makeResponse({
         understood: `Open ${name}`, mode: 'agent', action, confidence: .97,
@@ -1174,6 +1174,7 @@ function openApp(name, opts = {}) {
       <div class="win-body"></div>`;
     winLayer.appendChild(win);
     win.querySelector('[data-closewin]').addEventListener('click', () => closeApp(name));
+    win.addEventListener('pointerdown', () => { win.style.zIndex = ++winZ; }); // raise on click
     enableDrag(win);
     openWins[name] = win;
     winOffset = (winOffset + 24) % 96;
@@ -1335,7 +1336,20 @@ $('#sendBtn').addEventListener('click', () => submit());
 input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
 document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.code === 'Space') { e.preventDefault(); input.focus(); micStart(); }
+  if (e.key === 'Escape') {
+    $('#helpModal').classList.remove('show');
+    $('#settingsPanel').classList.remove('visible');
+    if (notch.classList.contains('card')) { cancelPending(); notchIdle(); }
+  }
 });
+
+/* rotating placeholder — shows a different example command every few seconds */
+let phIndex = 0;
+setInterval(() => {
+  if (typeof document !== 'undefined' && document.activeElement !== input && !input.value) {
+    input.placeholder = `Say it once… e.g. “${CHIPS[phIndex++ % CHIPS.length]}”`;
+  }
+}, 4500);
 
 /* suggestion chips — straight from the spec's examples */
 const CHIPS = [

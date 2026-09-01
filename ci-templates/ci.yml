@@ -20,5 +20,7 @@ jobs:
           node-version: 20
       - name: Syntax check
         run: node --check app.js && node --check sw.js && node --check desktop/main.js
-      - name: Run test suite (40 checks)
-        run: node tests/smoke.js
+      - name: Install dev tooling (jsdom for the DOM suite)
+        run: npm install --no-audit --no-fund
+      - name: Run test suites (101 checks)
+        run: npm test

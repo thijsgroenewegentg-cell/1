@@ -90,10 +90,10 @@ and browser. All data lives in local storage.
 ## 🧪 Quality
 
 ```bash
-npm test   # 63 checks: parser, confirmations, persistence, workflows, learning…
+npm test   # 101 checks: headless parser/logic (63) + real-DOM UI suite in jsdom (38)
 ```
 
-CI ([`ci-templates/ci.yml`](ci-templates/ci.yml)) runs the full suite
+CI ([`ci-templates/ci.yml`](ci-templates/ci.yml)) runs both suites
 on Windows **and** Linux on every push.
 
 ## Repo layout
@@ -106,6 +106,7 @@ icons/                              app icons
 desktop/                            Electron shell: voice-bar window + hotkey
 ci-templates/                       CI + release-installer workflows (one-step enable)
 tests/smoke.js                      63-check headless test drive
+tests/domtest.js                    38-check real-DOM suite (jsdom)
 ```
 
 ## Roadmap

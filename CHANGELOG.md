@@ -3,6 +3,19 @@
 All notable changes to VoiceOS are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] — 2026-09-01
+
+Professional-review polish pass. Verified with a real DOM-level test suite.
+
+### Added
+- **DOM test suite** (`tests/domtest.js`, 38 checks) — drives the real page in jsdom: clicks chips & confirm buttons, types commands, asserts notch cards, windows, onboarding, settings, persistence
+- **Polish**: click anywhere on a window raises it; `Esc` dismisses overlays/cards; composer placeholder rotates through example commands
+- `npm test` now runs both suites (101 checks total); jsdom added as devDependency
+
+### Fixed
+- Stray “on this Mac” copy → platform-neutral
+- DOM-test harness: `$$` replacement injection (harness bug)
+
 ## [1.1.0] — 2026-09-01
 
 Windows & Linux focus + workflows, learning, briefing, tasks — with **real installers built by CI**.
@@ -46,5 +59,6 @@ First full release. 🎉
 ### Privacy
 100% local: no servers, no telemetry, no API keys. Audio and transcripts never leave the device.
 
+[1.1.1]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.1.1
 [1.1.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.1.0
 [1.0.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.0.0

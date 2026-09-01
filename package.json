@@ -1,11 +1,16 @@
 {
   "name": "voiceos",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "VoiceOS — a voice-first operating layer for Windows & Linux. Turns speech into intent, JSON, and action. Installable (PWA) + desktop shell with auto-built installers.",
   "private": true,
   "scripts": {
-    "test": "node tests/smoke.js",
+    "test": "node tests/smoke.js && node tests/domtest.js",
+    "pretest": "node -e \"try{require.resolve('jsdom')}catch(e){process.exit(0)}\" || npm install --no-audit --no-fund --loglevel=error",
+    "test:core": "node tests/smoke.js",
     "start": "python3 -m http.server 8080 --bind 0.0.0.0"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0"
   },
   "keywords": ["voice", "assistant", "notch", "dictation", "agent"],
   "license": "MIT"
