@@ -1,0 +1,5 @@
+node_modules/
+desktop/renderer/
+desktop/dist/
+dist/
+.DS_Store

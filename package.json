@@ -1,0 +1,12 @@
+{
+  "name": "voiceos",
+  "version": "1.0.0",
+  "description": "VoiceOS — a voice-first operating layer. Turns speech into intent, JSON, and action. Installable (PWA) + desktop shell.",
+  "private": true,
+  "scripts": {
+    "test": "node tests/smoke.js",
+    "start": "python3 -m http.server 8080 --bind 0.0.0.0"
+  },
+  "keywords": ["voice", "assistant", "notch", "dictation", "agent"],
+  "license": "MIT"
+}

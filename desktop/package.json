@@ -1,0 +1,28 @@
+{
+  "name": "voiceos-desktop",
+  "productName": "VoiceOS",
+  "version": "1.0.0",
+  "description": "VoiceOS desktop shell — always-on-top notch window with global hotkey.",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "sync": "node sync.js",
+    "start": "node sync.js && electron .",
+    "predist": "node sync.js",
+    "dist": "electron-builder --mac --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.0"
+  },
+  "build": {
+    "appId": "app.voiceos.desktop",
+    "productName": "VoiceOS",
+    "files": ["main.js", "preload.js", "renderer/**", "!**/*.map"],
+    "mac": { "category": "public.app-category.productivity", "target": ["dmg", "zip"] },
+    "win": { "target": ["nsis"] },
+    "nsis": { "oneClick": true, "perMachine": false, "shortcutName": "VoiceOS" }
+  }
+}
