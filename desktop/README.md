@@ -1,8 +1,21 @@
-# VoiceOS Desktop (Electron shell)
+# VoiceOS Desktop (Electron shell) — Windows & Linux
 
 Wraps the web app in a real desktop window: **frameless, transparent,
-always-on-top "notch"** pinned under the menu bar, toggled with a **global
-hotkey** (`Ctrl/⌘+Space`, override with `VOICEOS_HOTKEY`).
+always-on-top voice bar** floating top-center, toggled with a **global
+hotkey** (`Ctrl+Space`, override with `VOICEOS_HOTKEY`).
+
+## Installers (no build needed)
+
+CI builds them on every release — grab from
+[Releases](https://github.com/thijsgroenewegentg-cell/1/releases/latest):
+
+| Platform | Assets | Notes |
+| --- | --- | --- |
+| Windows | `*-Setup-*.exe`, `portable *.exe` | One-click NSIS installer; portable runs without installing |
+| Linux | `*.AppImage`, `*.deb` | AppImage: `chmod +x` and run; deb: `sudo dpkg -i` |
+
+Unsigned by default: Windows may show a SmartScreen prompt → “More info → Run
+anyway”. AppImages may need `chmod +x`.
 
 ## Run in dev
 
@@ -12,23 +25,19 @@ npm install     # downloads Electron (~100 MB, one time, free)
 npm start
 ```
 
-## Build installers
-
-Run these **on the target OS** (macOS `.dmg` signing/notarization requires a
-Mac; Windows NSIS works on Mac/Linux too):
+## Build installers locally
 
 ```bash
-npm run dist:mac   # → dist/VoiceOS-1.0.0.dmg
-npm run dist:win   # → dist/VoiceOS Setup 1.0.0.exe
-npm run dist       # both
+npm run dist:win     # Windows: NSIS installer + portable exe (works from Linux too!)
+npm run dist:linux   # Linux: AppImage + deb
+npm run dist         # all four
 ```
 
-Unsigned builds install fine; on macOS the first launch may need
-System Settings → Privacy & Security → “Open Anyway”.
-For distribution-grade releases, add your Apple Developer ID /
-EV code-signing certificate — electron-builder picks them up automatically.
+electron-builder's NSIS target cross-builds fine from Linux — no Windows
+machine needed. For signed builds, drop a code-signing cert in and
+electron-builder picks it up (`CSC_LINK` / `CSC_KEY_PASSWORD` env vars).
 
 > Note: OS-level dictation into *any* app (the spec's "universal input")
-> additionally requires native accessibility permissions and a keystroke
-> bridge (e.g. nut.js) — that's the next milestone; this shell delivers the
-> overlay window, hotkey, and installable packaging.
+> additionally requires an accessibility/keystroke bridge (e.g. nut.js) —
+> that's the next milestone; this shell delivers the overlay window, hotkey,
+> and installable packaging.

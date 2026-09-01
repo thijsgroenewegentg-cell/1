@@ -3,3 +3,4 @@ desktop/renderer/
 desktop/dist/
 dist/
 .DS_Store
+desktop/build/

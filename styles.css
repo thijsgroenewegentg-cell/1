@@ -166,6 +166,17 @@ body {
   border-left: 2px solid var(--accent1); padding-left: 12px; margin-top: 6px;
 }
 
+/* workflow step checklist */
+.wf-list { margin: 6px 0 2px; }
+.wf-step {
+  display: flex; align-items: center; gap: 10px; padding: 6px 4px;
+  font-size: 13px; color: var(--ink-dim); transition: color .25s;
+}
+.wf-step .wf-ico { width: 18px; text-align: center; flex: none; }
+.wf-step.done { color: var(--ink); }
+.wf-step.done .wf-ico { color: var(--good); }
+.wf-step.active { color: var(--accent2); }
+
 /* ============ Desktop ============ */
 #desktop { position: fixed; inset: 30px 0 0 0; }
 #windows { position: absolute; inset: 0 0 96px 0; }

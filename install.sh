@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # =========================================================
-#  VoiceOS — simple installer & launcher (macOS / Linux)
+#  VoiceOS — simple installer & launcher (Linux)
 #  No dependencies to download: uses Python 3 or Node
 #  that you already have. Everything runs locally.
+#  Windows users: double-click install.bat instead.
 # =========================================================
 set -euo pipefail
 
@@ -68,11 +69,9 @@ else
 fi
 
 # --- open in the default browser ---------------------------------------------
-case "$(uname -s)" in
-  Darwin)  open "$URL" ;;
-  Linux)   (command -v xdg-open >/dev/null 2>&1 && xdg-open "$URL") || say "Open $URL in your browser." ;;
-  *)       say "Open $URL in your browser." ;;
-esac
+if command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL"
+elif command -v gio >/dev/null 2>&1; then gio open "$URL"
+else say "Open $URL in your browser."; fi
 
 echo ""
 say "Tip: in Chrome/Edge you can then choose “Install VoiceOS” (menu bar ⬇ button)"

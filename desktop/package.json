@@ -1,17 +1,17 @@
 {
   "name": "voiceos-desktop",
   "productName": "VoiceOS",
-  "version": "1.0.0",
-  "description": "VoiceOS desktop shell — always-on-top notch window with global hotkey.",
+  "version": "1.1.0",
+  "description": "VoiceOS desktop shell — always-on-top voice bar with global hotkey. Windows & Linux.",
   "private": true,
   "main": "main.js",
   "scripts": {
     "sync": "node sync.js",
     "start": "node sync.js && electron .",
     "predist": "node sync.js",
-    "dist": "electron-builder --mac --win",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist": "electron-builder --win --linux",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
   },
   "devDependencies": {
     "electron": "^31.0.0",
@@ -21,8 +21,9 @@
     "appId": "app.voiceos.desktop",
     "productName": "VoiceOS",
     "files": ["main.js", "preload.js", "renderer/**", "!**/*.map"],
-    "mac": { "category": "public.app-category.productivity", "target": ["dmg", "zip"] },
-    "win": { "target": ["nsis"] },
-    "nsis": { "oneClick": true, "perMachine": false, "shortcutName": "VoiceOS" }
+    "win": { "target": ["nsis", "portable"], "icon": "build/icon.png" },
+    "linux": { "target": ["AppImage", "deb"], "icon": "build/icon.png", "category": "Utility" },
+    "nsis": { "oneClick": true, "perMachine": false, "shortcutName": "VoiceOS" },
+    "deb": { "fpm": [] }
   }
 }

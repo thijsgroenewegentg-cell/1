@@ -3,6 +3,26 @@
 All notable changes to VoiceOS are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-09-01
+
+Windows & Linux focus + workflows, learning, briefing, tasks — with **real installers built by CI**.
+
+### Added
+- **Multi-step workflow cards** — the spec's flagship example: *“Send John the latest project deck”* → found → compose → attach → send, with a live checklist that ticks off in the notch as each step executes
+- **Contact learning** — *“I meant Sarah, not Sara”* persists an alias and applies it to all future commands
+- **Morning briefing** — *“Morning briefing” / “Start my day”* → one card: next meeting, unread mail, reminders, open tasks
+- **Tasks app** — new dock app + `create task` / `show my tasks`; open tasks feed the briefing
+- **Notes search** — *“Search notes for checklist”* → result card that opens Notes
+- **CI** — tests run on every push, on **Windows and Linux** runners
+- **Automated installer builds** — pushing a version tag builds and attaches **Windows (NSIS + portable .exe)** and **Linux (AppImage + .deb)** installers to the GitHub release automatically
+- **22 new tests** (63 total): workflows, learning, briefing, tasks, notes search, never-confirm workflow auto-run
+
+### Changed
+- **Platform pivot: Windows & Linux only.** Dropped the macOS installer; desktop shell hotkey is `Ctrl+Space`; installers are Linux-native (`install.sh`, `install.bat`).
+- Search cards now open the *right* app (Mail / Files / Notes / Tasks) per result.
+
+## [1.0.0] — 2026-09-01
+
 ## [1.0.0] — 2026-09-01
 
 First full release. 🎉
@@ -26,4 +46,5 @@ First full release. 🎉
 ### Privacy
 100% local: no servers, no telemetry, no API keys. Audio and transcripts never leave the device.
 
+[1.1.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.1.0
 [1.0.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.0.0

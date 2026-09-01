@@ -30,6 +30,7 @@ const APPS = {
   Messages: { icon: '💬', name: 'Messages' },
   Notes:    { icon: '📝', name: 'Notes' },
   Files:    { icon: '📁', name: 'Files' },
+  Tasks:    { icon: '✅', name: 'Tasks' },
 };
 
 const now = new Date();
@@ -62,9 +63,14 @@ const store = {
   ],
   notes: [
     { text: 'Launch checklist: changelog, pricing page, announcement email.', fresh: false },
-    { text: 'Idea: notch UI should pulse while listening.', fresh: false },
+    { text: 'Idea: voice bar should pulse while listening.', fresh: false },
   ],
   reminders: [],
+  tasks: [
+    { title: 'Review pull request from Alex', done: false, fresh: false },
+    { title: 'Draft launch announcement', done: false, fresh: false },
+    { title: 'Book flights for offsite', done: true, fresh: false },
+  ],
 };
 
 /* ======================== STATE ======================== */
@@ -76,6 +82,7 @@ const state = {
   recognition: null,
   listening: false,
   history: [],              // recent commands (context)
+  aliases: {},              // learned corrections: 'sara' -> 'sarah'
 };
 const openWins = {};        // appName -> win element
 
@@ -112,7 +119,8 @@ function shouldConfirm(action) {
 function snapshotStore() {
   return JSON.stringify({
     notes: store.notes, reminders: store.reminders, events: store.events,
-    sent: store.sent, threads: store.threads, history: state.history.slice(-30),
+    sent: store.sent, threads: store.threads, tasks: store.tasks,
+    aliases: state.aliases, history: state.history.slice(-30),
   });
 }
 function persist() {
@@ -131,6 +139,8 @@ function loadPersisted() {
     if (d.events)    { store.events = d.events;       reviveDates(store.events, 'when'); }
     if (d.sent) store.sent = d.sent;
     if (d.threads) store.threads = d.threads;
+    if (Array.isArray(d.tasks)) store.tasks = d.tasks;
+    if (d.aliases) state.aliases = d.aliases;
     if (Array.isArray(d.history)) state.history = d.history;
   } catch (_) { /* ignore corrupted snapshot */ }
 }
@@ -186,6 +196,11 @@ function resolveDate(t) {
 }
 
 function findContact(t) {
+  for (const alias of Object.keys(state.aliases)) {
+    if (new RegExp('\\b' + alias + '\\b', 'i').test(t) && CONTACTS[state.aliases[alias]]) {
+      return { key: state.aliases[alias], ...CONTACTS[state.aliases[alias]], viaAlias: alias };
+    }
+  }
   for (const key of Object.keys(CONTACTS)) {
     if (new RegExp('\\b' + key + '\\b', 'i').test(t)) return { key, ...CONTACTS[key] };
   }
@@ -323,6 +338,69 @@ function dictateCard(resp) {
   showCard('Dictation', 'Transcribed', `<div class="dictate-body">${esc(resp.card_data.text)}</div>`, { autoClose: 4500 });
 }
 
+/* --- v1.1: multi-step workflow card with live checklist --- */
+function workflowCard(resp, onDone) {
+  const steps = resp.workflow_steps || [];
+  const rows = s => (resp.workflow_steps || []).map(st => `
+    <div class="wf-step ${st.state}" data-step="${st.step}">
+      <span class="wf-ico">${st.state === 'done' ? '✓' : st.state === 'active' ? '◐' : '○'}</span>
+      <span class="wf-label">${esc(st.label)}</span>
+    </div>`).join('');
+
+  showCard('Workflow', esc(resp.confirmation_prompt || resp.response), `
+    <div class="wf-list">${rows()}</div>
+    ${resp.requires_confirmation ? `
+    <div class="card-actions">
+      <button class="btn primary" data-yes>${esc(resp.card_data?.confirmLabel || 'RUN')}</button>
+      <button class="btn danger-ghost" data-no>CANCEL</button>
+    </div>` : ''}`);
+
+  const doIt = () => {
+    state.pending = null;
+    // animate remaining steps completing, then execute
+    const pendingSteps = resp.workflow_steps.filter(s => s.state !== 'done');
+    pendingSteps.forEach((s, i) => {
+      setTimeout(() => {
+        s.state = 'done';
+        const list = notchBody.querySelector('.wf-list');
+        if (list) list.innerHTML = rows();
+        if (i === pendingSteps.length - 1) {
+          const r = exec(resp);
+          const done = makeResponse({ ...resp, requires_confirmation: false, confirmation_prompt: null,
+            result: r.result, response: 'Done.', _handled: true });
+          emit(done);
+          resultCard(r.result, r.sub || `${resp.parameters.file || ''} → ${resp.parameters.to}`);
+          speak('Done.');
+          return done;
+        }
+      }, 380 * (i + 1));
+    });
+  };
+
+  if (resp.requires_confirmation) {
+    state.pending = { type: 'confirm', resp, onConfirm: () => { const d = doIt(); return d || makeResponse({ ...resp, result: 'Done', _handled: true }); } };
+    const yes = notchBody.querySelector('[data-yes]');
+    const no = notchBody.querySelector('[data-no]');
+    if (yes) yes.addEventListener('click', doIt);
+    if (no) no.addEventListener('click', () => {
+      state.pending = null;
+      const r = makeResponse({ understood: 'Cancelled', mode: 'agent', confidence: 1,
+        result: 'Cancelled', response: 'Cancelled. Nothing was sent.' });
+      emit(r); textCard(r);
+    });
+  } else {
+    setTimeout(doIt, 500);
+  }
+}
+
+/* --- v1.1: briefing card --- */
+function briefingCard(resp) {
+  const d = resp.card_data || {};
+  const kvRows = (d.lines || []).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+  showCard('Briefing · ' + esc(d.when || ''), `${esc(d.title || 'Briefing')}`,
+    `<dl class="kv">${kvRows}</dl>`, { autoClose: 9000 });
+}
+
 /* ======================== RESPONSE FACTORY ======================== */
 
 function makeResponse(p) {
@@ -349,6 +427,27 @@ function parse(rawInput) {
     state.pending = null;
     return makeResponse({ understood: 'Cancel current action', mode: 'agent', action: 'cancel',
       confidence: .98, result: 'Cancelled', response: had ? 'Cancelled. What’s next?' : 'Nothing to cancel.' });
+  }
+
+  /* --- learning: "I meant Sarah, not Sara" / "actually it's Sarah" --- */
+  const mCorr = t.match(/\b(?:actually,? |no,? )?i meant (\w+)(?:\s*,?\s*not\s+(\w+))?\b/)
+             || t.match(/\bit'?s (\w+),?\s*not\s+(\w+)\b/);
+  if (mCorr) {
+    const meant = mCorr[1], wrong = mCorr[2];
+    const target = CONTACTS[meant.toLowerCase()];
+    if (target) {
+      if (wrong) state.aliases[wrong.toLowerCase()] = meant.toLowerCase();
+      state.aliases[meant.toLowerCase()] = meant.toLowerCase();
+      persist();
+      return makeResponse({
+        understood: `Correction: “${wrong || meant}” means ${target.name}`,
+        mode: 'agent', action: 'learn_alias', confidence: .95,
+        parameters: { alias: wrong || meant, contact: target.name },
+        result: 'Learned', response: `Got it — I’ll use ${target.name} from now on.`,
+        card_type: 'text',
+        card_data: { body: wrong ? `“${titleCase(wrong)}” → ${target.name}, saved for next time.` : null },
+      });
+    }
   }
 
   /* --- pending confirmation? --- */
@@ -395,6 +494,35 @@ function routeFresh(raw, t) {
     return makeResponse({ understood: 'Mass-delete request', mode: 'agent', confidence: .93,
       response: 'That’s too risky. Use the app’s settings instead.' });
   }
+
+  /* --- DAILY BRIEFING (multi-source workflow) --- */
+  if (/\b(morning|daily) (briefing|routine)\b|\bstart my (day|morning)\b|\bbrief me\b/.test(t)) {
+    return buildAction('daily_briefing', {}, raw);
+  }
+
+  /* --- WORKFLOW: send a file to a contact (spec's multi-step example) ---
+     "Send John the latest project deck" */
+  if (/\b(send|share|forward)\b/.test(t)
+      && /\b(latest|newest|recent|the)\b.+\b(deck|slides|presentation|spreadsheet|document|doc|report|invoice|notes)\b/.test(t)
+      && findContact(t) && !/\be-?mail\b/.test(t)) {
+    const c = findContact(t);
+    const noun = (t.match(/\b(deck|slides|presentation|spreadsheet|document|doc|report|invoice|notes)\b/) || [,'file'])[1];
+    return buildAction('send_file_workflow', { contact: c, noun }, raw);
+  }
+
+  /* --- TASKS --- */
+  let mTask = raw.match(/\b(?:create|add|new)(?: a)? tasks?[:\s]+(.+)$/i)
+           || raw.match(/^(?:to ?do)[:\s]+(.+)$/i)
+           || raw.match(/\bput\s+(.+?)\s+on my (?:to ?do|task)(?: list)?\b/i);
+  if (mTask) return buildAction('create_task', { title: mTask[1].trim() }, raw);
+  if (/\b(?:show|what'?s on) my (?:tasks?|to ?do)(?: list)?\b/.test(t)) {
+    return buildAction('list_tasks', {}, raw);
+  }
+
+  /* --- NOTES search --- */
+  let mNotes = t.match(/\bsearch (?:my )?notes? (?:for|about)\s+(.+?)\s*$/)
+            || t.match(/\bfind\s+(.+?)\s+in (?:my )?notes?\b/);
+  if (mNotes) return buildAction('search_notes', { query: mNotes[1] }, raw);
 
   /* --- REMINDER --- */
   let m = t.match(/\b(?:remind me to|remember to|set (?:a )?reminder(?: to| for)?)\s+(.+?)\s*$/);
@@ -608,7 +736,7 @@ function buildAction(action, params, raw) {
         parameters: { query: q }, result: `${hits.length} match${hits.length === 1 ? '' : 'es'}`,
         response: hits.length ? `Found ${hits.length} email${hits.length === 1 ? '' : 's'}.` : 'No emails matched.',
         card_type: 'search_result',
-        card_data: { results: hits.map(e => ({ icon: '✉️', name: e.subj, meta: `${e.from} · ${e.when}` })) },
+        card_data: { resultApp: 'Mail', results: hits.map(e => ({ icon: '✉️', name: e.subj, meta: `${e.from} · ${e.when}` })) },
         ui_state: { highlight_app: 'Mail' },
       });
     }
@@ -679,7 +807,7 @@ function buildAction(action, params, raw) {
           ? (hits.length > 1 ? `Found ${hits.length} matches. Showing best first.` : `Found ${hits[0].name}.`)
           : 'Nothing matched. Try different words?',
         card_type: 'search_result',
-        card_data: { query: params.query, results: hits.map(f => ({ icon: f.icon, name: f.name, meta: f.meta })) },
+        card_data: { query: params.query, resultApp: 'Files', results: hits.map(f => ({ icon: f.icon, name: f.name, meta: f.meta })) },
         ui_state: { highlight_app: hits.length ? 'Files' : null },
       });
     }
@@ -699,6 +827,112 @@ function buildAction(action, params, raw) {
         ] },
       });
     }
+
+    /* ---- v1.1: multi-step workflow (spec: "Send John the latest project deck") ---- */
+    case 'send_file_workflow': {
+      const q = params.noun === 'deck' || params.noun === 'slides' ? 'deck' : params.noun;
+      const hits = FILES.filter(f => (f.name + ' ' + f.tags).toLowerCase().includes(q));
+      const hit = hits[0];
+      if (!hit) {
+        return makeResponse({
+          understood: `Send latest ${params.noun} to ${params.contact.name} — no matching file`,
+          mode: 'agent', action, confidence: .5,
+          parameters: { query: params.noun },
+          response: `I couldn't find a ${params.noun}. Which file?`,
+          ui_state: { highlight_app: 'Files' },
+        });
+      }
+      const rc = shouldConfirm('send_email');
+      return makeResponse({
+        understood: `Send latest ${params.noun} (${hit.name}) to ${params.contact.name}`,
+        mode: 'agent', action, confidence: .9,
+        parameters: { to: params.contact.email, file: hit.name,
+          subject: `Latest ${params.noun}`, contactName: params.contact.name },
+        workflow_steps: [
+          { step: 1, action: 'find_file',     label: `Found ${hit.name}`,                state: 'done' },
+          { step: 2, action: 'compose_email', label: `Compose to ${params.contact.email}`, state: 'active' },
+          { step: 3, action: 'attach_file',   label: `Attach ${hit.name}`,               state: 'pending' },
+          { step: 4, action: 'send_email',    label: 'Send',                             state: 'pending' },
+        ],
+        requires_confirmation: rc,
+        confirmation_at_step: 2,
+        confirmation_prompt: rc ? `Email ${hit.name} to ${params.contact.email}?` : null,
+        response: rc ? `Found ${hit.name}. Send to ${params.contact.name}?`
+                     : `Sending ${hit.name} to ${params.contact.name}.`,
+        card_type: 'workflow',
+        card_data: { confirmLabel: 'SEND' },
+        ui_state: { show_confirmation: rc, highlight_app: 'Mail' },
+      });
+    }
+
+    /* ---- v1.1: morning briefing ---- */
+    case 'daily_briefing': {
+      const next = store.events.filter(e => e.when > new Date()).sort((a, b) => a.when - b.when)[0];
+      const unread = store.emails.filter(e => e.unread);
+      const open = store.tasks.filter(x => !x.done);
+      const lines = [
+        ...(next ? [['Next meeting', `${next.title} — ${fmtWhen(next.when)}`]] : [['Meetings', 'Nothing on the calendar']]),
+        ['Mail', unread.length ? `${unread.length} unread — latest: ${unread[0].from}, “${unread[0].subj}”` : 'Inbox zero ✨'],
+        ...(store.reminders.length ? [['Reminders', store.reminders.map(r => r.task).join('; ')]] : []),
+        ['Tasks', open.length ? `${open.length} open — top: ${open[0].title}` : 'All tasks done 🎉'],
+      ];
+      return makeResponse({
+        understood: 'Morning briefing', mode: 'agent', action, confidence: .95,
+        parameters: {},
+        workflow: ['check_availability', 'find_next_meeting', 'search_emails', 'list_tasks'],
+        result: 'Briefing ready',
+        response: next
+          ? `Here's your day: ${unread.length} unread, ${open.length} tasks. First up: ${next.title}.`
+          : `Here's your day: ${unread.length} unread, ${open.length} tasks. Clear calendar.`,
+        card_type: 'briefing',
+        card_data: { title: 'Your day at a glance', lines, when: fmtDate(new Date()) },
+        ui_state: { highlight_app: 'Calendar' },
+      });
+    }
+
+    /* ---- v1.1: tasks & notes search ---- */
+    case 'create_task': {
+      const rc = shouldConfirm('create_task'); // only fires on 'always'
+      return makeResponse({
+        understood: `Create task: “${params.title}”`, mode: 'agent', action, confidence: .94,
+        parameters: { title: titleCase(params.title) },
+        requires_confirmation: rc,
+        confirmation_prompt: rc ? `Create task “${titleCase(params.title)}”?` : null,
+        result: 'Task added', response: `Added “${titleCase(params.title)}” to Tasks.`,
+        card_data: rc ? { lines: [['Task', titleCase(params.title)]], confirmLabel: 'ADD' } : {},
+        ui_state: { show_confirmation: rc, highlight_app: 'Tasks' },
+      });
+    }
+
+    case 'list_tasks': {
+      const open = store.tasks.filter(x => !x.done);
+      return makeResponse({
+        understood: 'List open tasks', mode: 'agent', action, confidence: .95,
+        parameters: {},
+        result: `${open.length} open tasks`,
+        response: open.length ? `${open.length} open. Top: ${open[0].title}.` : 'All tasks done. Nice.',
+        card_type: 'search_result',
+        card_data: { resultApp: 'Tasks', results: open.map(x => ({ icon: '✅', name: x.title, meta: 'Task · open' })) },
+        ui_state: { highlight_app: 'Tasks' },
+      });
+    }
+
+    case 'search_notes': {
+      const q = (params.query || '').toLowerCase();
+      const hits = store.notes.filter(n => n.text.toLowerCase().includes(q));
+      return makeResponse({
+        understood: `Search notes: ${q}`, mode: 'search', action, confidence: .9,
+        parameters: { query: q },
+        result: hits.length ? `${hits.length} match${hits.length === 1 ? '' : 'es'}` : 'No matches',
+        response: hits.length ? `Found ${hits.length} note${hits.length === 1 ? '' : 's'}.`
+                              : 'No notes matched. Try different words?',
+        card_type: 'search_result',
+        card_data: { resultApp: 'Notes', results: hits.map(n => ({ icon: '📝', name: n.text.slice(0, 60), meta: 'Note' })) },
+        ui_state: { highlight_app: 'Notes' },
+      });
+    }
+
+    case 'learn_alias': break; // handled in parse
 
     case 'create_note': {
       const clean = cleanDictation(params.body);
@@ -756,7 +990,8 @@ function cleanDictation(s) {
 /* ======================== EXECUTOR ======================== */
 
 const PERSIST_ACTIONS = new Set(['send_email', 'reply_email', 'schedule_meeting',
-  'create_reminder', 'send_message', 'reply_message', 'create_note']);
+  'create_reminder', 'send_message', 'reply_message', 'create_note',
+  'send_file_workflow', 'create_task', 'learn_alias']);
 
 function exec(resp) {
   const out = execInner(resp);
@@ -772,6 +1007,21 @@ function execInner(resp) {
       store.sent.unshift({ from: 'me', to: p.to, subj: p.subject, body: p.body, when: 'Just now' });
       return { result: `Email sent to ${CONTACTS_BY_EMAIL(p.to)?.name || p.to}` };
     }
+    case 'send_file_workflow': {
+      const body = `Hi ${p.contactName},\n\nHere's the latest. File attached.\n\n📎 ${p.file}\n\n— Sent with VoiceOS`;
+      openApp('Files', { highlight: p.file });
+      openApp('Mail', { compose: { to: p.to, subj: p.subject, body }, sent: true });
+      store.sent.unshift({ from: 'me', to: p.to, subj: p.subject, body, when: 'Just now' });
+      return { result: `${p.file} sent to ${p.contactName}`, sub: `${p.to} · with attachment` };
+    }
+    case 'create_task': {
+      store.tasks.push({ title: p.title, done: false, fresh: true });
+      openApp('Tasks');
+      return { result: 'Task added', sub: p.title };
+    }
+    case 'list_tasks': openApp('Tasks'); return { result: resp.result };
+    case 'daily_briefing': return { result: resp.result };
+    case 'search_notes': return { result: resp.result }; // card handles Open → Notes
     case 'schedule_meeting': {
       store.events.push({ title: p.title, when: new Date(p.when), who: [CONTACTS_BY_EMAIL(p.attendee)?.name || p.attendee], fresh: true });
       openApp('Calendar');
@@ -844,6 +1094,8 @@ function handleUtterance(text) {
       state.activeApp = resp.ui_state?.highlight_app || state.activeApp;
 
       /* ---- render by card type ---- */
+      if (resp.card_type === 'workflow') { workflowCard(resp); return; }
+      if (resp.card_type === 'briefing') { briefingCard(resp); exec(resp); return; }
       if (resp.requires_confirmation) {
         const doConfirm = () => {
           state.pending = null;
@@ -864,7 +1116,7 @@ function handleUtterance(text) {
       if (resp.options) { optionsCard(resp, v => handleUtterance(resolveOption(v, resp))); return; }
       if (resp.card_type === 'search_result' && resp.card_data?.results) {
         searchCard(resp, item => {
-          openApp('Files', { highlight: item.name });
+          openApp(resp.card_data?.resultApp || 'Files', { highlight: item.name });
           resultCard(`Opening ${item.name}`);
         });
         exec(resp);
@@ -911,7 +1163,7 @@ function openApp(name, opts = {}) {
   if (!win) {
     win = document.createElement('div');
     win.className = 'win';
-    const spots = { Mail: [60, 40], Calendar: [150, 90], Messages: [90, 120], Notes: [200, 60], Files: [120, 100] };
+    const spots = { Mail: [60, 40], Calendar: [150, 90], Messages: [90, 120], Notes: [200, 60], Files: [120, 100], Tasks: [260, 110] };
     const [x, y] = spots[name] || [80 + winOffset, 60 + winOffset];
     win.style.left = x + 'px'; win.style.top = y + 'px';
     win.innerHTML = `
@@ -1028,6 +1280,20 @@ function renderApp(name, opts = {}) {
         </div>`).join('')}
     </div>`;
   }
+  if (name === 'Tasks') {
+    body.innerHTML = `<div class="app-list">
+      ${store.tasks.map(x => `
+        <div class="app-row ${x.fresh ? 'hl' : ''}">
+          <span>${x.done ? '✅' : '⬜'}</span>
+          <div class="grow">
+            <div class="name" ${x.done ? 'style="opacity:.45;text-decoration:line-through"' : ''}>${esc(x.title)}</div>
+            <div class="sub">${x.done ? 'Done' : 'Open'}</div>
+          </div>
+          ${x.fresh ? '<span class="badge-new">NEW</span>' : ''}
+        </div>`).join('')}
+    </div>`;
+    store.tasks.forEach(x => x.fresh = false);
+  }
 }
 
 /* --- dock --- */
@@ -1073,15 +1339,19 @@ document.addEventListener('keydown', e => {
 
 /* suggestion chips — straight from the spec's examples */
 const CHIPS = [
+  'Send John the latest project deck',   // multi-step workflow
+  'Morning briefing',
   'Send email to John about the meeting',
   'Schedule meeting with Sarah next week',
   'Find last year’s tax returns',
   'Reply to Maya',
+  'Create task: review the launch plan',
+  'Search notes for checklist',
   'Remind me to call Joan tomorrow at 9am',
   'Take a note: the new onboarding flow tested well',
   'What’s my next meeting?',
-  'Send message',           // ambiguity demo
-  'Search web for focus timing',
+  'Send message',                        // ambiguity demo
+  'Search web for focus music',
   'Open Notes',
 ];
 $('#chips').innerHTML = CHIPS.map(c => `<button class="chip">${esc(c)}</button>`).join('');

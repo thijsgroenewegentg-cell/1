@@ -133,6 +133,54 @@ const tests = `
   store.events = store.events.filter(e => e.title !== 'Probe event');
   delete global.localStorage;
 
+  /* ---------- v1.1: contact learning (spec: "Actually, I meant Sarah not Sara") ---------- */
+  state.aliases = {}; // isolate from localStorage persistence
+  r = parse('I meant Sarah not Sara');
+  check('learn: correction action', r.action === 'learn_alias' && /Sarah/.test(r.response), r);
+  check('learn: alias stored', state.aliases.sara === 'sarah', state.aliases);
+  check('learn: alias resolves', findContact(' sara ').email === 'sarah@company.com', findContact(' sara '));
+  r = parse('Send message to Sara saying learned');
+  check('learn: applies to future commands', r.action === 'send_message' && r.parameters.to === 'Sarah', r);
+
+  /* ---------- v1.1: multi-step workflow (spec example verbatim) ---------- */
+  r = parse('Send John the latest project deck');
+  check('workflow: action', r.action === 'send_file_workflow', r);
+  check('workflow: steps', Array.isArray(r.workflow_steps) && r.workflow_steps.length === 4, r.workflow_steps);
+  check('workflow: step1 found', r.workflow_steps[0].state === 'done' && /project_deck_v7/.test(r.workflow_steps[0].label), r.workflow_steps[0]);
+  check('workflow: confirms at step 2', r.requires_confirmation === true && r.confirmation_at_step === 2, r);
+  check('workflow: file resolved', r.parameters.file === 'project_deck_v7.key', r.parameters);
+  const execOut = exec(r);
+  check('workflow: exec attaches + sends', /project_deck_v7\.key sent to John/.test(execOut.result), execOut);
+  check('workflow: lands in Sent with attachment', store.sent[0].body.includes('📎 project_deck_v7.key'), store.sent[0].body);
+
+  /* ---------- v1.1: morning briefing ---------- */
+  r = parse('Morning briefing');
+  check('briefing: action', r.action === 'daily_briefing', r);
+  check('briefing: card with lines', r.card_type === 'briefing' && r.card_data.lines.length >= 3, r.card_data);
+  check('briefing: spoken summary short', r.response.split(' ').length < 20, r.response);
+  r = parse('Start my day');
+  check('briefing: alt phrasing', r.action === 'daily_briefing', r);
+
+  /* ---------- v1.1: tasks ---------- */
+  r = parse('Create task: review the launch plan');
+  check('task: action+title', r.action === 'create_task' && /review/i.test(r.parameters.title), r);
+  exec(r);
+  check('task: stored', store.tasks.some(x => /review the launch plan/i.test(x.title)), store.tasks);
+  r = parse("Show my tasks");
+  check('task: list', r.action === 'list_tasks' && r.card_type === 'search_result', r);
+  check('task: list has resultApp', r.card_data.resultApp === 'Tasks', r.card_data);
+
+  /* ---------- v1.1: notes search ---------- */
+  r = parse('Search notes for checklist');
+  check('notes: search', r.action === 'search_notes' && r.card_data.results.length === 1, r);
+  check('notes: resultApp', r.card_data.resultApp === 'Notes', r.card_data);
+
+  /* ---------- safety: workflow with confirmation level never ---------- */
+  settings.confirmLevel = 'never';
+  r = parse('Send John the latest project deck');
+  check('workflow: never-level auto-runs', r.requires_confirmation === false, r);
+  settings.confirmLevel = 'sometimes';
+
   /* ---------- integration: full headless pipeline ---------- */
   let threw = null;
   try {
