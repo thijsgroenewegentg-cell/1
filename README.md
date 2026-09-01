@@ -13,25 +13,30 @@ Dictation and agent modes in a floating, notch-style interface. 100% local, 100%
 
 ## ⚡ Install (Windows & Linux)
 
-### Option A — Native installer (recommended)
+### Option A — Zero-install web app (works everywhere)
 
-Grab the assets built by CI from the
-[**latest release**](https://github.com/thijsgroenewegentg-cell/1/releases/latest):
+Download the **Source code (zip)** from the
+[**latest release**](https://github.com/thijsgroenewegentg-cell/1/releases/latest), unzip, then:
 
-| Platform | File |
-| --- | --- |
-| **Windows** | `VoiceOS Setup *.exe` (installer) or `VoiceOS *.exe` (portable, no install) |
-| **Linux** | `VoiceOS *.AppImage` (run anywhere) or `voiceos *.deb` (apt/dpkg) |
-
-The desktop app is an always-on-top voice bar with a **global hotkey** (`Ctrl+Space`).
-
-### Option B — Zero-install web app (works everywhere)
+**Windows** — double-click `install.bat` · **Linux** — `./install.sh`
 
 **Windows** — double-click `install.bat` · **Linux** — `./install.sh`
 
 No downloads, no accounts — the launcher uses the Python 3 or Node already on
 your machine, serves VoiceOS locally, and opens your browser.
 Then click **⬇ Install** in the menu bar to pin it as an app — works offline.
+
+### Option B — Native desktop app (voice bar + global hotkey)
+
+Two ways to get ready-made Windows / Linux installers
+(`Setup.exe`, portable `.exe`, `.AppImage`, `.deb`):
+
+1. **CI builds them for you** (one-time setup, ~1 minute): see
+   [`ci-templates/README.md`](ci-templates/README.md) — copy two files into
+   `.github/workflows/`, push, and every future `v*` tag automatically attaches
+   signed-ready installers to the release. **Free** for public repos.
+2. **Build locally**: `cd desktop && npm install && npm run dist` (Windows
+   installer cross-builds from Linux too).
 
 ---
 
