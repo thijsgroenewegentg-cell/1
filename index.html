@@ -4,191 +4,183 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>VoiceOS — Say it once, let it go</title>
+<meta name="description" content="VoiceOS is a voice-first operating layer for Windows & Linux. Speak once: it transcribes, decides, and acts — across email, calendar, messages, files and tasks. 100% local, 100% free." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎙️</text></svg>" />
-<link rel="apple-touch-icon" href="icons/icon-192.png" />
-<link rel="manifest" href="manifest.webmanifest" />
-<meta name="theme-color" content="#000000" />
-<meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="landing.css" />
 </head>
 <body>
 
-  <!-- Desktop-style menu bar -->
-  <header id="menubar">
-    <div class="mb-left">
-      <span class="mb-logo">◉</span>
-      <span class="mb-app">VoiceOS</span>
-      <span class="mb-item">File</span>
-      <span class="mb-item">Edit</span>
-      <span class="mb-item">View</span>
-      <span class="mb-item">Help</span>
+<nav class="nav">
+  <div class="nav-brand"><span class="brand-dot">◉</span> VoiceOS</div>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+    <a href="#install">Install</a>
+    <a href="https://github.com/thijsgroenewegentg-cell/1">GitHub</a>
+    <a class="nav-cta" href="app.html">Launch live demo</a>
+  </div>
+</nav>
+
+<!-- ===================== HERO ===================== -->
+<header class="hero">
+  <div class="hero-art" aria-hidden="true"></div>
+  <div class="hero-inner">
+    <div class="hero-badge">v1.1 · Windows &amp; Linux · MIT · 100% local</div>
+    <h1>Say it once,<br /><span class="grad">let it go.</span></h1>
+    <p class="hero-sub">
+      VoiceOS is a voice-first operating layer. Speak — it transcribes cleanly,
+      understands your intent, and executes across email, calendar, messages,
+      files and tasks. No switching, no typing, no friction.
+    </p>
+    <div class="hero-cta">
+      <a class="btn-primary" href="app.html">▶ Try the live demo</a>
+      <a class="btn-ghost" href="https://github.com/thijsgroenewegentg-cell/1/releases/latest">Download v1.1.1</a>
     </div>
-    <div class="mb-right">
-      <button id="installBtn" class="mb-btn accent" title="Install VoiceOS as an app" style="display:none">⬇ Install</button>
-      <button id="helpBtn" class="mb-btn" title="What can I say?">?</button>
-      <button id="settingsBtn" class="mb-btn" title="Settings">⚙️</button>
-      <button id="soundToggle" class="mb-btn" title="Toggle spoken responses">🔊</button>
-      <button id="jsonToggle" class="mb-btn" title="Toggle JSON inspector">{ }</button>
-      <span id="clock" class="mb-clock"></span>
-    </div>
-  </header>
-
-  <!-- First-run onboarding -->
-  <div id="onboarding" class="overlay">
-    <div class="sheet">
-      <div class="sheet-logo">◉</div>
-      <h1>VoiceOS</h1>
-      <p class="sheet-sub">Say it once, let it go. A voice layer for everything you do.</p>
-
-      <div class="field">
-        <label>Speaking speed</label>
-        <div class="seg" id="obRate">
-          <label><input type="radio" name="obrate" value="slow"><span>Slow</span></label>
-          <label><input type="radio" name="obrate" value="normal" checked><span>Normal</span></label>
-          <label><input type="radio" name="obrate" value="fast"><span>Fast</span></label>
-        </div>
-      </div>
-
-      <div class="field">
-        <label>Ask before acting…</label>
-        <div class="seg" id="obConfirm">
-          <label><input type="radio" name="obconfirm" value="always"><span>Always</span></label>
-          <label><input type="radio" name="obconfirm" value="sometimes" checked><span>Big stuff only</span></label>
-          <label><input type="radio" name="obconfirm" value="never"><span>Never</span></label>
-        </div>
-      </div>
-
-      <div class="field" id="obVoiceField">
-        <label>Voice</label>
-        <select id="obVoice"></select>
-      </div>
-
-      <div class="privacy-line">🔒 Audio and transcripts never leave this device.</div>
-
-      <button id="obStart" class="btn primary big">Start using VoiceOS</button>
-      <p class="sheet-foot">Try it: “Send email to John about the meeting.”</p>
+    <div class="hero-proof">
+      <span>101 automated checks</span><i>·</i>
+      <span>0 dependencies</span><i>·</i>
+      <span>0 API keys</span><i>·</i>
+      <span>audio never leaves your device</span>
     </div>
   </div>
 
-  <!-- Settings -->
-  <aside id="settingsPanel" class="side-panel">
-    <div class="panel-title">Settings</div>
-    <div class="set-rows">
-      <div class="set-row"><span>Voice</span><select id="setVoice"></select></div>
-      <div class="set-row"><span>Speed</span>
-        <select id="setRate">
-          <option value="slow">Slow</option>
-          <option value="normal">Normal</option>
-          <option value="fast">Fast</option>
-        </select>
-      </div>
-      <div class="set-row"><span>Confirmations</span>
-        <select id="setConfirm">
-          <option value="always">Always</option>
-          <option value="sometimes">Big stuff only</option>
-          <option value="never">Never</option>
-        </select>
-      </div>
-      <div class="set-row"><span>Verbosity</span>
-        <select id="setVerbose">
-          <option value="normal">Normal</option>
-          <option value="brief">Brief</option>
-        </select>
-      </div>
-      <div class="set-row"><span>Privacy</span><span class="set-static">Local-only 🔒</span></div>
-      <div class="set-row"><span>Hotkey</span><span class="set-static">⌃ Space</span></div>
+  <!-- live-simulated mini demo -->
+  <div class="hero-demo" aria-hidden="true">
+    <div class="demo-notch">
+      <div class="demo-notch-idle"><span class="d-dot"></span>VoiceOS</div>
     </div>
-    <div class="set-actions">
-      <button id="setReset" class="btn">Reset onboarding</button>
-      <button id="setWipe" class="btn danger-ghost">Clear local data</button>
-    </div>
-    <div class="panel-title" style="margin-top:14px">VoiceOS <span class="panel-note">v1.0.0</span></div>
-  </aside>
-
-  <!-- Help -->
-  <div id="helpModal" class="overlay">
-    <div class="sheet help">
-      <div class="card-head"><span>What can I say?</span><button class="card-x" id="helpClose">✕</button></div>
-      <div class="help-cols">
-        <div>
-          <h3>✉️ Email</h3>
-          <p>“Send email to John about the meeting”</p>
-          <p>“Search my emails from Maya”</p>
-          <h3>📅 Calendar</h3>
-          <p>“Schedule meeting with Sarah next week”</p>
-          <p>“What’s my next meeting?”</p>
-          <p>“Is Alex free friday?”</p>
-        </div>
-        <div>
-          <h3>💬 Messages</h3>
-          <p>“Reply to Maya” · “Text Alex saying I’m in”</p>
-          <p>“Check messages from Maria”</p>
-          <h3>📁 Files & 🔎 Search</h3>
-          <p>“Find last year’s tax returns”</p>
-          <p>“Search web for focus music”</p>
-        </div>
-        <div>
-          <h3>📝 Notes & ⏰ Reminders</h3>
-          <p>“Take a note: call the accountant”</p>
-          <p>“Remind me to call Joan tomorrow at 9am”</p>
-          <h3>🖥️ Apps</h3>
-          <p>“Open Notes” · “Close Mail”</p>
-          <h3>🛡️ Safety</h3>
-          <p>Passwords and mass deletes are always refused.</p>
-        </div>
+    <div class="demo-card">
+      <div class="demo-tag" id="demoTag">Agent mode</div>
+      <div class="demo-title" id="demoTitle">Send email to John about the meeting</div>
+      <div class="demo-lines" id="demoLines"></div>
+      <div class="demo-actions" id="demoActions">
+        <span class="demo-btn primary">SEND</span><span class="demo-btn">CANCEL</span>
       </div>
     </div>
   </div>
+</header>
 
-  <!-- The Notch -->
-  <div id="notch" class="notch idle">
-    <div id="notchBody" class="notch-body">
-      <div class="idle-row">
-        <span class="idle-dot"></span>
-        <span class="idle-label">VoiceOS</span>
-      </div>
+<!-- ===================== TICKER ===================== -->
+<div class="ticker">
+  <span>“Send John the latest project deck”</span>
+  <span>“Morning briefing”</span>
+  <span>“Reply to Maya”</span>
+  <span>“Find last year’s tax returns”</span>
+  <span>“I meant Sarah, not Sara”</span>
+  <span>“Remind me to call Joan tomorrow at 9am”</span>
+  <span>“Take a note: onboarding tested well”</span>
+  <span>“What’s my next meeting?”</span>
+</div>
+
+<!-- ===================== FEATURES ===================== -->
+<section id="features" class="section">
+  <h2>Two modes. Zero friction.</h2>
+  <p class="section-sub">Dictation writes for you. Agent mode acts for you.</p>
+  <div class="grid">
+    <div class="card">
+      <div class="card-ico">🗣️</div>
+      <h3>Dictation mode</h3>
+      <p>Speak naturally — fillers stripped, grammar fixed, punctuation added,
+      text typed where you want it. Roughly 4× faster than typing a first draft.</p>
+    </div>
+    <div class="card">
+      <div class="card-ico">⚡</div>
+      <h3>Agent mode</h3>
+      <p>Speak intent, not clicks. “Send John the latest project deck” finds the
+      file, composes the mail, attaches it, and asks before anything sends.</p>
+    </div>
+    <div class="card">
+      <div class="card-ico">🧠</div>
+      <h3>Context aware</h3>
+      <p>Knows John → john@company.com, that “next week” means Monday 9:00,
+      and remembers your corrections — “I meant Sarah, not Sara.”</p>
+    </div>
+    <div class="card">
+      <div class="card-ico">🛡️</div>
+      <h3>Confirms what matters</h3>
+      <p>Emails and meetings ask first. Always / big stuff / never — your call.
+      Passwords and mass-deletes are simply refused.</p>
+    </div>
+    <div class="card">
+      <div class="card-ico">📋</div>
+      <h3>Visible workflows</h3>
+      <p>Multi-step jobs render a live checklist in the voice bar — found →
+      composed → attached → sent — ticking as each step lands.</p>
+    </div>
+    <div class="card">
+      <div class="card-ico">🔒</div>
+      <h3>Private by design</h3>
+      <p>No servers, no telemetry, no keys. Speech uses your OS engine;
+      transcripts and data live only in local storage.</p>
     </div>
   </div>
+</section>
 
-  <!-- Fake desktop where agent actions happen -->
-  <main id="desktop">
-    <div id="windows"></div>
-
-    <div id="hint">
-      <p class="hint-title">VoiceOS is listening.</p>
-      <p class="hint-sub">Type a command below, tap the mic, or click a suggestion. Try agent mode: <em>“Send email to John about the meeting.”</em></p>
+<!-- ===================== HOW ===================== -->
+<section id="how" class="section how">
+  <h2>How it works</h2>
+  <p class="section-sub">Every utterance becomes structured, inspectable JSON — then action.</p>
+  <div class="how-cols">
+    <div class="how-steps">
+      <div class="hstep"><b>1 · Listen</b><span>⌃ Space or the mic. A waveform answers instantly.</span></div>
+      <div class="hstep"><b>2 · Understand</b><span>Intent + entities + time parsing → JSON you can inspect live.</span></div>
+      <div class="hstep"><b>3 · Act</b><span>Apps open, drafts fill, steps tick. High-impact actions wait for your nod.</span></div>
     </div>
+    <pre class="how-json">{
+  "understood": "Send latest deck
+     to John",
+  "mode": "agent",
+  "action": "send_file_workflow",
+  "confidence": 0.9,
+  "requires_confirmation": true,
+  "response": "Found deck.
+     Send to John?"
+}</pre>
+  </div>
+</section>
 
-    <!-- Dock -->
-    <div id="dock"></div>
-  </main>
-
-  <!-- Session log -->
-  <aside id="logPanel" class="side-panel">
-    <div class="panel-title">Session</div>
-    <div id="logList"></div>
-  </aside>
-
-  <!-- JSON inspector (VoiceOS always responds in JSON) -->
-  <aside id="jsonPanel" class="side-panel">
-    <div class="panel-title">Response JSON <span class="panel-note">— every turn</span></div>
-    <pre id="jsonView">// Speak or type a command…</pre>
-  </aside>
-
-  <!-- Composer -->
-  <footer id="composerWrap">
-    <div id="chips"></div>
-    <div id="composer">
-      <button id="micBtn" title="Hold a real voice command (Web Speech API)">🎙️</button>
-      <input id="utterance" type="text" autocomplete="off" spellcheck="false"
-             placeholder='Say it once… e.g. "Schedule meeting with Sarah next week"' />
-      <button id="sendBtn" title="Run command">➤</button>
+<!-- ===================== INSTALL ===================== -->
+<section id="install" class="section install">
+  <h2>Install in 30 seconds</h2>
+  <p class="section-sub">No accounts. No downloads from us. No cost — ever.</p>
+  <div class="install-cols">
+    <div class="install-card">
+      <h3>🪟 Windows</h3>
+      <ol>
+        <li>Download the release zip</li>
+        <li>Double-click <code>install.bat</code></li>
+        <li>Hit ⬇ Install in the app to pin it</li>
+      </ol>
     </div>
-    <div class="composer-hint">⌃ Space to talk · Enter to run</div>
-  </footer>
+    <div class="install-card">
+      <h3>🐧 Linux</h3>
+      <ol>
+        <li>Download the release zip</li>
+        <li>Run <code>./install.sh</code></li>
+        <li>“Install” from your browser menu</li>
+      </ol>
+    </div>
+    <div class="install-card">
+      <h3>🖥️ Native overlay</h3>
+      <ol>
+        <li><code>cd desktop && npm install</code></li>
+        <li><code>npm run dist</code> → Setup.exe / AppImage / deb</li>
+        <li>Always-on-top voice bar, ⌃Space anywhere</li>
+      </ol>
+    </div>
+  </div>
+  <a class="btn-primary" href="https://github.com/thijsgroenewegentg-cell/1/releases/latest">Get v1.1.1</a>
+</section>
 
-  <script src="app.js"></script>
+<footer class="footer">
+  <span>◉ VoiceOS — say it once, let it go.</span>
+  <span class="foot-links">
+    <a href="app.html">Live demo</a> ·
+    <a href="https://github.com/thijsgroenewegentg-cell/1">GitHub</a> ·
+    <a href="https://github.com/thijsgroenewegentg-cell/1/releases/latest">Releases</a> · MIT
+  </span>
+</footer>
+
+<script src="landing.js"></script>
 </body>
 </html>

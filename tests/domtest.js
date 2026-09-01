@@ -1,5 +1,5 @@
 /**
- * Browser-grade UI test: loads the REAL index.html + app.js into jsdom and
+ * Browser-grade UI test: loads the REAL app.html + app.js into jsdom and
  * drives the interface end-to-end — typing commands, clicking confirm
  * buttons, asserting notch cards and window content.
  *
@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');
 
-const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')
+const html = fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8')
   .replace('<script src="app.js"></script>',
            () => '<script>' + fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8') + '</script>');
 
@@ -160,6 +160,14 @@ const type = async (text) => {
   calWin.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
   check('polish: click raises window above siblings', +calWin.style.zIndex > before &&
     wins.every(w => w === calWin || +w.style.zIndex < +calWin.style.zIndex || /^\d+$/.test(calWin.style.zIndex)));
+
+  /* ---------- v1.2: sound design is wired (WebAudio, runs silent under test) ---------- */
+  check('sfx: synth engine present',
+    dom.window.eval("(typeof SFX === 'object') && typeof SFX.send === 'function' && typeof SFX.success === 'function'"));
+  await type('Take a note: typewriter should animate');
+  await sleep(1300); // typewriter completes (~≤0.9s by design)
+  check('sfx+dictation: typewriter completes, caret removed',
+    /Typewriter should animate\./.test(notchText()) && !/▌/.test(notchText()), notchText());
 
   console.log(fails === 0 ? '\nALL DOM TESTS PASSED' : `\n${fails} DOM FAILURES`);
   process.exit(fails ? 1 : 0);

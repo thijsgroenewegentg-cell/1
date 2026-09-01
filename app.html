@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VoiceOS — Say it once, let it go</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎙️</text></svg>" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#000000" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Desktop-style menu bar -->
+  <header id="menubar">
+    <div class="mb-left">
+      <a class="mb-logo" href="index.html" title="Back to VoiceOS home" style="text-decoration:none">◉</a>
+      <a class="mb-app" href="index.html" style="text-decoration:none;color:inherit">VoiceOS</a>
+      <span class="mb-item">File</span>
+      <span class="mb-item">Edit</span>
+      <span class="mb-item">View</span>
+      <span class="mb-item">Help</span>
+    </div>
+    <div class="mb-right">
+      <button id="installBtn" class="mb-btn accent" title="Install VoiceOS as an app" style="display:none">⬇ Install</button>
+      <button id="helpBtn" class="mb-btn" title="What can I say?">?</button>
+      <button id="settingsBtn" class="mb-btn" title="Settings">⚙️</button>
+      <button id="soundToggle" class="mb-btn" title="Toggle spoken responses">🔊</button>
+      <button id="jsonToggle" class="mb-btn" title="Toggle JSON inspector">{ }</button>
+      <span id="clock" class="mb-clock"></span>
+    </div>
+  </header>
+
+  <!-- First-run onboarding -->
+  <div id="onboarding" class="overlay">
+    <div class="sheet">
+      <div class="sheet-logo">◉</div>
+      <h1>VoiceOS</h1>
+      <p class="sheet-sub">Say it once, let it go. A voice layer for everything you do.</p>
+
+      <div class="field">
+        <label>Speaking speed</label>
+        <div class="seg" id="obRate">
+          <label><input type="radio" name="obrate" value="slow"><span>Slow</span></label>
+          <label><input type="radio" name="obrate" value="normal" checked><span>Normal</span></label>
+          <label><input type="radio" name="obrate" value="fast"><span>Fast</span></label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Ask before acting…</label>
+        <div class="seg" id="obConfirm">
+          <label><input type="radio" name="obconfirm" value="always"><span>Always</span></label>
+          <label><input type="radio" name="obconfirm" value="sometimes" checked><span>Big stuff only</span></label>
+          <label><input type="radio" name="obconfirm" value="never"><span>Never</span></label>
+        </div>
+      </div>
+
+      <div class="field" id="obVoiceField">
+        <label>Voice</label>
+        <select id="obVoice"></select>
+      </div>
+
+      <div class="privacy-line">🔒 Audio and transcripts never leave this device.</div>
+
+      <button id="obStart" class="btn primary big">Start using VoiceOS</button>
+      <p class="sheet-foot">Try it: “Send email to John about the meeting.”</p>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <aside id="settingsPanel" class="side-panel">
+    <div class="panel-title">Settings</div>
+    <div class="set-rows">
+      <div class="set-row"><span>Voice</span><select id="setVoice"></select></div>
+      <div class="set-row"><span>Speed</span>
+        <select id="setRate">
+          <option value="slow">Slow</option>
+          <option value="normal">Normal</option>
+          <option value="fast">Fast</option>
+        </select>
+      </div>
+      <div class="set-row"><span>Confirmations</span>
+        <select id="setConfirm">
+          <option value="always">Always</option>
+          <option value="sometimes">Big stuff only</option>
+          <option value="never">Never</option>
+        </select>
+      </div>
+      <div class="set-row"><span>Verbosity</span>
+        <select id="setVerbose">
+          <option value="normal">Normal</option>
+          <option value="brief">Brief</option>
+        </select>
+      </div>
+      <div class="set-row"><span>Privacy</span><span class="set-static">Local-only 🔒</span></div>
+      <div class="set-row"><span>Hotkey</span><span class="set-static">⌃ Space</span></div>
+    </div>
+    <div class="set-actions">
+      <button id="setReset" class="btn">Reset onboarding</button>
+      <button id="setWipe" class="btn danger-ghost">Clear local data</button>
+    </div>
+    <div class="panel-title" style="margin-top:14px">VoiceOS <span class="panel-note">v1.0.0</span></div>
+  </aside>
+
+  <!-- Help -->
+  <div id="helpModal" class="overlay">
+    <div class="sheet help">
+      <div class="card-head"><span>What can I say?</span><button class="card-x" id="helpClose">✕</button></div>
+      <div class="help-cols">
+        <div>
+          <h3>✉️ Email</h3>
+          <p>“Send email to John about the meeting”</p>
+          <p>“Search my emails from Maya”</p>
+          <h3>📅 Calendar</h3>
+          <p>“Schedule meeting with Sarah next week”</p>
+          <p>“What’s my next meeting?”</p>
+          <p>“Is Alex free friday?”</p>
+        </div>
+        <div>
+          <h3>💬 Messages</h3>
+          <p>“Reply to Maya” · “Text Alex saying I’m in”</p>
+          <p>“Check messages from Maria”</p>
+          <h3>📁 Files & 🔎 Search</h3>
+          <p>“Find last year’s tax returns”</p>
+          <p>“Search web for focus music”</p>
+        </div>
+        <div>
+          <h3>📝 Notes & ⏰ Reminders</h3>
+          <p>“Take a note: call the accountant”</p>
+          <p>“Remind me to call Joan tomorrow at 9am”</p>
+          <h3>🖥️ Apps</h3>
+          <p>“Open Notes” · “Close Mail”</p>
+          <h3>🛡️ Safety</h3>
+          <p>Passwords and mass deletes are always refused.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- The Notch -->
+  <div id="notch" class="notch idle">
+    <div id="notchBody" class="notch-body">
+      <div class="idle-row">
+        <span class="idle-dot"></span>
+        <span class="idle-label">VoiceOS</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fake desktop where agent actions happen -->
+  <main id="desktop">
+    <div id="windows"></div>
+
+    <div id="hint">
+      <p class="hint-title">VoiceOS is listening.</p>
+      <p class="hint-sub">Type a command below, tap the mic, or click a suggestion. Try agent mode: <em>“Send email to John about the meeting.”</em></p>
+    </div>
+
+    <!-- Dock -->
+    <div id="dock"></div>
+  </main>
+
+  <!-- Session log -->
+  <aside id="logPanel" class="side-panel">
+    <div class="panel-title">Session</div>
+    <div id="logList"></div>
+  </aside>
+
+  <!-- JSON inspector (VoiceOS always responds in JSON) -->
+  <aside id="jsonPanel" class="side-panel">
+    <div class="panel-title">Response JSON <span class="panel-note">— every turn</span></div>
+    <pre id="jsonView">// Speak or type a command…</pre>
+  </aside>
+
+  <!-- Composer -->
+  <footer id="composerWrap">
+    <div id="chips"></div>
+    <div id="composer">
+      <button id="micBtn" title="Hold a real voice command (Web Speech API)">🎙️</button>
+      <input id="utterance" type="text" autocomplete="off" spellcheck="false"
+             placeholder='Say it once… e.g. "Schedule meeting with Sarah next week"' />
+      <button id="sendBtn" title="Run command">➤</button>
+    </div>
+    <div class="composer-hint">⌃ Space to talk · Enter to run</div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

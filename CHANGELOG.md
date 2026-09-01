@@ -3,6 +3,22 @@
 All notable changes to VoiceOS are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-09-01
+
+Presentation & craft release.
+
+### Added
+- **Product landing page** (`index.html`) — hero with generated key art, looping live-demo card in the notch mock, scrolling command ticker, feature grid, architecture sample, 3-path install, footer
+- **Sound design** — synthesized WebAudio cues (listen / work / card / send / success / cancel), zero audio assets, honors the 🔊 toggle
+- **Typewriter dictation card** — watch the cleaned transcription type itself (~≤0.9s regardless of length)
+- **Landing test suite** (`tests/landingtest.js`, 11 checks) — structure, links, privacy claims, live demo
+- MIT `LICENSE` file
+
+### Changed
+- The app moved to `app.html`; `/` is now the landing page (menu-bar logo links back)
+- PWA `start_url` → `app.html` (installed icon opens the app, not the site)
+- `npm test` runs all three suites: **114 checks** (63 headless + 11 landing + 40 DOM)
+
 ## [1.1.1] — 2026-09-01
 
 Professional-review polish pass. Verified with a real DOM-level test suite.
@@ -59,6 +75,7 @@ First full release. 🎉
 ### Privacy
 100% local: no servers, no telemetry, no API keys. Audio and transcripts never leave the device.
 
+[1.2.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.2.0
 [1.1.1]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.1.1
 [1.1.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.1.0
 [1.0.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.0.0

@@ -3,11 +3,15 @@ const CACHE = 'voiceos-v1';
 const ASSETS = [
   './',
   './index.html',
+  './app.html',
+  './landing.css',
+  './landing.js',
   './styles.css',
   './app.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './site/hero.png',
 ];
 
 self.addEventListener('install', e => {

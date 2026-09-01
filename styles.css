@@ -165,6 +165,8 @@ body {
   font-size: 14px; line-height: 1.55; color: var(--ink);
   border-left: 2px solid var(--accent1); padding-left: 12px; margin-top: 6px;
 }
+.dictate-body .caret { color: var(--accent2); animation: blinkCaret .8s steps(2) infinite; }
+@keyframes blinkCaret { 50% { opacity: 0; } }
 
 /* workflow step checklist */
 .wf-list { margin: 6px 0 2px; }

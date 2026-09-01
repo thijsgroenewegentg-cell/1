@@ -90,7 +90,7 @@ and browser. All data lives in local storage.
 ## 🧪 Quality
 
 ```bash
-npm test   # 101 checks: headless parser/logic (63) + real-DOM UI suite in jsdom (38)
+npm test   # 114 checks: headless logic (63) + landing DOM (11) + app DOM (40)
 ```
 
 CI ([`ci-templates/ci.yml`](ci-templates/ci.yml)) runs both suites
@@ -99,14 +99,15 @@ on Windows **and** Linux on every push.
 ## Repo layout
 
 ```
-index.html · styles.css · app.js   the app (zero-dependency vanilla JS)
+index.html · landing.css/js         product landing page (live hero demo)
+app.html · styles.css · app.js      the app (zero-dependency vanilla JS)
 manifest.webmanifest · sw.js        PWA: installable + offline
 install.sh · install.bat            one-step launchers (Linux / Windows)
 icons/                              app icons
 desktop/                            Electron shell: voice-bar window + hotkey
 ci-templates/                       CI + release-installer workflows (one-step enable)
 tests/smoke.js                      63-check headless test drive
-tests/domtest.js                    38-check real-DOM suite (jsdom)
+tests/domtest.js                    40-check real-DOM suite (jsdom)
 ```
 
 ## Roadmap

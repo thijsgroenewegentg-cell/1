@@ -37,7 +37,7 @@ function createWindow() {
 
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.setAlwaysOnTop(true, 'screen-saver');
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.loadFile(path.join(__dirname, 'renderer', 'app.html'));
 
   // Hide instead of close — the notch should feel ever-present.
   win.on('close', e => {

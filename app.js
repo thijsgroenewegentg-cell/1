@@ -209,6 +209,34 @@ function findContact(t) {
 
 function titleCase(s) { return s.replace(/\b\w/g, c => c.toUpperCase()); }
 
+/* ======================== SOUND DESIGN ========================
+   Synthesized via WebAudio — zero audio assets, so the product
+   stays 100% dependency-free and offline. Honors the 🔊 toggle. */
+
+let audioCtx = null;
+function tone(freq, dur = .09, type = 'sine', vol = .05, when = 0) {
+  if (!state.sound) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = type; o.frequency.value = freq;
+    const t0 = audioCtx.currentTime + when;
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + .012);
+    g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(t0); o.stop(t0 + dur + .02);
+  } catch (_) { /* no audio device — silent */ }
+}
+const SFX = {
+  listen:  () => tone(520, .08),
+  work:    () => tone(660, .06, 'sine', .04),
+  card:    () => tone(740, .05, 'triangle', .035),
+  send:    () => { tone(523, .07); tone(784, .1, 'sine', .05, .07); },
+  success: () => { tone(659, .07); tone(880, .12, 'sine', .05, .08); },
+  cancel:  () => tone(280, .12),
+};
+
 /* ======================== SPEECH OUT ======================== */
 
 const RATES = { slow: 0.85, normal: 1.05, fast: 1.3 };
@@ -273,6 +301,7 @@ function cardShell(tag, title, inner) {
 }
 
 function showCard(tag, title, inner, opts = {}) {
+  SFX.card();
   setNotch('card', cardShell(tag, title, inner));
   const x = notchBody.querySelector('[data-close]');
   if (x) x.addEventListener('click', () => { cancelPending(); notchIdle(); });
@@ -335,7 +364,19 @@ function optionsCard(resp, onPick) {
 }
 
 function dictateCard(resp) {
-  showCard('Dictation', 'Transcribed', `<div class="dictate-body">${esc(resp.card_data.text)}</div>`, { autoClose: 4500 });
+  // typewriter effect — you SEE VoiceOS typing the cleaned text
+  showCard('Dictation', 'Transcribed', `<div class="dictate-body"><span id="typeTarget"></span><span class="caret">▌</span></div>`, { autoClose: 6500 });
+  const target = notchBody.querySelector('#typeTarget');
+  const text = resp.card_data.text;
+  const perChar = Math.max(6, Math.min(28, 900 / Math.max(text.length, 1))); // full text ≤ ~0.9s
+  let i = 0;
+  const tick = () => {
+    if (!target || target.isConnected === false) return; // card closed
+    target.textContent = text.slice(0, ++i);
+    if (i < text.length) setTimeout(tick, perChar * (0.7 + Math.random() * 0.6));
+    else { const c = notchBody.querySelector('.caret'); if (c) c.remove(); }
+  };
+  tick();
 }
 
 /* --- v1.1: multi-step workflow card with live checklist --- */
@@ -1078,10 +1119,12 @@ function logTurn(user, resp) {
 /* Main entry: user utterance in → notch + OS reaction out */
 function handleUtterance(text) {
   if (!text.trim()) return;
+  SFX.listen();
   $('#hint').classList.add('hidden');
   notchListening(`“${text.length > 42 ? text.slice(0, 42) + '…' : text}”`);
 
   setTimeout(() => {
+    SFX.work();
     notchProcessing('Working on it…');
     setTimeout(() => {
       const resp = parse(text);
@@ -1099,6 +1142,7 @@ function handleUtterance(text) {
       if (resp.requires_confirmation) {
         const doConfirm = () => {
           state.pending = null;
+          SFX.send();
           const r = exec(resp);
           const done = makeResponse({ ...resp, requires_confirmation: false,
             confirmation_prompt: null, result: r.result,
@@ -1106,6 +1150,7 @@ function handleUtterance(text) {
             ui_state: { ...resp.ui_state, show_confirmation: false }, _handled: true });
           emit(done);
           resultCard(r.result, r.sub || resp.card_data?.lines?.map(l => `${l[0]}: ${l[1]}`).join('  ·  '));
+          SFX.success();
           speak('Done.');
           return done;
         };
