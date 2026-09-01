@@ -13,9 +13,10 @@ const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');
 
+const inline = name => () => '<script>' + fs.readFileSync(path.join(ROOT, name), 'utf8') + '</script>';
 const html = fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8')
-  .replace('<script src="app.js"></script>',
-           () => '<script>' + fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8') + '</script>');
+  .replace('<script src="i18n.js"></script>', inline('i18n.js'))
+  .replace('<script src="app.js"></script>', inline('app.js'));
 
 const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'https://localhost/' });
 const { window } = dom;
@@ -168,6 +169,31 @@ const type = async (text) => {
   await sleep(1300); // typewriter completes (~≤0.9s by design)
   check('sfx+dictation: typewriter completes, caret removed',
     /Typewriter should animate\./.test(notchText()) && !/▌/.test(notchText()), notchText());
+
+  /* ---------- v1.3: Dutch in the app (settings switch → Dutch UI + Dutch parsing) ---------- */
+  dom.window.eval("settings.confirmLevel = 'sometimes'"); // restore after earlier 'never' test
+  click('#settingsBtn');
+  await sleep(60);
+  const langSel = document.querySelector('#setLang');
+  langSel.value = 'nl';
+  langSel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await sleep(4200); // let the language-confirm result card auto-close
+  click('#settingsBtn'); // close drawer
+  check('nl: chips switch to Dutch', /Stuur een e-mail/.test(document.querySelector('#chips').textContent),
+    document.querySelector('#chips').textContent.slice(0, 90));
+  check('nl: composer hint switches', /Spatie/.test(document.querySelector('.composer-hint').textContent));
+  await type('Stuur een e-mail naar John over de vergadering');
+  check('nl: Dutch command parsed to email+confirm',
+    /john@company\.com/.test(notchText()) && /e-mail versturen/i.test(notchText()), notchText());
+  check('nl: confirm button is Dutch', /VERSTUUR/.test(notchText()), notchText());
+  click('#notch [data-yes]');
+  await sleep(500);
+  check('nl: send completes', /sent to John|✓/i.test(notchText()), notchText());
+  await sleep(4200);
+  langSel.value = 'en';
+  click('#settingsBtn');
+  langSel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  check('nl: switches back to English chips', /Send email/.test(document.querySelector('#chips').textContent));
 
   console.log(fails === 0 ? '\nALL DOM TESTS PASSED' : `\n${fails} DOM FAILURES`);
   process.exit(fails ? 1 : 0);

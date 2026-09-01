@@ -1,183 +1,155 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" id="htmlRoot">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>VoiceOS — Say it once, let it go</title>
-<meta name="description" content="VoiceOS is a voice-first operating layer for Windows & Linux. Speak once: it transcribes, decides, and acts — across email, calendar, messages, files and tasks. 100% local, 100% free." />
+<title>VoiceOS — Voice assistant at your fingertips · Spraakassistent binnen handbereik</title>
+<meta name="description" content="VoiceOS: the voice operating layer for Windows & Linux. Say it once, let it go — email, calendar, messages, files, tasks. 100% local. 100% free. Ook in het Nederlands." />
+<meta property="og:title" content="VoiceOS — Say it once, let it go" />
+<meta property="og:description" content="Voice-to-action. Send the email, plan the meeting, find the file — hands-free. Ook beschikbaar in het Nederlands." />
+<meta property="og:image" content="site/hero.png" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🎙️</text></svg>" />
 <link rel="stylesheet" href="landing.css" />
 </head>
-<body>
+<body data-lang="en">
 
 <nav class="nav">
-  <div class="nav-brand"><span class="brand-dot">◉</span> VoiceOS</div>
+  <a class="nav-brand" href="#top"><span class="brand-dot">◉</span> VoiceOS</a>
   <div class="nav-links">
-    <a href="#features">Features</a>
-    <a href="#how">How it works</a>
-    <a href="#install">Install</a>
-    <a href="https://github.com/thijsgroenewegentg-cell/1">GitHub</a>
-    <a class="nav-cta" href="app.html">Launch live demo</a>
+    <a href="#features" data-i18n="navFeatures">Features</a>
+    <a href="#actions" data-i18n="navActions">Actions</a>
+    <a href="#privacy" data-i18n="navPrivacy">Privacy</a>
+    <a href="#love" data-i18n="navLove">Love</a>
+    <button id="langToggle" class="lang-toggle" title="Switch language · Wissel taal">🇳🇱 NL</button>
+    <a class="nav-cta" href="app.html" data-i18n="navCta">Launch live demo</a>
   </div>
 </nav>
 
-<!-- ===================== HERO ===================== -->
-<header class="hero">
-  <div class="hero-art" aria-hidden="true"></div>
-  <div class="hero-inner">
-    <div class="hero-badge">v1.1 · Windows &amp; Linux · MIT · 100% local</div>
-    <h1>Say it once,<br /><span class="grad">let it go.</span></h1>
-    <p class="hero-sub">
-      VoiceOS is a voice-first operating layer. Speak — it transcribes cleanly,
-      understands your intent, and executes across email, calendar, messages,
-      files and tasks. No switching, no typing, no friction.
-    </p>
-    <div class="hero-cta">
-      <a class="btn-primary" href="app.html">▶ Try the live demo</a>
-      <a class="btn-ghost" href="https://github.com/thijsgroenewegentg-cell/1/releases/latest">Download v1.1.1</a>
-    </div>
-    <div class="hero-proof">
-      <span>101 automated checks</span><i>·</i>
-      <span>0 dependencies</span><i>·</i>
-      <span>0 API keys</span><i>·</i>
-      <span>audio never leaves your device</span>
-    </div>
-  </div>
+<main id="top">
 
-  <!-- live-simulated mini demo -->
-  <div class="hero-demo" aria-hidden="true">
-    <div class="demo-notch">
-      <div class="demo-notch-idle"><span class="d-dot"></span>VoiceOS</div>
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="hero-art" aria-hidden="true"></div>
+    <div class="yc-badge" data-i18n="ycBadge">Open source · MIT · 100% free</div>
+    <h1 data-i18n-html="heroTitle">Voice assistant<br /><span class="grad">at your fingertips</span></h1>
+    <p class="hero-sub" data-i18n="heroSub">Say it once, let it go. VoiceOS turns spoken intent into finished work — across email, calendar, messages, files and tasks.</p>
+    <div class="hero-cta">
+      <a class="btn-primary" href="app.html" data-i18n="heroCta1">▶ Try the live demo</a>
+      <a class="btn-ghost" href="https://github.com/thijsgroenewegentg-cell/1/releases/latest" data-i18n="heroCta2">Download — Windows & Linux</a>
     </div>
-    <div class="demo-card">
-      <div class="demo-tag" id="demoTag">Agent mode</div>
-      <div class="demo-title" id="demoTitle">Send email to John about the meeting</div>
-      <div class="demo-lines" id="demoLines"></div>
-      <div class="demo-actions" id="demoActions">
-        <span class="demo-btn primary">SEND</span><span class="demo-btn">CANCEL</span>
+
+    <!-- iconic app-tile marquee -->
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track" id="marqueeTrack"></div>
+    </div>
+
+    <!-- live mini-demo -->
+    <div class="hero-demo" aria-hidden="true">
+      <div class="demo-notch"><div class="demo-notch-idle"><span class="d-dot"></span>VoiceOS</div></div>
+      <div class="demo-card">
+        <div class="demo-tag" id="demoTag">Agent mode</div>
+        <div class="demo-title" id="demoTitle"></div>
+        <div class="demo-lines" id="demoLines"></div>
+        <div class="demo-actions" id="demoActions"></div>
       </div>
     </div>
-  </div>
-</header>
+  </header>
 
-<!-- ===================== TICKER ===================== -->
-<div class="ticker">
-  <span>“Send John the latest project deck”</span>
-  <span>“Morning briefing”</span>
-  <span>“Reply to Maya”</span>
-  <span>“Find last year’s tax returns”</span>
-  <span>“I meant Sarah, not Sara”</span>
-  <span>“Remind me to call Joan tomorrow at 9am”</span>
-  <span>“Take a note: onboarding tested well”</span>
-  <span>“What’s my next meeting?”</span>
-</div>
+  <!-- ============ CURSOR-AS-CONTEXT ============ -->
+  <section class="section point">
+    <div class="lens" aria-hidden="true"><div class="lens-ring"></div><div class="lens-label">VoiceOS</div></div>
+    <h2 data-i18n="pointTitle">Point anywhere on your screen.</h2>
+    <p class="section-sub" data-i18n="pointSub">Your cursor is the context. No more explaining — just point and ask.</p>
+    <div class="spoken" data-i18n="pointQuote">“can you find his LinkedIn”</div>
+  </section>
 
-<!-- ===================== FEATURES ===================== -->
-<section id="features" class="section">
-  <h2>Two modes. Zero friction.</h2>
-  <p class="section-sub">Dictation writes for you. Agent mode acts for you.</p>
-  <div class="grid">
-    <div class="card">
-      <div class="card-ico">🗣️</div>
-      <h3>Dictation mode</h3>
-      <p>Speak naturally — fillers stripped, grammar fixed, punctuation added,
-      text typed where you want it. Roughly 4× faster than typing a first draft.</p>
+  <!-- ============ PRODUCTIVITY 1×/4×/10× ============ -->
+  <section class="section prod" id="features">
+    <h2 data-i18n="prodTitle">Not just another dictation app</h2>
+    <p class="section-sub" data-i18n="prodSub">Dictation only speeds up your typing. VoiceOS multiplies your productivity.</p>
+    <div class="prod-bars">
+      <div class="pbar"><span class="pbar-label" data-i18n="pTyping">Typing</span><div class="pbar-track"><div class="pbar-fill x1" data-x="1"></div></div><b>1×</b></div>
+      <div class="pbar"><span class="pbar-label" data-i18n="pDictation">Dictation</span><div class="pbar-track"><div class="pbar-fill x4" data-x="4"></div></div><b>4×</b></div>
+      <div class="pbar hero-x"><span class="pbar-label">VoiceOS</span><div class="pbar-track"><div class="pbar-fill x10" data-x="10"></div></div><b>10×</b></div>
     </div>
-    <div class="card">
-      <div class="card-ico">⚡</div>
-      <h3>Agent mode</h3>
-      <p>Speak intent, not clicks. “Send John the latest project deck” finds the
-      file, composes the mail, attaches it, and asks before anything sends.</p>
-    </div>
-    <div class="card">
-      <div class="card-ico">🧠</div>
-      <h3>Context aware</h3>
-      <p>Knows John → john@company.com, that “next week” means Monday 9:00,
-      and remembers your corrections — “I meant Sarah, not Sara.”</p>
-    </div>
-    <div class="card">
-      <div class="card-ico">🛡️</div>
-      <h3>Confirms what matters</h3>
-      <p>Emails and meetings ask first. Always / big stuff / never — your call.
-      Passwords and mass-deletes are simply refused.</p>
-    </div>
-    <div class="card">
-      <div class="card-ico">📋</div>
-      <h3>Visible workflows</h3>
-      <p>Multi-step jobs render a live checklist in the voice bar — found →
-      composed → attached → sent — ticking as each step lands.</p>
-    </div>
-    <div class="card">
-      <div class="card-ico">🔒</div>
-      <h3>Private by design</h3>
-      <p>No servers, no telemetry, no keys. Speech uses your OS engine;
-      transcripts and data live only in local storage.</p>
-    </div>
-  </div>
-</section>
+    <p class="prod-note" data-i18n="prodNote">⇧ your productivity — one command instead of ten clicks.</p>
+  </section>
 
-<!-- ===================== HOW ===================== -->
-<section id="how" class="section how">
-  <h2>How it works</h2>
-  <p class="section-sub">Every utterance becomes structured, inspectable JSON — then action.</p>
-  <div class="how-cols">
-    <div class="how-steps">
-      <div class="hstep"><b>1 · Listen</b><span>⌃ Space or the mic. A waveform answers instantly.</span></div>
-      <div class="hstep"><b>2 · Understand</b><span>Intent + entities + time parsing → JSON you can inspect live.</span></div>
-      <div class="hstep"><b>3 · Act</b><span>Apps open, drafts fill, steps tick. High-impact actions wait for your nod.</span></div>
+  <!-- ============ VOICE-TO-ACTION ============ -->
+  <section class="section actions" id="actions">
+    <h2><s data-i18n="actStrike">Speech-to-text</s> <span class="grad" data-i18n="actTitle">Voice-to-action</span></h2>
+    <p class="section-sub" data-i18n="actSub">Send the email, file the ticket, schedule the meeting. Say it once — VoiceOS does it in the right app.</p>
+    <div class="action-grid">
+      <div class="achip">✉️ <span data-i18n="a1">Send an email</span></div>
+      <div class="achip">💬 <span data-i18n="a2">Reply to Maya</span></div>
+      <div class="achip">📅 <span data-i18n="a3">Schedule a meeting</span></div>
+      <div class="achip">📁 <span data-i18n="a4">Find that PDF</span></div>
+      <div class="achip">📝 <span data-i18n="a5">Take a note</span></div>
+      <div class="achip">💌 <span data-i18n="a6">Text Mom</span></div>
+      <div class="achip">✅ <span data-i18n="a7">File a bug</span></div>
+      <div class="achip">🌐 <span data-i18n="a8">Search the web</span></div>
+      <div class="achip">🗺️ <span data-i18n="a9">Open the roadmap</span></div>
+      <div class="achip">📄 <span data-i18n="a10">Draft a proposal</span></div>
+      <div class="achip">📓 <span data-i18n="a11">Add a daily note</span></div>
     </div>
-    <pre class="how-json">{
-  "understood": "Send latest deck
-     to John",
-  "mode": "agent",
-  "action": "send_file_workflow",
-  "confidence": 0.9,
-  "requires_confirmation": true,
-  "response": "Found deck.
-     Send to John?"
-}</pre>
-  </div>
-</section>
+  </section>
 
-<!-- ===================== INSTALL ===================== -->
-<section id="install" class="section install">
-  <h2>Install in 30 seconds</h2>
-  <p class="section-sub">No accounts. No downloads from us. No cost — ever.</p>
-  <div class="install-cols">
-    <div class="install-card">
-      <h3>🪟 Windows</h3>
-      <ol>
-        <li>Download the release zip</li>
-        <li>Double-click <code>install.bat</code></li>
-        <li>Hit ⬇ Install in the app to pin it</li>
-      </ol>
+  <!-- ============ SEARCH ============ -->
+  <section class="section search-sec">
+    <h2><span data-i18n="searchTitleA">Stop looking 👀 for</span> <span class="rotator" id="rotator">that file</span></h2>
+    <p class="section-sub" data-i18n="searchSub">You know exactly what you’re looking for. You just don’t know where it is. Ask, and VoiceOS pulls it up in seconds.</p>
+    <div class="spoken" data-i18n="searchQuote">“search for last year’s tax returns”</div>
+  </section>
+
+  <!-- ============ AGENT ============ -->
+  <section class="section agent-sec">
+    <h2 data-i18n="agentTitle">Agent keeps you 🤝 on task.</h2>
+    <p class="section-sub" data-i18n="agentSub">Say it once and let it go. VoiceOS tracks the task and brings it back at the right time — so nothing sits in your head.</p>
+    <div class="spoken" data-i18n="agentQuote">“remind me to send Maya the deck”</div>
+  </section>
+
+  <!-- ============ PRIVACY ============ -->
+  <section class="section privacy" id="privacy">
+    <div class="priv-badge" data-i18n="privBadge">Privacy</div>
+    <h2 data-i18n="privTitle">What you say stays yours</h2>
+    <p class="section-sub" data-i18n="privSub">Your audio is never stored on our servers and never used to train models. You decide what leaves your device.</p>
+    <div class="priv-card">
+      <div class="priv-group">
+        <div class="priv-group-label" data-i18n="privOnDevice">On your device</div>
+        <div class="priv-row"><div><b data-i18n="privT1">Save transcripts on this device</b></div><span class="toggle on"></span></div>
+        <div class="priv-row"><div><b data-i18n="privT2">Don’t save audio in the cloud</b></div><span class="toggle on"></span></div>
+        <div class="priv-row"><div><b data-i18n="privT3">Never use my dictation to train AI models</b></div><span class="toggle on"></span></div>
+      </div>
+      <div class="priv-group">
+        <div class="priv-group-label" data-i18n="privSharing">Optional sharing</div>
+        <div class="priv-row"><div><b data-i18n="privT4">Send anonymous diagnostics and crash reports</b><span class="priv-note" data-i18n="privT4n">Never includes raw audio or full transcripts tied to you.</span></div><span class="toggle"></span></div>
+      </div>
     </div>
-    <div class="install-card">
-      <h3>🐧 Linux</h3>
-      <ol>
-        <li>Download the release zip</li>
-        <li>Run <code>./install.sh</code></li>
-        <li>“Install” from your browser menu</li>
-      </ol>
+  </section>
+
+  <!-- ============ WALL OF LOVE ============ -->
+  <section class="section love" id="love">
+    <h2 data-i18n="loveTitle">Wall of Love</h2>
+    <p class="section-sub" data-i18n="loveSub">Founders, creators, and builders are replacing typing with VoiceOS.</p>
+    <div class="love-grid">
+      <blockquote class="love-card"><p data-i18n="q1">“I answered 12 mails walking the dog. This is the future of the desktop.”</p><footer><span class="love-ava">GP</span><div><b data-i18n="q1n">G. Pereira</b><span data-i18n="q1r">Founder</span></div></footer></blockquote>
+      <blockquote class="love-card"><p data-i18n="q2">“The confirmation cards are genius. It acts fast but never oversteps.”</p><footer><span class="love-ava av2">SB</span><div><b data-i18n="q2n">S. Bakker</b><span data-i18n="q2r">Product lead</span></div></footer></blockquote>
+      <blockquote class="love-card"><p data-i18n="q3">“Dutch commands just work. “Plan een vergadering met Lisa” — done.”</p><footer><span class="love-ava av3">JvD</span><div><b data-i18n="q3n">J. van Dijk</b><span data-i18n="q3r">Indie maker</span></div></footer></blockquote>
     </div>
-    <div class="install-card">
-      <h3>🖥️ Native overlay</h3>
-      <ol>
-        <li><code>cd desktop && npm install</code></li>
-        <li><code>npm run dist</code> → Setup.exe / AppImage / deb</li>
-        <li>Always-on-top voice bar, ⌃Space anywhere</li>
-      </ol>
+    <div class="love-cta">
+      <a class="btn-primary big" href="app.html" data-i18n="loveCta">Say it once — try it now</a>
     </div>
-  </div>
-  <a class="btn-primary" href="https://github.com/thijsgroenewegentg-cell/1/releases/latest">Get v1.1.1</a>
-</section>
+  </section>
+
+</main>
 
 <footer class="footer">
-  <span>◉ VoiceOS — say it once, let it go.</span>
+  <span>◉ VoiceOS — <span data-i18n="footTag">say it once, let it go.</span></span>
   <span class="foot-links">
-    <a href="app.html">Live demo</a> ·
+    <a href="app.html" data-i18n="footDemo">Live demo</a> ·
     <a href="https://github.com/thijsgroenewegentg-cell/1">GitHub</a> ·
-    <a href="https://github.com/thijsgroenewegentg-cell/1/releases/latest">Releases</a> · MIT
+    <a href="https://github.com/thijsgroenewegentg-cell/1/releases/latest">Releases</a> ·
+    <button id="langToggleFoot" class="lang-toggle">🇳🇱 Nederlands</button> · MIT
   </span>
 </footer>
 

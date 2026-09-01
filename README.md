@@ -60,12 +60,14 @@ Two ways to get ready-made Windows / Linux installers
 ⭐ = new in v1.1 · Ambiguity is handled (“Send message” → *“To who?”* with
 tap-to-pick contacts); passwords & mass deletes are always refused.
 
-## ⚙️ Settings
+## ⚙️ Settings · Instellingen
 
-First-run onboarding, then the ⚙️ menu: **voice · speaking speed ·
-confirmation level** (always / big stuff only / never) · **verbosity** ·
-privacy (local-only) · reset & wipe. Notes, events, tasks, threads, learned
-aliases, and history persist across restarts.
+First-run onboarding, then the ⚙️ menu: **language** (English / Nederlands —
+UI, suggestion chips, spoken replies, *and the command parser itself*:
+“Plan een vergadering met Sarah volgende week” just works) · **voice ·
+speaking speed · confirmation level** (always / big stuff only / never) ·
+**verbosity** · privacy (local-only) · reset & wipe. Notes, events, tasks,
+threads, learned aliases, and history persist across restarts.
 
 ## 🖥️ Build desktop installers yourself
 
@@ -90,7 +92,7 @@ and browser. All data lives in local storage.
 ## 🧪 Quality
 
 ```bash
-npm test   # 114 checks: headless logic (63) + landing DOM (11) + app DOM (40)
+npm test   # 146 checks: logic (77) + landing DOM (23) + app DOM (46) — incl. Dutch command parsing
 ```
 
 CI ([`ci-templates/ci.yml`](ci-templates/ci.yml)) runs both suites
@@ -99,15 +101,16 @@ on Windows **and** Linux on every push.
 ## Repo layout
 
 ```
-index.html · landing.css/js         product landing page (live hero demo)
+index.html · landing.css/js         product landing page (EN/NL toggle, live hero demo)
+i18n.js                              EN/NL dictionaries, Dutch date+filler vocab
 app.html · styles.css · app.js      the app (zero-dependency vanilla JS)
 manifest.webmanifest · sw.js        PWA: installable + offline
 install.sh · install.bat            one-step launchers (Linux / Windows)
 icons/                              app icons
 desktop/                            Electron shell: voice-bar window + hotkey
 ci-templates/                       CI + release-installer workflows (one-step enable)
-tests/smoke.js                      63-check headless test drive
-tests/domtest.js                    40-check real-DOM suite (jsdom)
+tests/smoke.js                      77-check headless drive (incl. Dutch parser)
+tests/domtest.js                    46-check real-DOM suite (jsdom)
 ```
 
 ## Roadmap

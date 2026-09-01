@@ -43,10 +43,18 @@
       <p class="sheet-sub">Say it once, let it go. A voice layer for everything you do.</p>
 
       <div class="field">
+        <label>Language · Taal</label>
+        <div class="seg" id="obLang">
+          <label><input type="radio" name="oblang" value="en"><span>🇬🇧 English</span></label>
+          <label><input type="radio" name="oblang" value="nl"><span>🇳🇱 Nederlands</span></label>
+        </div>
+      </div>
+
+      <div class="field">
         <label>Speaking speed</label>
         <div class="seg" id="obRate">
           <label><input type="radio" name="obrate" value="slow"><span>Slow</span></label>
-          <label><input type="radio" name="obrate" value="normal" checked><span>Normal</span></label>
+          <label><input type="radio" name="obrate" value="normal"checked><span>Normal</span></label>
           <label><input type="radio" name="obrate" value="fast"><span>Fast</span></label>
         </div>
       </div>
@@ -95,6 +103,12 @@
         <select id="setVerbose">
           <option value="normal">Normal</option>
           <option value="brief">Brief</option>
+        </select>
+      </div>
+      <div class="set-row"><span>Language / Taal</span>
+        <select id="setLang">
+          <option value="en">English</option>
+          <option value="nl">Nederlands</option>
         </select>
       </div>
       <div class="set-row"><span>Privacy</span><span class="set-static">Local-only 🔒</span></div>
@@ -189,6 +203,7 @@
     <div class="composer-hint">⌃ Space to talk · Enter to run</div>
   </footer>
 
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

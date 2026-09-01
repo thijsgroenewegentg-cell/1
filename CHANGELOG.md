@@ -3,6 +3,19 @@
 All notable changes to VoiceOS are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-09-01
+
+Replica-class landing + full Dutch language support. 🇳🇱
+
+### Added
+- **Nederlands, end to end** — ONBOARDING → settings → chips → spoken replies → confirmation buttons → **the command parser itself**: “Stuur een e-mail naar John over de vergadering”, “Zoek de belastingaangifte van vorig jaar”, “Herinner me eraan Joan morgen om 9 uur te bellen”, “Maak taak: …”, “Open Notities”, “Ja”/“Nee” voice-confirmation. Dutch fillers scrubbed from dictation (“eh”, “zeg maar”, “weet je”), Dutch date vocabulary (“overmorgen”, “volgende maandag”, “om 19 uur”), Dutch-calendar formatting, nl-NL mic + nl voices
+- **Landing page rebuilt to the reference site's structure** — badge → hero → app-tile marquee → point/cursor → 1×/4×/10× productivity bars → voice-to-action chips → rotating search → agent → **privacy toggles** → wall of love → CTA. All original copy/assets (no borrowed brand icons or text), animated productivity bars filling on scroll, ticker marquee, lens float
+- **Site language toggle** (🇬🇧/🇳🇱, auto-detected from browser, persisted) — hero demo scenes and rotator follow the active language
+- **15 Dutch parser tests + 12 landing/structure/i18n tests + 6 app-side Dutch journey tests** → **146 checks total**
+
+### Fixed
+- Regex alternation branch without `.test()` (always-truthy) — caught by the suite mid-build; exactly why the suite exists
+
 ## [1.2.0] — 2026-09-01
 
 Presentation & craft release.
@@ -75,6 +88,7 @@ First full release. 🎉
 ### Privacy
 100% local: no servers, no telemetry, no API keys. Audio and transcripts never leave the device.
 
+[1.3.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.3.0
 [1.2.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.2.0
 [1.1.1]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.1.1
 [1.1.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.1.0

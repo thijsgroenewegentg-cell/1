@@ -2,7 +2,8 @@
 // the full handleUtterance() pipeline (headless) against the spec's examples.
 const fs = require('fs');
 const path = require('path');
-const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+const src = fs.readFileSync(path.join(__dirname, '..', 'i18n.js'), 'utf8') + '\n' +
+            fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 
 const dummyEl = () => ({
   innerHTML: '', textContent: '', className: '', value: '', style: {}, dataset: {},
@@ -180,6 +181,47 @@ const tests = `
   r = parse('Send John the latest project deck');
   check('workflow: never-level auto-runs', r.requires_confirmation === false, r);
   settings.confirmLevel = 'sometimes';
+
+  /* ---------- v1.3: Dutch (Nederlands) command parsing ---------- */
+  settings.lang = 'nl';
+  r = parse('Stuur een e-mail naar John over de vergadering');
+  check('nl: email action', r.action === 'send_email' && r.parameters.to === 'john@company.com', r);
+  check('nl: dutch response', /Bevestigen\?/.test(r.response), r.response);
+  state.pending = null;
+
+  r = parse('Plan een vergadering met Sarah volgende week');
+  check('nl: schedule', r.action === 'schedule_meeting' && r.parameters.attendee === 'sarah@company.com', r);
+  check('nl: kind normalized to en', JSON.parse(JSON.stringify(r)).parameters.title.includes('Meeting'), r.parameters);
+  state.pending = null;
+
+  r = parse('Zoek de belastingaangifte van vorig jaar');
+  check('nl: tax files found', ['find_file','open_file'].includes(r.action) && r.card_data.results.length === 3, r.card_data);
+
+  r = parse('Herinner me eraan Joan morgen om 9 uur te bellen');
+  check('nl: reminder', r.action === 'create_reminder', r);
+  check('nl: task cleaned of time words', /^joan bellen$/i.test(r.parameters.task.trim().toLowerCase()), r.parameters.task);
+  check('nl: 9am parsed', new Date(r.parameters.when).getHours() === 9, r.parameters.when);
+
+  r = parse('Maak een notitie: dus dit is eh een test zeg maar');
+  check('nl: dictation + fillers', r.action === 'create_note' && !/eh|zeg maar/i.test(r.parameters.content) && /test/.test(r.parameters.content), r.parameters.content);
+
+  r = parse('Open Notities');
+  check('nl: dutch app name resolves', r.action === 'open_app' && r.parameters.app === 'Notes', r);
+
+  r = parse('Wat is mijn volgende vergadering');
+  check('nl: next meeting', r.action === 'find_next_meeting', r);
+
+  r = parse('Start mijn dag');
+  check('nl: briefing', r.action === 'daily_briefing', r);
+
+  r = parse('Maak taak: de belasting bellen');
+  check('nl: create task', r.action === 'create_task', r);
+
+  // voice confirmation in Dutch
+  state.pending = { type: 'confirm', resp: {}, onConfirm: () => makeResponse({ understood: 'x', _handled: true, result: 'ok' }) };
+  r = parse('Ja');
+  check('nl: "Ja" confirms', r._handled === true, r);
+  settings.lang = 'en';
 
   /* ---------- integration: full headless pipeline ---------- */
   let threw = null;

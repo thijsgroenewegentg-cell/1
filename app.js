@@ -15,13 +15,13 @@ const CONTACTS = {
 };
 
 const FILES = [
-  { icon: '📄', name: 'tax_return_2025.pdf',  meta: 'Documents · Taxes · 2.4 MB',  tags: 'tax return taxes irs finance' },
-  { icon: '📄', name: 'tax_return_2024.pdf',  meta: 'Documents · Taxes · 2.1 MB',  tags: 'tax return taxes irs finance' },
-  { icon: '📊', name: 'tax_summary_2025.xlsx', meta: 'Documents · Taxes · 812 KB', tags: 'tax summary taxes spreadsheet finance' },
-  { icon: '🎞️', name: 'project_deck_v7.key',  meta: 'Desktop · Modified yesterday', tags: 'project deck slides presentation keynote' },
-  { icon: '📝', name: 'Q3_roadmap.docx',      meta: 'Drive · Strategy',            tags: 'roadmap strategy doc document q3' },
-  { icon: '🖼️', name: 'brand_mockups.fig',    meta: 'Design · Shared with Maya',   tags: 'brand mockups design figma' },
-  { icon: '📦', name: 'invoice_sept.pdf',     meta: 'Downloads · 340 KB',          tags: 'invoice billing finance pdf' },
+  { icon: '📄', name: 'tax_return_2025.pdf',  meta: 'Documents · Taxes · 2.4 MB',  tags: 'tax return taxes irs finance belastingaangifte belasting aangifte' },
+  { icon: '📄', name: 'tax_return_2024.pdf',  meta: 'Documents · Taxes · 2.1 MB',  tags: 'tax return taxes irs finance belastingaangifte belasting aangifte' },
+  { icon: '📊', name: 'tax_summary_2025.xlsx', meta: 'Documents · Taxes · 812 KB', tags: 'tax summary taxes spreadsheet finance belastingoverzicht belasting belastingaangifte aangifte' },
+  { icon: '🎞️', name: 'project_deck_v7.key',  meta: 'Desktop · Modified yesterday', tags: 'project deck slides presentation keynote presentatie' },
+  { icon: '📝', name: 'Q3_roadmap.docx',      meta: 'Drive · Strategy',            tags: 'roadmap strategy doc document q3 routekaart strategie' },
+  { icon: '🖼️', name: 'brand_mockups.fig',    meta: 'Design · Shared with Maya',   tags: 'brand mockups design figma ontwerpen merk' },
+  { icon: '📦', name: 'invoice_sept.pdf',     meta: 'Downloads · 340 KB',          tags: 'invoice billing finance pdf factuur' },
 ];
 
 const APPS = {
@@ -91,8 +91,14 @@ const openWins = {};        // appName -> win element
 const LS_KEYS = { settings: 'voiceos_settings_v1', store: 'voiceos_store_v1' };
 function lsOK() { try { return typeof localStorage !== 'undefined'; } catch (_) { return false; } }
 
-const SETTING_DEFAULTS = { voice: null, rate: 'normal', confirmLevel: 'sometimes', verbosity: 'normal' };
+const SETTING_DEFAULTS = { voice: null, rate: 'normal', confirmLevel: 'sometimes', verbosity: 'normal', lang: null };
 let settings = { ...SETTING_DEFAULTS };
+if (!settings.lang) settings.lang = detectLang();
+
+/* UI language helpers */
+const T = (en, nl) => (settings.lang === 'nl' ? nl : en);
+const UI = () => I18N[settings.lang === 'nl' ? 'nl' : 'en'];
+const LBL = k => UI().lbl[k] || k;
 
 function loadSettings() {
   if (!lsOK()) return;
@@ -156,43 +162,61 @@ const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+function LOCALE() { return settings.lang === 'nl' ? 'nl-NL' : 'en-US'; }
 function fmtDate(d) {
-  return d.toLocaleDateString('en-US', { weekday: 'short' }) + ', ' +
-         d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(LOCALE(), { weekday: 'short' }) + ', ' +
+         d.toLocaleDateString(LOCALE(), { month: 'short', day: 'numeric' });
 }
 function fmtTime(d) {
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleTimeString(LOCALE(), { hour: 'numeric', minute: '2-digit' });
 }
 function fmtWhen(d) { return fmtDate(d) + ' · ' + fmtTime(d); }
 
 const DAYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 
+/* resolve date/time phrases — English AND Dutch ("morgen om 9 uur", "volgende maandag") */
 function resolveDate(t) {
   const d = new Date();
-  const dayMatch = t.match(/\b(next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/);
-  if (/day after tomorrow/.test(t)) { d.setDate(d.getDate() + 2); }
-  else if (/tomorrow/.test(t)) { d.setDate(d.getDate() + 1); }
-  else if (/next week/.test(t)) {
+  const dayMatch = t.match(/\b(next|volgende)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)\b/)
+                || t.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)\b/);
+  if (/day after tomorrow|overmorgen/.test(t)) { d.setDate(d.getDate() + 2); }
+  else if (/tomorrow|morgen/.test(t)) { d.setDate(d.getDate() + 1); }
+  else if (/next week|volgende week/.test(t)) {
     const delta = ((1 - d.getDay()) + 7) % 7 || 7; // next Monday
     d.setDate(d.getDate() + delta);
   }
   else if (dayMatch) {
-    const target = DAYS.indexOf(dayMatch[2]);
-    let delta = (target - d.getDay() + 7) % 7;
+    const w = dayMatch[2];
+    const target = DAYS.includes(w) ? DAYS.indexOf(w) : (typeof NL_DAYS !== 'undefined' ? NL_DAYS[w] : undefined);
+    let delta = ((target ?? d.getDay()) - d.getDay() + 7) % 7;
     if (dayMatch[1] && delta === 0) delta = 7;
-    if (!dayMatch[1] && delta === 0) delta = 0; // same-day weekday = today
+    if (!dayMatch[1] && delta === 0) delta = 0; // bare weekday today = today
     d.setDate(d.getDate() + delta);
   }
   d.setHours(9, 0, 0, 0);
-  const tm = t.match(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  const tm = t.match(/\b(?:at|om)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/)
+          || t.match(/\bom\s+(\d{1,2})[:.](\d{2})\s*uur\b/)
+          || t.match(/\bom\s+(\d{1,2})\s*uur\b/)
+          || t.match(/\bom\s+(\d{1,2})[:.](\d{2})\b/);
   if (tm) {
-    let h = parseInt(tm[1], 10) % 12;
-    if (tm[3] === 'pm') h += 12;
-    d.setHours(h, parseInt(tm[2] || '0', 10), 0, 0);
-  } else if (/noon/.test(t)) d.setHours(12, 0, 0, 0);
-  else if (/tonight|evening/.test(t)) d.setHours(19, 0, 0, 0);
-  else if (/afternoon/.test(t)) d.setHours(14, 0, 0, 0);
+    let h = parseInt(tm[1], 10);
+    if (tm[3] === 'am' || tm[3] === 'pm') { h = h % 12; if (tm[3] === 'pm') h += 12; }
+    else if (/'s middags|namiddag|vanmiddag/.test(t) && h < 12) h += 12;
+    else if (/'s avonds|vanavond/.test(t) && h < 12) h += 12;
+    d.setHours(Math.min(h, 23), parseInt(tm[2] || '0', 10), 0, 0);
+  } else if (/noon|middag uur|'s middags om 12/.test(t)) d.setHours(12, 0, 0, 0);
+  else if (/tonight|evening|vanavond|'s avonds/.test(t)) d.setHours(19, 0, 0, 0);
+  else if (/afternoon|vanmiddag|namiddag/.test(t)) d.setHours(14, 0, 0, 0);
   return d;
+}
+
+/* resolve an app name from any language: "Open Notities" → Notes */
+function resolveApp(word) {
+  const w = String(word || '').toLowerCase();
+  const direct = Object.keys(APPS).find(a => a.toLowerCase() === w);
+  if (direct) return direct;
+  if (typeof APP_NAMES_NL !== 'undefined' && APP_NAMES_NL[w]) return APP_NAMES_NL[w];
+  return null;
 }
 
 function findContact(t) {
@@ -255,6 +279,12 @@ function speak(text) {
     if (settings.voice) {
       const v = speechSynthesis.getVoices().find(v => v.name === settings.voice);
       if (v) u.voice = v;
+    } else {
+      // match the UI language (nl voice for Dutch)
+      const want = settings.lang === 'nl' ? 'nl' : 'en';
+      const v = speechSynthesis.getVoices().find(v => v.lang.toLowerCase().startsWith(want));
+      if (v) u.voice = v;
+      u.lang = settings.lang === 'nl' ? 'nl-NL' : 'en-US';
     }
     speechSynthesis.speak(u);
   } catch (_) { /* no-op */ }
@@ -462,17 +492,19 @@ function parse(rawInput) {
   const t = ' ' + rawInput.toLowerCase().trim()
     .replace(/[“”]/g, '"').replace(/[’‘]/g, "'").replace(/\s+/g, ' ') + ' ';
 
-  /* --- global cancel --- */
-  if (/^\s*(cancel|never ?mind|stop|forget it|nope)\.?!?\s*$/i.test(rawInput)) {
+  /* --- global cancel (EN + NL) --- */
+  if (/^\s*(cancel|never ?mind|stop|forget it|nope|annuleer(?:en)?|laat maar|vergeet het|hoeft niet)\.?!?\s*$/i.test(rawInput)) {
     const had = !!state.pending;
     state.pending = null;
     return makeResponse({ understood: 'Cancel current action', mode: 'agent', action: 'cancel',
-      confidence: .98, result: 'Cancelled', response: had ? 'Cancelled. What’s next?' : 'Nothing to cancel.' });
+      confidence: .98, result: 'Cancelled',
+      response: had ? T('Cancelled. What’s next?', 'Geannuleerd. Wat nu?') : T('Nothing to cancel.', 'Niets om te annuleren.') });
   }
 
-  /* --- learning: "I meant Sarah, not Sara" / "actually it's Sarah" --- */
+  /* --- learning: "I meant Sarah, not Sara" / "ik bedoel Sarah, niet Sara" --- */
   const mCorr = t.match(/\b(?:actually,? |no,? )?i meant (\w+)(?:\s*,?\s*not\s+(\w+))?\b/)
-             || t.match(/\bit'?s (\w+),?\s*not\s+(\w+)\b/);
+             || t.match(/\bit'?s (\w+),?\s*not\s+(\w+)\b/)
+             || t.match(/\bik bedoel (\w+)(?:\s*,?\s*niet\s+(\w+))?\b/);
   if (mCorr) {
     const meant = mCorr[1], wrong = mCorr[2];
     const target = CONTACTS[meant.toLowerCase()];
@@ -484,22 +516,26 @@ function parse(rawInput) {
         understood: `Correction: “${wrong || meant}” means ${target.name}`,
         mode: 'agent', action: 'learn_alias', confidence: .95,
         parameters: { alias: wrong || meant, contact: target.name },
-        result: 'Learned', response: `Got it — I’ll use ${target.name} from now on.`,
+        result: 'Learned',
+        response: T(`Got it — I’ll use ${target.name} from now on.`,
+                    `Begrepen — ik gebruik voortaan ${target.name}.`),
         card_type: 'text',
-        card_data: { body: wrong ? `“${titleCase(wrong)}” → ${target.name}, saved for next time.` : null },
+        card_data: { body: wrong ? T(`“${titleCase(wrong)}” → ${target.name}, saved for next time.`,
+                                     `“${titleCase(wrong)}” → ${target.name}, opgeslagen voor de volgende keer.`) : null },
       });
     }
   }
 
-  /* --- pending confirmation? --- */
+  /* --- pending confirmation? (EN + NL) --- */
   if (state.pending?.type === 'confirm') {
-    if (/\b(yes|yeah|yep|sure|ok(ay)?|do it|send( it)?|confirm|go ahead|book it)\b/.test(t)) {
+    if (/\b(yes|yeah|yep|sure|ok(ay)?|do it|send( it)?|confirm|go ahead|book it|ja|jazeker|doe het|ga door|stuur|verstuur|bevestig|oké|prima|doe maar)\b/.test(t)) {
       return state.pending.onConfirm(); // returns a handled response
     }
-    if (/\b(no|nope|cancel|don'?t|stop)\b/.test(t)) {
+    if (/\b(no|nope|cancel|don'?t|stop|nee|nee hoor|annuleer|niet doen)\b/.test(t)) {
       state.pending = null;
       return makeResponse({ understood: 'Cancelled', mode: 'agent', confidence: 1,
-        result: 'Cancelled', response: 'Cancelled. Nothing was sent.' });
+        result: 'Cancelled',
+        response: T('Cancelled. Nothing was sent.', 'Geannuleerd. Er is niets verstuurd.') });
     }
   }
 
@@ -525,134 +561,150 @@ function parse(rawInput) {
 function routeFresh(raw, t) {
 
   /* --- safety refusals (spec edge cases) --- */
-  if (/\bpassword\b/.test(t)) {
+  if (/\bpassword\b|\bwachtwoord\b/.test(t)) {
     return makeResponse({ understood: 'User asked to handle a password', mode: 'agent',
       action: null, confidence: .95,
-      response: 'I can’t handle passwords. Do this manually.',
+      response: T('I can’t handle passwords. Do this manually.',
+                  'Wachtwoorden kan ik niet afhandelen. Doe dit handmatig.'),
       ui_state: { notification: 'Sensitive request refused' } });
   }
-  if (/\bdelete (all|every)\b/.test(t) && /\b(email|file|photo|message)s?\b/.test(t)) {
+  if ((/\bdelete (all|every)\b/.test(t) && /\b(email|file|photo|message)s?\b/.test(t))
+      || (/\bverwijder (alles|alle)\b/.test(t) && /\b(e-?mails?|bestanden|foto'?s|berichten)\b/.test(t))) {
     return makeResponse({ understood: 'Mass-delete request', mode: 'agent', confidence: .93,
-      response: 'That’s too risky. Use the app’s settings instead.' });
+      response: T('That’s too risky. Use the app’s settings instead.',
+                  'Dat is te riskant. Gebruik de instellingen van de app.') });
   }
 
-  /* --- DAILY BRIEFING (multi-source workflow) --- */
-  if (/\b(morning|daily) (briefing|routine)\b|\bstart my (day|morning)\b|\bbrief me\b/.test(t)) {
+  /* --- DAILY BRIEFING (multi-source workflow) — EN + NL --- */
+  if (/\b(morning|daily) (briefing|routine)\b|\bstart my (day|morning)\b|\bbrief me\b/.test(t)
+      || /\b(ochtend|dag)(briefing|overzicht|routine)\b|\bstart mijn (dag|ochtend)\b|\bbrief me\b/.test(t)) {
     return buildAction('daily_briefing', {}, raw);
   }
 
   /* --- WORKFLOW: send a file to a contact (spec's multi-step example) ---
-     "Send John the latest project deck" */
-  if (/\b(send|share|forward)\b/.test(t)
-      && /\b(latest|newest|recent|the)\b.+\b(deck|slides|presentation|spreadsheet|document|doc|report|invoice|notes)\b/.test(t)
-      && findContact(t) && !/\be-?mail\b/.test(t)) {
+     "Send John the latest project deck" / "Stuur John de nieuwste presentatie" */
+  const FILE_NOUNS = '(deck|slides|presentat\\w*|spreadsheet|document\\w*|doc|rapport\\w*|invoice|factu\\w*|notes?|notities)';
+  if (/\b(send|share|forward|stuur|stuur door|deel|verstuur)\b/.test(t)
+      && new RegExp(`\\b(latest|newest|recent|the|nieuwste|laatste|recente|de)\\b.+${FILE_NOUNS}`).test(t)
+      && findContact(t) && !/\b(?:send|stuur|verstuur)\s+(?:een\s+)?e-?mail\b/.test(t)) {
     const c = findContact(t);
-    const noun = (t.match(/\b(deck|slides|presentation|spreadsheet|document|doc|report|invoice|notes)\b/) || [,'file'])[1];
+    const noun = (t.match(new RegExp(FILE_NOUNS)) || [, 'file'])[1];
     return buildAction('send_file_workflow', { contact: c, noun }, raw);
   }
 
-  /* --- TASKS --- */
+  /* --- TASKS — EN + NL --- */
   let mTask = raw.match(/\b(?:create|add|new)(?: a)? tasks?[:\s]+(.+)$/i)
            || raw.match(/^(?:to ?do)[:\s]+(.+)$/i)
-           || raw.match(/\bput\s+(.+?)\s+on my (?:to ?do|task)(?: list)?\b/i);
+           || raw.match(/\bput\s+(.+?)\s+on my (?:to ?do|task)(?: list)?\b/i)
+           || raw.match(/\b(?:maak|voeg toe|voeg|nieuwe?)(?: een)?\s+(?:taak|taken)[:\s]+(.+)$/i)
+           || raw.match(/\b(?:maak|voeg toe)\s+(.+?)\s+als taak\b/i)
+           || raw.match(/^taak[:\s]+(.+)$/i);
   if (mTask) return buildAction('create_task', { title: mTask[1].trim() }, raw);
-  if (/\b(?:show|what'?s on) my (?:tasks?|to ?do)(?: list)?\b/.test(t)) {
+  if (/\b(?:show|what'?s on) my (?:tasks?|to ?do)(?: list)?\b|\btoon mijn taken\b|\bwat staat er op mijn taken\b/.test(t)) {
     return buildAction('list_tasks', {}, raw);
   }
 
-  /* --- NOTES search --- */
+  /* --- NOTES search — EN + NL --- */
   let mNotes = t.match(/\bsearch (?:my )?notes? (?:for|about)\s+(.+?)\s*$/)
-            || t.match(/\bfind\s+(.+?)\s+in (?:my )?notes?\b/);
+            || t.match(/\bfind\s+(.+?)\s+in (?:my )?notes?\b/)
+            || t.match(/\bzoek in (?:mijn )?notities naar\s+(.+?)\s*$/)
+            || t.match(/\bzoek\s+(.+?)\s+in (?:mijn )?notities\b/);
   if (mNotes) return buildAction('search_notes', { query: mNotes[1] }, raw);
 
-  /* --- REMINDER --- */
-  let m = t.match(/\b(?:remind me to|remember to|set (?:a )?reminder(?: to| for)?)\s+(.+?)\s*$/);
+  /* --- REMINDER — EN + NL --- */
+  let m = t.match(/\b(?:remind me to|remember to|set (?:a )?reminder(?: to| for)?|herinner me eraan(?: om)?|herinner me om|herinner me aan|onthoud om)\s+(.+?)\s*$/);
   if (m) {
     let task = m[1];
     const when = resolveDate(t);
-    task = task.replace(/\b(tomorrow|today|tonight|next week|day after tomorrow|at \d{1,2}(:\d{2})?\s*(am|pm)?|on (next )?(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/g, '').trim();
+    task = task.replace(/\b(tomorrow|today|tonight|next week|day after tomorrow|at \d{1,2}(:\d{2})?\s*(am|pm)?|on (next )?(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/g, '')
+               .replace(/\b(morgen|vandaag|vanavond|vanmiddag|overmorgen|volgende week|te)\b|\bom \d{1,2}(:\d{2})?\s*uur\b|\bom (next )?(maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)\b/gi, '')
+               .replace(/\s{2,}/g, ' ').trim();
     const heardName = findContact(t);
     return makeResponse({
       understood: `Reminder: ${task}`, mode: 'reminder', action: 'create_reminder',
       confidence: .92, parameters: { task, when: when.toISOString() },
       result: `Reminder set for ${fmtWhen(when)}`,
       response: heardName && Math.random() < .5
-        ? `Reminder set to ${task}. Say “cancel” if wrong.`
-        : `Reminder set for ${fmtDate(when)} at ${fmtTime(when)}.`,
+        ? T(`Reminder set to ${task}. Say “cancel” if wrong.`, `Herinnering gezet: ${task}. Zeg “annuleer” als het fout is.`)
+        : T(`Reminder set for ${fmtDate(when)} at ${fmtTime(when)}.`,
+            `Herinnering gezet voor ${fmtDate(when)} om ${fmtTime(when)}.`),
       card_type: 'event',
       card_data: { title: titleCase(task), when: fmtWhen(when), who: heardName?.name || null },
     });
   }
 
-  /* --- DICTATION --- */
-  m = raw.match(/^(?:take a note|note this|note that|write (?:this )?down|jot (?:this )?down|type this|dictate)[,:]?\s*(.*)$/i);
-  if (m || /\badd to today'?s note\b/.test(t)) {
-    const body = (m ? m[1] : raw.replace(/.*today'?s note[,:]?/i, '')).trim();
+  /* --- DICTATION — EN + NL --- */
+  m = raw.match(/^(?:take a note|note this|note that|write (?:this )?down|jot (?:this )?down|type this|dictate|maak een notitie|notitie|schrijf(?: dit)? op|noteer|typ dit|dicteer)[,:]?\s*(.*)$/i);
+  if (m || /\badd to today'?s note\b|\bvoeg toe aan (?:de )?notitie\b/.test(t)) {
+    const body = (m ? m[1] : raw.replace(/.*(?:today'?s note|notitie)[,:]?/i, '')).trim();
     if (!body) {
       state.pending = { type: 'collect', field: 'body', action: 'create_note', params: {}, raw };
       return makeResponse({ understood: 'Dictate a note (waiting for content)', mode: 'dictation',
-        confidence: .8, response: 'Listening. What should I write?' });
+        confidence: .8, response: T('Listening. What should I write?', 'Ik luister. Wat moet ik noteren?') });
     }
     return buildAction('create_note', { body }, raw);
   }
 
-  /* --- CALENDAR: next meeting / availability --- */
-  if (/\b(what'?s|whats|when'?s)\s+my next (meeting|event|call)\b/.test(t)) {
+  /* --- CALENDAR: next meeting / availability — EN + NL --- */
+  if (/\b(what'?s|whats|when'?s)\s+my next (meeting|event|call)\b|\bwat is mijn (volgende|eerstvolgende) (vergadering|afspraak|gesprek)\b/.test(t)) {
     return buildAction('find_next_meeting', {}, raw);
   }
-  /* --- CALENDAR: availability --- */
-  if (/\b(availability|available|free)\b/.test(t)) {
-    let mAvail = t.match(/\bavailability\s+(?:for|of)\s+(\w+)\b/);
-    if (!mAvail) mAvail = t.match(/\b(?:check\s+|is\s+|when\s+is\s+)?(\w+?)(?:'s)?\s+(?:availability|free|available)\b/);
-    if (mAvail && !/^(check|is|my|the|your)$/.test(mAvail[1])) {
+  if (/\b(availability|available|free|beschikbaar|beschikbaarheid|vrij)\b/.test(t)) {
+    let mAvail = t.match(/\bavailability\s+(?:for|of)\s+(\w+)\b/) || t.match(/\bbeschikbaarheid van\s+(\w+)\b/);
+    if (!mAvail) mAvail = t.match(/\b(?:check\s+|is\s+|wanneer is\s+|when\s+is\s+)?(\w+?)(?:'s)?\s+(?:availability|free|available|beschikbaar|vrij)\b/);
+    if (mAvail && !/^(check|is|my|the|your|wanneer|wie)$/.test(mAvail[1])) {
       const c = findContact(' ' + mAvail[1] + ' ');
       if (c) return buildAction('check_availability', { contact: c }, raw);
     }
   }
 
-  /* --- CALENDAR: schedule --- */
-  if (/\b(schedule|set up|book|arrange)\b/.test(t) && /\b(meeting|call|sync|chat|coffee|lunch)\b/.test(t)
-      || /\bmeeting with \w+\b/.test(t)) {
+  /* --- CALENDAR: schedule — EN + NL --- */
+  if (/\b(schedule|set up|book|arrange|plan|plant|maak)\b/.test(t) && /\b(meeting|call|sync|chat|coffee|lunch|vergadering|gesprek|afspraak)\b/.test(t)
+      || /\bmeeting with \w+\b|\b(vergadering|gesprek|afspraak) met \w+\b/.test(t)) {
     const c = findContact(t);
     const when = resolveDate(t);
-    const kind = (t.match(/\b(meeting|call|sync|coffee|lunch)\b/) || [,'meeting'])[1];
-    return buildAction('schedule_meeting', { contact: c, when, kind }, raw);
+    const kind = (t.match(/\b(meeting|call|sync|coffee|lunch|vergadering|gesprek|afspraak)\b/) || [,'meeting'])[1];
+    return buildAction('schedule_meeting', { contact: c, when, kind: KIND_EN[kind] || kind }, raw);
   }
 
-  /* --- EMAIL search --- */
-  if (/\b(search|find|look for)\b/.test(t) && /\b(e-?mails?|mail)\b/.test(t)) {
-    const q = (t.match(/\b(?:about|from|for|with)\s+(.+?)\s*$/) || [,''])[1];
+  /* --- EMAIL search — EN + NL --- */
+  if (/\b(search|find|look for|zoek|vind|vindt)\b/.test(t) && /\b(e-?mails?|mail|berichten)\b/.test(t)
+      && /\b(e-?mail|mail)\b/.test(t)) {
+    const q = (t.match(/\b(?:about|from|for|with|over|van|voor|met)\s+(.+?)\s*$/) || [,''])[1];
     return buildAction('search_emails', { query: q || '' }, raw);
   }
 
-  /* --- EMAIL send --- */
-  if (/\b(e-?mail|mail)\b/.test(t) && /\b(send|write|compose|draft)\b/.test(t) || /\bsend .+ an? e-?mail\b/.test(t)) {
+  /* --- EMAIL send — EN + NL --- */
+  if (/\b(e-?mail|mail)\b/.test(t) && /\b(send|write|compose|draft|stuur|verstuur|schrijf)\b/.test(t)
+      || /\b(send|stuur|verstuur) (\w+) een e-?mail\b/.test(t)) {
     const c = findContact(t);
-    const about = (raw.match(/\babout\s+(.+?)(?:\s+saying|\s+at\s+\d|$)/i) || [,''])[1];
+    const about = (raw.match(/\b(?:about|over)\s+(.+?)(?:\s+saying|\s+met de mededeling|\s+at\s+\d|\s+om\s+\d|$)/i) || [,''])[1];
     return buildAction('send_email', { contact: c, subject: about ? titleCase(about.trim()) : null }, raw);
   }
 
-  /* --- MESSAGE reply / check / send --- */
-  m = t.match(/\breply to (\w+)(?:\s+(?:saying|with|that)\s+(.+?))?\s*$/);
+  /* --- MESSAGE reply / check / send — EN + NL --- */
+  m = t.match(/\breply to (\w+)(?:\s+(?:saying|with|that)\s+(.+?))?\s*$/)
+      || t.match(/\b(?:beantwoord|antwoord)\s+(\w+)(?:\s+met\s+(.+?))?\s*$/);
   if (m && !/\b(email|mail)\b/.test(t)) {
     const c = findContact(' ' + m[1] + ' ');
     return buildAction('reply_message', { contact: c, body: m[2] || null }, raw);
   }
-  m = t.match(/\b(?:check|show|read)\b.*\bmessages? from (\w+)\b/);
+  m = t.match(/\b(?:check|show|read|toon|laat zien)\b.*\bmessages? from (\w+)\b/)
+      || t.match(/\b(?:toon|laat)\s+berichten van\s+(\w+)\b/);
   if (m) {
     const c = findContact(' ' + m[1] + ' ');
     return buildAction('check_messages', { contact: c }, raw);
   }
-  m = t.match(/\bsend (?:a )?(message|text)\b/);
+  m = t.match(/\bsend (?:a )?(message|text)\b/) || t.match(/\bstuur (?:een )?(bericht|appje|sms)\b/) || t.match(/\bapp\s+\w+/);
   if (m) {
     const c = findContact(t);
-    const bodyM = raw.match(/\b(?:saying|that)\s+(.+)$/i);
+    const bodyM = raw.match(/\b(?:saying|that|met de tekst|met)\s+(.+)$/i);
     if (!c) {
       state.pending = { type: 'collect', field: 'recipient', action: 'send_message',
         params: { body: bodyM ? bodyM[1] : null }, raw };
       return makeResponse({
         understood: 'Send a message — recipient missing', mode: 'agent', action: 'send_message',
-        confidence: .55, response: 'To who?',
+        confidence: .55, response: T('To who?', 'Aan wie?'),
         options: [{ label: 'Maria' }, { label: 'Alex' }, { label: 'John' }],
         ui_state: { notification: 'Choose a recipient' },
       });
@@ -660,34 +712,42 @@ function routeFresh(raw, t) {
     return buildAction('send_message', { contact: c, body: bodyM ? bodyM[1] : null }, raw);
   }
 
-  /* --- FILES --- */
-  if (/\b(find|locate|search for|look for|open)\b/.test(t)
-      && (/\b(file|files|document|doc|pdf|deck|slides|spreadsheet|folder|tax|taxes|invoice|return|returns)\b/.test(t) || /\w+\.\w{2,4}\b/.test(t))) {
-    let q = t.replace(/\b(find|locate|search for|look for|open|my|the|last year'?s?|this year'?s?|file|files|please|me)\b/g, '').trim();
-    if (/tax/.test(t) && !/tax/.test(q)) q = 'tax';
+  /* --- APP CONTROL (before file search — "Open Notities" must win over "bestanden") --- */
+  m = t.match(/\b(open|sluit|opent|close)\s+(\w+)\b/);
+  if (m) {
+    const resolved = resolveApp(m[2]);
+    if (resolved) {
+      const isClose = /^(sluit|close)$/.test(m[1]);
+      return buildAction(isClose ? 'close_app' : 'open_app', { app: resolved }, raw);
+    }
+    if (/^(sluit|close)$/.test(m[1])) return buildAction('close_app', { app: titleCase(m[2]) }, raw);
+    // "open X" where X is not an app → fall through to file search
+  }
+
+  /* --- FILES — EN + NL --- */
+  if (/\b(find|locate|search for|look for|open|zoek|vind)\b/.test(t)
+      && (/\b(file|files|document|doc|pdf|deck|slides|spreadsheet|folder|tax|taxes|invoice|return|returns|bestand|bestanden|document|presentatie|spreadsheet|map|factuur)\b|belasting\w*|aangifte/.test(t) || /\w+\.\w{2,4}\b/.test(t))) {
+    let q = t.replace(/\b(find|locate|search for|look for|open|zoek|vind|my|mijn|the|de|het|een|last year'?s?|this year'?s?|vorig jaar|dit jaar|file|files|bestand|bestanden|please|alsjeblieft|me)\b/g, '')
+             .replace(/\s{2,}/g, ' ').trim();
+    if (/tax|belasting|aangifte/.test(t) && !/tax|belasting|aangifte/.test(q)) q = 'tax belasting aangifte';
     const openIt = /\bopen\b/.test(t);
     return buildAction(openIt ? 'open_file' : 'find_file', { query: q }, raw);
   }
 
-  /* --- WEB / knowledge --- */
-  m = t.match(/\b(?:search (?:the )?web(?: for)?|google|look up|what is|what'?s|who is)\s+(.+?)\s*$/);
+  /* --- WEB / knowledge — EN + NL --- */
+  m = t.match(/\b(?:search (?:the )?web(?: for)?|google|look up|what is|what'?s|who is|zoek (?:op )?(?:het )?(?:internet|web)(?: naar)?|wat is|wie is)\s+(.+?)\s*$/);
   if (m) return buildAction('search_web', { query: m[1] }, raw);
 
-  /* --- APP CONTROL --- */
-  m = t.match(/\bopen (\w+)\b/);
-  if (m) return buildAction('open_app', { app: titleCase(m[1]) }, raw);
-  m = t.match(/\bclose (\w+)\b/);
-  if (m) return buildAction('close_app', { app: titleCase(m[1]) }, raw);
-
   /* --- catch-all generic search --- */
-  m = t.match(/\b(?:find|search(?: for)?|look for)\s+(.+?)\s*$/);
+  m = t.match(/\b(?:find|search(?: for)?|look for|zoek|vind)\s+(.+?)\s*$/);
   if (m) return buildAction('find_file', { query: m[1] }, raw);
 
   /* --- UNCLEAR --- */
   return makeResponse({
     understood: `Heard: “${raw}”`, mode: 'unclear', action: null, confidence: .45,
-    response: 'I didn’t catch that. Could you repeat?',
-    options: [{ label: 'Send an email' }, { label: 'Take a note' }, { label: 'Find a file' }],
+    response: T('I didn’t catch that. Could you repeat?',
+                'Ik heb dat niet helemaal verstaan. Kun je het herhalen?'),
+    options: [{ label: T('Send an email', 'Stuur een e-mail') }, { label: T('Take a note', 'Maak een notitie') }, { label: T('Find a file', 'Zoek een bestand') }],
     card_type: null,
   });
 }
@@ -705,17 +765,23 @@ function buildAction(action, params, raw) {
           options: [{ label: 'John' }, { label: 'Sarah' }, { label: 'Maya' }] });
       }
       const subj = params.subject || 'Quick note';
-      const body = `Hi ${params.contact.name},\n\nRe: ${subj.toLowerCase()} — sending this over. Details inside.\n\n— Sent with VoiceOS`;
+      const body = settings.lang === 'nl'
+        ? `Hoi ${params.contact.name},\n\nBetreft: ${subj.toLowerCase()} — hierbij de details.\n\n— Verstuurd met VoiceOS`
+        : `Hi ${params.contact.name},\n\nRe: ${subj.toLowerCase()} — sending this over. Details inside.\n\n— Sent with VoiceOS`;
       const rc = shouldConfirm('send_email');
       return makeResponse({
         understood: `Send email to ${params.contact.name}${params.subject ? ' about ' + params.subject : ''}`,
         mode: 'agent', action, confidence: .93,
         parameters: { to: params.contact.email, subject: subj, body },
         requires_confirmation: rc,
-        confirmation_prompt: rc ? `Send email to ${params.contact.email}?` : null,
-        response: rc ? `Email to ${params.contact.name}. Confirm?` : `Sending email to ${params.contact.name}.`,
+        confirmation_prompt: rc ? T(`Send email to ${params.contact.email}?`,
+                                    `E-mail versturen naar ${params.contact.email}?`) : null,
+        response: rc ? T(`Email to ${params.contact.name}. Confirm?`,
+                         `E-mail naar ${params.contact.name}. Bevestigen?`)
+                     : T(`Sending email to ${params.contact.name}.`,
+                         `E-mail naar ${params.contact.name} wordt verstuurd.`),
         card_type: 'email',
-        card_data: { lines: [['To', params.contact.email], ['Subject', subj]], body, confirmLabel: 'SEND' },
+        card_data: { lines: [[LBL('to'), params.contact.email], [LBL('subject'), subj]], body, confirmLabel: LBL('send') },
         ui_state: { show_confirmation: rc, highlight_app: 'Mail' },
       });
     }
@@ -727,18 +793,23 @@ function buildAction(action, params, raw) {
           action, confidence: .55, response: 'With who?',
           options: [{ label: 'Sarah' }, { label: 'John' }, { label: 'Maya' }] });
       }
-      const title = `${titleCase(params.kind)} with ${params.contact.name}`;
+      const title = settings.lang === 'nl'
+        ? `${titleCase(params.kind)} met ${params.contact.name}`
+        : `${titleCase(params.kind)} with ${params.contact.name}`;
       const rc = shouldConfirm('schedule_meeting');
       return makeResponse({
         understood: `Schedule ${params.kind} with ${params.contact.name} — ${fmtWhen(params.when)}`,
         mode: 'agent', action, confidence: .9,
         parameters: { title, attendee: params.contact.email, when: params.when.toISOString() },
         requires_confirmation: rc,
-        confirmation_prompt: rc ? `Book ${params.kind} with ${params.contact.name}?` : null,
-        response: rc ? `${fmtDate(params.when)} at ${fmtTime(params.when)}. Confirm?`
-                     : `Booking ${params.kind} with ${params.contact.name}.`,
+        confirmation_prompt: rc ? T(`Book ${params.kind} with ${params.contact.name}?`,
+                                    `${titleCase(params.kind)} met ${params.contact.name} plannen?`) : null,
+        response: rc ? T(`${fmtDate(params.when)} at ${fmtTime(params.when)}. Confirm?`,
+                         `${fmtDate(params.when)} om ${fmtTime(params.when)}. Bevestigen?`)
+                     : T(`Booking ${params.kind} with ${params.contact.name}.`,
+                         `${titleCase(params.kind)} met ${params.contact.name} wordt gepland.`),
         card_type: 'event',
-        card_data: { lines: [['What', title], ['When', fmtWhen(params.when)], ['With', params.contact.email]], confirmLabel: 'BOOK' },
+        card_data: { lines: [[LBL('what'), title], [LBL('when'), fmtWhen(params.when)], [LBL('with'), params.contact.email]], confirmLabel: LBL('book') },
         ui_state: { show_confirmation: rc, highlight_app: 'Calendar' },
       });
     }
@@ -746,13 +817,14 @@ function buildAction(action, params, raw) {
     case 'find_next_meeting': {
       const next = store.events.filter(e => e.when > new Date()).sort((a, b) => a.when - b.when)[0];
       if (!next) return makeResponse({ understood: 'Next meeting', mode: 'agent', action, confidence: .95,
-        response: 'Your calendar is clear. Enjoy the focus time.' });
+        response: T('Your calendar is clear. Enjoy the focus time.', 'Agenda is leeg. Geniet van de focustijd.') });
       return makeResponse({
         understood: 'Next meeting', mode: 'agent', action, confidence: .96,
         parameters: { title: next.title, when: next.when.toISOString() },
-        result: next.title, response: `${next.title}, ${fmtWhen(next.when)}.`,
+        result: next.title, response: T(`${next.title}, ${fmtWhen(next.when)}.`,
+                                        `${next.title}, ${fmtWhen(next.when)}.`),
         card_type: 'event',
-        card_data: { lines: [['What', next.title], ['When', fmtWhen(next.when)], ['Who', (next.who || []).join(', ')]] },
+        card_data: { lines: [[LBL('what'), next.title], [LBL('when'), fmtWhen(next.when)], [T('Who', 'Wie'), (next.who || []).join(', ')]] },
         ui_state: { highlight_app: 'Calendar' },
       });
     }
@@ -790,15 +862,17 @@ function buildAction(action, params, raw) {
           confidence: .55, response: 'To who?',
           options: [{ label: 'Maria' }, { label: 'Alex' }, { label: 'John' }] });
       }
-      if (!params.body) {
-        state.pending = { type: 'collect', field: 'body', action, params, raw };
-        const last = (store.threads[params.contact.key || params.contact.name.toLowerCase()] || []).slice(-1)[0];
-        return makeResponse({
-          understood: `Reply to ${params.contact.name} — waiting for message`, mode: 'agent', action,
-          confidence: .85, parameters: { to: params.contact.name },
-          response: `What should I tell ${params.contact.name}?`,
+        if (!params.body) {
+          state.pending = { type: 'collect', field: 'body', action, params, raw };
+          const last = (store.threads[params.contact.key || params.contact.name.toLowerCase()] || []).slice(-1)[0];
+          return makeResponse({
+            understood: `Reply to ${params.contact.name} — waiting for message`, mode: 'agent', action,
+            confidence: .85, parameters: { to: params.contact.name },
+            response: T(`What should I tell ${params.contact.name}?`,
+                        `Wat moet ik tegen ${params.contact.name} zeggen?`),
           card_type: 'text',
-          card_data: { body: last ? `Last from ${params.contact.name}: “${last.text}”` : null },
+          card_data: { body: last ? T(`Last from ${params.contact.name}: “${last.text}”`,
+                                      `Laatste van ${params.contact.name}: “${last.text}”`) : null },
           ui_state: { highlight_app: 'Messages' },
         });
       }
@@ -808,11 +882,15 @@ function buildAction(action, params, raw) {
         mode: 'agent', action, confidence: .92,
         parameters: { to: params.contact.name, body: params.body },
         requires_confirmation: rc,
-        confirmation_prompt: rc ? `Send message to ${params.contact.name}?` : null,
-        response: rc ? `Message to ${params.contact.name}. Confirm?` : `Sent to ${params.contact.name}. Done.`,
+        confirmation_prompt: rc ? T(`Send message to ${params.contact.name}?`,
+                                    `Bericht versturen naar ${params.contact.name}?`) : null,
+        response: rc ? T(`Message to ${params.contact.name}. Confirm?`,
+                         `Bericht aan ${params.contact.name}. Bevestigen?`)
+                     : T(`Sent to ${params.contact.name}. Done.`,
+                         `Verstuurd naar ${params.contact.name}. Klaar.`),
         result: `Sent to ${params.contact.name}`,
         card_type: rc ? 'text' : null,
-        card_data: rc ? { lines: [['To', params.contact.name], ['Message', params.body]], confirmLabel: 'SEND' } : {},
+        card_data: rc ? { lines: [[LBL('to'), params.contact.name], [T('Message', 'Bericht'), params.body]], confirmLabel: LBL('send') } : {},
         ui_state: { show_confirmation: rc, highlight_app: 'Messages' },
       });
     }
@@ -845,8 +923,10 @@ function buildAction(action, params, raw) {
         parameters: { query: params.query },
         result: hits.length ? `${hits.length} matches` : 'No matches',
         response: hits.length
-          ? (hits.length > 1 ? `Found ${hits.length} matches. Showing best first.` : `Found ${hits[0].name}.`)
-          : 'Nothing matched. Try different words?',
+          ? (hits.length > 1
+              ? T(`Found ${hits.length} matches. Showing best first.`, `${hits.length} gevonden. Beste eerst.`)
+              : T(`Found ${hits[0].name}.`, `${hits[0].name} gevonden.`))
+          : T('Nothing matched. Try different words?', 'Niets gevonden. Andere woorden proberen?'),
         card_type: 'search_result',
         card_data: { query: params.query, resultApp: 'Files', results: hits.map(f => ({ icon: f.icon, name: f.name, meta: f.meta })) },
         ui_state: { highlight_app: hits.length ? 'Files' : null },
@@ -859,7 +939,7 @@ function buildAction(action, params, raw) {
         understood: `Web search: ${q}`, mode: 'search', action, confidence: .85,
         parameters: { query: q },
         result: 'Web results',
-        response: `Here’s what I found for “${q}”.`,
+        response: T(`Here’s what I found for “${q}”.`, `Dit vond ik voor “${q}”.`),
         card_type: 'search_result',
         card_data: { results: [
           { icon: '🌐', name: `${titleCase(q)} — Wikipedia`, meta: 'en.wikipedia.org' },
@@ -890,16 +970,19 @@ function buildAction(action, params, raw) {
         parameters: { to: params.contact.email, file: hit.name,
           subject: `Latest ${params.noun}`, contactName: params.contact.name },
         workflow_steps: [
-          { step: 1, action: 'find_file',     label: `Found ${hit.name}`,                state: 'done' },
-          { step: 2, action: 'compose_email', label: `Compose to ${params.contact.email}`, state: 'active' },
-          { step: 3, action: 'attach_file',   label: `Attach ${hit.name}`,               state: 'pending' },
-          { step: 4, action: 'send_email',    label: 'Send',                             state: 'pending' },
+          { step: 1, action: 'find_file',     label: T(`Found ${hit.name}`, `${hit.name} gevonden`),               state: 'done' },
+          { step: 2, action: 'compose_email', label: T(`Compose to ${params.contact.email}`, `Opstellen aan ${params.contact.email}`), state: 'active' },
+          { step: 3, action: 'attach_file',   label: T(`Attach ${hit.name}`, `${hit.name} bijvoegen`),              state: 'pending' },
+          { step: 4, action: 'send_email',    label: T('Send', 'Versturen'),                                          state: 'pending' },
         ],
         requires_confirmation: rc,
         confirmation_at_step: 2,
-        confirmation_prompt: rc ? `Email ${hit.name} to ${params.contact.email}?` : null,
-        response: rc ? `Found ${hit.name}. Send to ${params.contact.name}?`
-                     : `Sending ${hit.name} to ${params.contact.name}.`,
+        confirmation_prompt: rc ? T(`Email ${hit.name} to ${params.contact.email}?`,
+                                    `${hit.name} mailen naar ${params.contact.email}?`) : null,
+        response: rc ? T(`Found ${hit.name}. Send to ${params.contact.name}?`,
+                         `${hit.name} gevonden. Versturen naar ${params.contact.name}?`)
+                     : T(`Sending ${hit.name} to ${params.contact.name}.`,
+                         `${hit.name} wordt verstuurd naar ${params.contact.name}.`),
         card_type: 'workflow',
         card_data: { confirmLabel: 'SEND' },
         ui_state: { show_confirmation: rc, highlight_app: 'Mail' },
@@ -912,10 +995,15 @@ function buildAction(action, params, raw) {
       const unread = store.emails.filter(e => e.unread);
       const open = store.tasks.filter(x => !x.done);
       const lines = [
-        ...(next ? [['Next meeting', `${next.title} — ${fmtWhen(next.when)}`]] : [['Meetings', 'Nothing on the calendar']]),
-        ['Mail', unread.length ? `${unread.length} unread — latest: ${unread[0].from}, “${unread[0].subj}”` : 'Inbox zero ✨'],
-        ...(store.reminders.length ? [['Reminders', store.reminders.map(r => r.task).join('; ')]] : []),
-        ['Tasks', open.length ? `${open.length} open — top: ${open[0].title}` : 'All tasks done 🎉'],
+        ...(next ? [[T('Next meeting', 'Volgende afspraak'), `${next.title} — ${fmtWhen(next.when)}`]] : [[T('Meetings', 'Afspraken'), T('Nothing on the calendar', 'Niets op de agenda')]]),
+        [T('Mail', 'Mail'), unread.length
+          ? T(`${unread.length} unread — latest: ${unread[0].from}, “${unread[0].subj}”`,
+              `${unread.length} ongelezen — laatste: ${unread[0].from}, “${unread[0].subj}”`)
+          : T('Inbox zero ✨', 'Inbox leeg ✨')],
+        ...(store.reminders.length ? [[T('Reminders', 'Herinneringen'), store.reminders.map(r => r.task).join('; ')]] : []),
+        [T('Tasks', 'Taken'), open.length
+          ? T(`${open.length} open — top: ${open[0].title}`, `${open.length} open — bovenaan: ${open[0].title}`)
+          : T('All tasks done 🎉', 'Alle taken af 🎉')],
       ];
       return makeResponse({
         understood: 'Morning briefing', mode: 'agent', action, confidence: .95,
@@ -923,10 +1011,12 @@ function buildAction(action, params, raw) {
         workflow: ['check_availability', 'find_next_meeting', 'search_emails', 'list_tasks'],
         result: 'Briefing ready',
         response: next
-          ? `Here's your day: ${unread.length} unread, ${open.length} tasks. First up: ${next.title}.`
-          : `Here's your day: ${unread.length} unread, ${open.length} tasks. Clear calendar.`,
+          ? T(`Here's your day: ${unread.length} unread, ${open.length} tasks. First up: ${next.title}.`,
+              `Je dag op een rij: ${unread.length} ongelezen, ${open.length} taken. Als eerste: ${next.title}.`)
+          : T(`Here's your day: ${unread.length} unread, ${open.length} tasks. Clear calendar.`,
+              `Je dag op een rij: ${unread.length} ongelezen, ${open.length} taken. Agenda is leeg.`),
         card_type: 'briefing',
-        card_data: { title: 'Your day at a glance', lines, when: fmtDate(new Date()) },
+        card_data: { title: T('Your day at a glance', 'Je dag in één oogopslag'), lines, when: fmtDate(new Date()) },
         ui_state: { highlight_app: 'Calendar' },
       });
     }
@@ -938,9 +1028,12 @@ function buildAction(action, params, raw) {
         understood: `Create task: “${params.title}”`, mode: 'agent', action, confidence: .94,
         parameters: { title: titleCase(params.title) },
         requires_confirmation: rc,
-        confirmation_prompt: rc ? `Create task “${titleCase(params.title)}”?` : null,
-        result: 'Task added', response: `Added “${titleCase(params.title)}” to Tasks.`,
-        card_data: rc ? { lines: [['Task', titleCase(params.title)]], confirmLabel: 'ADD' } : {},
+        confirmation_prompt: rc ? T(`Create task “${titleCase(params.title)}”?`,
+                                    `Taak “${titleCase(params.title)}” aanmaken?`) : null,
+        result: 'Task added',
+        response: T(`Added “${titleCase(params.title)}” to Tasks.`,
+                    `“${titleCase(params.title)}” toegevoegd aan Taken.`),
+        card_data: rc ? { lines: [[LBL('task'), titleCase(params.title)]], confirmLabel: LBL('add') } : {},
         ui_state: { show_confirmation: rc, highlight_app: 'Tasks' },
       });
     }
@@ -951,7 +1044,9 @@ function buildAction(action, params, raw) {
         understood: 'List open tasks', mode: 'agent', action, confidence: .95,
         parameters: {},
         result: `${open.length} open tasks`,
-        response: open.length ? `${open.length} open. Top: ${open[0].title}.` : 'All tasks done. Nice.',
+        response: open.length
+          ? T(`${open.length} open. Top: ${open[0].title}.`, `${open.length} open. Bovenaan: ${open[0].title}.`)
+          : T('All tasks done. Nice.', 'Alle taken af. Lekker.'),
         card_type: 'search_result',
         card_data: { resultApp: 'Tasks', results: open.map(x => ({ icon: '✅', name: x.title, meta: 'Task · open' })) },
         ui_state: { highlight_app: 'Tasks' },
@@ -965,8 +1060,9 @@ function buildAction(action, params, raw) {
         understood: `Search notes: ${q}`, mode: 'search', action, confidence: .9,
         parameters: { query: q },
         result: hits.length ? `${hits.length} match${hits.length === 1 ? '' : 'es'}` : 'No matches',
-        response: hits.length ? `Found ${hits.length} note${hits.length === 1 ? '' : 's'}.`
-                              : 'No notes matched. Try different words?',
+        response: hits.length ? T(`Found ${hits.length} note${hits.length === 1 ? '' : 's'}.`,
+                                  `${hits.length} notitie${hits.length === 1 ? '' : 's'} gevonden.`)
+                              : T('No notes matched. Try different words?', 'Geen notities gevonden. Andere woorden?'),
         card_type: 'search_result',
         card_data: { resultApp: 'Notes', results: hits.map(n => ({ icon: '📝', name: n.text.slice(0, 60), meta: 'Note' })) },
         ui_state: { highlight_app: 'Notes' },
@@ -980,7 +1076,8 @@ function buildAction(action, params, raw) {
       return makeResponse({
         understood: `Dictate note: “${clean}”`, mode: 'dictation', action, confidence: .94,
         parameters: { content: clean },
-        result: 'Added to Notes', response: 'Added to Notes. What’s next?',
+        result: 'Added to Notes',
+        response: T('Added to Notes. What’s next?', 'Toegevoegd aan Notities. Wat nu?'),
         card_type: 'text', card_data: { text: clean },
         ui_state: { highlight_app: 'Notes' },
       });
@@ -992,11 +1089,14 @@ function buildAction(action, params, raw) {
       const name = Object.keys(APPS).find(a => a.toLowerCase() === String(params.app).toLowerCase());
       if (!name) return makeResponse({
         understood: `Open ${params.app}`, mode: 'agent', action, confidence: .7,
-        parameters: params, response: `${params.app} isn’t available here. Try Mail, Calendar, Messages, Notes, Files, Tasks.`,
+        parameters: params,
+        response: T(`${params.app} isn’t available here. Try Mail, Calendar, Messages, Notes, Files, Tasks.`,
+                    `${params.app} is hier niet beschikbaar. Probeer Mail, Calendar, Messages, Notes, Files, Tasks.`),
       });
       return makeResponse({
         understood: `Open ${name}`, mode: 'agent', action, confidence: .97,
-        parameters: { app: name }, result: 'Opened', response: `Opening ${name}.`,
+        parameters: { app: name }, result: 'Opened',
+        response: T(`Opening ${name}.`, `${name} wordt geopend.`),
         ui_state: { highlight_app: name },
       });
     }
@@ -1007,7 +1107,8 @@ function buildAction(action, params, raw) {
         understood: `Close ${params.app}`, mode: 'agent', action, confidence: .9,
         parameters: { app: name || params.app },
         result: name ? 'Closed' : `${params.app} isn’t open`,
-        response: name ? `Closing ${name}.` : `${params.app} isn’t running.`,
+        response: name ? T(`Closing ${name}.`, `${name} wordt gesloten.`)
+                       : T(`${params.app} isn’t running.`, `${params.app} draait niet.`),
         ui_state: { highlight_app: name || null },
       });
     }
@@ -1016,11 +1117,13 @@ function buildAction(action, params, raw) {
     response: 'I didn’t catch that. Could you repeat?' });
 }
 
-/* ---------- dictation cleanup: fillers, casing, punctuation ---------- */
+/* ---------- dictation cleanup: fillers (EN + NL), casing, punctuation ---------- */
 function cleanDictation(s) {
   let out = ' ' + s.trim() + ' ';
-  out = out.replace(/\b(um+|uh+|erm+|ah+|hmm)\b[,\s]*/gi, ' ');
+  out = out.replace(/\b(um+|uh+|erm+|ah+|hmm|ehm*|eh)\b[,\s]*/gi, ' ');
   out = out.replace(/\byou know\b[,\s]*/gi, ' ');
+  out = out.replace(/\bzeg maar\b[,\s]*/gi, ' ');
+  out = out.replace(/\bweet je\b[,?]?\s*/gi, ' ');
   out = out.replace(/(,\s*)?\blike\b,\s*/gi, ', ');
   out = out.replace(/\s+/g, ' ').trim();
   out = out.replace(/(^\s*\w|[.!?]\s+\w)/g, c => c.toUpperCase());
@@ -1392,29 +1495,33 @@ document.addEventListener('keydown', e => {
 let phIndex = 0;
 setInterval(() => {
   if (typeof document !== 'undefined' && document.activeElement !== input && !input.value) {
-    input.placeholder = `Say it once… e.g. “${CHIPS[phIndex++ % CHIPS.length]}”`;
+    const chips = getChips();
+    const prefix = settings.lang === 'nl' ? 'Zeg het één keer… bijv.' : 'Say it once… e.g.';
+    input.placeholder = `${prefix} “${chips[phIndex++ % chips.length]}”`;
   }
 }, 4500);
 
-/* suggestion chips — straight from the spec's examples */
-const CHIPS = [
-  'Send John the latest project deck',   // multi-step workflow
-  'Morning briefing',
-  'Send email to John about the meeting',
-  'Schedule meeting with Sarah next week',
-  'Find last year’s tax returns',
-  'Reply to Maya',
-  'Create task: review the launch plan',
-  'Search notes for checklist',
-  'Remind me to call Joan tomorrow at 9am',
-  'Take a note: the new onboarding flow tested well',
-  'What’s my next meeting?',
-  'Send message',                        // ambiguity demo
-  'Search web for focus music',
-  'Open Notes',
-];
-$('#chips').innerHTML = CHIPS.map(c => `<button class="chip">${esc(c)}</button>`).join('');
-$$('#chips .chip').forEach(c => c.addEventListener('click', () => submit(c.textContent)));
+/* suggestion chips — language-driven; re-rendered when the UI language changes */
+function getChips() { return UI().chips; }
+function renderChips() {
+  $('#chips').innerHTML = getChips().map(c => `<button class="chip">${esc(c)}</button>`).join('');
+  $$('#chips .chip').forEach(c => c.addEventListener('click', () => submit(c.textContent)));
+}
+renderChips();
+
+/* re-render all language-facing UI when the language changes */
+function applyLanguage() {
+  renderChips();
+  const ui = UI();
+  const inputEl = $('#utterance');
+  if (inputEl && !inputEl.value) inputEl.placeholder = ui.inputPlaceholder;
+  const ht = $('.hint-title'); if (ht) ht.textContent = ui.hintTitle;
+  const hs = $('.hint-sub');  if (hs) hs.textContent = '';
+  if (hs) hs.innerHTML = esc(ui.hintSub);
+  const ch = $('.composer-hint'); if (ch) ch.textContent = ui.composerHint;
+  const ls = $('#logPanel .panel-title'); if (ls) ls.textContent = ui.panelSession;
+  const jp = $('#jsonPanel .panel-title'); if (jp) jp.innerHTML = esc(ui.panelJson) + ' <span class="panel-note">' + esc(ui.panelJsonNote) + '</span>';
+}
 
 /* --- real mic via Web Speech API, text fallback always available --- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1423,7 +1530,8 @@ function micStart() {
   if (state.listening) { state.recognition.stop(); return; }
   const rec = new SR();
   state.recognition = rec;
-  rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.lang = settings.lang === 'nl' ? 'nl-NL' : 'en-US';
+  rec.interimResults = false; rec.maxAlternatives = 1;
   rec.onstart = () => { state.listening = true; $('#micBtn').classList.add('rec'); notchListening('Listening… speak now'); };
   rec.onend = () => { state.listening = false; $('#micBtn').classList.remove('rec'); };
   rec.onerror = () => { state.listening = false; $('#micBtn').classList.remove('rec');
@@ -1445,8 +1553,9 @@ $('#jsonToggle').addEventListener('click', () => $('#jsonPanel').classList.toggl
 
 function tickClock() {
   const d = new Date();
-  $('#clock').textContent = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) +
-    '  ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const loc = (settings && settings.lang === 'nl') ? 'nl-NL' : 'en-US';
+  $('#clock').textContent = d.toLocaleDateString(loc, { weekday: 'short', month: 'short', day: 'numeric' }) +
+    '  ' + d.toLocaleTimeString(loc, { hour: 'numeric', minute: '2-digit' });
 }
 setInterval(tickClock, 1000); tickClock();
 
@@ -1459,8 +1568,11 @@ function hasVoices() {
 
 function populateVoices(sel) {
   try {
-    const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+    const wantLang = settings.lang === 'nl' ? 'nl' : 'en';
+    let voices = speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().startsWith(wantLang));
+    if (!voices.length) voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('en')); // graceful fallback
     if (!voices.length) { sel.parentElement.style.display = 'none'; return; }
+    sel.parentElement.style.display = '';
     sel.innerHTML = '<option value="">System default</option>' +
       voices.map(v => `<option value="${esc(v.name)}" ${v.name === settings.voice ? 'selected' : ''}>${esc(v.name)}</option>`).join('');
   } catch (_) { sel.parentElement.style.display = 'none'; }
@@ -1471,10 +1583,14 @@ function applySettingsToUI() {
   const cf = $('#setConfirm');   if (cf) cf.value = settings.confirmLevel;
   const vb = $('#setVerbose');   if (vb) vb.value = settings.verbosity;
   const sv = $('#setVoice');     if (sv) sv.value = settings.voice || '';
+  const lg = $('#setLang');      if (lg) lg.value = settings.lang || 'en';
   const obr = document.querySelector(`input[name="obrate"][value="${settings.rate}"]`);
   const obc = document.querySelector(`input[name="obconfirm"][value="${settings.confirmLevel}"]`);
+  const obl = document.querySelector(`input[name="oblang"][value="${settings.lang}"]`);
   if (obr) obr.checked = true;
   if (obc) obc.checked = true;
+  if (obl) obl.checked = true;
+  applyLanguage();
 }
 
 function initProduct() {
@@ -1487,6 +1603,14 @@ function initProduct() {
   $('#setConfirm').addEventListener('change', e => { settings.confirmLevel = e.target.value; saveSettings(); });
   $('#setVerbose').addEventListener('change', e => { settings.verbosity = e.target.value; saveSettings(); });
   $('#setVoice').addEventListener('change',   e => { settings.voice = e.target.value || null; saveSettings(); });
+  $('#setLang').addEventListener('change',    e => {
+    settings.lang = e.target.value; settings.voice = null; saveSettings();
+    applyLanguage();
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      populateVoices($('#obVoice')); populateVoices($('#setVoice'));
+    }
+    resultCard(settings.lang === 'nl' ? 'Taal gewijzigd naar Nederlands' : 'Language switched to English');
+  });
   $('#setReset').addEventListener('click', () => {
     wipeLocal(); settings = { ...SETTING_DEFAULTS };
     $('#settingsPanel').classList.remove('visible');
@@ -1508,11 +1632,13 @@ function initProduct() {
   $('#obStart').addEventListener('click', () => {
     settings.rate = (document.querySelector('input[name="obrate"]:checked') || {}).value || 'normal';
     settings.confirmLevel = (document.querySelector('input[name="obconfirm"]:checked') || {}).value || 'sometimes';
+    settings.lang = (document.querySelector('input[name="oblang"]:checked') || {}).value || settings.lang || 'en';
     settings.voice = $('#obVoice').value || null;
     saveSettings();
+    applyLanguage();
     $('#onboarding').classList.remove('show');
-    speak('Welcome to VoiceOS.');
-    resultCard('VoiceOS is ready', 'Try: “Send email to John about the meeting.”');
+    speak(T('Welcome to VoiceOS.', 'Welkom bij VoiceOS.'));
+    resultCard(UI().welcomeTitle, UI().welcomeSub);
   });
 
   /* --- voices (async in some browsers) --- */

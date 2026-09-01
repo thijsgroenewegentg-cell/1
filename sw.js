@@ -1,5 +1,5 @@
 /* VoiceOS service worker — offline-first, cache-first for app shell. */
-const CACHE = 'voiceos-v1';
+const CACHE = 'voiceos-v1.3';
 const ASSETS = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
   './landing.css',
   './landing.js',
   './styles.css',
+  './i18n.js',
   './app.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
