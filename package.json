@@ -1,6 +1,6 @@
 {
   "name": "voiceos",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "VoiceOS — a voice-first operating layer for Windows & Linux. Turns speech into intent, JSON, and action. Product site + installable app + desktop shell with auto-built installers.",
   "private": true,
   "scripts": {

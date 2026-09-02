@@ -3,6 +3,25 @@
 All notable changes to VoiceOS are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] — 2026-09-02
+
+Real-app bridges, typo-tolerant entities, accessibility. Based on reviewer feedback.
+
+### Added
+- **Real app bridge (zero-auth, graceful-degrading)** — every simulated action now also reaches your *real* machine:
+  - Email → a prefilled `mailto:` draft opens in your actual mail client (subject + body included)
+  - Meetings → Google Calendar `TEMPLATE` URL opens with title, time (+30 min) and attendee prefilled
+  - Messages → the text lands on your **clipboard**, ready to paste into any messenger
+  - Files → **real on-disk file search** via the File System Access API (`showDirectoryPicker`) — connect a folder once, search depth ≤2 (600-entry cap), results marked 🖥 blend with demo data, and OPEN opens the real file via `URL.createObjectURL`
+  - Toggle it all off with one switch in Settings ("Real app bridge · Echte apps"); everything degrades silently to the simulated OS in browsers without the APIs
+- **Typo-tolerant contacts** — Damerau-Levenshtein (transposition-aware) fuzzy fallback in entity resolution: “Jhon” → John, “sraah” → Sarah (edit distance ≤1, words ≥4 chars, exact matches and learned aliases still win)
+- **Accessibility** — notch is `role=status` `aria-live=polite`; mic/send/input, dock and windows labelled (`role=dialog`); full keyboard activation on dock items; `:focus-visible` rings; `prefers-reduced-motion` honored
+- **Mobile layout (≤560px)** — compact 40px dock, 96vw windows/cards, hint collapse
+- **5 parser/bridge tests + 7 DOM/a11y tests** → **158 checks total**
+
+### Changed
+- Notch glass deepened — `blur(26px) saturate(1.35)`, layered shadow + inset highlight (reviewer polish note)
+
 ## [1.3.0] — 2026-09-01
 
 Replica-class landing + full Dutch language support. 🇳🇱
@@ -88,6 +107,7 @@ First full release. 🎉
 ### Privacy
 100% local: no servers, no telemetry, no API keys. Audio and transcripts never leave the device.
 
+[1.4.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.4.0
 [1.3.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.3.0
 [1.2.0]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.2.0
 [1.1.1]: https://github.com/thijsgroenewegentg-cell/1/releases/tag/v1.1.1

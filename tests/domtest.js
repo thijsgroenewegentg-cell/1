@@ -25,7 +25,10 @@ const { document } = window;
 // jsdom lacks a few browser APIs — add minimal shims
 window.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
 window.speechSynthesis = { speak() {}, cancel() {}, getVoices: () => [], onvoiceschanged: null };
-window.navigator.clipboard = { writeText: async () => {} };
+const clipLog = [];
+window.navigator.clipboard = { writeText: async t => { clipLog.push(t); } };
+const openLog = [];
+window.open = url => { openLog.push(url); return null; }; // capture real-bridge calls
 delete window.SpeechRecognition;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -106,6 +109,7 @@ const type = async (text) => {
   await sleep(3600);
   await type('Send message to Sara saying the alias worked');
   check('learning: alias applied', /Sent to Sarah/.test(notchText()), notchText());
+  check('bridge: message text on clipboard', clipLog.some(t => /alias worked/.test(t)), clipLog.slice(-1)[0]);
 
   /* ---------- ambiguity ---------- */
   await sleep(3600);
@@ -189,11 +193,26 @@ const type = async (text) => {
   click('#notch [data-yes]');
   await sleep(500);
   check('nl: send completes', /sent to John|✓/i.test(notchText()), notchText());
+  check('bridge: mailto: draft opened in real mail app',
+    openLog.some(u => /^mailto:john@company\.com\?/.test(u)), openLog.slice(-1)[0]);
   await sleep(4200);
   langSel.value = 'en';
   click('#settingsBtn');
   langSel.dispatchEvent(new window.Event('change', { bubbles: true }));
   check('nl: switches back to English chips', /Send email/.test(document.querySelector('#chips').textContent));
+
+  /* ---------- v1.4: accessibility + real-app bridge surface ---------- */
+  check('a11y: notch is an aria-live region',
+    document.querySelector('#notch').getAttribute('role') === 'status' &&
+    document.querySelector('#notch').getAttribute('aria-live') === 'polite');
+  check('a11y: composer controls labelled',
+    !!document.querySelector('#micBtn').getAttribute('aria-label') &&
+    !!document.querySelector('#sendBtn').getAttribute('aria-label'));
+  check('a11y: windows expose role=dialog', !!findWin('Messages')?.getAttribute('role'));
+  const css = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+  check('a11y: prefers-reduced-motion respected', /prefers-reduced-motion/.test(css));
+  check('bridge: settings toggle present & on by default',
+    !!document.querySelector('#setBridge') && document.querySelector('#setBridge').checked === true);
 
   console.log(fails === 0 ? '\nALL DOM TESTS PASSED' : `\n${fails} DOM FAILURES`);
   process.exit(fails ? 1 : 0);

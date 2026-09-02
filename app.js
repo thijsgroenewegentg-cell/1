@@ -76,13 +76,15 @@ const store = {
 /* ======================== STATE ======================== */
 
 const state = {
-  activeApp: null,          // currently focused app (context awareness)
-  pending: null,            // {type:'confirm',resp,onConfirm} | {type:'collect',field,action,params,prompt}
+  activeApp: null,
+  pending: null,
   sound: true,
   recognition: null,
   listening: false,
-  history: [],              // recent commands (context)
+  history: [],
   aliases: {},              // learned corrections: 'sara' -> 'sarah'
+  realFiles: [],            // real on-disk files from a connected folder (File System Access)
+  realFolderName: null,
 };
 const openWins = {};        // appName -> win element
 
@@ -91,7 +93,7 @@ const openWins = {};        // appName -> win element
 const LS_KEYS = { settings: 'voiceos_settings_v1', store: 'voiceos_store_v1' };
 function lsOK() { try { return typeof localStorage !== 'undefined'; } catch (_) { return false; } }
 
-const SETTING_DEFAULTS = { voice: null, rate: 'normal', confirmLevel: 'sometimes', verbosity: 'normal', lang: null };
+const SETTING_DEFAULTS = { voice: null, rate: 'normal', confirmLevel: 'sometimes', verbosity: 'normal', lang: null, bridge: true };
 let settings = { ...SETTING_DEFAULTS };
 if (!settings.lang) settings.lang = detectLang();
 
@@ -228,6 +230,20 @@ function findContact(t) {
   for (const key of Object.keys(CONTACTS)) {
     if (new RegExp('\\b' + key + '\\b', 'i').test(t)) return { key, ...CONTACTS[key] };
   }
+  // fuzzy: typo tolerance ("Jhon" → John) — words of ≥4 chars at edit distance ≤1
+  const words = t.match(/[a-z]{4,}/gi) || [];
+  let best = null, bestD = 2;
+  for (const w of words) {
+    for (const key of Object.keys(CONTACTS)) {
+      const d = editDist(w, key);
+      if (d > 0 && d < bestD) { best = key; bestD = d; }
+    }
+    for (const alias of Object.keys(state.aliases)) {
+      const d = editDist(w, alias);
+      if (d > 0 && d < bestD && CONTACTS[state.aliases[alias]]) { best = state.aliases[alias]; bestD = d; }
+    }
+  }
+  if (best) return { key: best, ...CONTACTS[best], viaFuzzy: true };
   return null;
 }
 
@@ -260,6 +276,75 @@ const SFX = {
   success: () => { tone(659, .07); tone(880, .12, 'sine', .05, .08); },
   cancel:  () => tone(280, .12),
 };
+
+/* ======================== REAL-WORLD BRIDGE ========================
+   Zero-auth integrations that touch the user's REAL apps:
+   mailto: drafts (real email client, prefilled), Google Calendar
+   template URLs (real event creation), clipboard hand-off for
+   messages, and — where the browser grants it — true on-disk file
+   search. All degrade silently to the simulated OS. */
+
+const Bridge = {
+  mailto(to, subject, body) {
+    return 'mailto:' + encodeURIComponent(to).replace(/%40/g, '@')
+      + '?subject=' + encodeURIComponent(subject || '')
+      + '&body=' + encodeURIComponent(body || '');
+  },
+  gcalEvent(title, whenISO, attendee) {
+    const d = new Date(whenISO);
+    const end = new Date(d.getTime() + 30 * 60000);
+    const fmt = x => x.toISOString().replace(/[-:]|\.\d{3}/g, '');
+    const p = new URLSearchParams({ action: 'TEMPLATE', text: title, dates: fmt(d) + '/' + fmt(end) });
+    if (attendee) p.set('add', attendee);
+    return 'https://calendar.google.com/calendar/render?' + p.toString();
+  },
+  async clipboard(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (_) { return false; }
+  },
+  canRealFiles: () => typeof window !== 'undefined' && 'showDirectoryPicker' in window,
+  async pickFolder() {
+    if (!Bridge.canRealFiles()) return null;
+    try { return await window.showDirectoryPicker(); } catch (_) { return null; }
+  },
+  async scanFolder(dirHandle, pathPrefix = '', depth = 0, out = []) {
+    if (!dirHandle || depth > 2 || out.length > 600) return out;
+    try {
+      for await (const entry of dirHandle.values()) {
+        const p = pathPrefix + entry.name;
+        out.push({ name: entry.name, path: p, kind: entry.kind, handle: entry, entry });
+        if (entry.kind === 'directory') await Bridge.scanFolder(entry, p + '/', depth + 1, out);
+        if (out.length > 600) break;
+      }
+    } catch (_) { /* permission or transient errors → keep what we have */ }
+    return out;
+  },
+  iconFor(name) {
+    const ext = String(name).split('.').pop().toLowerCase();
+    return { pdf: '📄', xlsx: '📊', xls: '📊', csv: '📊', docx: '📝', doc: '📝', txt: '📝', md: '📝',
+             key: '🎞️', pptx: '🎞️', png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', fig: '🖼️',
+             zip: '📦', mp3: '🎵', mp4: '🎬', js: '💻', ts: '💻', py: '🐍', json: '🔧' }[ext] || '📄';
+  },
+};
+
+/* ======================== TYPO-TOLERANT ENTITIES ======================== */
+function editDist(a, b) {
+  a = a.toLowerCase(); b = b.toLowerCase();
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  if (a === b) return 0;
+  // Damerau (OSA): + transposition so "Jhon"→john and "sraah"→sarah are 1 edit
+  let d = Array.from({ length: m + 1 }, (_, i) => Array.from({ length: n + 1 }, (_, j) => i === 0 ? j : j === 0 ? i : 0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return d[m][n];
+}
 
 /* ======================== SPEECH OUT ======================== */
 
@@ -380,10 +465,24 @@ function searchCard(resp, onPick) {
       <div><div class="result-name">${esc(r.name)}</div><div class="result-meta">${esc(r.meta || '')}</div></div>
       <span class="result-open">OPEN</span>
     </div>`).join('');
-  showCard('Search', esc(resp.response), rows || '<div class="card-sub">No matches.</div>', { autoClose: 12000 });
+  const foot = d.demoNote ? `<div class="card-sub" style="margin-top:8px;opacity:.7">${esc(d.demoNote)}${
+    d.canConnect ? ` <button class="btn mini" data-connect>${esc(T('Connect folder…', 'Map koppelen…'))}</button>` : ''
+  }</div>` : '';
+  showCard('Search', esc(resp.response), (rows || '<div class="card-sub">No matches.</div>') + foot, { autoClose: 12000 });
   $$('#notchBody .result-row').forEach(row => row.addEventListener('click', () => {
     onPick(d.results[+row.dataset.i]);
   }));
+  const cb = notchBody.querySelector('[data-connect]');
+  if (cb) cb.addEventListener('click', async () => {
+    cb.textContent = T('Scanning…', 'Scannen…');
+    const dir = await Bridge.pickFolder();
+    if (!dir) { cb.textContent = T('Connect folder…', 'Map koppelen…'); return; }
+    state.realFolderName = dir.name || 'folder';
+    state.realFiles = await Bridge.scanFolder(dir);
+    resultCard(T(`Connected ${state.realFolderName}`, `${state.realFolderName} gekoppeld`),
+      T(`${state.realFiles.filter(f => f.kind === 'file').length} real files indexed — search again to see them`,
+        `${state.realFiles.filter(f => f.kind === 'file').length} echte bestanden geïndexeerd — zoek opnieuw`));
+  });
 }
 
 function optionsCard(resp, onPick) {
@@ -918,18 +1017,28 @@ function buildAction(action, params, raw) {
         const hay = (f.name + ' ' + f.tags).toLowerCase();
         return terms.length === 0 || terms.some(term => hay.includes(term));
       }).slice(0, 4);
+      // real-disk search when a folder is connected
+      const realHits = (state.realFiles || []).filter(f =>
+        f.kind === 'file' && terms.some(term => f.name.toLowerCase().includes(term))).slice(0, 4);
+      const results = [
+        ...realHits.map(f => ({ icon: Bridge.iconFor(f.name), name: f.name, meta: '🖥 ' + f.path, real: true })),
+        ...hits.filter(h => !realHits.some(rh => rh.name === h.name))
+               .map(f => ({ icon: f.icon, name: f.name, meta: f.meta })),
+      ];
+      const total = results.length;
+      const demoNote = state.realFiles.length ? '' : T('demo data — connect a folder to search real files', 'demodata — koppel een map voor echte bestanden');
       return makeResponse({
-        understood: `Find file: ${params.query}`, mode: 'search', action, confidence: hits.length ? .9 : .6,
+        understood: `Find file: ${params.query}`, mode: 'search', action, confidence: total ? .9 : .6,
         parameters: { query: params.query },
-        result: hits.length ? `${hits.length} matches` : 'No matches',
-        response: hits.length
-          ? (hits.length > 1
-              ? T(`Found ${hits.length} matches. Showing best first.`, `${hits.length} gevonden. Beste eerst.`)
-              : T(`Found ${hits[0].name}.`, `${hits[0].name} gevonden.`))
+        result: total ? `${total} matches` : 'No matches',
+        response: total
+          ? (total > 1 ? T(`Found ${total} matches. Showing best first.`, `${total} gevonden. Beste eerst.`)
+                       : T(`Found ${results[0].name}.`, `${results[0].name} gevonden.`))
           : T('Nothing matched. Try different words?', 'Niets gevonden. Andere woorden proberen?'),
         card_type: 'search_result',
-        card_data: { query: params.query, resultApp: 'Files', results: hits.map(f => ({ icon: f.icon, name: f.name, meta: f.meta })) },
-        ui_state: { highlight_app: hits.length ? 'Files' : null },
+        card_data: { query: params.query, resultApp: 'Files', results,
+                     demoNote, canConnect: settings.bridge && Bridge.canRealFiles() },
+        ui_state: { highlight_app: total ? 'Files' : null },
       });
     }
 
@@ -1149,14 +1258,45 @@ function execInner(resp) {
     case 'send_email': {
       openApp('Mail', { compose: { to: p.to, subj: p.subject, body: p.body }, sent: true });
       store.sent.unshift({ from: 'me', to: p.to, subj: p.subject, body: p.body, when: 'Just now' });
-      return { result: `Email sent to ${CONTACTS_BY_EMAIL(p.to)?.name || p.to}` };
+      // real-bridge: hand the prefilled draft to the actual mail client
+      if (settings.bridge && typeof window !== 'undefined' && window.open) {
+        try { window.open(Bridge.mailto(p.to, p.subject, p.body), '_blank', 'noopener'); } catch (_) {}
+      }
+      return {
+        result: `Email sent to ${CONTACTS_BY_EMAIL(p.to)?.name || p.to}`,
+        sub: settings.bridge
+          ? T('Prefilled draft opened in your mail app too.', 'Ingevuld concept ook geopend in je mail-app.')
+          : undefined,
+      };
     }
     case 'send_file_workflow': {
-      const body = `Hi ${p.contactName},\n\nHere's the latest. File attached.\n\n📎 ${p.file}\n\n— Sent with VoiceOS`;
+      const body = settings.lang === 'nl'
+        ? `Hoi ${p.contactName},\n\nHierbij de nieuwste versie. Bestand bijgevoegd.\n\n📎 ${p.file}\n\n— Verstuurd met VoiceOS`
+        : `Hi ${p.contactName},\n\nHere's the latest. File attached.\n\n📎 ${p.file}\n\n— Sent with VoiceOS`;
       openApp('Files', { highlight: p.file });
       openApp('Mail', { compose: { to: p.to, subj: p.subject, body }, sent: true });
       store.sent.unshift({ from: 'me', to: p.to, subj: p.subject, body, when: 'Just now' });
-      return { result: `${p.file} sent to ${p.contactName}`, sub: `${p.to} · with attachment` };
+      if (settings.bridge && typeof window !== 'undefined' && window.open) {
+        try { window.open(Bridge.mailto(p.to, p.subject, body), '_blank', 'noopener'); } catch (_) {}
+      }
+      return {
+        result: `${p.file} sent to ${p.contactName}`,
+        sub: `${p.to} · ` + (settings.bridge
+          ? T('with attachment · draft in your mail app', 'met bijlage · concept in je mail-app')
+          : T('with attachment', 'met bijlage')),
+      };
+    }
+    case 'schedule_meeting': {
+      store.events.push({ title: p.title, when: new Date(p.when), who: [CONTACTS_BY_EMAIL(p.attendee)?.name || p.attendee], fresh: true });
+      openApp('Calendar');
+      if (settings.bridge && typeof window !== 'undefined' && window.open) {
+        try { window.open(Bridge.gcalEvent(p.title, p.when, p.attendee), '_blank', 'noopener'); } catch (_) {}
+      }
+      return {
+        result: 'Meeting confirmed',
+        sub: `${p.title} — ${fmtWhen(new Date(p.when))}` + (settings.bridge
+          ? T(' · Google Calendar opened', ' · Google Agenda geopend') : ''),
+      };
     }
     case 'create_task': {
       store.tasks.push({ title: p.title, done: false, fresh: true });
@@ -1166,11 +1306,6 @@ function execInner(resp) {
     case 'list_tasks': openApp('Tasks'); return { result: resp.result };
     case 'daily_briefing': return { result: resp.result };
     case 'search_notes': return { result: resp.result }; // card handles Open → Notes
-    case 'schedule_meeting': {
-      store.events.push({ title: p.title, when: new Date(p.when), who: [CONTACTS_BY_EMAIL(p.attendee)?.name || p.attendee], fresh: true });
-      openApp('Calendar');
-      return { result: 'Meeting confirmed', sub: `${p.title} — ${fmtWhen(new Date(p.when))}` };
-    }
     case 'create_reminder': {
       store.reminders.push({ task: p.task, when: new Date(p.when) });
       return { result: 'Reminder set', sub: `${titleCase(p.task)} — ${fmtWhen(new Date(p.when))}` };
@@ -1180,7 +1315,13 @@ function execInner(resp) {
       const key = p.to.toLowerCase();
       (store.threads[key] = store.threads[key] || []).push({ from: 'me', text: p.body });
       openApp('Messages', { thread: key });
-      return { result: resp.result || `Sent to ${p.to}` };
+      // real-bridge: text lands on the clipboard, ready to paste into any messenger
+      if (settings.bridge) { try { Bridge.clipboard(p.body); } catch (_) {} }
+      return {
+        result: resp.result || `Sent to ${p.to}`,
+        sub: settings.bridge ? T('Also on your clipboard — paste anywhere to really send.',
+                                 'Ook op je klembord — plak overal om echt te versturen.') : undefined,
+      };
     }
     case 'check_messages': openApp('Messages', { thread: p.to ? p.to.toLowerCase() : undefined }); return { result: 'Opened Messages' };
     case 'create_note': {
@@ -1264,6 +1405,18 @@ function handleUtterance(text) {
       if (resp.options) { optionsCard(resp, v => handleUtterance(resolveOption(v, resp))); return; }
       if (resp.card_type === 'search_result' && resp.card_data?.results) {
         searchCard(resp, item => {
+          const rf = item.real && state.realFiles.find(f => f.name === item.name);
+          if (rf) {
+            rf.handle.getFile().then(file => {
+              const url = URL.createObjectURL(file);
+              try { if (typeof window !== 'undefined' && window.open) window.open(url, '_blank'); } catch (_) {}
+              setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 30000);
+              resultCard(T(`Opening ${file.name} from ${state.realFolderName}`,
+                           `${file.name} openen uit ${state.realFolderName}`));
+            }).catch(() => resultCard(T('Could not read that file.', 'Kon dat bestand niet lezen.')));
+            openApp(resp.card_data?.resultApp || 'Files', { highlight: item.name });
+            return;
+          }
           openApp(resp.card_data?.resultApp || 'Files', { highlight: item.name });
           resultCard(`Opening ${item.name}`);
         });
@@ -1311,6 +1464,8 @@ function openApp(name, opts = {}) {
   if (!win) {
     win = document.createElement('div');
     win.className = 'win';
+    win.setAttribute('role', 'dialog');
+    win.setAttribute('aria-label', name + ' window');
     const spots = { Mail: [60, 40], Calendar: [150, 90], Messages: [90, 120], Notes: [200, 60], Files: [120, 100], Tasks: [260, 110] };
     const [x, y] = spots[name] || [80 + winOffset, 60 + winOffset];
     win.style.left = x + 'px'; win.style.top = y + 'px';
@@ -1420,14 +1575,41 @@ function renderApp(name, opts = {}) {
     store.notes.forEach(n => n.fresh = false);
   }
   if (name === 'Files') {
-    body.innerHTML = `<div class="app-list">
-      ${FILES.map(f => `
+    const realRows = state.realFiles.filter(f => f.kind === 'file').slice(0, 40);
+    body.innerHTML = `
+      ${Bridge.canRealFiles() ? `
+        <div class="real-bar">
+          <span>${state.realFolderName
+            ? T(`🖥 Connected: ${esc(state.realFolderName)}`, `🖥 Gekoppeld: ${esc(state.realFolderName)}`)
+            : T('🖥 Search your real files', '🖥 Zoek in je echte bestanden')}</span>
+          <button class="btn mini" data-connect>${state.realFolderName ? T('Rescan', 'Opnieuw scannen') : T('Connect folder', 'Map koppelen')}</button>
+        </div>` : ''}
+      <div class="app-list">
+      ${realRows.map(f => `
+        <div class="app-row ${opts.highlight === f.name ? 'hl' : ''}">
+          <span>${Bridge.iconFor(f.name)}</span>
+          <div class="grow"><div class="name">${esc(f.name)}</div><div class="sub">🖥 ${esc(f.path)}</div></div>
+          ${opts.highlight === f.name ? '<span class="badge-new">FOUND</span>' : ''}
+        </div>`).join('')}
+      ${FILES.filter(f => !realRows.some(r => r.name === f.name)).map(f => `
         <div class="app-row ${opts.highlight === f.name ? 'hl' : ''}">
           <span>${f.icon}</span>
           <div class="grow"><div class="name">${esc(f.name)}</div><div class="sub">${esc(f.meta)}</div></div>
           ${opts.highlight === f.name ? '<span class="badge-new">FOUND</span>' : ''}
         </div>`).join('')}
     </div>`;
+    const connectBtn = body.querySelector('[data-connect]');
+    if (connectBtn) connectBtn.addEventListener('click', async () => {
+      connectBtn.textContent = T('Scanning…', 'Scannen…');
+      const dir = await Bridge.pickFolder();
+      if (!dir) { connectBtn.textContent = T('Connect folder', 'Map koppelen'); return; }
+      state.realFolderName = dir.name || 'folder';
+      state.realFiles = await Bridge.scanFolder(dir);
+      renderApp('Files', opts);
+      resultCard(T(`Connected ${state.realFolderName}`, `${state.realFolderName} gekoppeld`),
+        T(`${state.realFiles.filter(f => f.kind === 'file').length} real files indexed`,
+          `${state.realFiles.filter(f => f.kind === 'file').length} echte bestanden geïndexeerd`));
+    });
   }
   if (name === 'Tasks') {
     body.innerHTML = `<div class="app-list">
@@ -1450,12 +1632,14 @@ function renderApp(name, opts = {}) {
 const dock = $('#dock');
 function buildDock() {
   dock.innerHTML = Object.entries(APPS).map(([name, a]) => `
-    <div class="dock-item" data-app="${name}">
+    <div class="dock-item" data-app="${name}" role="button" tabindex="0" aria-label="Open ${name}">
       ${a.icon}<span class="tip">${name}</span><span class="dot"></span>
     </div>`).join('');
-  $$('.dock-item').forEach(d => d.addEventListener('click', () => {
-    openWins[d.dataset.app] ? closeApp(d.dataset.app) : openApp(d.dataset.app);
-  }));
+  $$('.dock-item').forEach(d => {
+    const toggle = () => { openWins[d.dataset.app] ? closeApp(d.dataset.app) : openApp(d.dataset.app); };
+    d.addEventListener('click', toggle);
+    d.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  });
 }
 function markDock() {
   $$('.dock-item').forEach(d => d.classList.toggle('open', !!openWins[d.dataset.app]));
@@ -1583,6 +1767,7 @@ function applySettingsToUI() {
   const cf = $('#setConfirm');   if (cf) cf.value = settings.confirmLevel;
   const vb = $('#setVerbose');   if (vb) vb.value = settings.verbosity;
   const sv = $('#setVoice');     if (sv) sv.value = settings.voice || '';
+  const br = $('#setBridge');    if (br) br.checked = settings.bridge !== false;
   const lg = $('#setLang');      if (lg) lg.value = settings.lang || 'en';
   const obr = document.querySelector(`input[name="obrate"][value="${settings.rate}"]`);
   const obc = document.querySelector(`input[name="obconfirm"][value="${settings.confirmLevel}"]`);
@@ -1602,6 +1787,12 @@ function initProduct() {
   $('#setRate').addEventListener('change',    e => { settings.rate = e.target.value; saveSettings(); });
   $('#setConfirm').addEventListener('change', e => { settings.confirmLevel = e.target.value; saveSettings(); });
   $('#setVerbose').addEventListener('change', e => { settings.verbosity = e.target.value; saveSettings(); });
+  $('#setBridge').addEventListener('change', e => {
+    settings.bridge = e.target.checked; saveSettings();
+    resultCard(settings.bridge
+      ? T('Real app bridge on — drafts, calendars & files hand off to your real apps.', 'Echte-app-koppeling aan — concepten, agenda en bestanden gaan naar je echte apps.')
+      : T('Bridge off — VoiceOS stays fully simulated.', 'Koppeling uit — VoiceOS blijft volledig gesimuleerd.'));
+  });
   $('#setVoice').addEventListener('change',   e => { settings.voice = e.target.value || null; saveSettings(); });
   $('#setLang').addEventListener('change',    e => {
     settings.lang = e.target.value; settings.voice = null; saveSettings();

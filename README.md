@@ -60,6 +60,22 @@ Two ways to get ready-made Windows / Linux installers
 ⭐ = new in v1.1 · Ambiguity is handled (“Send message” → *“To who?”* with
 tap-to-pick contacts); passwords & mass deletes are always refused.
 
+## 🔗 Real app bridge (v1.4)
+
+VoiceOS simulates a full desktop — **and** hands work to your *real* apps,
+zero auth / zero API keys / zero servers (degrades silently where unsupported):
+
+| Say | Real-world effect |
+| --- | --- |
+| “Send email to John about the meeting” | prefilled draft opens in your **real mail client** (`mailto:`) |
+| “Schedule meeting with Sarah next week” | **Google Calendar** create-event page (title, time, attendee prefilled) |
+| “Send message to Alex saying …” | text on your **clipboard** — paste into WhatsApp/Slack/anything |
+| “Find last year’s tax returns” | **real file search** — connect any folder once, search your actual disk (File System Access API), OPEN opens the real file |
+
+Plus typo-tolerant contacts (“Jhon” → John, “sraah” → Sarah — Damerau edit
+distance ≤1, learned aliases still win). One Settings switch turns bridging
+off for a pure simulation.
+
 ## ⚙️ Settings · Instellingen
 
 First-run onboarding, then the ⚙️ menu: **language** (English / Nederlands —
@@ -92,7 +108,7 @@ and browser. All data lives in local storage.
 ## 🧪 Quality
 
 ```bash
-npm test   # 146 checks: logic (77) + landing DOM (23) + app DOM (46) — incl. Dutch command parsing
+npm test   # 158 checks: logic (77) + landing DOM (23) + app DOM (46) — incl. Dutch command parsing
 ```
 
 CI ([`ci-templates/ci.yml`](ci-templates/ci.yml)) runs both suites
@@ -109,8 +125,8 @@ install.sh · install.bat            one-step launchers (Linux / Windows)
 icons/                              app icons
 desktop/                            Electron shell: voice-bar window + hotkey
 ci-templates/                       CI + release-installer workflows (one-step enable)
-tests/smoke.js                      77-check headless drive (incl. Dutch parser)
-tests/domtest.js                    46-check real-DOM suite (jsdom)
+tests/smoke.js                      82-check headless drive (incl. Dutch parser)
+tests/domtest.js                    53-check real-DOM suite (jsdom)
 ```
 
 ## Roadmap

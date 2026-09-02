@@ -111,6 +111,9 @@
           <option value="nl">Nederlands</option>
         </select>
       </div>
+      <div class="set-row"><span>Real app bridge · Echte apps</span>
+        <label class="switch"><input type="checkbox" id="setBridge" checked><i></i></label>
+      </div>
       <div class="set-row"><span>Privacy</span><span class="set-static">Local-only 🔒</span></div>
       <div class="set-row"><span>Hotkey</span><span class="set-static">⌃ Space</span></div>
     </div>
@@ -118,7 +121,7 @@
       <button id="setReset" class="btn">Reset onboarding</button>
       <button id="setWipe" class="btn danger-ghost">Clear local data</button>
     </div>
-    <div class="panel-title" style="margin-top:14px">VoiceOS <span class="panel-note">v1.0.0</span></div>
+    <div class="panel-title" style="margin-top:14px">VoiceOS <span class="panel-note">v1.4.0</span></div>
   </aside>
 
   <!-- Help -->
@@ -157,7 +160,7 @@
   </div>
 
   <!-- The Notch -->
-  <div id="notch" class="notch idle">
+  <div id="notch" class="notch idle" role="status" aria-live="polite" aria-label="VoiceOS status">
     <div id="notchBody" class="notch-body">
       <div class="idle-row">
         <span class="idle-dot"></span>
@@ -176,7 +179,7 @@
     </div>
 
     <!-- Dock -->
-    <div id="dock"></div>
+    <div id="dock" role="navigation" aria-label="Applications"></div>
   </main>
 
   <!-- Session log -->
@@ -195,10 +198,11 @@
   <footer id="composerWrap">
     <div id="chips"></div>
     <div id="composer">
-      <button id="micBtn" title="Hold a real voice command (Web Speech API)">🎙️</button>
+      <button id="micBtn" title="Hold a real voice command (Web Speech API)" aria-label="Start voice input">🎙️</button>
       <input id="utterance" type="text" autocomplete="off" spellcheck="false"
+             aria-label="Voice command input"
              placeholder='Say it once… e.g. "Schedule meeting with Sarah next week"' />
-      <button id="sendBtn" title="Run command">➤</button>
+      <button id="sendBtn" title="Run command" aria-label="Run command">➤</button>
     </div>
     <div class="composer-hint">⌃ Space to talk · Enter to run</div>
   </footer>

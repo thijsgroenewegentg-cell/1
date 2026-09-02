@@ -9,6 +9,7 @@ const dummyEl = () => ({
   innerHTML: '', textContent: '', className: '', value: '', style: {}, dataset: {},
   classList: { add() {}, remove() {}, toggle() {} },
   addEventListener() {}, appendChild() {}, prepend() {}, remove() {}, focus() {},
+  setAttribute() {}, getAttribute: () => null,
   querySelector: () => dummyEl(), querySelectorAll: () => [],
   getBoundingClientRect: () => ({ left: 0, top: 0, width: 1200, height: 800 }),
   scrollTop: 0, scrollHeight: 0, lastChild: null, children: [],
@@ -222,6 +223,18 @@ const tests = `
   r = parse('Ja');
   check('nl: "Ja" confirms', r._handled === true, r);
   settings.lang = 'en';
+  state.pending = null; // clear 'Ja' confirmation state above
+
+  /* ---------- v1.4: bridge + typo tolerance ---------- */
+  const mt = Bridge.mailto('john@company.com', 'The Meeting', 'Hi there');
+  check('bridge: mailto shape', mt.startsWith('mailto:john@company.com?subject=The%20Meeting&body='), mt);
+  const gc = Bridge.gcalEvent('Meeting with Sarah', '2030-03-26T10:30:00.000Z', 'sarah@company.com');
+  check('bridge: gcal TEMPLATE url', gc.startsWith('https://calendar.google.com/calendar/render?') && gc.includes('action=TEMPLATE') && gc.includes('add=sarah%40company.com'), gc);
+  check('editDist: "sraah"→sarah =1', editDist('sraah', 'sarah') === 1, editDist('sraah', 'sarah'));
+  r = parse('Send email to Jhon about the meeting');
+  check('fuzzy: "Jhon" resolves John', r.action === 'send_email' && r.parameters.to === 'john@company.com', r.parameters);
+  r = parse('Plan een vergadering met sraah volgende week');
+  check('fuzzy: NL "sraah" resolves Sarah', r.action === 'schedule_meeting' && r.parameters.attendee === 'sarah@company.com', r.parameters);
 
   /* ---------- integration: full headless pipeline ---------- */
   let threw = null;
