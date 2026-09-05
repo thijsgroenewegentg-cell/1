@@ -30,7 +30,7 @@ try:
     HAS_RICH = True
 except Exception:  # pragma: no cover - cosmetic fallback
     HAS_RICH = False
-    Console = None  # type: ignore[assignment]
+    Console = None  # type: ignore[misc, assignment]
 
 
 BANNER = r"""

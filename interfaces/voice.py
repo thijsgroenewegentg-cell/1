@@ -368,7 +368,7 @@ class TextToSpeech:
             return False
 
         try:
-            while self._process.poll() is None:
+            while self._process is not None and self._process.poll() is None:
                 await asyncio.sleep(0.08)
         except asyncio.CancelledError:
             self.stop()
@@ -1380,9 +1380,12 @@ class VoiceInterface:
                     break
 
                 if streaming and self.stream_speech:
-                    reply = await self.speak_stream(
-                        lambda on_token, text=transcript: handler(text, on_token=on_token)
-                    )
+                    def _run(on_token: Callable[[str], None],
+                             text: str = transcript) -> Awaitable[str]:
+                        """Feed the handler's tokens to the streaming speaker."""
+                        return handler(text, on_token=on_token)
+
+                    reply = await self.speak_stream(_run)
                 else:
                     reply = await handler(transcript)
                     if reply:

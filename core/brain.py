@@ -866,9 +866,9 @@ class Brain:
             return keyword_intent
 
         module_lines = []
-        for name, module in self.modules.items():
-            examples = "; ".join(module.intent_examples[:3])
-            module_lines.append(f"- {name}: {module.description}"
+        for name, skill in self.modules.items():
+            examples = "; ".join(skill.intent_examples[:3])
+            module_lines.append(f"- {name}: {skill.description}"
                                 + (f" (e.g. {examples})" if examples else ""))
         catalog = "\n".join(module_lines) or "- (no modules loaded)"
 

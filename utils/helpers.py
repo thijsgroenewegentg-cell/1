@@ -424,7 +424,7 @@ def parse_duration(text: str) -> Optional[int]:
     if not text:
         return None
     text = text.lower().strip()
-    total = 0
+    total = 0.0
     found = False
 
     for value, unit in re.findall(

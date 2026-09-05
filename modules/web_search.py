@@ -137,19 +137,20 @@ class WebSearch(BaseModule):
             return "read_page", {"url": url.group(1)}
 
         if "wikipedia" in lowered:
-            topic = re.sub(r".*wikipedia\s*(?:page\s*)?(?:for|on|about)?\s*",
-                           "", lowered).strip(" ?")
-            return "wikipedia", {"topic": topic or text}
+            subject = re.sub(r".*wikipedia\s*(?:page\s*)?(?:for|on|about)?\s*",
+                             "", lowered).strip(" ?")
+            return "wikipedia", {"topic": subject or text}
 
         if lowered.startswith(("who is", "who was", "what is the", "tell me about")):
-            topic = re.sub(r"^(who is|who was|what is the|tell me about)\s+",
-                           "", lowered).strip(" ?")
-            if topic:
-                return "wikipedia", {"topic": topic}
+            subject = re.sub(r"^(who is|who was|what is the|tell me about)\s+",
+                             "", lowered).strip(" ?")
+            if subject:
+                return "wikipedia", {"topic": subject}
 
         if any(phrase in lowered for phrase in ("where is", "address of", "location of")):
-            place = re.sub(r".*(where is|address of|location of)\s*", "", lowered).strip(" ?")
-            return "find_place", {"query": place or text}
+            where = re.sub(r".*(where is|address of|location of)\s*",
+                           "", lowered).strip(" ?")
+            return "find_place", {"query": where or text}
 
         query = re.sub(
             r"^(search(?:\s+the\s+web)?(?:\s+for)?|google|look up|find(?:\s+online)?|"
@@ -554,11 +555,14 @@ class WebSearch(BaseModule):
                 f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}",
                 headers={"Accept": "application/json"},
             )
-        if payload is not None or response is not None:
+        if payload is None and response is not None:
             try:
-                if payload is None:
-                    payload = response.json()
-                    await self._store(cache_key, payload, ttl=max(self.cache_ttl, 86400))
+                payload = response.json()
+                await self._store(cache_key, payload, ttl=max(self.cache_ttl, 86400))
+            except Exception:
+                payload = None
+        if payload is not None:
+            try:
                 extract = clean_text(payload.get("extract", ""))
                 if extract:
                     pieces = re.split(r"(?<=[.!?])\s+", extract)

@@ -152,7 +152,7 @@ def tool(
             keywords=[word.lower() for word in (keywords or [])],
             examples=examples or [],
         )
-        func._jarvis_tool = spec
+        func._jarvis_tool = spec  # type: ignore[attr-defined]
         return func
 
     return decorator

@@ -336,15 +336,17 @@ class Communications(BaseModule):
                     part.get("Content-Disposition", "")
                 ):
                     try:
-                        payload = part.get_payload(decode=True) or b""
-                        return payload.decode(part.get_content_charset() or "utf-8",
-                                              errors="replace")
+                        raw = part.get_payload(decode=True)
+                        data = raw if isinstance(raw, bytes) else b""
+                        return data.decode(part.get_content_charset() or "utf-8",
+                                           errors="replace")
                     except Exception:
                         continue
             return ""
         try:
-            payload = message.get_payload(decode=True) or b""
-            return payload.decode(message.get_content_charset() or "utf-8", errors="replace")
+            raw = message.get_payload(decode=True)
+            data = raw if isinstance(raw, bytes) else b""
+            return data.decode(message.get_content_charset() or "utf-8", errors="replace")
         except Exception:
             return str(message.get_payload())
 

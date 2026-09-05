@@ -19,7 +19,7 @@ try:  # pragma: no cover - purely cosmetic
 
     _HAS_RICH = True
 except Exception:  # pragma: no cover
-    RichHandler = None  # type: ignore[assignment]
+    RichHandler = None  # type: ignore[misc, assignment]
     _HAS_RICH = False
 
 

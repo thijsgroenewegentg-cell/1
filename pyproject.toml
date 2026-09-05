@@ -49,7 +49,8 @@ ignore = [
 convention = "google"
 
 [tool.mypy]
-python_version = "3.9"
+# No python_version pin: recent mypy refuses to target 3.9, and the source is
+# written so that it type-checks the same on 3.9 and 3.12.
 files = ["core", "utils", "modules", "interfaces", "main.py"]
 ignore_missing_imports = true
 follow_imports = "silent"

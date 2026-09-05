@@ -50,7 +50,7 @@ try:
     HAS_FASTAPI = True
 except Exception:  # pragma: no cover - optional dependency
     HAS_FASTAPI = False
-    FastAPI = None  # type: ignore[assignment]
+    FastAPI = None  # type: ignore[misc, assignment]
 
 def render_icon(size: int) -> bytes:
     """Draw the app icon as a PNG, with no image library involved.
@@ -885,7 +885,10 @@ class WebInterface:
             ws_ping_timeout=20,
         )
         self._server = uvicorn.Server(settings)
-        self._server.install_signal_handlers = lambda: None  # type: ignore[assignment]
+        # uvicorn would otherwise steal Ctrl-C from the host application.
+        self._server.install_signal_handlers = (  # type: ignore[method-assign,attr-defined]
+            lambda: None
+        )
         logger.info("Web interface on http://%s:%d", self.host, self.port)
         await self._server.serve()
 

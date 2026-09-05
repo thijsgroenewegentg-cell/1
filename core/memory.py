@@ -517,12 +517,12 @@ class Memory:
 
         def _open() -> tuple[Any, str]:
             try:
-                store = ChromaStore(
+                chroma: Any = ChromaStore(
                     self.vector_path,
                     str(self.config.get("memory.collection", "jarvis_memory")),
                     self.embedder,
                 )
-                return store, "chromadb"
+                return chroma, "chromadb"
             except Exception as exc:
                 logger.info("Falling back to JSON vector memory (%s).", truncate(str(exc), 140))
                 store = JsonVectorStore(self.vector_path / "memory.json", self.embedder)
