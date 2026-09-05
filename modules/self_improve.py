@@ -279,7 +279,12 @@ class SelfImprove(BaseModule):
             return "code_map", {}
         if "reload" in lowered:
             match = re.search(r"reload\s+(?:the\s+)?(\w+)", lowered)
-            return "reload_module", {"name": match.group(1) if match else ""}
+            skill = match.group(1) if match else ""
+            # "reload yourself" names no particular module.
+            if skill in ("yourself", "youself", "you", "everything", "all", "your",
+                         "modules", "module", "self"):
+                skill = ""
+            return "reload_module", {"name": skill}
         if any(word in lowered for word in ("improve", "modify", "rewrite", "fix your",
                                             "change your", "edit your", "upgrade your")):
             match = re.search(r"[\w/]+\.py", text)
@@ -1643,7 +1648,24 @@ Return ONLY the code in a single ```python block."""
         """Re-import a module and swap the live instance for a fresh one."""
         skill = (name or "").strip()
         if not skill:
-            return ModuleResult.ok("Nothing to reload, sir.")
+            if self.brain is None or not hasattr(self.brain, "modules"):
+                return ModuleResult.ok("Name the module to reload, sir.")
+            reloaded: List[str] = []
+            failed: List[str] = []
+            for candidate in list(self.brain.modules):
+                try:
+                    ok, _ = await self.brain.reload_module(candidate)
+                except Exception:
+                    ok = False
+                (reloaded if ok else failed).append(candidate)
+            if not reloaded:
+                return ModuleResult.ok(
+                    "Nothing reloaded cleanly, sir — a restart would be safer."
+                )
+            note = f" ({len(failed)} need a restart)" if failed else ""
+            return ModuleResult.ok(
+                f"Reloaded {len(reloaded)} module(s){note}: {', '.join(sorted(reloaded))}."
+            )
         if self.brain is None or not hasattr(self.brain, "reload_module"):
             return ModuleResult.ok(f"'{skill}' will be active after a restart.")
         try:

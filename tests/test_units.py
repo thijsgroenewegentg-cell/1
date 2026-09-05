@@ -624,3 +624,47 @@ def test_writes_to_system_locations_are_blocked_not_merely_confirmed():
     guard = SecurityGuard(allowed_roots=[str(Path.home())])
     assert guard.is_path_allowed("/etc/shadow", write=True).blocked
     assert guard.is_path_allowed("/usr/bin/python", write=True).blocked
+
+
+def test_run_this_code_actually_runs_the_code(offline_modules):
+    from modules.code_assistant import CodeAssistant
+
+    config = offline_modules["file_manager"].config
+    assistant = CodeAssistant(config)
+    tool, params = assistant.offline_router("run this code: print(2+2)")
+    assert tool == "run_python"
+    # The whole English sentence used to be handed to the Python sandbox.
+    assert params["code"] == "print(2+2)"
+
+
+def test_fenced_code_wins_over_the_sentence_around_it(offline_modules):
+    from modules.code_assistant import CodeAssistant
+
+    assistant = CodeAssistant(offline_modules["file_manager"].config)
+    _, params = assistant.offline_router(
+        "run this code:\n```python\nfor i in range(3):\n    print(i)\n```"
+    )
+    assert params["code"].startswith("for i in range(3):")
+
+
+def test_reload_yourself_is_not_a_module_named_yourself(offline_modules):
+    from modules.self_improve import SelfImprove
+
+    improver = SelfImprove(offline_modules["file_manager"].config)
+    tool, params = improver.offline_router("reload yourself")
+    assert tool == "reload_module"
+    assert params["name"] == ""
+
+    _, named = improver.offline_router("reload the productivity module")
+    assert named["name"] == "productivity"
+
+
+def test_a_named_image_that_is_missing_is_reported_not_swapped_for_the_screen(
+    offline_modules,
+):
+    from modules.vision import Vision
+
+    vision = Vision(offline_modules["file_manager"].config)
+    tool, params = vision.offline_router("describe this image ~/definitely-not-here.png")
+    assert tool == "describe_image"
+    assert params["path"].endswith("definitely-not-here.png")

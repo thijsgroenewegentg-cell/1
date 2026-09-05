@@ -102,6 +102,33 @@ class CodeAssistant(BaseModule):
         return extracted or candidate
 
     # ---------------------------------------------------------- offline route
+    @staticmethod
+    def _code_payload(text: str) -> str:
+        """Pull the actual code out of a sentence that wraps it.
+
+        "run this code: print(2+2)" used to be handed to the sandbox verbatim,
+        which is a SyntaxError rather than a program.
+
+        Args:
+            text: The user's whole utterance.
+
+        Returns:
+            The fenced block if there is one, otherwise the text with any
+            leading instruction stripped off.
+        """
+        blocks = extract_code_blocks(text)
+        if blocks:
+            return blocks[0][1].strip()
+        stripped = re.sub(
+            r"^\s*(?:please\s+)?(?:can you\s+|could you\s+)?"
+            r"(?:run|execute|evaluate|explain|debug|fix|refactor|optimi[sz]e|test|"
+            r"write tests for|walk me through)\s+"
+            r"(?:this|that|the following|the|my|it)?\s*"
+            r"(?:python\s+)?(?:code|script|snippet|program|function)?\s*[:,\-–]?\s*",
+            "", text, count=1, flags=re.IGNORECASE,
+        )
+        return stripped.strip() or text.strip()
+
     def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]:
         """Rule-based routing with parameter extraction (used without an LLM)."""
         text = strip_command_prefix(command)
@@ -109,24 +136,26 @@ class CodeAssistant(BaseModule):
 
         if any(phrase in lowered for phrase in ("run this", "run the code", "execute python",
                                                 "run it", "execute the snippet")):
-            return "run_python", {"code": text}
+            return "run_python", {"code": self._code_payload(text)}
 
         if any(phrase in lowered for phrase in ("explain this code", "explain the code",
                                                 "what does this code", "walk me through")):
-            return "explain_code", {"code": text}
+            return "explain_code", {"code": self._code_payload(text)}
 
         if any(phrase in lowered for phrase in ("debug", "fix this", "why does this fail",
                                                 "traceback", "this is broken")):
-            return "debug_code", {"code": text}
+            return "debug_code", {"code": self._code_payload(text)}
 
         if any(phrase in lowered for phrase in ("refactor", "clean up this code",
                                                 "optimize this code")):
-            return "refactor_code", {"code": text}
+            return "refactor_code", {"code": self._code_payload(text)}
 
         if any(phrase in lowered for phrase in ("write tests", "unit test", "pytest")):
-            return "write_tests", {"code": text}
+            return "write_tests", {"code": self._code_payload(text)}
 
-        if any(phrase in lowered for phrase in ("save this code", "save it to", "save the script")):
+        if any(phrase in lowered for phrase in ("save this code", "save it to", "save the script",
+                                                "save that snippet", "save the snippet",
+                                                "save that code")):
             filename = re.search(r"(?:as|to|in)\s+([\w./~-]+)", lowered)
             return "save_code", {"filename": filename.group(1) if filename else ""}
 

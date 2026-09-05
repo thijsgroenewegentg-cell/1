@@ -69,11 +69,32 @@ class Vision(BaseModule):
         path = self._extract_path(text)
         if path:
             return "describe_image", {"path": str(path), "question": text}
+        named = self._mentioned_image(text)
+        if named:
+            # Describing the screen instead would quietly answer a different
+            # question from the one that was asked.
+            return "describe_image", {"path": named, "question": text}
         if "read" in lowered and "screen" in lowered:
             return "read_screen", {}
         if "screenshot" in lowered and ("take" in lowered or "capture" in lowered):
             return "take_screenshot", {}
         return "describe_screen", {"question": text}
+
+    @staticmethod
+    def _mentioned_image(text: str) -> str:
+        """Return an image filename the user named, even if it does not exist.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            The first image-looking token, or an empty string.
+        """
+        for token in text.replace(",", " ").split():
+            cleaned = token.strip("'\"`()<>")
+            if cleaned and Path(cleaned).suffix.lower() in IMAGE_SUFFIXES:
+                return cleaned
+        return ""
 
     @staticmethod
     def _extract_path(text: str) -> Optional[Path]:
