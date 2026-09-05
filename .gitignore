@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# JARVIS runtime data (local, private, regenerated on demand)
+data/
+logs/
+*.db
+*.db-wal
+*.db-shm
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

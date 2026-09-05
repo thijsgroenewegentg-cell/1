@@ -1,0 +1,135 @@
+# =============================================================================
+# /config.yaml
+# JARVIS master configuration. Everything is tunable from this one file.
+# Any key you delete simply falls back to the built-in default in
+# core/config.py, so it is safe to trim this file down.
+# =============================================================================
+
+user:
+  name: "Thijs"            # How JARVIS addresses you
+  title: "sir"             # "sir" / "ma'am" / "boss" / "" to disable
+  location: "auto"         # City name for weather, or "auto" for IP lookup
+  units: "metric"          # metric | imperial
+
+assistant:
+  name: "JARVIS"
+  personality: "witty"     # witty | professional | minimal
+  sarcasm: 0.35            # 0.0 (dry) .. 1.0 (insufferable)
+  greet_on_start: true
+  proactive: true          # offer follow-up suggestions when useful
+
+llm:
+  provider: "ollama"
+  host: "http://localhost:11434"
+  model: "llama3.2"                       # primary brain
+  fallback_models:                        # tried in order if primary missing
+    - "mistral"
+    - "llama3"
+    - "llama3.1"
+    - "phi3"
+    - "qwen2.5"
+  temperature: 0.7
+  top_p: 0.9
+  num_ctx: 4096
+  max_tokens: 700
+  timeout: 180
+  keep_alive: "10m"
+  # A smaller/faster model can be used for intent classification & tool picking
+  router_model: ""                        # "" = reuse main model
+
+memory:
+  enabled: true
+  short_term_limit: 20                    # exchanges kept in RAM
+  long_term: true
+  path: "data/chroma"
+  collection: "jarvis_memory"
+  embedding_model: "nomic-embed-text"     # pulled by setup.sh (free, local)
+  top_k: 4
+  min_relevance: 0.20
+  autosave: true
+  auto_extract_facts: true                # let the LLM mine facts worth keeping
+
+database:
+  path: "data/jarvis.db"
+
+voice:
+  enabled: true
+  wake_word: "jarvis"
+  # porcupine  -> needs a FREE access key from console.picovoice.ai
+  # whisper    -> no key at all, uses faster-whisper to hear the wake word
+  # auto       -> porcupine if a key is present, otherwise whisper
+  engine: "auto"
+  porcupine_access_key: ""
+  porcupine_keyword: "jarvis"
+  sensitivity: 0.6
+  interrupt: true                          # stop talking when you talk
+  chime: true
+
+  stt:
+    model: "base.en"                       # tiny.en | base.en | small.en | medium
+    device: "auto"                         # auto | cpu | cuda
+    compute_type: "auto"                   # auto | int8 | float16
+    language: "en"
+    beam_size: 1
+    vad_filter: true
+
+  tts:
+    voice: "en-GB-RyanNeural"              # try en-US-GuyNeural, en-AU-WilliamNeural
+    rate: "+8%"
+    volume: "+0%"
+    pitch: "+0Hz"
+    cache: true
+
+  vad:
+    sample_rate: 16000
+    frame_ms: 30
+    energy_threshold: 0.014                # raise if it triggers on room noise
+    silence_ms: 900                        # end-of-speech pause
+    min_speech_ms: 250
+    max_command_seconds: 15
+    listen_timeout: 8
+
+modules:
+  system_control: true
+  web_search: true
+  productivity: true
+  code_assistant: true
+  file_manager: true
+  smart_assistant: true
+
+security:
+  confirm_dangerous: true
+  allow_shell: true
+  shell_timeout: 60
+  sandbox_timeout: 20
+  # Extra regexes to always block, on top of the built-in blacklist
+  blocked_patterns: []
+  # Restrict file operations to these roots ([] = home directory only)
+  allowed_roots: []
+
+web:
+  max_results: 5
+  timeout: 20
+  scrape_chars: 6000
+  user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+  news_feeds:
+    - "http://feeds.bbci.co.uk/news/world/rss.xml"
+    - "https://feeds.arstechnica.com/arstechnica/index"
+    - "https://hnrss.org/frontpage"
+
+paths:
+  data: "data"
+  logs: "logs"
+  notes: "data/notes"
+  code: "data/code"
+  screenshots: "data/screenshots"
+  downloads: "data/downloads"
+  tts_cache: "data/tts"
+
+logging:
+  level: "INFO"            # DEBUG | INFO | WARNING | ERROR
+  file: "logs/jarvis.log"
+  max_bytes: 2000000
+  backups: 3
+  color: true
+  quiet_libraries: true
