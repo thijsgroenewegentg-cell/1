@@ -55,6 +55,10 @@ HELP_ROWS: List[tuple[str, str]] = [
     ("web", "Start the phone/LAN web interface"),
     ("index [path]", "Add documents to the private knowledge base"),
     ("look", "Look at the screen with the local vision model"),
+    ("plugins", "List the skills JARVIS has written for itself"),
+    ("selftest", "Run the smoke suite against the current code"),
+    ("changes", "Show JARVIS's own change history"),
+    ("undo", "Roll back JARVIS's last self-modification"),
     ("stream on|off", "Toggle live token-by-token replies"),
     ("mute / unmute", "Toggle spoken replies in text mode"),
     ("config", "Show the active configuration"),
@@ -306,6 +310,23 @@ class CLI:
 
         if command in {"look", "screen", "see"}:
             await self._run_module("vision", "describe_screen", {})
+            return True
+
+        if command in {"plugins", "skills"}:
+            await self._run_module("self_improve", "list_plugins", {})
+            return True
+
+        if command in {"selftest", "self-test", "tests"}:
+            self.info("Running the smoke suite — this takes a moment, sir.")
+            await self._run_module("self_improve", "run_self_tests", {})
+            return True
+
+        if command in {"changes", "changelog"}:
+            await self._run_module("self_improve", "change_history", {})
+            return True
+
+        if command == "undo":
+            await self._run_module("self_improve", "rollback", {"change_id": 0})
             return True
 
         if command.split(" ")[0] == "web":

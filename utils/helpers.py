@@ -61,6 +61,38 @@ def which(binary: str) -> Optional[str]:
     return shutil.which(binary)
 
 
+def ssl_verify() -> Any:
+    """Return the TLS verification setting for HTTP clients.
+
+    Honours ``SSL_CERT_FILE`` / ``REQUESTS_CA_BUNDLE`` / ``CURL_CA_BUNDLE`` and
+    falls back to the system CA bundle when ``certifi`` is missing. This keeps
+    JARVIS working behind TLS-inspecting proxies. Verification is never
+    disabled.
+
+    Returns:
+        ``True`` for the library default, or a path to a CA bundle.
+    """
+    for variable in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        candidate = os.environ.get(variable, "").strip()
+        if candidate and Path(candidate).exists():
+            return candidate
+    try:
+        import certifi
+
+        if Path(certifi.where()).exists():
+            return True
+    except Exception:
+        pass
+    for bundle in (
+        "/etc/ssl/certs/ca-certificates.crt",   # Debian/Ubuntu
+        "/etc/pki/tls/certs/ca-bundle.crt",     # Fedora/RHEL
+        "/etc/ssl/cert.pem",                    # macOS/BSD
+    ):
+        if Path(bundle).exists():
+            return bundle
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Async plumbing
 # ---------------------------------------------------------------------------

@@ -30,6 +30,7 @@ from utils.helpers import (
     detect_os,
     extract_json,
     friendly_time,
+    run_blocking,
     similar,
     strip_markdown,
     truncate,
@@ -437,6 +438,14 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "send an email", "reply to", "my calendar", "my schedule", "my meetings",
         "next meeting", "what's on my calendar", "events today", "appointments",
     ],
+    "self_improve": [
+        "search github", "on github", "find a repo", "find a library", "integrate that",
+        "add a new skill", "install a plugin", "list your plugins", "your own code",
+        "your source code", "modify yourself", "improve yourself", "rewrite your",
+        "change your code", "fix your own", "upgrade yourself", "run your tests",
+        "undo your change", "roll back your", "reload yourself", "what have you changed",
+        "extend yourself", "learn a new skill", "write a plugin",
+    ],
     "smart_assistant": [
         "meaning of life", "explain", "why does", "how does", "what does",
         "calculate", "convert", "translate", "summarize this text", "summarise this text",
@@ -495,6 +504,7 @@ class Brain:
             "knowledge": ("modules.knowledge", "Knowledge"),
             "vision": ("modules.vision", "Vision"),
             "communications": ("modules.communications", "Communications"),
+            "self_improve": ("modules.self_improve", "SelfImprove"),
         }
         import importlib
 
@@ -506,11 +516,141 @@ class Brain:
                 imported = importlib.import_module(module_path)
                 cls = getattr(imported, class_name)
                 instance: BaseModule = cls(self.config, llm=self.llm, security=self.security)
+                instance.brain = self  # type: ignore[attr-defined]
                 await instance.setup()
                 self.modules[name] = instance
                 logger.debug("Loaded module '%s' with %d tools", name, len(instance.tools))
             except Exception as exc:  # noqa: BLE001 - one bad module must not kill JARVIS
                 logger.error("Could not load module '%s': %s", name, exc)
+
+        await self._load_plugins()
+
+    async def _load_plugins(self) -> None:
+        """Load generated skill adapters from the plugins directory.
+
+        Plugins are written by the ``self_improve`` module (or by hand): any
+        ``plugins/*.py`` file defining a :class:`~modules.base.BaseModule`
+        subclass becomes a first-class skill at start-up.
+        """
+        try:
+            from modules.self_improve import discover_plugins, load_plugin
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("Plugin loader unavailable: %s", exc)
+            return
+
+        directory = self.config.resolve(
+            self.config.get("self_improve.plugins_dir", "plugins")
+        )
+        for path in discover_plugins(directory):
+            name = path.stem
+            if name in self.modules:
+                continue
+            if not self.config.get(f"modules.{name}", True):
+                logger.info("Plugin '%s' disabled in config.", name)
+                continue
+            try:
+                instance = await run_blocking(
+                    load_plugin, path, self.config, self.llm, self.security
+                )
+                if instance is None:
+                    continue
+                instance.brain = self  # type: ignore[attr-defined]
+                await instance.setup()
+                self.modules[instance.name or name] = instance
+                logger.info(
+                    "Loaded plugin skill '%s' with %d tools", instance.name, len(instance.tools)
+                )
+            except Exception as exc:  # noqa: BLE001 - a bad plugin must not kill JARVIS
+                logger.error("Plugin '%s' failed to load: %s", name, truncate(str(exc), 160))
+
+    # ------------------------------------------------------------ live wiring
+    def register_module(self, instance: BaseModule) -> None:
+        """Add (or replace) a module in the running assistant.
+
+        Args:
+            instance: A ready, already ``setup()``-ed module.
+        """
+        instance.brain = self  # type: ignore[attr-defined]
+        self.modules[instance.name] = instance
+        logger.info("Registered skill '%s' (%d tools).", instance.name, len(instance.tools))
+
+    def unregister_module(self, name: str) -> bool:
+        """Remove a module from the running assistant.
+
+        Args:
+            name: The module name.
+
+        Returns:
+            True when a module was removed.
+        """
+        module = self.modules.pop(name, None)
+        if module is None:
+            return False
+        asyncio.create_task(self._safe_shutdown(module))
+        logger.info("Unregistered skill '%s'.", name)
+        return True
+
+    @staticmethod
+    async def _safe_shutdown(module: BaseModule) -> None:
+        """Shut a module down without letting errors escape."""
+        with contextlib.suppress(Exception):
+            await module.shutdown()
+
+    async def reload_module(self, name: str) -> Tuple[bool, str]:
+        """Re-import a module or plugin and swap in a fresh instance.
+
+        Args:
+            name: Module name (``productivity``) or plugin stem.
+
+        Returns:
+            ``(success, detail)``. Core files such as ``brain.py`` cannot be
+            hot-reloaded and report that a restart is required.
+        """
+        import importlib
+
+        if name in {"brain", "memory", "config", "main"}:
+            return False, "core modules need a restart"
+
+        plugins_dir = self.config.resolve(
+            self.config.get("self_improve.plugins_dir", "plugins")
+        )
+        plugin_path = plugins_dir / f"{name}.py"
+        try:
+            if plugin_path.exists():
+                from modules.self_improve import load_plugin
+
+                instance = await run_blocking(
+                    load_plugin, plugin_path, self.config, self.llm, self.security
+                )
+                if instance is None:
+                    return False, "no module class found in the plugin"
+            else:
+                module_path = f"modules.{name}"
+                imported = importlib.import_module(module_path)
+                imported = importlib.reload(imported)
+                cls = None
+                for attribute in vars(imported).values():
+                    if (
+                        isinstance(attribute, type)
+                        and issubclass(attribute, BaseModule)
+                        and attribute is not BaseModule
+                        and getattr(attribute, "name", "") == name
+                    ):
+                        cls = attribute
+                        break
+                if cls is None:
+                    return False, f"no module class named '{name}'"
+                instance = cls(self.config, llm=self.llm, security=self.security)
+
+            old = self.modules.get(name)
+            if old is not None:
+                await self._safe_shutdown(old)
+            instance.brain = self  # type: ignore[attr-defined]
+            await instance.setup()
+            self.modules[instance.name or name] = instance
+            return True, f"{len(instance.tools)} tools active"
+        except Exception as exc:
+            return False, truncate(str(exc), 160)
 
     async def shutdown(self) -> None:
         """Persist memory and tear down modules and the HTTP client."""

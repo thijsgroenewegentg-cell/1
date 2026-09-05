@@ -110,7 +110,8 @@ modules:
   smart_assistant: true
   knowledge: true          # RAG over your own documents
   vision: true             # look at the screen / images (needs a vision model)
-  communications: true     # email (IMAP) + calendar (.ics)
+  communications: true
+  self_improve: true       # search GitHub, add plugins, edit his own code     # email (IMAP) + calendar (.ics)
 
 knowledge:
   paths:                   # folders indexed for "ask my documents"
@@ -149,6 +150,31 @@ calendar:
   urls: []                 # secret .ics URLs (Google/Outlook "private address")
   local_file: "data/jarvis.ics"
   look_ahead_days: 7
+
+# Self-improvement: JARVIS can search GitHub, wrap repositories as new skills,
+# and rewrite his own source. Every change is backed up, syntax-checked, run
+# through the test suite and committed to git — and reverted if anything fails.
+self_improve:
+  enabled: true
+  allow_code_edit: true      # let him modify files in this project
+  allow_plugin_install: true # let him clone repos and generate adapters
+  allow_pip_install: false   # let him install packages into the venv (off by default)
+  run_tests_after_edit: true # keep an edit only if tests/test_smoke.py still passes
+  test_command: "tests/test_smoke.py"
+  test_timeout: 900
+  git_commit: true           # commit each accepted change (never pushes)
+  auto_reload: true          # hot-reload edited modules without restarting
+  plugins_dir: "plugins"     # generated skill adapters live here
+  repos_dir: "data/repos"    # cloned repositories
+  backup_dir: "data/backups"
+  keep_backups: 40
+  max_file_bytes: 400000
+  max_search_results: 8
+  github_token_env: "GITHUB_TOKEN"   # optional; raises the free API rate limit
+  protected:                 # files he is never allowed to rewrite
+    - "utils/security.py"
+    - "modules/self_improve.py"
+    - "config.yaml"
 
 web_ui:
   enabled: false           # phone/browser access on your LAN

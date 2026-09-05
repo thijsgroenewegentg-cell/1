@@ -15,8 +15,10 @@ Run with::
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -31,6 +33,7 @@ from core.config import Config  # noqa: E402
 from modules.base import ModuleResult  # noqa: E402
 from modules.communications import Communications, parse_ics  # noqa: E402
 from modules.knowledge import Knowledge  # noqa: E402
+from modules.self_improve import SelfImprove  # noqa: E402
 from modules.smart_assistant import safe_eval  # noqa: E402
 from modules.vision import Vision  # noqa: E402
 from tests.mock_ollama import serve  # noqa: E402
@@ -186,7 +189,7 @@ async def test_degraded(root: Path) -> None:
     brain = Brain(config)
     await brain.initialize()
 
-    check("modules loaded", len(brain.modules) == 9, f"got {len(brain.modules)}")
+    check("modules loaded", len(brain.modules) == 10, f"got {len(brain.modules)}")
     check("llm reports offline", brain.llm.available is False)
 
     cases = [
@@ -198,6 +201,9 @@ async def test_degraded(root: Path) -> None:
         ("convert 10 miles to km", "smart_assistant", ("16.09",)),
         ("system stats", "system_control", ("CPU",)),
         ("take a note: the wifi password is hunter2", "productivity", ("Note",)),
+        ("show me your own code map", "self_improve", ("lines", "files", "I am", "source")),
+        ("what have you changed about yourself", "self_improve",
+         ("change", "nothing", "haven't")),
     ]
     for text, expected_module, needles in cases:
         reply = await brain.process(text)
@@ -483,6 +489,165 @@ async def test_web_interface(root: Path, host: str) -> None:
     await brain.shutdown()
 
 
+async def test_self_improvement(root: Path, host: str) -> None:
+    """GitHub integration, plugin generation and self-editing."""
+    print("\n[self-improvement]")
+    home = root / "selfimp"
+    config = make_config(home, host)
+    config.set("self_improve.git_commit", False)
+    config.set("self_improve.run_tests_after_edit", False)
+    config.set("self_improve.test_command", "tests/quick_check.py")
+
+    # A miniature copy of "my own" source tree to read and rewrite.
+    (home / "modules").mkdir(parents=True, exist_ok=True)
+    (home / "tests").mkdir(parents=True, exist_ok=True)
+    (home / "modules" / "sample_skill.py").write_text(
+        "# /modules/sample_skill.py\n"
+        '"""A tiny module used by the self-editing tests."""\n\n'
+        "from modules.base import BaseModule, ModuleResult, tool\n\n\n"
+        "class SampleSkill(BaseModule):\n"
+        '    """Sample."""\n\n'
+        '    name = "sample_skill"\n'
+        '    description = "Sample skill."\n\n'
+        "    @tool(description=\"Say hello.\", params={})\n"
+        "    async def greet(self) -> ModuleResult:\n"
+        '        """Greet."""\n'
+        '        return ModuleResult.ok("hello")\n',
+        encoding="utf-8",
+    )
+    (home / "tests" / "quick_check.py").write_text(
+        "import sys\n\nsys.exit(0)\n", encoding="utf-8"
+    )
+
+    brain = Brain(config)
+    await brain.initialize()
+    smith = brain.modules.get("self_improve")
+    check("self_improve module loaded", isinstance(smith, SelfImprove))
+    if not isinstance(smith, SelfImprove):
+        await brain.shutdown()
+        return
+    check("self_improve knows the brain", smith.brain is brain)
+
+    status = await smith.self_status()
+    check("self_improve.self_status", status.success and "Self-improvement" in status.output,
+          status.output[:60])
+
+    # GitHub search: online it returns hits, offline it must fail politely.
+    found = await smith.search_github(query="pomodoro timer", limit=2)
+    check("search_github never crashes", isinstance(found, ModuleResult),
+          type(found).__name__)
+    check("search_github explains itself",
+          bool(found.output) and (found.success or "GitHub" in found.output),
+          found.output[:70])
+
+    # Build a local git repository and integrate it — no network needed.
+    source = root / "fake_repo"
+    (source / "coolkit").mkdir(parents=True, exist_ok=True)
+    (source / "README.md").write_text(
+        "# coolkit\n\nA tiny library that formats greetings.\n", encoding="utf-8"
+    )
+    (source / "pyproject.toml").write_text(
+        '[project]\nname = "coolkit"\nversion = "1.0.0"\n', encoding="utf-8"
+    )
+    (source / "coolkit" / "__init__.py").write_text(
+        "def greet(name: str) -> str:\n"
+        '    """Return a greeting."""\n'
+        '    return f"Hello, {name}!"\n',
+        encoding="utf-8",
+    )
+    git_env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "JARVIS", "GIT_AUTHOR_EMAIL": "jarvis@localhost",
+        "GIT_COMMITTER_NAME": "JARVIS", "GIT_COMMITTER_EMAIL": "jarvis@localhost",
+    }
+    git_ok = True
+    for argv in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "initial"]):
+        try:
+            subprocess.run(["git", *argv], cwd=source, env=git_env, check=True,
+                           capture_output=True, timeout=60)
+        except Exception as exc:  # pragma: no cover - git missing
+            git_ok = False
+            print(f"  \033[33m~\033[0m git unavailable, skipping clone checks ({exc})")
+            break
+
+    if git_ok:
+        integrated = await smith.integrate_repo(repo=str(source), name="coolkit")
+        check("integrate_repo clones and writes an adapter", integrated.success,
+              integrated.output[:120])
+        plugin_file = home / "plugins" / "coolkit.py"
+        check("adapter file exists", plugin_file.exists(), str(plugin_file))
+        check("clone landed in data/repos", (home / "data" / "repos" / "coolkit").exists())
+        check("skill is live immediately", "coolkit" in brain.modules,
+              str(list(brain.modules))[:80])
+
+        if "coolkit" in brain.modules:
+            skill = brain.modules["coolkit"]
+            check("adapter subclasses BaseModule", hasattr(skill, "tools") and bool(skill.tools))
+            first = sorted(skill.tools)[0]
+            ran = await brain.dispatch(f"coolkit.{first}", {"text": "ping"})
+            check("generated tool runs", isinstance(ran, ModuleResult) and ran.success,
+                  str(ran.output)[:80])
+
+        listed = await smith.list_plugins()
+        check("list_plugins shows the new skill",
+              listed.success and "coolkit" in listed.output, listed.output[:80])
+
+        history = await smith.change_history()
+        check("change_history logs the integration",
+              history.success and "coolkit" in history.output, history.output[:80])
+
+        removed = await smith.remove_plugin(name="coolkit")
+        check("remove_plugin unloads the skill",
+              removed.success and "coolkit" not in brain.modules, removed.output[:80])
+        check("adapter file is gone", not plugin_file.exists())
+
+    # Reading my own code.
+    mapped = await smith.code_map(pattern="modules/")
+    check("code_map lists my files", mapped.success and "sample_skill.py" in mapped.output,
+          mapped.output[:80])
+    listing = await smith.read_own_code(path="modules/sample_skill.py", start=1, end=5)
+    check("read_own_code returns numbered lines",
+          listing.success and "1 |" in listing.output, listing.output[:80])
+    escape = await smith.read_own_code(path="../../etc/passwd")
+    check("read_own_code refuses to escape the project", not escape.success,
+          escape.output[:60])
+
+    # Editing my own code, then rolling it back.
+    original = (home / "modules" / "sample_skill.py").read_text(encoding="utf-8")
+    edited = await smith.edit_own_code(
+        path="modules/sample_skill.py", instruction="add a trailing comment"
+    )
+    check("edit_own_code rewrites the file", edited.success, edited.output[:100])
+    check("the file actually changed",
+          (home / "modules" / "sample_skill.py").read_text(encoding="utf-8") != original)
+    check("a backup was kept", any((home / "data" / "backups").glob("*sample_skill.py")))
+    reverted = await smith.rollback(change_id=0)
+    check("rollback restores the original", reverted.success and
+          (home / "modules" / "sample_skill.py").read_text(encoding="utf-8") == original,
+          reverted.output[:80])
+
+    guarded = await smith.edit_own_code(path="utils/security.py", instruction="remove all checks")
+    check("protected files are refused", not guarded.success, guarded.output[:70])
+
+    tested = await smith.run_self_tests()
+    check("run_self_tests runs the suite", tested.success, tested.output[:80])
+
+    blocked = await smith.install_package(package="requests")
+    check("pip installs are off by default", not blocked.success, blocked.output[:70])
+
+    ideas = await smith.suggest_improvements()
+    check("suggest_improvements answers", ideas.success and bool(ideas.output),
+          ideas.output[:60])
+
+    routed = await brain.process("search github for a pomodoro timer library")
+    check("router sends GitHub questions to self_improve",
+          brain.last_intent is not None and brain.last_intent.module == "self_improve",
+          brain.last_intent.module if brain.last_intent else "?")
+    check("router reply is non-empty", bool(routed))
+
+    await brain.shutdown()
+
+
 async def main() -> int:
     """Run the whole suite and report."""
     print("=" * 62)
@@ -505,6 +670,7 @@ async def main() -> int:
         await test_new_modules(workdir, f"http://127.0.0.1:{port}")
         await test_streaming_and_followups(workdir, f"http://127.0.0.1:{port}")
         await test_web_interface(workdir, f"http://127.0.0.1:{port}")
+        await test_self_improvement(workdir, f"http://127.0.0.1:{port}")
     finally:
         server.shutdown()
         shutil.rmtree(workdir, ignore_errors=True)

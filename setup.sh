@@ -326,6 +326,7 @@ cat <<EOF
     "add buy milk to my todos"   "write a python script that renames files"
     "find all PDFs on my desktop"  "index my documents"
     "what's on my screen"          "what's on my calendar today"
+    "search github for a qr code library"   "show me your own code map"
 
   ${BOLD}Notes${RESET}
     · Ollama must be running: ${BLUE}ollama serve${RESET}
@@ -337,6 +338,10 @@ cat <<EOF
         ${BLUE}ollama pull llava${RESET}            let JARVIS look at your screen
         ${BLUE}bash scripts/install_service_linux.sh${RESET}   start at login (systemd)
         ${BLUE}bash scripts/install_service_macos.sh${RESET}   start at login (LaunchAgent)
+    · JARVIS can extend itself: ask it to search GitHub and integrate a
+      repository, and it writes the skill into ${BLUE}plugins/${RESET}. It can also edit
+      its own code — every change is backed up, tested and revertible.
+      Turn that off with ${BLUE}self_improve.enabled: false${RESET} in config.yaml.
     · Everything runs locally. Nothing is sent to a paid service.
 
 EOF

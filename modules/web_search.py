@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.cache import Cache
-from utils.helpers import clean_text, run_blocking, truncate
+from utils.helpers import clean_text, run_blocking, ssl_verify, truncate
 
 
 class WebSearch(BaseModule):
@@ -84,7 +84,10 @@ class WebSearch(BaseModule):
             headers = {"User-Agent": self.user_agent, "Accept-Language": "en"}
             headers.update(kwargs.pop("headers", {}))
             async with httpx.AsyncClient(
-                timeout=self.timeout, follow_redirects=True, headers=headers
+                timeout=self.timeout,
+                follow_redirects=True,
+                headers=headers,
+                verify=ssl_verify(),
             ) as client:
                 response = await client.get(url, **kwargs)
                 response.raise_for_status()

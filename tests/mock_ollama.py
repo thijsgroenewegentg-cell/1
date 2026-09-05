@@ -45,6 +45,8 @@ def scripted_reply(prompt: str) -> str:
             request = match.group(1).lower()
         module = "conversation"
         rules = [
+            ("self_improve", ("github", "your own code", "your source", "plugin",
+                              "improve yourself", "new skill")),
             ("web_search", ("weather", "search", "news", "wikipedia", "look up")),
             ("system_control", ("open ", "screenshot", "volume", "lock", "cpu", "time")),
             ("productivity", ("todo", "task", "remind", "timer", "note", "briefing")),
@@ -84,6 +86,8 @@ def scripted_reply(prompt: str) -> str:
             action, params = "productivity.add_todo", {"task": "buy milk"}
         elif "timer" in request:
             action, params = "productivity.start_timer", {"duration": "5 minutes"}
+        elif "github" in request:
+            action, params = "self_improve.search_github", {"query": request}
         elif "calculate" in request or "%" in request:
             action, params = "smart_assistant.calculate", {"expression": "15% of 240"}
         else:
@@ -97,11 +101,66 @@ def scripted_reply(prompt: str) -> str:
     if "you are the dispatcher" in lowered:
         return json.dumps({"tool": "current_time", "params": {}})
 
-    # 5. Summarisation of an older conversation slice
+    # 5. Plugin adapter generation (self_improve.integrate_repo)
+    if "you are extending jarvis" in lowered:
+        name_match = re.search(r"#\s*/plugins/(\w+)\.py", prompt)
+        skill = name_match.group(1) if name_match else "skill"
+        classname = "".join(part.title() for part in skill.split("_")) or "Skill"
+        return (
+            "Here is the adapter:\n\n```python\n"
+            f"# /plugins/{skill}.py\n"
+            '"""Mock generated skill adapter."""\n\n'
+            "from __future__ import annotations\n\n"
+            "from typing import Any\n\n"
+            "from modules.base import BaseModule, ModuleResult, tool\n\n\n"
+            f"class {classname}(BaseModule):\n"
+            '    """Skill generated from an integrated repository."""\n\n'
+            f'    name = "{skill}"\n'
+            f'    description = "Mock skill wrapping the {skill} repository."\n'
+            f'    intent_examples = ["use {skill}", "run {skill}", "{skill} status"]\n\n'
+            "    @tool(\n"
+            '        description="Report what this skill can do.",\n'
+            "        params={},\n"
+            f'        keywords=["{skill}"],\n'
+            "    )\n"
+            "    async def describe(self) -> ModuleResult:\n"
+            '        """Describe the wrapped repository."""\n'
+            f'        return ModuleResult.ok("The {skill} skill is installed and ready.")\n\n'
+            "    @tool(\n"
+            '        description="Echo a value through the wrapped library.",\n'
+            '        params={"text": {"type": "string", "description": "Input",'
+            ' "required": True}},\n'
+            f'        keywords=["{skill} echo"],\n'
+            "    )\n"
+            "    async def echo(self, text: str) -> ModuleResult:\n"
+            '        """Return the given text, proving the tool runs."""\n'
+            "        try:\n"
+            f'            return ModuleResult.ok("{skill}: " + str(text))\n'
+            "        except Exception as exc:\n"
+            '            return ModuleResult.fail(str(exc))\n'
+            "```\n"
+        )
+
+    # 6. Self-editing a source file
+    if "you are editing your own source code" in lowered:
+        match = re.search(r"CURRENT FILE:\s*```python\n([\s\S]*)```", prompt)
+        current = match.group(1) if match else ""
+        marked = current.rstrip() + "\n\n# Touched by the mock self-editor.\n"
+        return "```python\n" + marked + "```"
+
+    # 7. Improvement suggestions
+    if "reviewing your own codebase" in lowered:
+        return (
+            "1. modules/productivity.py — add a tool listing overdue todos.\n"
+            "2. modules/web_search.py — cache Wikipedia lookups for a week.\n"
+            "3. interfaces/cli.py — add a command that replays the last answer."
+        )
+
+    # 8. Summarisation of an older conversation slice
     if "compress this conversation excerpt" in lowered:
         return "Mock briefing: the user asked about timers and the weather."
 
-    # 6. Final composition / plain conversation
+    # 9. Final composition / plain conversation
     if "tool results:" in lowered:
         return "Here is the mock synthesis of those tool results, sir."
     return "Mock response, sir. The scripted brain is functioning."

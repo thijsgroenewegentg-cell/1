@@ -37,8 +37,9 @@ intelligence — built entirely from free and open-source parts.
 | Vision | **llava** through Ollama | free |
 | Email & calendar | plain **IMAP/SMTP** + **iCalendar** | free |
 | Phone / LAN UI | **FastAPI** + WebSockets, served from your own machine | free |
+| Self-improvement | **GitHub search API** (keyless) + `git clone` + its own LLM | free, no key |
 
-Nine capability modules, ~95 callable tools:
+Ten capability modules, 103 callable tools:
 
 * **system_control** — open/close apps, screenshots, CPU/RAM/disk/battery, volume, lock screen, clipboard, keyboard & mouse automation, shell commands (guarded), time/date
 * **web_search** — DuckDuckGo search, page scraping + summarising, weather, news, Wikipedia, geocoding
@@ -49,6 +50,7 @@ Nine capability modules, ~95 callable tools:
 * **knowledge** — a private knowledge base built from *your* documents: index folders, semantic search, cited answers ("what does my lease say about pets?")
 * **vision** — looks at your screen or any image with a local llava model: describe, read text, compare screenshots
 * **communications** — IMAP inbox triage with LLM summaries, SMTP sending (off by default), and calendars from `.ics` files or secret export URLs
+* **self_improve** — searches GitHub, clones repositories, writes its own skill adapters for them, reads and rewrites its own source, runs its own test suite, commits, and rolls back anything that breaks
 
 And the things that make it feel alive:
 
@@ -58,6 +60,7 @@ And the things that make it feel alive:
 * **Follow-ups** — "shall I organise it for real?" → just say **yes**
 * **Rolling summaries** — long conversations are compressed instead of forgotten
 * **Cached web lookups** — a SQLite TTL cache keeps the free endpoints happy
+* **It grows** — "find a GitHub library for QR codes and integrate it" adds a working skill to the running assistant, no restart
 
 ---
 
@@ -82,6 +85,7 @@ Then say **"Jarvis"**, wait for the chime, and talk. Or just type.
 * ~6 GB free disk (LLM + Whisper models)
 * 8 GB RAM minimum for `llama3.2`; 16 GB is comfortable
 * A microphone and speakers for voice mode (optional — text mode always works)
+* `git` on PATH (optional — only for cloning repositories it wants to integrate)
 
 ---
 
@@ -210,6 +214,9 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 | `index [path]` | add documents to the private knowledge base |
 | `look` | describe what is on your screen (needs `ollama pull llava`) |
 | `stream on\|off` | toggle live token-by-token replies |
+| `plugins` | list the skills JARVIS has written for itself |
+| `changes` / `undo` | its own change history, and roll back the last one |
+| `selftest` | run the 143-check smoke suite against the current code |
 | `mute` / `unmute` | speak replies in text mode |
 | `clear`, `config`, `exit` | as expected |
 
@@ -243,6 +250,15 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 "Check my email"          (after configuring IMAP)
 "Summarise my inbox"
 "Stop"                    (cancels a reply mid-sentence)
+"Search github for a python library that reads QR codes"
+"Integrate that repo"
+"What plugins do you have"
+"Show me your own code map"
+"Read your web_search module, lines 1 to 40"
+"Improve your own error messages in modules/productivity.py"
+"Run your tests"
+"What have you changed about yourself"
+"Undo your last change"
 ```
 
 ---
@@ -309,7 +325,8 @@ jarvis/
 │   ├── smart_assistant.py   Q&A + RAG, maths, conversions, translation, writing
 │   ├── knowledge.py         private document knowledge base (index + cited answers)
 │   ├── vision.py            screen and image understanding via llava
-│   └── communications.py    IMAP/SMTP email and .ics calendars
+│   ├── communications.py    IMAP/SMTP email and .ics calendars
+│   └── self_improve.py      GitHub search, repo integration, self-editing, rollback
 ├── utils/
 │   ├── logger.py            coloured console + rotating file logs
 │   ├── helpers.py           shared utilities
@@ -322,8 +339,9 @@ jarvis/
 │   ├── install_service_macos.sh          LaunchAgent
 │   └── install_service_windows.ps1       scheduled task at logon
 ├── .github/ci.yml           lint + smoke suite CI (move to .github/workflows/)
+├── plugins/                 skills JARVIS writes for itself (loaded at start-up)
 ├── tests/
-│   ├── test_smoke.py        111-check end-to-end suite
+│   ├── test_smoke.py        143-check end-to-end suite
 │   └── mock_ollama.py       scripted LLM server (streaming + vision) for testing
 └── data/                    SQLite DB, ChromaDB, notes, code, screenshots, TTS cache
 ```
@@ -385,12 +403,25 @@ calendar:
   files: ["~/calendars/work.ics"]
   urls: []                   # Google/Outlook "secret address in iCal format"
 
+self_improve:
+  enabled: true
+  allow_code_edit: true      # may rewrite its own source files
+  allow_plugin_install: true # may write new skills into plugins/
+  allow_pip_install: false   # may NOT install packages unless you say so
+  run_tests_after_edit: true # every self-edit must survive tests/test_smoke.py
+  git_commit: true           # commits each change locally (never pushes)
+  protected:                 # files it refuses to touch
+    - utils/security.py
+    - modules/self_improve.py
+    - config.yaml
+
 modules:                 # switch any capability off; nothing else breaks
   system_control: true
   web_search: true
   knowledge: true
   vision: true
   communications: true
+  self_improve: true
   ...
 
 security:
@@ -530,6 +561,101 @@ curl -X POST localhost:8765/api/ask -H 'Content-Type: application/json' \
 
 ---
 
+## It can extend and rewrite itself
+
+JARVIS can go shopping on GitHub, turn a repository into one of its own skills,
+and edit its own source code — with a test suite, backups and git as the safety
+net. No API key: GitHub's search endpoint is free and anonymous (set
+`GITHUB_TOKEN` in your environment only if you hit the 10-searches-a-minute
+anonymous limit).
+
+```
+you  > find me a github library for reading qr codes
+JARVIS > GitHub results for 'qr code python':
+         1. lincolnloop/python-qrcode ★4,600 · Python · BSD-3-Clause
+         2. NaturalHistoryMuseum/pyzbar ★700 · Python · MIT
+         Shall I integrate one of them, sir?
+you  > integrate the second one
+JARVIS > Integrated NaturalHistoryMuseum/pyzbar as the 'pyzbar' skill.
+           source : data/repos/pyzbar
+           adapter: plugins/pyzbar.py
+           tools  : decode_qr, decode_barcode
+           status : loaded and active right now
+you  > read the qr code in ~/Downloads/ticket.png
+JARVIS > It points to https://…
+```
+
+**How an integration works**
+
+1. `search_github` → GitHub's REST search, ranked by stars, with licence and
+   last-commit dates so you can judge what you are pulling in.
+2. `integrate_repo` → `git clone --depth 1` into `data/repos/<skill>`, then the
+   repo is *surveyed*: README, the largest non-test Python files, the package
+   name, its requirements and every public entry point (extracted with `ast`).
+3. Your local LLM writes an adapter — a normal JARVIS module with 2–5 `@tool`
+   methods that call the library.
+4. The adapter is **validated before it is ever imported**: it must parse, must
+   subclass `BaseModule`, and must not contain `os.system`, `subprocess`,
+   `eval`, `exec`, `__import__` or `shutil.rmtree`. A bad first draft is sent
+   back to the model once with the error; if it still fails, a safe stub is
+   written instead of dangerous code.
+5. It is written to `plugins/<skill>.py`, imported, registered with the running
+   brain (**no restart**) and committed to git.
+
+Dependencies are never installed behind your back: `allow_pip_install` is
+`false` by default, so JARVIS tells you what to install and waits.
+
+**Changing its own code**
+
+```
+you  > your weather replies are too long, fix that in your own code
+JARVIS > Rewrote modules/web_search.py (change #4).
+           tests  : 143 passed in 12.4s
+           reload : Reloaded 'web_search' — 8 tools active
+           backup : data/backups/20260906_101511_modules_web_search.py
+           commit : a91f0c2
+         --- a/modules/web_search.py
+         +++ b/modules/web_search.py
+         @@ …
+you  > actually, undo that
+JARVIS > Reverted change #4 (edit on modules/web_search.py).
+```
+
+Every self-edit goes through the same gauntlet:
+
+| Guard | What it does |
+|---|---|
+| Protected list | refuses to touch `utils/security.py`, its own `self_improve.py`, or `config.yaml` |
+| Sanity check | the rewrite must parse, keep ≥ 50 % of the file, keep every `@tool`, and introduce no `TODO`/`...` placeholders |
+| Safety check | rejects any patch that deletes confirmation prompts, `dangerous=True` flags or error handling |
+| Backup | the old file is copied to `data/backups/` first (last 40 kept) |
+| Tests | `tests/test_smoke.py` runs; **if it fails the file is restored byte-for-byte** |
+| Hot reload | the module is re-imported and swapped into the live assistant |
+| Git | committed locally with a `self:` message — never pushed anywhere |
+
+**The tools** (say any of these in plain English)
+
+| Tool | Does |
+|---|---|
+| `search_github` | search repositories by topic, language, stars |
+| `repo_details` | stars, licence, activity and README of one repo |
+| `integrate_repo` | clone + write + load a new skill (asks first) |
+| `list_plugins` / `remove_plugin` | see and delete self-written skills |
+| `install_package` | pip install into JARVIS's own venv (off by default) |
+| `code_map` | inventory of its own files, lines and tools |
+| `read_own_code` | print any of its own source files with line numbers |
+| `edit_own_code` | rewrite one of its files to your instruction (asks first) |
+| `run_self_tests` | run the smoke suite and report |
+| `reload_module` | hot-reload a module after a change |
+| `rollback` / `change_history` | undo any change, list everything it has done |
+| `suggest_improvements` | read its own code and propose what to improve |
+| `self_status` | which of the above powers are switched on |
+
+Turn the whole thing off with `self_improve.enabled: false`, or keep the
+research half and disable the surgery with `allow_code_edit: false`.
+
+---
+
 ## Starting automatically
 
 ```bash
@@ -553,6 +679,10 @@ Each script installs a login-time service running `python main.py --web`
 * Python snippets run in a temporary directory as a separate, isolated process
   with a timeout; anything touching the filesystem, shell or network prompts
   first.
+* Self-modification is gated: dangerous tools ask for confirmation, generated
+  plugins are scanned before import, self-edits must pass the test suite, and
+  every change is backed up and revertible with `rollback`.
+* JARVIS commits its own changes locally but **never pushes** to a remote.
 * Every risk assessment is logged to `logs/jarvis.log`.
 
 ---
@@ -563,6 +693,21 @@ Each script installs a login-time service running `python main.py --web`
 Ollama isn't running. `ollama serve`, then `ollama list` to confirm your model
 is installed. JARVIS keeps working in reflex mode meanwhile — timers, stats,
 file search and app launching still respond.
+
+**"GitHub is rate-limiting me"**
+Anonymous search allows ten queries a minute. Create a *classic* token with no
+scopes at <https://github.com/settings/tokens> and export it as `GITHUB_TOKEN`
+(30/minute). It stays optional — nothing else uses it.
+
+**A self-written plugin misbehaves**
+`remove_plugin` deletes it and unloads it live, or just delete
+`plugins/<name>.py` and restart. Set `modules.<name>: false` to keep the file
+but stop loading it.
+
+**A self-edit broke something**
+It shouldn't — the tests run first and a failure restores the file. If you
+disabled `run_tests_after_edit`, say *"undo your last change"* (`rollback`), or
+copy the file back yourself from `data/backups/`.
 
 **Whisper is slow**
 Use a smaller model: `voice.stt.model: tiny.en`. With an NVIDIA GPU, set
@@ -625,7 +770,7 @@ Extras mirror the optional dependencies: `pip install -e ".[voice]"`,
 
 `.github/ci.yml` (move it to `.github/workflows/ci.yml` to switch it on) runs
 pyflakes, byte-compiles every module, executes
-the 111-check offline smoke suite on Linux, macOS and Windows (Python 3.9–3.12)
+the 143-check offline smoke suite on Linux, macOS and Windows (Python 3.9–3.12)
 and builds a wheel. No models are downloaded — `tests/mock_ollama.py` scripts
 the LLM, including token streaming and vision responses.
 
@@ -634,7 +779,8 @@ the LLM, including token streaming and vision responses.
 ## Cost
 
 Zero. Forever. The only network calls are to free, key-less public endpoints
-(DuckDuckGo, wttr.in, Wikipedia, RSS feeds, Microsoft's public TTS endpoint) —
+(DuckDuckGo, wttr.in, Wikipedia, RSS feeds, GitHub's anonymous search API,
+Microsoft's public TTS endpoint) —
 and even those are optional. Turn off `modules.web_search` and JARVIS is fully
 offline.
 
