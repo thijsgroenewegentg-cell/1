@@ -247,6 +247,12 @@ class SecurityGuard:
                     f"({', '.join(str(r) for r in roots)})",
                 )
             for protected in _PROTECTED_ROOTS:
+                # "/" contains every absolute path, so a containment test against
+                # it would block writes to any allowed root outside $HOME (an
+                # external drive, /srv, a scratch dir). The exact-path check
+                # above already protects "/" itself.
+                if protected in ("/", "C:\\"):
+                    continue
                 protected_path = Path(protected)
                 if protected_path.is_absolute() and self._is_within(target, protected_path):
                     if not self._is_within(target, Path.home()):

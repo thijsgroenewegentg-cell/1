@@ -518,6 +518,7 @@ class Brain:
             "knowledge": ("modules.knowledge", "Knowledge"),
             "vision": ("modules.vision", "Vision"),
             "communications": ("modules.communications", "Communications"),
+            "models": ("modules.models", "Models"),
             "self_improve": ("modules.self_improve", "SelfImprove"),
         }
         import importlib

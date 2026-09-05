@@ -59,6 +59,7 @@ database:
 productivity:
   catch_up_on_start: true    # report reminders/jobs that came due while JARVIS was off
   scheduler_interval: 15     # seconds between checks for due reminders and schedules
+  quiet_hours: ""            # e.g. "22:30-07:00" — hold proactive announcements until morning
 
 voice:
   enabled: true
@@ -121,6 +122,7 @@ modules:
   knowledge: true          # RAG over your own documents
   vision: true             # look at the screen / images (needs a vision model)
   communications: true     # email (IMAP) + calendar (.ics)
+  models: true             # list/pull/switch the local Ollama models from chat
   self_improve: true       # search GitHub, add plugins, edit his own code
 
 knowledge:

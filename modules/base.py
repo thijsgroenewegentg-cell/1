@@ -343,7 +343,14 @@ class BaseModule:
 
         cleaned = self._coerce_params(spec, params)
 
-        if spec.dangerous and self.security is not None:
+        # ``confirm_dangerous: false`` must also switch off tool-level prompts —
+        # otherwise a non-interactive run (web UI, service) blocks on input()
+        # and silently denies every dangerous tool.
+        if (
+            spec.dangerous
+            and self.security is not None
+            and getattr(self.security, "confirm_dangerous", True)
+        ):
             description = f"{self.name}.{spec.name} with {cleaned or 'no arguments'}"
             approved = await self.security.confirm(
                 f"{description}\n  This action is flagged as sensitive. Proceed?"

@@ -16,12 +16,18 @@ import re
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 MODELS = [
-    {"name": "llama3.2:latest"},
-    {"name": "nomic-embed-text:latest"},
-    {"name": "llava:latest"},
+    {"name": "llama3.2:latest", "size": 2019393189,
+     "details": {"family": "llama", "parameter_size": "3.2B",
+                 "quantization_level": "Q4_K_M"}},
+    {"name": "nomic-embed-text:latest", "size": 274302450,
+     "details": {"family": "nomic-bert", "parameter_size": "137M",
+                 "quantization_level": "F16"}},
+    {"name": "llava:latest", "size": 4733363377,
+     "details": {"family": "llama", "parameter_size": "7B",
+                 "quantization_level": "Q4_0"}},
 ]
 
 
@@ -209,10 +215,63 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send({"error": "not found"}, 404)
 
-    def do_POST(self) -> None:  # noqa: N802 - http.server API
-        """Serve ``/api/chat`` and ``/api/embeddings``."""
+    def _send_ndjson(self, events: List[Dict[str, Any]]) -> None:
+        """Send a list of events as newline-delimited JSON."""
+        body = b"".join(json.dumps(event).encode() + b"\n" for event in events)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_DELETE(self) -> None:  # noqa: N802 - http.server API
+        """Serve ``/api/delete``."""
         length = int(self.headers.get("Content-Length", 0))
         payload = json.loads(self.rfile.read(length) or b"{}")
+        wanted = str(payload.get("name", ""))
+        for index, entry in enumerate(MODELS):
+            if entry["name"] == wanted or entry["name"].split(":")[0] == wanted:
+                MODELS.pop(index)
+                self._send({"status": "success"})
+                return
+        self._send({"error": "model not found"}, 404)
+
+    def do_POST(self) -> None:  # noqa: N802 - http.server API
+        """Serve ``/api/chat``, ``/api/embeddings``, ``/api/pull`` and ``/api/show``."""
+        length = int(self.headers.get("Content-Length", 0))
+        payload = json.loads(self.rfile.read(length) or b"{}")
+
+        if self.path.startswith("/api/pull"):
+            wanted = str(payload.get("name", "")).strip()
+            if not wanted or wanted.startswith("does-not-exist"):
+                self._send_ndjson([{"error": f"pull model manifest: {wanted} not found"}])
+                return
+            tag = wanted if ":" in wanted else f"{wanted}:latest"
+            if all(entry["name"] != tag for entry in MODELS):
+                MODELS.append({
+                    "name": tag, "size": 4100000000,
+                    "details": {"family": "llama", "parameter_size": "7B",
+                                "quantization_level": "Q4_K_M"},
+                })
+            self._send_ndjson([
+                {"status": "pulling manifest"},
+                {"status": "downloading", "completed": 2050000000, "total": 4100000000},
+                {"status": "downloading", "completed": 4100000000, "total": 4100000000},
+                {"status": "success"},
+            ])
+            return
+
+        if self.path.startswith("/api/show"):
+            wanted = str(payload.get("name", ""))
+            for entry in MODELS:
+                if entry["name"] == wanted or entry["name"].split(":")[0] == wanted:
+                    self._send({
+                        "details": entry.get("details", {}),
+                        "model_info": {"llama.context_length": 8192},
+                    })
+                    return
+            self._send({"error": "model not found"}, 404)
+            return
 
         if self.path.startswith("/api/embeddings"):
             text = str(payload.get("prompt", ""))

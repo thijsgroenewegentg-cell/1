@@ -56,6 +56,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "productivity": {
         "catch_up_on_start": True,
         "scheduler_interval": 15,
+        "quiet_hours": "",
     },
     "voice": {
         "enabled": True,
@@ -105,6 +106,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "knowledge": True,
         "vision": True,
         "communications": True,
+        "models": True,
         "self_improve": True,
     },
     "knowledge": {

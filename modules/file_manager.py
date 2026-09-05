@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import json
 import os
 import re
 import shutil
+import sqlite3
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +19,7 @@ from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.documents import extract_text
 from utils.helpers import (
     ensure_dir,
+    friendly_when,
     human_bytes,
     read_text_file,
     resolve_user_path,
@@ -64,11 +67,72 @@ class FileManager(BaseModule):
         "what's taking up space in my home folder",
     ]
 
+    #: Journal of every move JARVIS makes, so it can be undone.
+    JOURNAL_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS file_operations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        description TEXT NOT NULL,
+        moves TEXT NOT NULL,
+        created TEXT NOT NULL,
+        undone INTEGER DEFAULT 0
+    );
+    """
+
     def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None:
-        """Cache config values used across tools."""
+        """Cache config values and prepare the undo journal."""
         super().__init__(config, llm=llm, security=security)
         self.max_scan_files = 40_000
         self.last_document: str = ""
+        self.db_path: Path = config.resolve(config.get("database.path", "data/jarvis.db"))
+        self.journal_limit: int = int(config.get("file_manager.journal_entries", 50) or 50)
+        try:
+            ensure_dir(self.db_path.parent)
+            with self._journal() as connection:
+                connection.executescript(self.JOURNAL_SCHEMA)
+        except Exception as exc:  # pragma: no cover - defensive
+            self.log.warning("Could not prepare the file journal: %s", exc)
+
+    # -------------------------------------------------------------- journal
+    def _journal(self) -> sqlite3.Connection:
+        """Open the SQLite connection holding the move journal."""
+        connection = sqlite3.connect(str(self.db_path), timeout=30)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        return connection
+
+    def _record_moves(self, kind: str, description: str,
+                      moves: List[Tuple[str, str]]) -> int:
+        """Store a completed batch of moves so it can be reversed.
+
+        Args:
+            kind: ``organize``, ``move`` or ``rename``.
+            description: Human summary shown by :meth:`recent_operations`.
+            moves: ``(source, destination)`` pairs that actually happened.
+
+        Returns:
+            The journal entry id, or ``0`` when nothing was recorded.
+        """
+        if not moves:
+            return 0
+        try:
+            with self._journal() as connection:
+                cursor = connection.execute(
+                    "INSERT INTO file_operations (kind, description, moves, created) "
+                    "VALUES (?, ?, ?, ?)",
+                    (kind, description, json.dumps(moves),
+                     datetime.now().isoformat(timespec="seconds")),
+                )
+                # Keep the journal from growing without bound.
+                connection.execute(
+                    "DELETE FROM file_operations WHERE id NOT IN "
+                    "(SELECT id FROM file_operations ORDER BY id DESC LIMIT ?)",
+                    (self.journal_limit,),
+                )
+                return int(cursor.lastrowid or 0)
+        except Exception as exc:  # pragma: no cover - defensive
+            self.log.warning("Could not journal a file operation: %s", exc)
+            return 0
 
     # ------------------------------------------------------------------ utils
     @staticmethod
@@ -122,6 +186,18 @@ class FileManager(BaseModule):
         explicit = re.search(r"(?:in|on|under|inside)\s+(~?[\w./~-]+/[\w./~-]*|~[\w./-]*)", text)
         if explicit:
             location = explicit.group(1)
+
+        if any(phrase in lowered for phrase in
+               ("undo that", "undo the move", "undo the last", "put them back",
+                "put it back", "move them back", "revert the file", "unorganise",
+                "unorganize", "undo the organis", "undo the organiz")):
+            number = re.search(r"#?(\d+)", lowered)
+            return "undo_file_operation", {"operation": int(number.group(1)) if number else 0}
+
+        if any(phrase in lowered for phrase in
+               ("what files did you move", "recent file operation", "file history",
+                "what did you move", "list file operations")):
+            return "recent_operations", {}
 
         if any(phrase in lowered for phrase in ("organize", "organise", "tidy", "clean up")):
             return "organize_files", {
@@ -363,6 +439,7 @@ class FileManager(BaseModule):
 
         def _organize() -> Dict[str, Any]:
             plan: Dict[str, List[str]] = defaultdict(list)
+            journal: List[Tuple[str, str]] = []
             moved, failed = 0, 0
             for entry in sorted(root.iterdir()):
                 if not entry.is_file() or entry.name.startswith("."):
@@ -380,11 +457,12 @@ class FileManager(BaseModule):
                         target = destination / f"{entry.stem}-{counter}{entry.suffix}"
                         counter += 1
                     shutil.move(str(entry), str(target))
+                    journal.append((str(entry), str(target)))
                     moved += 1
                 except Exception:
                     failed += 1
             return {"plan": {key: value for key, value in plan.items()},
-                    "moved": moved, "failed": failed}
+                    "moved": moved, "failed": failed, "journal": journal}
 
         result = await run_blocking(_organize)
         plan: Dict[str, List[str]] = result["plan"]
@@ -408,12 +486,19 @@ class FileManager(BaseModule):
                 {"path": str(root), "dry_run": False},
                 f"Organise {root} for real?",
             )
+        entry_id = await run_blocking(
+            self._record_moves, "organize", f"organised {root}", result.get("journal", [])
+        )
+        undo_hint = (f" Say 'undo that' if it is not what you wanted (operation #{entry_id})."
+                     if entry_id else "")
         return ModuleResult(
             success=True,
             output=f"Organised {root}: moved {result['moved']} file(s), "
-            f"{result['failed']} failure(s).\n{summary}",
-            speak=f"Moved {result['moved']} files into {len(plan)} folders.",
-            data=result,
+            f"{result['failed']} failure(s).\n{summary}{undo_hint}",
+            speak=f"Moved {result['moved']} files into {len(plan)} folders, sir."
+                  + (" Say undo that if you want them back." if entry_id else ""),
+            data={"plan": result["plan"], "moved": result["moved"],
+                  "failed": result["failed"], "operation": entry_id},
         )
 
     @tool(
@@ -727,9 +812,165 @@ class FileManager(BaseModule):
                 return ModuleResult.fail(f"{target} already exists — pick another name.")
             ensure_dir(target.parent)
             shutil.move(str(origin), str(target))
-            return ModuleResult.ok(f"Moved to {target}.")
+            entry_id = await run_blocking(
+                self._record_moves, "move", f"moved {origin.name} to {target}",
+                [(str(origin), str(target))],
+            )
+            return ModuleResult.ok(f"Moved to {target}.", operation=entry_id)
         except Exception as exc:
             return ModuleResult.fail(f"Move failed: {exc}")
+
+    @tool(
+        description=(
+            "Undo the last file move or folder organisation JARVIS performed, putting "
+            "every file back where it came from."
+        ),
+        params={
+            "operation": {"type": "integer", "default": 0,
+                          "description": "Operation number (0 = the most recent)"},
+        },
+        keywords=["undo that", "undo the move", "put them back", "revert the files",
+                  "undo the organisation", "move them back", "unorganise"],
+        examples=["undo_file_operation()"],
+    )
+    async def undo_file_operation(self, operation: int = 0) -> ModuleResult:
+        """Reverse a recorded batch of file moves.
+
+        Args:
+            operation: Which journal entry to undo, ``0`` for the latest.
+
+        Returns:
+            How many files went back, and why any could not.
+        """
+        def _load() -> Optional[Dict[str, Any]]:
+            with self._journal() as connection:
+                if operation:
+                    row = connection.execute(
+                        "SELECT * FROM file_operations WHERE id = ?", (int(operation),)
+                    ).fetchone()
+                else:
+                    row = connection.execute(
+                        "SELECT * FROM file_operations WHERE undone = 0 "
+                        "ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                return dict(row) if row else None
+
+        entry = await run_blocking(_load)
+        if entry is None:
+            return ModuleResult.fail(
+                "I have no file operations to undo, sir — nothing has been moved."
+            )
+        if entry.get("undone"):
+            return ModuleResult.fail(
+                f"Operation #{entry['id']} ({entry['description']}) was already undone, sir."
+            )
+        try:
+            moves = [(str(pair[0]), str(pair[1])) for pair in json.loads(entry["moves"])]
+        except Exception:
+            return ModuleResult.fail(f"Operation #{entry['id']} is unreadable, sir.")
+
+        if self.security is not None:
+            for source, destination in moves:
+                for candidate in (Path(source), Path(destination)):
+                    assessment = self.security.is_path_allowed(candidate, write=True)
+                    if assessment.blocked:
+                        return ModuleResult.fail(f"Refused: {assessment.reason}")
+
+        def _restore() -> Dict[str, Any]:
+            restored, missing, blocked = 0, 0, []
+            emptied: List[Path] = []
+            for source, destination in reversed(moves):
+                origin, target = Path(destination), Path(source)
+                if not origin.exists():
+                    missing += 1
+                    continue
+                if target.exists():
+                    blocked.append(target.name)
+                    continue
+                try:
+                    ensure_dir(target.parent)
+                    shutil.move(str(origin), str(target))
+                    restored += 1
+                    emptied.append(origin.parent)
+                except Exception as exc:
+                    self.log.debug("Could not restore %s: %s", origin, exc)
+                    blocked.append(origin.name)
+            # Clean up category folders that organise created and undo emptied.
+            for folder in {str(path) for path in emptied}:
+                candidate = Path(folder)
+                try:
+                    if candidate.is_dir() and not any(candidate.iterdir()):
+                        candidate.rmdir()
+                except Exception:
+                    pass
+            return {"restored": restored, "missing": missing, "blocked": blocked}
+
+        outcome = await run_blocking(_restore)
+
+        def _mark() -> None:
+            with self._journal() as connection:
+                connection.execute(
+                    "UPDATE file_operations SET undone = 1 WHERE id = ?", (entry["id"],)
+                )
+
+        await run_blocking(_mark)
+
+        lines = [f"Undid operation #{entry['id']} ({entry['description']}): "
+                 f"{outcome['restored']} file(s) put back."]
+        if outcome["missing"]:
+            lines.append(f"{outcome['missing']} had already been moved or deleted elsewhere.")
+        if outcome["blocked"]:
+            lines.append(
+                "Could not restore: " + truncate(", ".join(outcome["blocked"]), 160)
+            )
+        return ModuleResult(
+            success=True,
+            output="\n".join(lines),
+            speak=f"Put {outcome['restored']} files back, sir.",
+            data={"operation": entry["id"], **outcome},
+        )
+
+    @tool(
+        description="List the recent file moves JARVIS made, and whether they were undone.",
+        params={"limit": {"type": "integer", "default": 10,
+                          "description": "How many entries to show"}},
+        keywords=["what files did you move", "recent file operations", "file history",
+                  "what did you move", "list file operations"],
+    )
+    async def recent_operations(self, limit: int = 10) -> ModuleResult:
+        """Show the move journal.
+
+        Args:
+            limit: Maximum number of entries.
+
+        Returns:
+            One line per recorded operation, newest first.
+        """
+        def _read() -> List[Dict[str, Any]]:
+            with self._journal() as connection:
+                return [dict(row) for row in connection.execute(
+                    "SELECT * FROM file_operations ORDER BY id DESC LIMIT ?",
+                    (max(1, min(int(limit or 10), 50)),),
+                ).fetchall()]
+
+        rows = await run_blocking(_read)
+        if not rows:
+            return ModuleResult.ok("I have not moved any files, sir.", operations=[])
+        lines = [f"{len(rows)} recent file operation(s):"]
+        for row in rows:
+            try:
+                count = len(json.loads(row["moves"]))
+            except Exception:
+                count = 0
+            try:
+                when = friendly_when(datetime.fromisoformat(row["created"]))
+            except Exception:
+                when = row["created"]
+            state = " [undone]" if row["undone"] else ""
+            lines.append(f"  #{row['id']:<3} {row['description'][:52]:54} "
+                         f"{count} file(s), {when}{state}")
+        lines.append("Say 'undo that' to reverse the most recent one.")
+        return ModuleResult.ok("\n".join(lines), operations=rows)
 
     @tool(
         description="Report how big a folder is and what it contains.",

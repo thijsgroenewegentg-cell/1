@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS schedules (
     runs INTEGER DEFAULT 0,
     created TEXT
 );
+CREATE TABLE IF NOT EXISTS routines (
+    name TEXT PRIMARY KEY,
+    steps TEXT NOT NULL,
+    created TEXT
+);
+CREATE TABLE IF NOT EXISTS deferred_notices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    created TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_todos_done ON todos(done);
 CREATE INDEX IF NOT EXISTS idx_reminders_fired ON reminders(fired);
 CREATE INDEX IF NOT EXISTS idx_schedules_next ON schedules(enabled, next_run);
@@ -160,6 +170,72 @@ class ScheduleRule:
                 return candidate
             candidate += timedelta(days=1)
         return candidate
+
+
+def _too_soon(last_run: Any, now: datetime, rule: ScheduleRule) -> bool:
+    """Whether a job already ran within the current period.
+
+    When the local clock jumps backwards (the end of daylight saving) the same
+    wall-clock hour happens twice, which would otherwise fire an hourly or
+    daily job a second time. A job is considered already done if its previous
+    run was less than half a period ago.
+
+    Args:
+        last_run: The stored ISO timestamp of the previous run, if any.
+        now: The current time.
+        rule: The rule being evaluated.
+
+    Returns:
+        True when the job should be skipped this time round.
+    """
+    if not last_run:
+        return False
+    try:
+        previous = datetime.fromisoformat(str(last_run))
+    except Exception:
+        return False
+    period = {
+        "interval": max(30, rule.seconds),
+        "hourly": 3600,
+    }.get(rule.kind, 86400)
+    elapsed = (now - previous).total_seconds()
+    return 0 <= elapsed < period / 2
+
+
+def parse_quiet_hours(text: str) -> Optional[Tuple[int, int]]:
+    """Parse ``"22:30-07:00"`` into minutes-since-midnight bounds.
+
+    Args:
+        text: The configured window, empty to disable.
+
+    Returns:
+        ``(start, end)`` in minutes, or ``None`` when unset or unparsable.
+    """
+    match = re.match(
+        r"\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|to|until|–)\s*"
+        r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*$",
+        (text or "").lower(),
+    )
+    if not match:
+        return None
+
+    def _minutes(hour_text: str, minute_text: Optional[str],
+                 meridiem: Optional[str]) -> Optional[int]:
+        hour = int(hour_text)
+        minute = int(minute_text or 0)
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        elif meridiem == "am" and hour == 12:
+            hour = 0
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return None
+        return hour * 60 + minute
+
+    start = _minutes(match.group(1), match.group(2), match.group(3))
+    end = _minutes(match.group(4), match.group(5), match.group(6))
+    if start is None or end is None:
+        return None
+    return start, end
 
 
 def parse_schedule(text: str) -> Optional[ScheduleRule]:
@@ -267,6 +343,9 @@ class Productivity(BaseModule):
         self.scheduler_interval: int = max(
             5, int(config.get("productivity.scheduler_interval", 15) or 15)
         )
+        self.quiet_hours: Optional[Tuple[int, int]] = parse_quiet_hours(
+            str(config.get("productivity.quiet_hours", "") or "")
+        )
         self._scheduler_task: Optional[asyncio.Task] = None
         self._init_db()
 
@@ -366,6 +445,81 @@ class Productivity(BaseModule):
                 task.cancel()
         self.timers.clear()
 
+    def in_quiet_hours(self, moment: Optional[datetime] = None) -> bool:
+        """Whether proactive announcements should stay silent right now.
+
+        Args:
+            moment: The time to test (defaults to now).
+
+        Returns:
+            True inside the configured ``productivity.quiet_hours`` window.
+        """
+        if not self.quiet_hours:
+            return False
+        moment = moment or datetime.now()
+        minutes = moment.hour * 60 + moment.minute
+        start, end = self.quiet_hours
+        if start == end:
+            return False
+        if start < end:
+            return start <= minutes < end
+        return minutes >= start or minutes < end  # window crosses midnight
+
+    async def _announce_proactive(self, message: str) -> None:
+        """Announce something JARVIS decided to say, respecting quiet hours.
+
+        Explicit reminders always come through — you asked for those. Anything
+        JARVIS raises on its own initiative is held until the quiet window
+        closes rather than waking the house.
+
+        Args:
+            message: The text to deliver.
+        """
+        if self.in_quiet_hours():
+            self.log.info("Quiet hours — holding: %s", truncate(message, 80))
+            await run_blocking(self._defer_notice, message)
+            return
+        await self._announce(message)
+
+    def _defer_notice(self, message: str) -> None:
+        """Store an announcement to be delivered once quiet hours end."""
+        try:
+            with self._connect() as connection:
+                connection.execute(
+                    "INSERT INTO deferred_notices (text, created) VALUES (?, ?)",
+                    (message, datetime.now().isoformat(timespec="seconds")),
+                )
+        except Exception as exc:  # pragma: no cover - defensive
+            self.log.debug("Could not defer a notice: %s", exc)
+
+    def _take_deferred(self) -> List[str]:
+        """Pop every held announcement."""
+        try:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    "SELECT id, text FROM deferred_notices ORDER BY id"
+                ).fetchall()
+                if rows:
+                    connection.execute("DELETE FROM deferred_notices")
+                return [row["text"] for row in rows]
+        except Exception as exc:  # pragma: no cover - defensive
+            self.log.debug("Could not read deferred notices: %s", exc)
+            return []
+
+    async def _flush_deferred(self) -> None:
+        """Deliver anything held back during quiet hours."""
+        if self.in_quiet_hours():
+            return
+        held = await run_blocking(self._take_deferred)
+        if not held:
+            return
+        if len(held) == 1:
+            await self._announce(f"Held from quiet hours: {held[0]}")
+        else:
+            await self._announce(
+                f"{len(held)} things were held during quiet hours: " + "; ".join(held[:5])
+            )
+
     async def _announce(self, message: str) -> None:
         """Speak/print a notification and raise a desktop toast."""
         self.log.info("Notification: %s", message)
@@ -400,7 +554,7 @@ class Productivity(BaseModule):
             pass
 
     async def _scheduler_loop(self) -> None:
-        """Poll for due reminders and scheduled jobs every 15 seconds."""
+        """Poll for due reminders, scheduled jobs and held announcements."""
         self.log.debug("Reminder scheduler started.")
         while True:
             try:
@@ -410,6 +564,7 @@ class Productivity(BaseModule):
                     await self._announce(f"Reminder: {row['text']}")
                 for job in await run_blocking(self._pop_due_jobs):
                     await self._run_job(job)
+                await self._flush_deferred()
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -428,10 +583,19 @@ class Productivity(BaseModule):
                 for row in rows:
                     job = dict(row)
                     rule = parse_schedule(job["rule"]) or ScheduleRule(text=job["rule"])
+                    following = rule.next_after(now)
+                    # Local clocks can repeat an hour when daylight saving ends;
+                    # never run the same job twice inside one of its periods.
+                    if _too_soon(job.get("last_run"), now, rule):
+                        connection.execute(
+                            "UPDATE schedules SET next_run = ? WHERE id = ?",
+                            (following.isoformat(timespec="seconds"), job["id"]),
+                        )
+                        continue
                     connection.execute(
                         "UPDATE schedules SET next_run = ?, last_run = ?, runs = runs + 1 "
                         "WHERE id = ?",
-                        (rule.next_after(now).isoformat(timespec="seconds"), stamp, job["id"]),
+                        (following.isoformat(timespec="seconds"), stamp, job["id"]),
                     )
                     jobs.append(job)
         except Exception as exc:
@@ -448,28 +612,94 @@ class Productivity(BaseModule):
         description = str(job.get("description") or action)
         try:
             params = json.loads(job.get("params") or "{}")
+            if not isinstance(params, dict):
+                params = {}
         except Exception:
             params = {}
         self.log.info("Running scheduled job '%s' (%s).", description, action)
-
         try:
-            if action.startswith("say:"):
-                await self._announce(action[4:].strip() or description)
-                return
-            if action.startswith("ask:") and self.brain is not None:
-                reply = await self.brain.process(action[4:].strip())
-                await self._announce(truncate(reply, 600))
-                return
-            if self.brain is not None and hasattr(self.brain, "dispatch"):
-                result = await self.brain.dispatch(action, params)
-                spoken = result.spoken() if hasattr(result, "spoken") else str(result)
-                await self._announce(f"{description}: {truncate(spoken, 600)}")
-                return
-            result = await self.call_tool(action.split(".")[-1], params)
-            await self._announce(f"{description}: {truncate(result.spoken(), 600)}")
+            spoken = await self._perform(action, params, description)
         except Exception as exc:  # noqa: BLE001 - a bad job must not kill the loop
             self.log.warning("Scheduled job '%s' failed: %s", description, exc)
-            await self._announce(f"The scheduled '{description}' failed: {truncate(str(exc), 120)}")
+            spoken = f"The scheduled '{description}' failed: {truncate(str(exc), 120)}"
+        if spoken:
+            await self._announce_proactive(spoken)
+
+    async def _perform(self, action: str, params: Dict[str, Any],
+                       description: str) -> str:
+        """Carry out one scheduled action and return what to say about it.
+
+        Args:
+            action: ``say:…``, ``ask:…``, ``routine:…`` or ``module.tool``.
+            params: Parameters for a tool action.
+            description: Human label used in the spoken result.
+
+        Returns:
+            The text to announce (empty to stay silent).
+        """
+        if action.startswith("say:"):
+            return action[4:].strip() or description
+
+        if action.startswith("ask:"):
+            question = action[4:].strip()
+            if self.brain is None:
+                return question
+            reply = await self.brain.process(question)
+            return truncate(reply, 600)
+
+        if action.startswith("routine:"):
+            return await self._perform_routine(action[8:].strip())
+
+        if self.brain is not None and hasattr(self.brain, "dispatch"):
+            result = await self.brain.dispatch(action, params)
+        else:
+            result = await self.call_tool(action.split(".")[-1], params)
+        spoken = result.spoken() if hasattr(result, "spoken") else str(result)
+        return f"{description}: {truncate(spoken, 600)}"
+
+    async def _perform_routine(self, name: str) -> str:
+        """Run every step of a named routine in order.
+
+        Args:
+            name: The routine's name.
+
+        Returns:
+            A combined announcement, or an error when the routine is unknown.
+        """
+        steps = await run_blocking(self._read_routine, name)
+        if steps is None:
+            return f"The routine '{name}' no longer exists, sir."
+        pieces: List[str] = []
+        for step in steps:
+            action, params = self._resolve_action(step)
+            try:
+                spoken = await self._perform(action, params, step)
+            except Exception as exc:  # noqa: BLE001 - one bad step, not the lot
+                self.log.warning("Routine step '%s' failed: %s", step, exc)
+                spoken = f"{step} failed"
+            if spoken:
+                pieces.append(spoken)
+        if not pieces:
+            return f"The routine '{name}' had nothing to do, sir."
+        return f"{name.capitalize()}. " + " ".join(pieces)
+
+    def _read_routine(self, name: str) -> Optional[List[str]]:
+        """Return a routine's steps, or ``None`` when it does not exist."""
+        try:
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT steps FROM routines WHERE name = ?", (name.strip().lower(),)
+                ).fetchone()
+        except Exception as exc:  # pragma: no cover - defensive
+            self.log.debug("Could not read routine '%s': %s", name, exc)
+            return None
+        if row is None:
+            return None
+        try:
+            steps = json.loads(row["steps"])
+        except Exception:
+            return None
+        return [str(step) for step in steps if str(step).strip()]
 
     @tool(
         description=(
@@ -482,19 +712,23 @@ class Productivity(BaseModule):
                                     "'every 30 minutes', 'every monday at 9'"},
             "what": {"type": "string", "required": True,
                      "description": "What to do: plain words to say, a question to answer, "
-                                    "or a module.tool reference"},
+                                    "a 'name routine', or a module.tool reference"},
+            "params": {"type": "object", "default": {},
+                       "description": "Optional parameters for a module.tool action"},
         },
         keywords=["every day at", "every morning", "every weekday", "every monday",
                   "schedule a", "schedule my", "recurring reminder", "every hour",
                   "each morning", "from now on every"],
         examples=['schedule_recurring(when="every weekday at 8am", what="daily briefing")'],
     )
-    async def schedule_recurring(self, when: str, what: str) -> ModuleResult:
+    async def schedule_recurring(self, when: str, what: str,
+                                 params: Optional[Dict[str, Any]] = None) -> ModuleResult:
         """Create a repeating job.
 
         Args:
             when: A phrase describing the repetition.
-            what: A tool reference, a question, or words to say.
+            what: A tool reference, a routine, a question, or words to say.
+            params: Explicit parameters when ``what`` names a tool.
 
         Returns:
             Confirmation including the next firing time.
@@ -510,15 +744,25 @@ class Productivity(BaseModule):
         if not target:
             return ModuleResult.fail("And what should I do at that time, sir?")
 
-        action = self._resolve_action(target)
+        action, resolved = self._resolve_action(target)
+        if isinstance(params, dict) and params:
+            resolved = {**resolved, **params}
+        if action.startswith("routine:"):
+            name = action[8:]
+            if await run_blocking(self._read_routine, name) is None:
+                return ModuleResult.fail(
+                    f"There is no routine called '{name}', sir. Create it first with "
+                    f"'create a {name} routine that does …'."
+                )
         next_run = rule.next_after(datetime.now())
+        encoded = json.dumps(resolved, ensure_ascii=False)
 
         def _insert() -> int:
             with self._connect() as connection:
                 cursor = connection.execute(
                     "INSERT INTO schedules (description, action, params, rule, next_run, "
                     "created) VALUES (?, ?, ?, ?, ?, ?)",
-                    (truncate(target, 120), action, "{}", when.strip(),
+                    (truncate(target, 120), action, encoded, when.strip(),
                      next_run.isoformat(timespec="seconds"),
                      datetime.now().isoformat(timespec="seconds")),
                 )
@@ -532,49 +776,306 @@ class Productivity(BaseModule):
                 f"  when : {rule.describe()}\n"
                 f"  next : {next_run:%A %d %B at %H:%M}\n"
                 f"  action: {action}"
+                + (f" {encoded}" if resolved else "")
             ),
             speak=f"Done, sir. {rule.describe().capitalize()}, starting "
                   f"{friendly_when(next_run)}.",
-            data={"id": job_id, "next_run": next_run.isoformat(), "action": action},
+            data={"id": job_id, "next_run": next_run.isoformat(), "action": action,
+                  "params": resolved},
         )
 
-    @staticmethod
-    def _resolve_action(target: str) -> str:
-        """Turn what the user asked for into an executable action string.
+    #: Plain-English names for tools a schedule commonly calls.
+    ACTION_SHORTCUTS: Dict[str, str] = {
+        "daily briefing": "productivity.daily_briefing",
+        "morning briefing": "productivity.daily_briefing",
+        "briefing": "productivity.daily_briefing",
+        "brief me": "productivity.daily_briefing",
+        "my todos": "productivity.list_todos",
+        "my todo list": "productivity.list_todos",
+        "my tasks": "productivity.list_todos",
+        "my reminders": "productivity.list_reminders",
+        "the weather": "web_search.weather",
+        "weather": "web_search.weather",
+        "the forecast": "web_search.weather",
+        "the news": "web_search.news",
+        "news": "web_search.news",
+        "the headlines": "web_search.news",
+        "my email": "communications.check_email",
+        "my inbox": "communications.summarize_inbox",
+        "my calendar": "communications.upcoming_events",
+        "my agenda": "communications.upcoming_events",
+        "system stats": "system_control.system_stats",
+        "the time": "system_control.current_time",
+    }
+
+    #: Which parameter carries the free-text argument of a shortcut tool.
+    ACTION_ARGUMENTS: Dict[str, str] = {
+        "web_search.weather": "location",
+        "web_search.news": "topic",
+        "web_search.search": "query",
+    }
+
+    @classmethod
+    def _resolve_action(cls, target: str) -> Tuple[str, Dict[str, Any]]:
+        """Turn what the user asked for into an executable action.
 
         Args:
             target: The user's phrasing.
 
         Returns:
-            ``module.tool``, ``ask:<question>`` or ``say:<words>``.
+            A ``(action, params)`` pair where action is ``module.tool``,
+            ``routine:<name>``, ``ask:<question>`` or ``say:<words>``.
         """
-        cleaned = target.strip()
-        if re.fullmatch(r"[a-z_]+\.[a-z_]+", cleaned):
-            return cleaned
+        cleaned = " ".join((target or "").strip().split())
+        if not cleaned:
+            return "say:", {}
+
+        # An explicit tool reference, optionally with a plain argument.
+        direct = re.fullmatch(r"([a-z_]+\.[a-z_]+)(?:\s+(.+))?", cleaned)
+        if direct:
+            reference = direct.group(1)
+            argument = (direct.group(2) or "").strip()
+            key = cls.ACTION_ARGUMENTS.get(reference)
+            if argument and key:
+                return reference, {key: argument}
+            return reference, {}
+
         lowered = cleaned.lower()
-        shortcuts = {
-            "daily briefing": "productivity.daily_briefing",
-            "briefing": "productivity.daily_briefing",
-            "brief me": "productivity.daily_briefing",
-            "my todos": "productivity.list_todos",
-            "my tasks": "productivity.list_todos",
-            "the weather": "web_search.weather",
-            "weather": "web_search.weather",
-            "the news": "web_search.news",
-            "news": "web_search.news",
-            "my email": "communications.check_email",
-            "my inbox": "communications.summarize_inbox",
-            "my calendar": "communications.upcoming_events",
-        }
-        for phrase, reference in shortcuts.items():
-            if lowered == phrase or lowered.startswith(f"{phrase} ") or \
-                    lowered.endswith(f" {phrase}"):
-                return reference
-        if lowered.endswith("?") or lowered.split(" ")[0] in {
-            "what", "when", "how", "who", "where", "why", "is", "are", "do", "does", "tell",
+        routine = re.fullmatch(
+            r"(?:(?:please\s+)?(?:run|start|do|execute|perform)\s+)?"
+            r"(?:the\s+|my\s+)?(.+?)\s+routine", lowered,
+        )
+        if routine:
+            return f"routine:{routine.group(1).strip()}", {}
+
+        # Longest phrases first so "the weather" beats "weather".
+        for phrase in sorted(cls.ACTION_SHORTCUTS, key=len, reverse=True):
+            reference = cls.ACTION_SHORTCUTS[phrase]
+            match = re.search(rf"(?:^|\b){re.escape(phrase)}\b", lowered)
+            if not match:
+                continue
+            remainder = (lowered[: match.start()] + " " + lowered[match.end():]).strip()
+            # Only accept filler around the phrase, never a whole other sentence.
+            argument = ""
+            key = cls.ACTION_ARGUMENTS.get(reference)
+            if key:
+                tail = lowered[match.end():]
+                detail = re.search(r"\b(?:in|for|about|on|at|regarding)\s+(.+)$", tail)
+                if detail:
+                    # Slice the original text so "Paris" keeps its capital P.
+                    argument = cleaned[match.end() + detail.start(1):].strip(" ?.!,")
+                    remainder = remainder.replace(detail.group(0).strip(), "").strip()
+            filler = re.sub(
+                r"\b(?:give|tell|show|read|send|get|fetch|check|run|do|does|and|then|"
+                r"also|with|me|my|the|a|an|please|out|loud|today's|todays|current|"
+                r"latest|update|report)\b", "", remainder,
+            ).strip(" ,.?!")
+            if filler:
+                continue  # too much left over — treat it as a question instead
+            return reference, ({key: argument} if key and argument else {})
+
+        first_word = lowered.split(" ")[0]
+        if lowered.endswith("?") or first_word in {
+            "what", "when", "how", "who", "where", "why", "which",
+            "is", "are", "do", "does", "did", "can", "should", "tell", "explain",
         }:
-            return f"ask:{cleaned}"
-        return f"say:{cleaned}"
+            return f"ask:{cleaned}", {}
+        return f"say:{cleaned}", {}
+
+    @tool(
+        description=(
+            "Create a named routine: several things done in one go, like a morning "
+            "routine that reads the briefing, the weather and the news."
+        ),
+        params={
+            "name": {"type": "string", "required": True, "description": "Routine name"},
+            "steps": {"type": "string", "required": True,
+                      "description": "Steps separated by ';', ',' or ' then '"},
+        },
+        keywords=["create a routine", "make a routine", "define a routine",
+                  "morning routine", "evening routine", "set up a routine"],
+        examples=['create_routine(name="morning", steps="daily briefing; the weather; the news")'],
+    )
+    async def create_routine(self, name: str, steps: str) -> ModuleResult:
+        """Define or replace a multi-step routine.
+
+        Args:
+            name: What to call it.
+            steps: The steps, separated by ``;``, ``,`` or ``then``.
+
+        Returns:
+            A summary of how each step was interpreted.
+        """
+        key = " ".join((name or "").strip().lower().split())
+        if not key:
+            return ModuleResult.fail("What should I call this routine, sir?")
+        pieces = self._split_steps(steps or "")
+        if not pieces:
+            return ModuleResult.fail(
+                "A routine needs at least one step, sir. For example: "
+                "'the daily briefing; the weather; the news'."
+            )
+
+        encoded = json.dumps(pieces, ensure_ascii=False)
+
+        def _save() -> None:
+            with self._connect() as connection:
+                connection.execute(
+                    "INSERT INTO routines (name, steps, created) VALUES (?, ?, ?) "
+                    "ON CONFLICT(name) DO UPDATE SET steps = excluded.steps",
+                    (key, encoded, datetime.now().isoformat(timespec="seconds")),
+                )
+
+        await run_blocking(_save)
+        lines = [f"Routine '{key}' — {len(pieces)} step(s):"]
+        for index, piece in enumerate(pieces, 1):
+            action, params = self._resolve_action(piece)
+            detail = f" {json.dumps(params)}" if params else ""
+            lines.append(f"  {index}. {piece}  →  {action}{detail}")
+        lines.append(f"Run it with 'run my {key} routine', or schedule it.")
+        return ModuleResult(
+            success=True,
+            output="\n".join(lines),
+            speak=f"Saved the {key} routine, sir. {len(pieces)} steps.",
+            data={"name": key, "steps": pieces},
+        )
+
+    @tool(
+        description="Run a named routine now.",
+        params={"name": {"type": "string", "required": True, "description": "Routine name"}},
+        keywords=["run my routine", "run the routine", "start my routine",
+                  "do my morning routine", "do my evening routine"],
+    )
+    async def run_routine(self, name: str) -> ModuleResult:
+        """Execute every step of a routine immediately.
+
+        Args:
+            name: The routine to run.
+
+        Returns:
+            The combined output of every step.
+        """
+        key = " ".join((name or "").strip().lower().split())
+        steps = await run_blocking(self._read_routine, key)
+        if steps is None:
+            known = await run_blocking(self._routine_names)
+            hint = f" I know: {', '.join(known)}." if known else ""
+            return ModuleResult.fail(f"No routine called '{key}', sir.{hint}")
+        spoken = await self._perform_routine(key)
+        return ModuleResult.ok(spoken, name=key, steps=steps)
+
+    @tool(
+        description="List or delete saved routines.",
+        params={
+            "delete": {"type": "string", "default": "",
+                       "description": "Name of a routine to delete"},
+        },
+        keywords=["list routines", "my routines", "what routines", "delete the routine"],
+    )
+    async def routines(self, delete: str = "") -> ModuleResult:
+        """Show every routine, or remove one.
+
+        Args:
+            delete: Name of a routine to delete instead of listing.
+
+        Returns:
+            The routine list, or confirmation of the deletion.
+        """
+        if delete.strip():
+            key = " ".join(delete.strip().lower().split())
+
+            def _delete() -> int:
+                with self._connect() as connection:
+                    cursor = connection.execute(
+                        "DELETE FROM routines WHERE name = ?", (key,)
+                    )
+                    return int(cursor.rowcount or 0)
+
+            removed = await run_blocking(_delete)
+            if not removed:
+                return ModuleResult.fail(f"No routine called '{key}', sir.")
+            return ModuleResult.ok(f"Deleted the '{key}' routine.", deleted=key)
+
+        def _read() -> List[Dict[str, Any]]:
+            with self._connect() as connection:
+                return [dict(row) for row in connection.execute(
+                    "SELECT name, steps FROM routines ORDER BY name"
+                ).fetchall()]
+
+        rows = await run_blocking(_read)
+        if not rows:
+            return ModuleResult.ok(
+                "No routines yet, sir. Try: 'create a morning routine that does the "
+                "daily briefing, the weather and the news'.",
+                routines=[],
+            )
+        lines = [f"{len(rows)} routine(s):"]
+        for row in rows:
+            try:
+                steps = json.loads(row["steps"])
+            except Exception:
+                steps = []
+            lines.append(f"  {row['name']}: " + " → ".join(str(step) for step in steps))
+        return ModuleResult.ok("\n".join(lines), routines=rows)
+
+    @classmethod
+    def _split_steps(cls, steps: str) -> List[str]:
+        """Split a spoken routine description into individual steps.
+
+        ``;``, ``,`` and ``then`` always separate steps. The word "and" only
+        separates them when both halves name something JARVIS can actually do,
+        so "the news about pensions and taxes" stays one step while "my todos
+        and the weather" becomes two.
+
+        Args:
+            steps: The raw phrase.
+
+        Returns:
+            The cleaned list of steps.
+        """
+        rough = [
+            piece.strip(" ,.")
+            for piece in re.split(r";|\bthen\b|,", steps or "")
+            if piece.strip(" ,.")
+        ]
+        final: List[str] = []
+        for piece in rough:
+            piece = re.sub(r"^(?:and|also|plus)\s+", "", piece, flags=re.IGNORECASE).strip()
+            if piece:
+                final.extend(cls._split_on_and(piece))
+        return [piece for piece in final if piece]
+
+    @classmethod
+    def _split_on_and(cls, piece: str) -> List[str]:
+        """Split one phrase on "and", but only between recognisable actions.
+
+        Args:
+            piece: A single candidate step.
+
+        Returns:
+            One or more steps.
+        """
+        for match in re.finditer(r"\s+and\s+", piece, flags=re.IGNORECASE):
+            left = piece[: match.start()].strip()
+            right = piece[match.end():].strip()
+            if not left or not right:
+                continue
+            if cls._resolve_action(left)[0].startswith("say:"):
+                continue
+            right_parts = cls._split_on_and(right)
+            if not cls._resolve_action(right_parts[0])[0].startswith("say:"):
+                return [left] + right_parts
+        return [piece]
+
+    def _routine_names(self) -> List[str]:
+        """Return every saved routine name."""
+        try:
+            with self._connect() as connection:
+                return [row["name"] for row in connection.execute(
+                    "SELECT name FROM routines ORDER BY name"
+                ).fetchall()]
+        except Exception:
+            return []
 
     @tool(
         description="List everything on the recurring schedule.",
@@ -725,7 +1226,11 @@ class Productivity(BaseModule):
             r"(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)",
             lowered,
         )
-        if recurring and parse_schedule(recurring.group(1)) is not None:
+        defining_routine = re.search(
+            r"\b(?:create|make|define|set up|save)\s+(?:a|an|my|the)?\s*[\w -]*routine\b",
+            lowered,
+        )
+        if recurring and not defining_routine and parse_schedule(recurring.group(1)) is not None:
             when = recurring.group(1).strip()
             rest = (text[: recurring.start(1)] + " " + text[recurring.end(1):]).strip(" ,.")
             rest = re.sub(
@@ -734,6 +1239,28 @@ class Productivity(BaseModule):
                 "", rest.strip(), flags=re.IGNORECASE,
             ).strip(" ,.")
             return "schedule_recurring", {"when": when, "what": rest or "check in"}
+
+        # -- routines ---------------------------------------------------------
+        routine_create = re.search(
+            r"\b(?:create|make|define|set up|save)\s+(?:a|an|my|the)?\s*([\w -]+?)\s+routine"
+            r"(?:\s+(?:that|which|to|doing|with|:)\s*)?(.*)$", lowered,
+        )
+        if routine_create and routine_create.group(2).strip():
+            body = text[len(text) - len(routine_create.group(2)):].strip()
+            body = re.sub(r"^(?:that|which)?\s*(?:does|do|runs|run|is)?\s*[:,]?\s*", "",
+                          body, flags=re.IGNORECASE).strip()
+            return "create_routine", {"name": routine_create.group(1).strip(),
+                                      "steps": body or routine_create.group(2).strip()}
+        if any(phrase in lowered for phrase in
+               ("list routines", "list my routines", "my routines", "what routines")):
+            return "routines", {}
+        routine_delete = re.search(r"\bdelete\s+(?:the\s+|my\s+)?([\w -]+?)\s+routine", lowered)
+        if routine_delete:
+            return "routines", {"delete": routine_delete.group(1).strip()}
+        routine_run = re.search(
+            r"\b(?:run|start|do|execute)\s+(?:the\s+|my\s+)?([\w -]+?)\s+routine", lowered)
+        if routine_run:
+            return "run_routine", {"name": routine_run.group(1).strip()}
 
         # -- reminders -------------------------------------------------------
         reminder = re.search(

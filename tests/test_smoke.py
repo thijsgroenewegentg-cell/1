@@ -291,6 +291,44 @@ async def test_scheduler(root: Path) -> None:
     await module._catch_up()
     check("catch-up does not repeat itself", not announced, str(announced))
 
+    # Routines: several steps under one name, schedulable as a unit.
+    result = await module.execute(
+        "create a morning routine that does the daily briefing, my todos and the weather", {}
+    )
+    check("creates a routine", result.success and "3 step" in result.output, result.output[:90])
+    check("routine steps resolve to tools",
+          "productivity.daily_briefing" in result.output
+          and "productivity.list_todos" in result.output, result.output[:200])
+    result = await module.call_tool("routines", {})
+    check("lists routines", result.success and "morning" in result.output, result.output[:80])
+    result = await module.execute("every weekday at 7am run my morning routine", {})
+    check("schedules a routine", result.success and "routine:morning" in result.output,
+          result.output[:120])
+    result = await module.call_tool("schedule_recurring",
+                                    {"when": "daily at 6", "what": "my nonexistent routine"})
+    check("refuses to schedule an unknown routine", not result.success, result.output[:80])
+    result = await module.call_tool("run_routine", {"name": "morning"})
+    check("runs a routine now", result.success and "briefing" in result.output.lower(),
+          result.output[:120])
+    result = await module.call_tool("routines", {"delete": "morning"})
+    check("deletes a routine", result.success, result.output[:60])
+
+    # Parameters survive the round trip through the database.
+    result = await module.call_tool("schedule_recurring",
+                                    {"when": "daily at 9", "what": "the weather in Paris"})
+    check("extracts tool parameters", '"location": "Paris"' in result.output,
+          result.output[:140])
+
+    # Quiet hours hold proactive announcements until morning.
+    module.quiet_hours = (0, 24 * 60 - 1)
+    announced.clear()
+    await module._run_job({"description": "nudge", "action": "say:stretch", "params": "{}"})
+    check("quiet hours stay silent", not announced, str(announced))
+    module.quiet_hours = None
+    await module._flush_deferred()
+    check("held announcements arrive later",
+          any("stretch" in message for message in announced), str(announced))
+
     result = await module.execute("cancel schedule #1", {})
     check("cancels by number", result.success and "#1" in result.output, result.output[:60])
     result = await module.call_tool("cancel_schedule", {"description": "look away",
@@ -377,7 +415,7 @@ async def test_degraded(root: Path) -> None:
     brain = Brain(config)
     await brain.initialize()
 
-    check("modules loaded", len(brain.modules) == 10, f"got {len(brain.modules)}")
+    check("modules loaded", len(brain.modules) == 11, f"got {len(brain.modules)}")
     check("llm reports offline", brain.llm.available is False)
 
     cases = [
@@ -513,6 +551,117 @@ async def test_modules(root: Path) -> None:
             f"{module.name} exposes execute()",
             callable(getattr(module, "execute", None)) and bool(module.tools),
         )
+
+
+async def test_model_management(root: Path, host: str) -> None:
+    """Listing, switching, pulling and removing Ollama models."""
+    print("\n[model management]")
+    from modules.models import Models
+
+    config = make_config(root / "models", host)
+    brain = Brain(config)
+    await brain.initialize()
+    module = Models(config, llm=brain.llm, security=brain.security)
+    module.brain = brain
+
+    result = await module.call_tool("list_models", {})
+    check("lists installed models", result.success and "llama3.2" in result.output,
+          result.output[:90])
+    check("marks the active model", "[active]" in result.output, result.output[:120])
+
+    result = await module.call_tool("model_info", {})
+    check("model_info describes the active model",
+          result.success and "quantisation" in result.output, result.output[:90])
+
+    result = await module.call_tool("switch_model", {"name": "not-installed-anywhere"})
+    check("refuses an uninstalled model", not result.success, result.output[:70])
+    check("offers to download it instead",
+          result.needs_followup and result.followup is not None
+          and result.followup["tool"] == "models.pull_model", str(result.followup))
+
+    result = await module.call_tool("pull_model", {"name": "mistral", "activate": True})
+    check("pulls a model", result.success and "mistral" in result.output, result.output[:90])
+    check("activates it", brain.llm.model.startswith("mistral"), brain.llm.model)
+
+    result = await module.call_tool("remove_model", {"name": "mistral"})
+    check("refuses to delete the active model", not result.success, result.output[:80])
+
+    await module.call_tool("switch_model", {"name": "llama3.2"})
+    result = await module.call_tool("remove_model", {"name": "mistral"})
+    check("removes an idle model", result.success and "reclaimed" in result.output,
+          result.output[:80])
+
+    result = await module.call_tool("pull_model", {"name": "does-not-exist-xyz"})
+    check("reports a failed download", not result.success, result.output[:90])
+
+    result = await module.call_tool("recommend_model", {"purpose": "coding"})
+    check("recommends a coding model", result.success and "coder" in result.output,
+          result.output[:90])
+
+    routes = {
+        "what models do i have": "list_models",
+        "switch to mistral permanently": "switch_model",
+        "download qwen2.5": "pull_model",
+        "which model is best for coding": "recommend_model",
+        "delete the llava model": "remove_model",
+        "which model are you running": "model_info",
+    }
+    for phrase, expected in routes.items():
+        route = module.offline_router(phrase)
+        check(f"routes {phrase!r}", route is not None and route[0] == expected, str(route))
+
+    await brain.shutdown()
+
+
+async def test_file_undo(root: Path) -> None:
+    """Organising files is reversible."""
+    print("\n[file undo]")
+    from modules.file_manager import FileManager
+
+    home = root / "undo"
+    work = home / "downloads"
+    work.mkdir(parents=True, exist_ok=True)
+    for name in ("a.pdf", "b.png", "c.py", "d.txt", "e.zip"):
+        (work / name).write_text("x", encoding="utf-8")
+
+    config = make_config(home, "http://127.0.0.1:1")
+    config.set("security.allowed_roots", [str(home)])
+    config.set("security.confirm_dangerous", False)
+    config.set("database.path", str(home / "undo.db"))
+    module = FileManager(config)
+
+    result = await module.call_tool("organize_files", {"path": str(work), "dry_run": True})
+    check("dry run moves nothing", result.success and (work / "a.pdf").exists(),
+          result.output[:80])
+
+    result = await module.call_tool("organize_files", {"path": str(work), "dry_run": False})
+    check("organises for real", result.success and (work / "Documents" / "a.pdf").exists(),
+          result.output[:90])
+    check("mentions how to undo", "undo" in result.output.lower(), result.output[:120])
+
+    result = await module.call_tool("recent_operations", {})
+    check("journals the operation", result.success and "organised" in result.output,
+          result.output[:90])
+
+    result = await module.call_tool("undo_file_operation", {})
+    check("undo puts every file back",
+          result.success and all((work / name).exists()
+                                 for name in ("a.pdf", "b.png", "c.py", "d.txt", "e.zip")),
+          result.output[:120])
+    check("undo cleans up empty category folders", not (work / "Documents").exists())
+
+    result = await module.call_tool("undo_file_operation", {})
+    check("nothing left to undo", not result.success, result.output[:80])
+
+    await module.call_tool("move_file", {"source": str(work / "a.pdf"),
+                                         "destination": str(home / "moved.pdf")})
+    check("single move happened", (home / "moved.pdf").exists())
+    await module.call_tool("undo_file_operation", {})
+    check("single move undone", (work / "a.pdf").exists() and not (home / "moved.pdf").exists())
+
+    route = module.offline_router("undo that")
+    check("routes 'undo that'", route is not None and route[0] == "undo_file_operation",
+          str(route))
 
 
 async def test_new_modules(root: Path, host: str) -> None:
@@ -950,6 +1099,8 @@ async def main() -> int:
         await test_with_mock_llm(workdir, f"http://127.0.0.1:{port}")
         await test_modules(workdir)
         await test_scheduler(workdir)
+        await test_model_management(workdir, f"http://127.0.0.1:{port}")
+        await test_file_undo(workdir)
         await test_new_modules(workdir, f"http://127.0.0.1:{port}")
         await test_streaming_and_followups(workdir, f"http://127.0.0.1:{port}")
         await test_web_interface(workdir, f"http://127.0.0.1:{port}")
