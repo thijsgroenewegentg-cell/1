@@ -18,11 +18,12 @@ import asyncio
 import contextlib
 import json
 import secrets
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from utils.helpers import truncate
+from utils.helpers import human_bytes, truncate
 from utils.logger import get_logger
 
 logger = get_logger("interfaces.web")
@@ -39,12 +40,115 @@ try:
         WebSocket,
         WebSocketDisconnect,
     )
-    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+    from fastapi.responses import (
+        FileResponse,
+        HTMLResponse,
+        JSONResponse,
+        Response,
+    )
 
     HAS_FASTAPI = True
 except Exception:  # pragma: no cover - optional dependency
     HAS_FASTAPI = False
     FastAPI = None  # type: ignore[assignment]
+
+def render_icon(size: int) -> bytes:
+    """Draw the app icon as a PNG, with no image library involved.
+
+    A dark rounded square with a cyan reactor ring — enough for a home-screen
+    icon, and it costs nothing but ``zlib``.
+
+    Args:
+        size: Width and height in pixels.
+
+    Returns:
+        The encoded PNG bytes.
+    """
+    import struct
+    import zlib
+
+    centre = (size - 1) / 2.0
+    outer = size * 0.40
+    inner = size * 0.27
+    core = size * 0.12
+    corner = size * 0.22
+    background = (11, 15, 20)
+    ring = (56, 189, 248)
+
+    rows = bytearray()
+    for y in range(size):
+        rows.append(0)  # PNG filter type: none
+        for x in range(size):
+            # Rounded-square mask, so the icon looks right when not masked.
+            dx = max(abs(x - centre) - (size / 2 - corner), 0.0)
+            dy = max(abs(y - centre) - (size / 2 - corner), 0.0)
+            if (dx * dx + dy * dy) ** 0.5 > corner:
+                rows.extend((0, 0, 0, 0))
+                continue
+            distance = ((x - centre) ** 2 + (y - centre) ** 2) ** 0.5
+            if distance <= core or inner <= distance <= outer:
+                red, green, blue = ring
+            else:
+                red, green, blue = background
+            rows.extend((red, green, blue, 255))
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        """Assemble one PNG chunk with its CRC."""
+        return (struct.pack(">I", len(payload)) + kind + payload
+                + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF))
+
+    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", header)
+            + chunk(b"IDAT", zlib.compress(bytes(rows), 9))
+            + chunk(b"IEND", b""))
+
+
+SERVICE_WORKER = """// JARVIS offline shell
+const CACHE = "jarvis-shell-v1";
+const SHELL = ["/icon-192.png", "/icon-512.png", "/manifest.webmanifest"];
+
+self.addEventListener("install", event => {
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).catch(() => {}));
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", event => {
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener("fetch", event => {
+  const request = event.request;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.pathname.startsWith("/api/") || url.pathname === "/ws") return;
+  event.respondWith(
+    fetch(request)
+      .then(response => {
+        if (response.ok && (url.pathname === "/" || SHELL.includes(url.pathname))) {
+          const copy = response.clone();
+          caches.open(CACHE).then(cache => cache.put(request, copy)).catch(() => {});
+        }
+        return response;
+      })
+      .catch(() =>
+        caches.match(request).then(hit =>
+          hit || new Response(
+            "<!doctype html><meta charset=utf-8><style>body{background:#0b0f14;color:#7d8da1;"
+            + "font:16px system-ui;display:grid;place-items:center;height:100vh;margin:0}</style>"
+            + "<p>JARVIS is not reachable. Is the machine awake, sir?</p>",
+            { headers: { "Content-Type": "text/html" }, status: 503 }
+          )
+        )
+      )
+  );
+});
+"""
 
 PAGE = """<!doctype html>
 <html lang="en">
@@ -52,6 +156,12 @@ PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="__TITLE__">
+<link rel="manifest" href="/manifest.webmanifest__TOKEN_QUERY__">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon-192.png">
 <title>__TITLE__</title>
 <style>
   :root {
@@ -103,6 +213,12 @@ PAGE = """<!doctype html>
   .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   .chip { border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px;
           color: var(--dim); font-size: 13px; background: transparent; cursor: pointer; height: auto; }
+  #mic { background: transparent; border: 1px solid var(--line); color: var(--text);
+         width: 44px; padding: 0; font-size: 19px; }
+  #mic.recording { background: #ef4444; color: #fff; border-color: #ef4444;
+                   animation: pulse 1.2s ease-in-out infinite; }
+  #mic.busy { opacity: .6; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 7px #ef444433; } }
 </style>
 </head>
 <body>
@@ -115,6 +231,7 @@ PAGE = """<!doctype html>
 <footer>
   <form id="form">
     <textarea id="input" rows="1" placeholder="Ask me something, sir…" autocomplete="off"></textarea>
+    <button id="mic" class="ghost" type="button" title="Hold to talk">🎤</button>
     <button id="send" type="submit">Send</button>
     <button id="stop" class="ghost" type="button" title="Stop the current reply">Stop</button>
   </form>
@@ -216,6 +333,69 @@ document.getElementById("stop").addEventListener("click", () => {
 });
 document.querySelectorAll("[data-say]").forEach(chip =>
   chip.addEventListener("click", () => send(chip.dataset.say)));
+// ---- push to talk ---------------------------------------------------------
+const micButton = document.getElementById("mic");
+let recorder = null, chunks = [], recording = false;
+
+async function startRecording() {
+  if (recording || !navigator.mediaDevices || !window.MediaRecorder) {
+    bubble("sys", "This browser will not give me a microphone. Type instead, sir.");
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    bubble("sys", "Microphone refused: " + err.message);
+    return;
+  }
+  chunks = [];
+  const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"]
+    .find(type => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) || "";
+  recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+  recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+  recorder.onstop = async () => {
+    stream.getTracks().forEach(track => track.stop());
+    micButton.classList.remove("recording");
+    if (!chunks.length) return;
+    micButton.classList.add("busy");
+    meta.textContent = "transcribing…";
+    const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+    try {
+      const response = await fetch("/api/listen" + (token ? "?token=" + encodeURIComponent(token) : ""),
+                                   { method: "POST", body: blob,
+                                     headers: { "Content-Type": blob.type || "audio/webm" } });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        bubble("sys", "⚠ " + (data.detail || data.error || "transcription failed"));
+      } else if (!data.text) {
+        bubble("sys", "I heard nothing, sir.");
+      } else {
+        send(data.text);
+      }
+    } catch (err) {
+      bubble("sys", "⚠ " + err.message);
+    } finally {
+      micButton.classList.remove("busy");
+      if (meta.textContent === "transcribing…") meta.textContent = "connected";
+    }
+  };
+  recorder.start();
+  recording = true;
+  micButton.classList.add("recording");
+  meta.textContent = "listening…";
+}
+
+function stopRecording() {
+  if (!recording) return;
+  recording = false;
+  try { recorder.stop(); } catch (err) { /* already stopped */ }
+}
+
+micButton.addEventListener("pointerdown", event => { event.preventDefault(); startRecording(); });
+["pointerup", "pointerleave", "pointercancel"].forEach(name =>
+  micButton.addEventListener(name, event => { event.preventDefault(); stopRecording(); }));
+
 speakerButton.addEventListener("click", () => {
   speech = !speech;
   speakerButton.textContent = "🔊 speech: " + (speech ? "on" : "off");
@@ -228,6 +408,9 @@ fetch("/api/status" + (token ? "?token=" + encodeURIComponent(token) : ""))
   .then(data => bubble("sys", data.greeting || "JARVIS online."))
   .catch(() => bubble("sys", "JARVIS online."));
 connect();
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
 </script>
 </body>
 </html>
@@ -261,6 +444,10 @@ class WebInterface:
         self.title = str(section.get("title", config.get("assistant.name", "JARVIS")))
         self.clients: int = 0
         self._sockets: Set[Any] = set()
+        self._icons: Dict[int, bytes] = {}
+        self._stt: Optional[Any] = None
+        self._stt_tried = False
+        self.max_audio_bytes = int(section.get("max_audio_mb", 25) or 25) * 1024 * 1024
         self.rate_limit = int(section.get("rate_limit_per_minute", 40) or 40)
         self._hits: Dict[str, List[float]] = {}
         self._server: Optional[Any] = None
@@ -375,7 +562,9 @@ class WebInterface:
             )
 
         app = FastAPI(title=f"{self.title} web interface", docs_url=None, redoc_url=None)
-        page = PAGE.replace("__TITLE__", self.title)
+        page = PAGE.replace("__TITLE__", self.title).replace(
+            "__TOKEN_QUERY__", f"?token={self.token}" if self.token else ""
+        )
 
         @app.get("/", response_class=HTMLResponse)
         async def index(token: str = Query(default="")) -> Any:
@@ -443,6 +632,96 @@ class WebInterface:
             return FileResponse(str(path), media_type=media,
                                 filename=f"reply{path.suffix or '.mp3'}")
 
+        @app.get("/manifest.webmanifest")
+        async def manifest(token: str = Query(default="")) -> Any:
+            """Serve the PWA manifest so the page installs to a home screen."""
+            suffix = f"?token={token}" if token else ""
+            return JSONResponse(
+                {
+                    "name": self.title,
+                    "short_name": self.title,
+                    "description": "Your local AI assistant.",
+                    "start_url": f"/{suffix}",
+                    "scope": "/",
+                    "display": "standalone",
+                    "orientation": "portrait",
+                    "background_color": "#0b0f14",
+                    "theme_color": "#0b0f14",
+                    "icons": [
+                        {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png",
+                         "purpose": "any"},
+                        {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png",
+                         "purpose": "any"},
+                        {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png",
+                         "purpose": "maskable"},
+                    ],
+                },
+                media_type="application/manifest+json",
+            )
+
+        @app.get("/sw.js")
+        async def service_worker() -> Any:
+            """Serve the offline shell worker (never behind the token gate)."""
+            return Response(content=SERVICE_WORKER, media_type="application/javascript")
+
+        @app.get("/icon-{size}.png")
+        async def icon(size: int) -> Any:
+            """Render an app icon at the requested size."""
+            if size not in (180, 192, 512):
+                raise HTTPException(status_code=404, detail="no such icon")
+            if size not in self._icons:
+                self._icons[size] = render_icon(size)
+            return Response(content=self._icons[size], media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"})
+
+        @app.post("/api/listen")
+        async def listen(request: Request, token: str = Query(default="")) -> Any:
+            """Transcribe a recording made in the browser.
+
+            The phone has a microphone but no Whisper; this machine has
+            Whisper. The browser posts the raw audio blob and gets text back.
+            """
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            client = request.client.host if request.client else "unknown"
+            if self._rate_limited(client):
+                raise HTTPException(status_code=429, detail="slow down a moment, sir")
+
+            audio = await request.body()
+            if not audio:
+                raise HTTPException(status_code=400, detail="no audio received")
+            if len(audio) > self.max_audio_bytes:
+                raise HTTPException(status_code=413, detail="that recording is too long")
+
+            stt = await self._speech_to_text()
+            if stt is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Speech recognition is not installed on the server. "
+                           "pip install faster-whisper, sir.",
+                )
+
+            suffix = {
+                "audio/webm": ".webm", "audio/ogg": ".ogg", "audio/mp4": ".mp4",
+                "audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/x-wav": ".wav",
+            }.get((request.headers.get("content-type", "").split(";")[0] or "").strip(),
+                  ".webm")
+
+            temporary = Path(tempfile.gettempdir()) / f"jarvis-listen-{secrets.token_hex(6)}{suffix}"
+            try:
+                temporary.write_bytes(audio)
+                text = await stt.transcribe_file(temporary)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Browser transcription failed: %s", exc)
+                raise HTTPException(status_code=500, detail="transcription failed") from exc
+            finally:
+                with contextlib.suppress(Exception):
+                    temporary.unlink()
+
+            logger.info("Transcribed %s of browser audio: %r",
+                        human_bytes(len(audio)), truncate(text, 60))
+            return JSONResponse({"text": text})
+
         @app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket) -> None:
             """Stream replies token-by-token to a connected browser."""
@@ -491,6 +770,33 @@ class WebInterface:
                 logger.info("Web client disconnected (%d active).", self.clients)
 
         return app
+
+    async def _speech_to_text(self) -> Optional[Any]:
+        """Return a loaded Whisper engine, sharing the voice pipeline's if there is one.
+
+        Returns:
+            A ``SpeechToText`` instance, or ``None`` when faster-whisper is
+            not installed.
+        """
+        voice = getattr(self.brain, "voice", None)
+        existing = getattr(voice, "stt", None) if voice is not None else None
+        if existing is not None and getattr(existing, "available", False):
+            return existing
+        if self._stt is not None:
+            return self._stt
+        if self._stt_tried:
+            return None
+        self._stt_tried = True
+        try:
+            from interfaces.voice import SpeechToText
+
+            engine = SpeechToText(self.config)
+            if await engine.initialize():
+                self._stt = engine
+                return engine
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not start speech recognition for the web UI: %s", exc)
+        return None
 
     async def broadcast(self, message: str, kind: str = "notice") -> None:
         """Push an unprompted message to every open browser tab.

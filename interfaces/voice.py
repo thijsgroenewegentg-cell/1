@@ -791,6 +791,37 @@ class SpeechToText:
             logger.info("Speech-to-text ready (%s).", self.model_name)
         return self.available
 
+    async def transcribe_file(self, path: Path) -> str:
+        """Transcribe an audio *file* — any format ffmpeg/PyAV can read.
+
+        Used by the web interface, where the browser hands over a WebM/Opus
+        or MP4 recording rather than raw PCM.
+
+        Args:
+            path: The audio file to read.
+
+        Returns:
+            The transcript, or an empty string when nothing was recognised.
+        """
+        if not self.available:
+            return ""
+
+        def _run() -> str:
+            try:
+                segments, _ = self.model.transcribe(  # type: ignore[union-attr]
+                    str(path),
+                    language=self.language or None,
+                    beam_size=self.beam_size,
+                    vad_filter=self.vad_filter,
+                    condition_on_previous_text=False,
+                )
+                return " ".join(segment.text.strip() for segment in segments).strip()
+            except Exception as exc:
+                logger.debug("File transcription failed: %s", exc)
+                return ""
+
+        return (await run_blocking(_run)).strip()
+
     async def transcribe(self, clip: AudioClip) -> str:
         """Transcribe an :class:`AudioClip` to text."""
         if not self.available or clip is None or clip.duration < 0.25:

@@ -76,6 +76,9 @@ class Jarvis:
                 logger.warning("Voice pipeline unavailable: %s", exc)
                 self.voice = None
 
+        # Share the loaded voice pipeline with the brain so the web interface can
+        # reuse the same Whisper model instead of loading a second copy.
+        self.brain.voice = self.voice  # type: ignore[attr-defined]
         self.cli = CLI(self.brain, voice=self.voice)
 
         # Dangerous actions ask for confirmation through the CLI.
@@ -274,6 +277,17 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     mode.add_argument(
         "--web", action="store_true", help="serve the phone/browser interface"
     )
+    mode.add_argument(
+        "--backup", nargs="?", const="", metavar="PATH",
+        help="write a zip of everything JARVIS knows and exit",
+    )
+    mode.add_argument(
+        "--restore", metavar="ARCHIVE.ZIP", help="restore a backup and exit"
+    )
+    mode.add_argument(
+        "--uninstall", action="store_true",
+        help="remove JARVIS's data, venv and login service (asks first)",
+    )
     parser.add_argument(
         "--port", type=int, default=None, help="port for --web (default web_ui.port)"
     )
@@ -283,7 +297,110 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--config", default="config.yaml", help="path to config.yaml")
     parser.add_argument("--no-voice", action="store_true", help="skip audio initialisation")
     parser.add_argument("--debug", action="store_true", help="verbose logging")
+    parser.add_argument(
+        "--force", action="store_true",
+        help="with --restore, overwrite existing files; with --uninstall, skip the prompt",
+    )
+    parser.add_argument(
+        "--keep-data", action="store_true",
+        help="with --uninstall, keep the database, memory, notes and plugins",
+    )
     return parser.parse_args(argv)
+
+
+def run_maintenance(args: argparse.Namespace) -> Optional[int]:
+    """Handle --backup / --restore / --uninstall without starting JARVIS.
+
+    These have to work when Ollama is missing, the venv is half broken or the
+    database is corrupt, so they deliberately avoid touching the brain.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        An exit code when a maintenance command ran, otherwise ``None``.
+    """
+    from utils.backup import (
+        create_backup,
+        inspect_backup,
+        restore_backup,
+        uninstall,
+        uninstall_plan,
+    )
+    from utils.helpers import human_bytes
+
+    root = Path(__file__).resolve().parent
+
+    if args.backup is not None:
+        destination = Path(args.backup).expanduser() if args.backup else None
+        try:
+            summary = create_backup(root, destination)
+        except Exception as exc:  # noqa: BLE001
+            print(f"Backup failed: {exc}")
+            return 1
+        print(f"Backed up {summary['files']} file(s), {human_bytes(summary['bytes'])} "
+              f"of data → {summary['path']} "
+              f"({human_bytes(summary['archive_bytes'])} compressed)")
+        print("Restore it with:  python main.py --restore "
+              f"{summary['path']} --force")
+        return 0
+
+    if args.restore:
+        archive = Path(args.restore).expanduser()
+        if not archive.is_file():
+            print(f"No such backup: {archive}")
+            return 1
+        manifest = inspect_backup(archive)
+        if not manifest.get("ok"):
+            print(f"That is not a JARVIS backup: {manifest.get('error')}")
+            return 1
+        preview = restore_backup(root, archive, overwrite=args.force, dry_run=True)
+        print(f"Backup from {manifest.get('created', 'an unknown date')} — "
+              f"{len(manifest.get('files', []))} file(s).")
+        if preview.get("rejected"):
+            print(f"Ignoring {len(preview['rejected'])} unsafe path(s) in the archive.")
+        if preview.get("clashes") and not args.force:
+            print(f"{len(preview['clashes'])} file(s) already exist and will be kept. "
+                  "Re-run with --force to overwrite them (a safety copy is taken first).")
+        summary = restore_backup(root, archive, overwrite=args.force)
+        if not summary.get("ok"):
+            print(f"Restore failed: {summary.get('error')}")
+            return 1
+        print(f"Restored {summary['restored']} file(s); {summary['skipped']} left alone.")
+        if summary.get("safety"):
+            print(f"What was overwritten is saved in {summary['safety']}")
+        return 0
+
+    if args.uninstall:
+        plan = uninstall_plan(root, keep_data=args.keep_data)
+        if not plan:
+            print("Nothing to remove — this installation is already clean.")
+            return 0
+        total = sum(entry["bytes"] for entry in plan)
+        print("Uninstalling will delete:")
+        for entry in plan:
+            print(f"  {human_bytes(entry['bytes']):>10}  {entry['path']}  "
+                  f"({entry['label']})")
+        print(f"  {human_bytes(total):>10}  in total")
+        print("\nThe source code, Ollama and your models are left alone.")
+        if not args.keep_data:
+            print("Tip: run 'python main.py --backup' first, or use --keep-data.")
+        if not args.force:
+            try:
+                answer = input("\nType 'yes' to go ahead: ").strip().lower()
+            except Exception:
+                answer = ""
+            if answer != "yes":
+                print("Cancelled — nothing was removed.")
+                return 0
+        summary = uninstall(root, keep_data=args.keep_data)
+        print(f"Removed {len(summary['removed'])} item(s), "
+              f"{human_bytes(summary['bytes'])} freed.")
+        for failure in summary["failed"]:
+            print(f"  could not remove {failure}")
+        return 1 if summary["failed"] else 0
+
+    return None
 
 
 async def async_main(args: argparse.Namespace) -> int:
@@ -358,6 +475,9 @@ async def async_main(args: argparse.Namespace) -> int:
 def main() -> None:
     """Synchronous wrapper used by the console entry point."""
     args = parse_args()
+    maintenance = run_maintenance(args)
+    if maintenance is not None:
+        raise SystemExit(maintenance)
     try:
         raise SystemExit(asyncio.run(async_main(args)))
     except KeyboardInterrupt:

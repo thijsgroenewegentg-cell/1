@@ -482,6 +482,9 @@ class Brain:
         self.memory = Memory(config)
         self.security = SecurityGuard.from_config(config.section("security"))
         self.modules: Dict[str, BaseModule] = {}
+        #: Set by main.py when a voice pipeline exists, so other interfaces can
+        #: reuse its Whisper/TTS engines rather than loading their own.
+        self.voice: Optional[Any] = None
         self.started_at = time.time()
         self.turn_count = 0
         self.last_intent: Optional[Intent] = None

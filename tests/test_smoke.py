@@ -342,6 +342,99 @@ async def test_scheduler(root: Path) -> None:
     await module.shutdown()
 
 
+def test_backup_restore(root: Path) -> None:
+    """Backing up, restoring and uninstalling an installation."""
+    print("\n[backup / restore]")
+    import json
+    import sqlite3
+    import zipfile
+
+    from utils.backup import (
+        create_backup,
+        inspect_backup,
+        restore_backup,
+        uninstall,
+        uninstall_plan,
+    )
+
+    home = root / "install"
+    for folder in ("data", "notes", "code", "plugins", "logs", "data/repos"):
+        (home / folder).mkdir(parents=True, exist_ok=True)
+    (home / "config.yaml").write_text("user:\n  name: Tester\n", encoding="utf-8")
+    (home / "notes" / "idea.md").write_text("remember the milk", encoding="utf-8")
+    (home / "code" / "script.py").write_text("print(1)\n", encoding="utf-8")
+    (home / "plugins" / "skill.py").write_text("# skill\n", encoding="utf-8")
+    (home / "logs" / "jarvis.log").write_text("noise\n", encoding="utf-8")
+    (home / "data" / "repos" / "big.bin").write_bytes(b"0" * 4096)
+    connection = sqlite3.connect(str(home / "data" / "jarvis.db"))
+    connection.executescript(
+        "CREATE TABLE todos (id INTEGER PRIMARY KEY, task TEXT);"
+        "INSERT INTO todos (task) VALUES ('buy milk');"
+    )
+    connection.commit()
+    connection.close()
+
+    summary = create_backup(home)
+    archive = Path(summary["path"])
+    check("backup written", archive.is_file() and summary["files"] >= 5,
+          str(summary))
+    with zipfile.ZipFile(archive) as handle:
+        names = set(handle.namelist())
+    check("backup holds your data",
+          {"config.yaml", "data/jarvis.db", "notes/idea.md",
+           "plugins/skill.py"} <= names, str(sorted(names)))
+    check("backup skips logs and clones",
+          not any(name.startswith(("logs/", "data/repos/")) for name in names),
+          str(sorted(names)))
+    manifest = inspect_backup(archive)
+    check("manifest is readable", manifest["ok"] and manifest["format"] == 1,
+          str(manifest)[:80])
+
+    # Lose everything, then put it back.
+    shutil.rmtree(home / "data")
+    shutil.rmtree(home / "notes")
+    outcome = restore_backup(home, archive)
+    check("restore returns the files", outcome["ok"] and outcome["restored"] == 2,
+          str(outcome))
+    check("database came back", (home / "data" / "jarvis.db").is_file())
+    connection = sqlite3.connect(str(home / "data" / "jarvis.db"))
+    rows = connection.execute("SELECT task FROM todos").fetchall()
+    connection.close()
+    check("database contents survived", rows == [("buy milk",)], str(rows))
+    check("existing files are left alone by default", outcome["skipped"] >= 1,
+          str(outcome))
+
+    (home / "notes" / "idea.md").write_text("overwritten", encoding="utf-8")
+    forced = restore_backup(home, archive, overwrite=True)
+    check("force overwrites",
+          (home / "notes" / "idea.md").read_text(encoding="utf-8") == "remember the milk")
+    check("a safety copy is kept first", bool(forced.get("safety"))
+          and Path(forced["safety"]).is_file(), str(forced.get("safety")))
+
+    # A malicious archive cannot write outside the installation.
+    evil = root / "evil.zip"
+    with zipfile.ZipFile(evil, "w") as handle:
+        handle.writestr("jarvis-manifest.json",
+                        json.dumps({"format": 1, "created": "now", "files": []}))
+        handle.writestr("../escaped.txt", "gotcha")
+        handle.writestr("notes/fine.md", "ok")
+    result = restore_backup(home, evil, overwrite=True)
+    check("path traversal is rejected", len(result["rejected"]) == 1
+          and not (root / "escaped.txt").exists(), str(result))
+    check("the safe member still restores", (home / "notes" / "fine.md").is_file())
+
+    plan = uninstall_plan(home, keep_data=True)
+    paths = {entry["path"] for entry in plan}
+    check("uninstall --keep-data spares your data",
+          str(home / "data") not in paths and str(home / "logs") in paths,
+          str(sorted(paths)))
+    removed = uninstall(home, keep_data=True, remove_services=False)
+    check("uninstall removes the disposable parts",
+          not (home / "logs").exists() and (home / "data" / "jarvis.db").is_file(),
+          str(removed))
+    check("uninstall never deletes the source", (home / "config.yaml").is_file())
+
+
 def test_installer() -> None:
     """The one-command installer's own logic."""
     print("\n[installer]")
@@ -826,6 +919,66 @@ async def test_web_interface(root: Path, host: str) -> None:
                 check("notifications are pushed to the browser",
                       pushed["type"] == "notice" and "call mom" in pushed["text"],
                       str(pushed)[:80])
+
+            # ---- installable app + push to talk --------------------------
+            page = client.get("/?token=s3cret").text
+            check("page links the manifest",
+                  "manifest.webmanifest?token=s3cret" in page)
+            check("page has a microphone button", 'id="mic"' in page)
+            check("page registers a service worker", "serviceWorker.register" in page)
+
+            manifest = client.get("/manifest.webmanifest?token=s3cret")
+            check("manifest served", manifest.status_code == 200
+                  and manifest.json()["display"] == "standalone",
+                  manifest.text[:80])
+            check("manifest keeps the token in start_url",
+                  manifest.json()["start_url"] == "/?token=s3cret",
+                  manifest.json()["start_url"])
+            check("manifest lists a maskable icon",
+                  any(icon["purpose"] == "maskable"
+                      for icon in manifest.json()["icons"]))
+
+            worker = client.get("/sw.js")
+            check("service worker served", worker.status_code == 200
+                  and "caches" in worker.text, str(worker.status_code))
+
+            for size in (180, 192, 512):
+                icon = client.get(f"/icon-{size}.png")
+                check(f"icon {size} renders", icon.status_code == 200
+                      and icon.content.startswith(b"\x89PNG"), str(icon.status_code))
+            check("unknown icon size is a 404",
+                  client.get("/icon-77.png").status_code == 404)
+
+            check("listen needs the token",
+                  client.post("/api/listen", content=b"x").status_code == 401)
+            check("listen rejects empty audio",
+                  client.post("/api/listen?token=s3cret", content=b"").status_code == 400)
+            check("listen rejects oversized audio",
+                  client.post("/api/listen?token=s3cret",
+                              content=b"0" * (server.max_audio_bytes + 1),
+                              headers={"Content-Type": "audio/webm"}).status_code == 413)
+
+            class _StubSTT:
+                """Stand-in for faster-whisper so the route can be tested."""
+
+                available = True
+
+                async def transcribe_file(self, path: Path) -> str:
+                    """Report the size of what it was given."""
+                    return f"stub heard {path.stat().st_size} bytes"
+
+            server._stt = _StubSTT()  # noqa: SLF001
+            server._stt_tried = True  # noqa: SLF001
+            spoken = client.post("/api/listen?token=s3cret", content=b"0" * 2048,
+                                 headers={"Content-Type": "audio/webm"})
+            check("browser audio is transcribed", spoken.status_code == 200
+                  and spoken.json()["text"] == "stub heard 2048 bytes", spoken.text[:80])
+
+            server._stt = None  # noqa: SLF001
+            server._stt_tried = True  # noqa: SLF001
+            check("missing whisper is reported honestly",
+                  client.post("/api/listen?token=s3cret", content=b"0" * 16,
+                              headers={"Content-Type": "audio/webm"}).status_code == 503)
     except Exception as exc:  # pragma: no cover - httpx/testclient absent
         print(f"  \033[33m~\033[0m TestClient unavailable, skipping HTTP checks ({exc})")
 
@@ -1092,6 +1245,7 @@ async def main() -> int:
     server = serve(port)
     workdir = Path(tempfile.mkdtemp(prefix="jarvis-tests-"))
     try:
+        test_backup_restore(workdir)
         test_cache(workdir)
         test_documents(workdir)
         test_calendar_parsing()
