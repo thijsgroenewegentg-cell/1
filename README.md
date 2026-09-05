@@ -39,7 +39,7 @@ intelligence — built entirely from free and open-source parts.
 | Phone / LAN UI | **FastAPI** + WebSockets, served from your own machine | free |
 | Self-improvement | **GitHub search API** (keyless) + `git clone` + its own LLM | free, no key |
 
-Ten capability modules, 109 callable tools:
+Eleven capability modules, 120 callable tools:
 
 * **system_control** — open/close apps, screenshots, CPU/RAM/disk/battery, volume, lock screen, clipboard, keyboard & mouse automation, shell commands (guarded), time/date
 * **web_search** — DuckDuckGo search, page scraping + summarising, weather, news, Wikipedia, geocoding
@@ -50,6 +50,7 @@ Ten capability modules, 109 callable tools:
 * **knowledge** — a private knowledge base built from *your* documents: index folders, semantic search, cited answers ("what does my lease say about pets?")
 * **vision** — looks at your screen or any image with a local llava model: describe, read text, compare screenshots
 * **communications** — IMAP inbox triage with LLM summaries, SMTP sending (off by default), and calendars from `.ics` files or secret export URLs
+* **models** — lists, switches, downloads and removes Ollama models, and recommends one for your RAM ("which model is best for coding?")
 * **self_improve** — searches GitHub, clones repositories, writes its own skill adapters for them, reads and rewrites its own source, runs its own test suite, commits, and rolls back anything that breaks
 
 And the things that make it feel alive:
@@ -242,6 +243,14 @@ python main.py --web --port 9000 --with-cli   # web + terminal in one process
 python main.py --say "what's my CPU doing"   # one-shot, then exit
 python main.py --test              # component self-test
 python main.py --debug             # verbose logging
+
+python main.py --backup            # zip up everything JARVIS knows
+python main.py --backup ~/jarvis.zip
+python main.py --restore ~/jarvis.zip          # put it back (never overwrites)
+python main.py --restore ~/jarvis.zip --force  # overwrite, after a safety copy
+python main.py --uninstall         # shows what it will delete, then asks
+
+pytest                             # 73 fast unit tests
 python tests/test_smoke.py         # full offline test suite (no model needed)
 ```
 
@@ -263,7 +272,7 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 | `stream on\|off` | toggle live token-by-token replies |
 | `plugins` | list the skills JARVIS has written for itself |
 | `changes` / `undo` | its own change history, and roll back the last one |
-| `selftest` | run the 214-check smoke suite against the current code |
+| `selftest` | run the 282-check smoke suite against the current code |
 | `mute` / `unmute` | speak replies in text mode |
 | `clear`, `config`, `exit` | as expected |
 
@@ -381,22 +390,25 @@ jarvis/
 │   ├── knowledge.py         private document knowledge base (index + cited answers)
 │   ├── vision.py            screen and image understanding via llava
 │   ├── communications.py    IMAP/SMTP email and .ics calendars
+│   ├── models.py            list / switch / pull / remove Ollama models
 │   └── self_improve.py      GitHub search, repo integration, self-editing, rollback
 ├── utils/
 │   ├── logger.py            coloured console + rotating file logs
 │   ├── helpers.py           shared utilities
 │   ├── security.py          risk assessment + confirmation gate
 │   ├── cache.py             SQLite TTL cache for web lookups
+│   ├── backup.py            backup / restore / uninstall
 │   └── documents.py         shared PDF/DOCX/PPTX/HTML text extraction + chunking
 ├── scripts/
 │   ├── jarvis.sh / jarvis.bat            launchers that also start Ollama
 │   ├── install_service_linux.sh          systemd user service
 │   ├── install_service_macos.sh          LaunchAgent
 │   └── install_service_windows.ps1       scheduled task at logon
-├── .github/ci.yml           lint + smoke suite CI (move to .github/workflows/)
+├── .github/ci.yml           ruff + mypy + tests CI (move to .github/workflows/)
 ├── plugins/                 skills JARVIS writes for itself (loaded at start-up)
 ├── tests/
-│   ├── test_smoke.py        214-check end-to-end suite
+│   ├── test_units.py        73 fast pytest unit tests (no Ollama, no network)
+│   ├── test_smoke.py        282-check end-to-end suite
 │   └── mock_ollama.py       scripted LLM server (streaming + vision) for testing
 └── data/                    SQLite DB, ChromaDB, notes, code, screenshots, TTS cache
 ```
@@ -452,6 +464,7 @@ web_ui:
   require_token: true        # a blank token is generated into data/web_token.txt
   token: ""                  # shared secret: http://…:8765/?token=…
   rate_limit_per_minute: 40
+  max_audio_mb: 25           # largest hold-to-talk recording accepted
 
 email:
   enabled: false
@@ -662,6 +675,34 @@ Requests are rate-limited (`web_ui.rate_limit_per_minute`). Reminders, timers
 and scheduled jobs are pushed into the page while it is open — allow browser
 notifications and they arrive even in a background tab.
 
+### Install it on your phone
+
+The page is a progressive web app: open it on your phone, choose **Add to Home
+Screen**, and it launches full-screen with its own icon, no browser chrome. The
+icons are generated by JARVIS itself — no image library, no asset pipeline. A
+service worker caches the shell, so opening the app while the machine is asleep
+gives you a polite "JARVIS is not reachable. Is the machine awake, sir?" instead
+of a browser error page.
+
+### Hold to talk
+
+Next to the Send button is a microphone. Hold it, speak, let go: the browser
+records the clip, posts it to `/api/listen`, and the server transcribes it with
+the same Whisper model the voice interface uses — nothing is sent to the
+internet. The transcript is then handled exactly like a typed message.
+
+Two things it needs:
+
+* `faster-whisper` installed on the **server** (`pip install faster-whisper`).
+  Without it the button answers honestly with a 503 rather than failing
+  silently.
+* A **secure context** in the browser. `getUserMedia` only works over HTTPS or
+  on `localhost`, so on a phone over plain HTTP the mic button will refuse to
+  start. Reach the machine through a local HTTPS proxy, or use the typed input.
+
+Recordings are capped at `web_ui.max_audio_mb` (25 MB by default) and the
+temporary file is deleted as soon as it has been transcribed.
+
 There is a plain JSON API too:
 
 ```bash
@@ -720,7 +761,7 @@ Dependencies are never installed behind your back: `allow_pip_install` is
 ```
 you  > your weather replies are too long, fix that in your own code
 JARVIS > Rewrote modules/web_search.py (change #4).
-           tests  : 214 passed in 4.2s
+           tests  : 282 passed in 4.2s
            reload : Reloaded 'web_search' — 8 tools active
            backup : data/backups/20260906_101511_modules_web_search.py
            commit : a91f0c2
@@ -901,6 +942,63 @@ LLM into RAM on the first prompt. Subsequent turns are much faster.
 
 ---
 
+## Backups, restores and a clean uninstall
+
+Everything JARVIS knows about you lives in a handful of folders. One command
+puts all of it in a dated zip:
+
+```bash
+python main.py --backup
+#  ✓ Backup written to backups/jarvis-backup-20260906-142233.zip
+#    412 files · 8.4 MB → 2.1 MB
+```
+
+It archives the SQLite database (through SQLite's online-backup API, so it is
+consistent even while JARVIS is running), the vector memory, your notes, saved
+code, plugins and `config.yaml`. Logs, caches, the virtualenv and downloaded
+models are skipped — they regenerate themselves.
+
+```bash
+python main.py --restore ~/jarvis-backup-20260906-142233.zip
+```
+
+A restore is conservative on purpose: it only writes files that are **missing**,
+lists what it skipped, and refuses any archive member that tries to escape the
+install directory. Add `--force` to overwrite, and it takes a safety copy of the
+current state first.
+
+Uninstalling is equally undramatic:
+
+```bash
+python main.py --uninstall
+```
+
+It prints exactly what it will delete, largest first, and waits for you to type
+`yes`. It removes the virtualenv, logs, data, notes, code and plugins, plus any
+autostart service it installed. It never touches your source checkout, Ollama or
+your downloaded models — remove those with `ollama rm` if you want the disk
+space back. `--keep-data` deletes the machinery but leaves your memory and notes
+where they are.
+
+---
+
+## Switching models
+
+```
+> which models do you have?
+> switch to mistral for coding
+> download qwen2.5-coder:7b
+> which model is best for coding?
+> how much RAM does llama3.1:8b need?
+```
+
+JARVIS knows a small catalogue of good free models with their download sizes and
+RAM requirements, and will not recommend a 16 GB model to an 8 GB machine.
+Switching is instant and can be made permanent (written to `config.yaml`);
+downloading streams progress and can be cancelled.
+
+---
+
 ## Installing it as a command (optional)
 
 ```bash
@@ -917,10 +1015,23 @@ Extras mirror the optional dependencies: `pip install -e ".[voice]"`,
 ## Continuous integration
 
 `.github/ci.yml` (move it to `.github/workflows/ci.yml` to switch it on) runs
-pyflakes, byte-compiles every module, executes
-the 214-check offline smoke suite on Linux, macOS and Windows (Python 3.9–3.12)
-and builds a wheel. No models are downloaded — `tests/mock_ollama.py` scripts
-the LLM, including token streaming and vision responses.
+**ruff**, **mypy**, the 73 pytest unit tests and the 282-check offline smoke
+suite on Linux, macOS and Windows (Python 3.9–3.12), measures coverage over both
+suites, and builds a wheel. No models are downloaded — `tests/mock_ollama.py`
+scripts the LLM, including token streaming and vision responses.
+
+Locally:
+
+```bash
+pip install -e ".[dev]"
+ruff check .        # lint
+mypy                # type-check core, utils, modules, interfaces
+pytest              # fast unit tests
+python tests/test_smoke.py   # the full sweep
+
+coverage run tests/test_smoke.py && coverage run -m pytest -q
+coverage combine && coverage report
+```
 
 ---
 

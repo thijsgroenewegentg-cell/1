@@ -178,6 +178,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "require_token": True,
         "rate_limit_per_minute": 40,
         "allow_tts": True,
+        "max_audio_mb": 25,
         "title": "JARVIS",
     },
     "security": {

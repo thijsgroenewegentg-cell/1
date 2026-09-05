@@ -197,6 +197,7 @@ web_ui:
   require_token: true      # false = deliberately open (only on a trusted LAN)
   rate_limit_per_minute: 40
   allow_tts: true
+  max_audio_mb: 25         # largest hold-to-talk recording accepted
   title: "JARVIS"
 
 security:

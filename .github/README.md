@@ -17,7 +17,8 @@ What it does on every push and pull request, entirely on GitHub's free tier:
 
 | Job | Steps |
 |---|---|
-| `test` | pyflakes lint · `compileall` · the 111-check offline smoke suite · a one-shot `main.py --say` run |
+| `test` | `ruff check` · `mypy` · `compileall` · 73 pytest unit tests · the 282-check offline smoke suite · a one-shot `main.py --say` run |
+| `coverage` | runs both suites under `coverage`, combines them and uploads `coverage.xml` |
 | `package` | builds a wheel + sdist with `python -m build` and checks them with `twine` |
 
 The matrix covers Ubuntu, macOS and Windows on Python 3.11, plus Python 3.9 and

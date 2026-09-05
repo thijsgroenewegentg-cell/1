@@ -19,3 +19,14 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Tooling caches and coverage output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+backups/

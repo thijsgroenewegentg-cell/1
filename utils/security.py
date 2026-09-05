@@ -236,6 +236,25 @@ class SecurityGuard:
                 )
 
         if write:
+            # Protected locations are checked first. Doing it the other way
+            # round made this unreachable for exactly the paths that matter:
+            # anything under /etc or C:\\Windows is also outside the allowed
+            # roots, so it returned a merely-confirmable DANGEROUS instead.
+            for protected in _PROTECTED_ROOTS:
+                # "/" contains every absolute path, so a containment test
+                # against it would block writes to any allowed root outside
+                # $HOME (an external drive, /srv, a scratch dir). The exact
+                # path check above already protects "/" itself.
+                if protected in ("/", "C:\\"):
+                    continue
+                protected_path = Path(protected)
+                if (protected_path.is_absolute()
+                        and self._is_within(target, protected_path)
+                        and not self._is_within(target, Path.home())):
+                    return RiskAssessment(
+                        RiskLevel.BLOCKED, f"{target} lives inside {protected}"
+                    )
+
             roots = [expand_path(root) for root in self.allowed_roots] or [
                 Path.home(),
                 Path.cwd(),
@@ -246,20 +265,6 @@ class SecurityGuard:
                     f"{target} is outside the allowed roots "
                     f"({', '.join(str(r) for r in roots)})",
                 )
-            for protected in _PROTECTED_ROOTS:
-                # "/" contains every absolute path, so a containment test against
-                # it would block writes to any allowed root outside $HOME (an
-                # external drive, /srv, a scratch dir). The exact-path check
-                # above already protects "/" itself.
-                if protected in ("/", "C:\\"):
-                    continue
-                protected_path = Path(protected)
-                if (protected_path.is_absolute()
-                        and self._is_within(target, protected_path)
-                        and not self._is_within(target, Path.home())):
-                    return RiskAssessment(
-                        RiskLevel.BLOCKED, f"{target} lives inside {protected}"
-                    )
         return RiskAssessment(RiskLevel.SAFE, "Path is fine")
 
     @staticmethod
