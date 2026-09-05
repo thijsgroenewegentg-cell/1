@@ -56,6 +56,10 @@ memory:
 database:
   path: "data/jarvis.db"
 
+productivity:
+  catch_up_on_start: true    # report reminders/jobs that came due while JARVIS was off
+  scheduler_interval: 15     # seconds between checks for due reminders and schedules
+
 voice:
   enabled: true
   wake_word: "jarvis"

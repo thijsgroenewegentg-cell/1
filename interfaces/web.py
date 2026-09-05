@@ -20,7 +20,7 @@ import json
 import secrets
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from utils.helpers import truncate
 from utils.logger import get_logger
@@ -180,6 +180,13 @@ function connect() {
       if (speech && text) speak(text);
     } else if (data.type === "status") {
       meta.textContent = data.text;
+    } else if (data.type === "notice") {
+      bubble("sys", "🔔 " + data.text);
+      log.scrollTop = log.scrollHeight;
+      if (speech && data.text) speak(data.text);
+      if (window.Notification && Notification.permission === "granted") {
+        try { new Notification("JARVIS", { body: data.text }); } catch (err) {}
+      }
     } else if (data.type === "error") {
       bubble("sys", "⚠ " + data.text); pending = null; busy = false; sendButton.disabled = false;
     }
@@ -212,6 +219,9 @@ document.querySelectorAll("[data-say]").forEach(chip =>
 speakerButton.addEventListener("click", () => {
   speech = !speech;
   speakerButton.textContent = "🔊 speech: " + (speech ? "on" : "off");
+  if (speech && window.Notification && Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
 });
 fetch("/api/status" + (token ? "?token=" + encodeURIComponent(token) : ""))
   .then(response => response.json())
@@ -250,6 +260,7 @@ class WebInterface:
         self.allow_tts = bool(section.get("allow_tts", True))
         self.title = str(section.get("title", config.get("assistant.name", "JARVIS")))
         self.clients: int = 0
+        self._sockets: Set[Any] = set()
         self.rate_limit = int(section.get("rate_limit_per_minute", 40) or 40)
         self._hits: Dict[str, List[float]] = {}
         self._server: Optional[Any] = None
@@ -441,6 +452,7 @@ class WebInterface:
                 return
             peer = websocket.client.host if websocket.client else "unknown"
             await websocket.accept()
+            self._sockets.add(websocket)
             self.clients += 1
             logger.info("Web client connected (%d active).", self.clients)
             try:
@@ -474,10 +486,30 @@ class WebInterface:
             except Exception as exc:  # noqa: BLE001 - a dead socket must not kill the app
                 logger.debug("WebSocket error: %s", truncate(str(exc), 160))
             finally:
+                self._sockets.discard(websocket)
                 self.clients = max(0, self.clients - 1)
                 logger.info("Web client disconnected (%d active).", self.clients)
 
         return app
+
+    async def broadcast(self, message: str, kind: str = "notice") -> None:
+        """Push an unprompted message to every open browser tab.
+
+        Reminders, timers and scheduled jobs fire whether or not anyone is
+        typing, so they are pushed to connected clients instead of being lost.
+
+        Args:
+            message: The text to show.
+            kind: Message type understood by the front-end (``notice``).
+        """
+        if not self._sockets:
+            return
+        payload = json.dumps({"type": kind, "text": message})
+        for socket in list(self._sockets):
+            try:
+                await socket.send_text(payload)
+            except Exception:  # noqa: BLE001 - drop dead sockets silently
+                self._sockets.discard(socket)
 
     async def _handle_turn(self, websocket: Any, text: str) -> None:
         """Run one request, streaming tokens back to the browser."""

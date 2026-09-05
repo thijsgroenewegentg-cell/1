@@ -7,16 +7,19 @@ import asyncio
 import re
 import sqlite3
 import time
+import json
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.helpers import (
     IS_MACOS,
     IS_WINDOWS,
     ensure_dir,
+    friendly_when,
     human_duration,
     parse_duration,
     parse_when,
@@ -55,9 +58,183 @@ CREATE TABLE IF NOT EXISTS notes (
     created TEXT,
     updated TEXT
 );
+CREATE TABLE IF NOT EXISTS schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL,
+    action TEXT NOT NULL,
+    params TEXT DEFAULT '{}',
+    rule TEXT NOT NULL,
+    next_run TEXT NOT NULL,
+    last_run TEXT DEFAULT '',
+    enabled INTEGER DEFAULT 1,
+    runs INTEGER DEFAULT 0,
+    created TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_todos_done ON todos(done);
 CREATE INDEX IF NOT EXISTS idx_reminders_fired ON reminders(fired);
+CREATE INDEX IF NOT EXISTS idx_schedules_next ON schedules(enabled, next_run);
 """
+
+#: Weekday names accepted in schedule rules, Monday first.
+WEEKDAYS: Dict[str, int] = {
+    "monday": 0, "mon": 0, "tuesday": 1, "tue": 1, "tues": 1, "wednesday": 2, "wed": 2,
+    "thursday": 3, "thu": 3, "thurs": 3, "friday": 4, "fri": 4, "saturday": 5, "sat": 5,
+    "sunday": 6, "sun": 6,
+}
+
+
+@dataclass
+class ScheduleRule:
+    """A parsed recurring-schedule rule.
+
+    Attributes:
+        kind: ``daily``, ``weekly``, ``weekdays``, ``weekends``, ``hourly``,
+            ``interval`` or ``once``.
+        hour: Hour of day for time-based rules.
+        minute: Minute of the hour.
+        weekdays: Which weekdays the job may run on (Monday = 0).
+        seconds: Interval length for ``interval`` rules.
+        text: The original phrase, kept for display.
+    """
+
+    kind: str = "daily"
+    hour: int = 8
+    minute: int = 0
+    weekdays: Tuple[int, ...] = ()
+    seconds: int = 0
+    text: str = ""
+
+    def describe(self) -> str:
+        """Human-readable version of the rule."""
+        clock = f"{self.hour:02d}:{self.minute:02d}"
+        if self.kind == "interval":
+            return f"every {human_duration(self.seconds)}"
+        if self.kind == "hourly":
+            return f"every hour at :{self.minute:02d}"
+        if self.kind == "weekdays":
+            return f"every weekday at {clock}"
+        if self.kind == "weekends":
+            return f"every weekend day at {clock}"
+        if self.kind == "weekly" and self.weekdays:
+            names = ", ".join(
+                ["Monday", "Tuesday", "Wednesday", "Thursday",
+                 "Friday", "Saturday", "Sunday"][day]
+                for day in self.weekdays
+            )
+            return f"every {names} at {clock}"
+        if self.kind == "once":
+            return f"once at {clock}"
+        return f"every day at {clock}"
+
+    def next_after(self, moment: datetime) -> datetime:
+        """Return the first firing time strictly after ``moment``.
+
+        Args:
+            moment: The reference time.
+
+        Returns:
+            The next datetime this rule fires.
+        """
+        if self.kind == "interval":
+            return moment + timedelta(seconds=max(30, self.seconds))
+        if self.kind == "hourly":
+            candidate = moment.replace(minute=self.minute, second=0, microsecond=0)
+            if candidate <= moment:
+                candidate += timedelta(hours=1)
+            return candidate
+
+        allowed: Tuple[int, ...] = self.weekdays
+        if self.kind == "weekdays":
+            allowed = (0, 1, 2, 3, 4)
+        elif self.kind == "weekends":
+            allowed = (5, 6)
+        elif self.kind in ("daily", "once") or not allowed:
+            allowed = (0, 1, 2, 3, 4, 5, 6)
+
+        candidate = moment.replace(hour=self.hour, minute=self.minute,
+                                   second=0, microsecond=0)
+        if candidate <= moment:
+            candidate += timedelta(days=1)
+        for _ in range(8):
+            if candidate.weekday() in allowed:
+                return candidate
+            candidate += timedelta(days=1)
+        return candidate
+
+
+def parse_schedule(text: str) -> Optional[ScheduleRule]:
+    """Turn "every weekday at 8am" into a :class:`ScheduleRule`.
+
+    Understands: ``every day/morning/evening at HH:MM``, ``every weekday``,
+    ``every weekend``, ``every monday``, ``every hour``, ``every 30 minutes``,
+    ``daily at 7``, ``hourly``, and bare times like ``at 18:30``.
+
+    Args:
+        text: The phrase the user said.
+
+    Returns:
+        A parsed rule, or ``None`` when nothing recognisable was found.
+    """
+    lowered = " ".join((text or "").lower().split())
+    if not lowered:
+        return None
+
+    hour, minute = 8, 0
+    clock = re.search(r"\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", lowered)
+    explicit_time = False
+    if clock and ("at " in lowered or clock.group(3) or ":" in clock.group(0)):
+        candidate_hour = int(clock.group(1))
+        candidate_minute = int(clock.group(2) or 0)
+        meridiem = clock.group(3)
+        if meridiem == "pm" and candidate_hour < 12:
+            candidate_hour += 12
+        elif meridiem == "am" and candidate_hour == 12:
+            candidate_hour = 0
+        if 0 <= candidate_hour <= 23 and 0 <= candidate_minute <= 59:
+            hour, minute, explicit_time = candidate_hour, candidate_minute, True
+
+    if "morning" in lowered and not explicit_time:
+        hour, minute = 8, 0
+    elif "afternoon" in lowered and not explicit_time:
+        hour, minute = 14, 0
+    elif ("evening" in lowered or "tonight" in lowered) and not explicit_time:
+        hour, minute = 19, 0
+    elif "night" in lowered and not explicit_time:
+        hour, minute = 22, 0
+    elif "noon" in lowered:
+        hour, minute = 12, 0
+
+    interval = re.search(
+        r"every\s+(\d+)\s*(second|sec|minute|min|hour|hr|day)s?\b", lowered
+    )
+    if interval:
+        amount = int(interval.group(1))
+        unit = interval.group(2)
+        factor = {"second": 1, "sec": 1, "minute": 60, "min": 60,
+                  "hour": 3600, "hr": 3600, "day": 86400}[unit]
+        return ScheduleRule(kind="interval", seconds=amount * factor, text=lowered)
+
+    if re.search(r"\b(hourly|every hour)\b", lowered):
+        return ScheduleRule(kind="hourly", minute=minute, text=lowered)
+    if "weekday" in lowered or "work day" in lowered or "workday" in lowered:
+        return ScheduleRule(kind="weekdays", hour=hour, minute=minute, text=lowered)
+    if "weekend" in lowered:
+        return ScheduleRule(kind="weekends", hour=hour, minute=minute, text=lowered)
+
+    days = tuple(sorted({
+        number for name, number in WEEKDAYS.items()
+        if re.search(rf"\b{name}s?\b", lowered)
+    }))
+    if days:
+        return ScheduleRule(kind="weekly", hour=hour, minute=minute,
+                            weekdays=days, text=lowered)
+
+    if re.search(r"\b(every ?day|daily|each day|every morning|every evening|"
+                 r"every afternoon|every night)\b", lowered):
+        return ScheduleRule(kind="daily", hour=hour, minute=minute, text=lowered)
+    if explicit_time:
+        return ScheduleRule(kind="daily", hour=hour, minute=minute, text=lowered)
+    return None
 
 
 class Productivity(BaseModule):
@@ -85,6 +262,11 @@ class Productivity(BaseModule):
         self.timers: Dict[str, Dict[str, Any]] = {}
         self.stopwatches: Dict[str, Dict[str, Any]] = {}
         self.notifier: Optional[Callable[[str], Any]] = None
+        self.brain: Any = None
+        self.catch_up_on_start: bool = bool(config.get("productivity.catch_up_on_start", True))
+        self.scheduler_interval: int = max(
+            5, int(config.get("productivity.scheduler_interval", 15) or 15)
+        )
         self._scheduler_task: Optional[asyncio.Task] = None
         self._init_db()
 
@@ -109,9 +291,65 @@ class Productivity(BaseModule):
         self.notifier = notifier
 
     async def setup(self) -> None:
-        """Start the background reminder scheduler."""
+        """Start the background scheduler and report anything missed."""
         if self._scheduler_task is None or self._scheduler_task.done():
             self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+        if self.catch_up_on_start:
+            await self._catch_up()
+
+    async def _catch_up(self) -> None:
+        """Report reminders and jobs that came due while JARVIS was off.
+
+        A reminder that fired into an empty room is worse than useless, so on
+        every start-up JARVIS looks for overdue items and mentions them once,
+        rather than silently swallowing them or firing a dozen alerts at once.
+        """
+        try:
+            missed = await run_blocking(self._collect_missed)
+        except Exception as exc:  # pragma: no cover - defensive
+            self.log.debug("Catch-up failed: %s", exc)
+            return
+        if not missed:
+            return
+        if len(missed) == 1:
+            await self._announce(f"While I was away: {missed[0]}")
+        else:
+            listed = "; ".join(missed[:5])
+            extra = f" (and {len(missed) - 5} more)" if len(missed) > 5 else ""
+            await self._announce(f"While I was away, {len(missed)} things came due: "
+                                 f"{listed}{extra}")
+
+    def _collect_missed(self) -> List[str]:
+        """Mark overdue reminders and jobs as handled, returning descriptions."""
+        found: List[str] = []
+        now = datetime.now()
+        stamp = now.isoformat(timespec="seconds")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, text, due FROM reminders WHERE fired = 0 AND due <= ? "
+                "ORDER BY due", (stamp,),
+            ).fetchall()
+            for row in rows:
+                try:
+                    due = datetime.fromisoformat(row["due"])
+                    late = human_duration((now - due).total_seconds())
+                except Exception:
+                    late = "a while"
+                found.append(f"{row['text']} ({late} ago)")
+                connection.execute("UPDATE reminders SET fired = 1 WHERE id = ?", (row["id"],))
+
+            jobs = connection.execute(
+                "SELECT id, description, rule, next_run FROM schedules "
+                "WHERE enabled = 1 AND next_run <= ?", (stamp,),
+            ).fetchall()
+            for job in jobs:
+                rule = parse_schedule(job["rule"]) or ScheduleRule(text=job["rule"])
+                connection.execute(
+                    "UPDATE schedules SET next_run = ? WHERE id = ?",
+                    (rule.next_after(now).isoformat(timespec="seconds"), job["id"]),
+                )
+                found.append(f"the scheduled '{job['description']}' was skipped")
+        return found
 
     async def shutdown(self) -> None:
         """Cancel the scheduler and any running timers."""
@@ -162,18 +400,272 @@ class Productivity(BaseModule):
             pass
 
     async def _scheduler_loop(self) -> None:
-        """Poll for due reminders every 15 seconds."""
+        """Poll for due reminders and scheduled jobs every 15 seconds."""
         self.log.debug("Reminder scheduler started.")
         while True:
             try:
-                await asyncio.sleep(15)
+                await asyncio.sleep(self.scheduler_interval)
                 due = await run_blocking(self._pop_due_reminders)
                 for row in due:
                     await self._announce(f"Reminder: {row['text']}")
+                for job in await run_blocking(self._pop_due_jobs):
+                    await self._run_job(job)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
                 self.log.debug("Scheduler hiccup: %s", exc)
+
+    def _pop_due_jobs(self) -> List[Dict[str, Any]]:
+        """Return scheduled jobs that are due, and reschedule them."""
+        jobs: List[Dict[str, Any]] = []
+        try:
+            now = datetime.now()
+            stamp = now.isoformat(timespec="seconds")
+            with self._connect() as connection:
+                rows = connection.execute(
+                    "SELECT * FROM schedules WHERE enabled = 1 AND next_run <= ?", (stamp,)
+                ).fetchall()
+                for row in rows:
+                    job = dict(row)
+                    rule = parse_schedule(job["rule"]) or ScheduleRule(text=job["rule"])
+                    connection.execute(
+                        "UPDATE schedules SET next_run = ?, last_run = ?, runs = runs + 1 "
+                        "WHERE id = ?",
+                        (rule.next_after(now).isoformat(timespec="seconds"), stamp, job["id"]),
+                    )
+                    jobs.append(job)
+        except Exception as exc:
+            self.log.debug("Could not read the schedule: %s", exc)
+        return jobs
+
+    async def _run_job(self, job: Dict[str, Any]) -> None:
+        """Execute one scheduled job and announce the outcome.
+
+        Args:
+            job: The row from the ``schedules`` table.
+        """
+        action = str(job.get("action") or "").strip()
+        description = str(job.get("description") or action)
+        try:
+            params = json.loads(job.get("params") or "{}")
+        except Exception:
+            params = {}
+        self.log.info("Running scheduled job '%s' (%s).", description, action)
+
+        try:
+            if action.startswith("say:"):
+                await self._announce(action[4:].strip() or description)
+                return
+            if action.startswith("ask:") and self.brain is not None:
+                reply = await self.brain.process(action[4:].strip())
+                await self._announce(truncate(reply, 600))
+                return
+            if self.brain is not None and hasattr(self.brain, "dispatch"):
+                result = await self.brain.dispatch(action, params)
+                spoken = result.spoken() if hasattr(result, "spoken") else str(result)
+                await self._announce(f"{description}: {truncate(spoken, 600)}")
+                return
+            result = await self.call_tool(action.split(".")[-1], params)
+            await self._announce(f"{description}: {truncate(result.spoken(), 600)}")
+        except Exception as exc:  # noqa: BLE001 - a bad job must not kill the loop
+            self.log.warning("Scheduled job '%s' failed: %s", description, exc)
+            await self._announce(f"The scheduled '{description}' failed: {truncate(str(exc), 120)}")
+
+    @tool(
+        description=(
+            "Schedule something to happen regularly — a briefing every weekday morning, "
+            "a question answered every hour, a nudge every Friday."
+        ),
+        params={
+            "when": {"type": "string", "required": True,
+                     "description": "'every weekday at 8am', 'daily at 19:00', "
+                                    "'every 30 minutes', 'every monday at 9'"},
+            "what": {"type": "string", "required": True,
+                     "description": "What to do: plain words to say, a question to answer, "
+                                    "or a module.tool reference"},
+        },
+        keywords=["every day at", "every morning", "every weekday", "every monday",
+                  "schedule a", "schedule my", "recurring reminder", "every hour",
+                  "each morning", "from now on every"],
+        examples=['schedule_recurring(when="every weekday at 8am", what="daily briefing")'],
+    )
+    async def schedule_recurring(self, when: str, what: str) -> ModuleResult:
+        """Create a repeating job.
+
+        Args:
+            when: A phrase describing the repetition.
+            what: A tool reference, a question, or words to say.
+
+        Returns:
+            Confirmation including the next firing time.
+        """
+        rule = parse_schedule(when)
+        if rule is None:
+            return ModuleResult.fail(
+                "I could not read that schedule, sir. Try 'every weekday at 8am', "
+                "'daily at 19:30', 'every monday at 9' or 'every 30 minutes'."
+            )
+
+        target = (what or "").strip()
+        if not target:
+            return ModuleResult.fail("And what should I do at that time, sir?")
+
+        action = self._resolve_action(target)
+        next_run = rule.next_after(datetime.now())
+
+        def _insert() -> int:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "INSERT INTO schedules (description, action, params, rule, next_run, "
+                    "created) VALUES (?, ?, ?, ?, ?, ?)",
+                    (truncate(target, 120), action, "{}", when.strip(),
+                     next_run.isoformat(timespec="seconds"),
+                     datetime.now().isoformat(timespec="seconds")),
+                )
+                return int(cursor.lastrowid or 0)
+
+        job_id = await run_blocking(_insert)
+        return ModuleResult(
+            success=True,
+            output=(
+                f"Scheduled #{job_id}: {truncate(target, 100)}\n"
+                f"  when : {rule.describe()}\n"
+                f"  next : {next_run:%A %d %B at %H:%M}\n"
+                f"  action: {action}"
+            ),
+            speak=f"Done, sir. {rule.describe().capitalize()}, starting "
+                  f"{friendly_when(next_run)}.",
+            data={"id": job_id, "next_run": next_run.isoformat(), "action": action},
+        )
+
+    @staticmethod
+    def _resolve_action(target: str) -> str:
+        """Turn what the user asked for into an executable action string.
+
+        Args:
+            target: The user's phrasing.
+
+        Returns:
+            ``module.tool``, ``ask:<question>`` or ``say:<words>``.
+        """
+        cleaned = target.strip()
+        if re.fullmatch(r"[a-z_]+\.[a-z_]+", cleaned):
+            return cleaned
+        lowered = cleaned.lower()
+        shortcuts = {
+            "daily briefing": "productivity.daily_briefing",
+            "briefing": "productivity.daily_briefing",
+            "brief me": "productivity.daily_briefing",
+            "my todos": "productivity.list_todos",
+            "my tasks": "productivity.list_todos",
+            "the weather": "web_search.weather",
+            "weather": "web_search.weather",
+            "the news": "web_search.news",
+            "news": "web_search.news",
+            "my email": "communications.check_email",
+            "my inbox": "communications.summarize_inbox",
+            "my calendar": "communications.upcoming_events",
+        }
+        for phrase, reference in shortcuts.items():
+            if lowered == phrase or lowered.startswith(f"{phrase} ") or \
+                    lowered.endswith(f" {phrase}"):
+                return reference
+        if lowered.endswith("?") or lowered.split(" ")[0] in {
+            "what", "when", "how", "who", "where", "why", "is", "are", "do", "does", "tell",
+        }:
+            return f"ask:{cleaned}"
+        return f"say:{cleaned}"
+
+    @tool(
+        description="List everything on the recurring schedule.",
+        params={},
+        keywords=["list schedules", "what is scheduled", "my schedule",
+                  "recurring jobs", "what do you run automatically"],
+    )
+    async def list_schedules(self) -> ModuleResult:
+        """Show every recurring job with its next run time."""
+        def _read() -> List[Dict[str, Any]]:
+            with self._connect() as connection:
+                return [dict(row) for row in connection.execute(
+                    "SELECT * FROM schedules ORDER BY enabled DESC, next_run"
+                ).fetchall()]
+
+        rows = await run_blocking(_read)
+        if not rows:
+            return ModuleResult.ok(
+                "Nothing is scheduled, sir. Try: 'every weekday at 8am, give me my "
+                "daily briefing'.",
+                schedules=[],
+            )
+        lines = [f"{len(rows)} scheduled job(s):"]
+        for row in rows:
+            rule = parse_schedule(row["rule"])
+            when = rule.describe() if rule else row["rule"]
+            state = "" if row["enabled"] else "  [paused]"
+            try:
+                nxt = datetime.fromisoformat(row["next_run"])
+                next_text = f"{nxt:%a %d %b %H:%M}"
+            except Exception:
+                next_text = row["next_run"]
+            lines.append(
+                f"  #{row['id']:<3} {truncate(row['description'], 40):42} {when:26} "
+                f"next {next_text}{state}"
+            )
+        return ModuleResult.ok("\n".join(lines), schedules=rows)
+
+    @tool(
+        description="Cancel or pause a scheduled job.",
+        params={
+            "job_id": {"type": "integer", "description": "Job number", "default": 0},
+            "description": {"type": "string", "description": "…or match on its text",
+                            "default": ""},
+            "pause": {"type": "boolean", "description": "Pause instead of deleting",
+                      "default": False},
+        },
+        keywords=["cancel the schedule", "stop the daily", "unschedule",
+                  "pause the schedule", "delete the schedule"],
+    )
+    async def cancel_schedule(self, job_id: int = 0, description: str = "",
+                              pause: bool = False) -> ModuleResult:
+        """Remove or pause a recurring job.
+
+        Args:
+            job_id: The job number from :meth:`list_schedules`.
+            description: Alternative match on the job's text.
+            pause: Keep the job but stop it running.
+
+        Returns:
+            Confirmation of what changed.
+        """
+        def _apply() -> Optional[Dict[str, Any]]:
+            with self._connect() as connection:
+                row = None
+                if job_id:
+                    row = connection.execute(
+                        "SELECT * FROM schedules WHERE id = ?", (int(job_id),)
+                    ).fetchone()
+                elif description.strip():
+                    row = connection.execute(
+                        "SELECT * FROM schedules WHERE description LIKE ? ORDER BY id DESC",
+                        (f"%{description.strip()}%",),
+                    ).fetchone()
+                if row is None:
+                    return None
+                if pause:
+                    connection.execute(
+                        "UPDATE schedules SET enabled = 0 WHERE id = ?", (row["id"],)
+                    )
+                else:
+                    connection.execute("DELETE FROM schedules WHERE id = ?", (row["id"],))
+                return dict(row)
+
+        row = await run_blocking(_apply)
+        if row is None:
+            return ModuleResult.fail("I could not find that scheduled job, sir.")
+        verb = "Paused" if pause else "Cancelled"
+        return ModuleResult.ok(
+            f"{verb} #{row['id']}: {row['description']}.", id=row["id"], paused=pause
+        )
 
     def _pop_due_reminders(self) -> List[Dict[str, Any]]:
         """Mark due reminders as fired and return them."""
@@ -208,6 +700,40 @@ class Productivity(BaseModule):
         """Rule-based routing with parameter extraction (used without an LLM)."""
         text = strip_command_prefix(command)
         lowered = text.lower()
+
+        # -- recurring schedules (before reminders: "remind me every day…") ---
+        if any(phrase in lowered for phrase in
+               ("list schedules", "my schedules", "what is scheduled", "what's scheduled",
+                "scheduled jobs", "recurring jobs", "show my schedule")):
+            return "list_schedules", {}
+        if any(phrase in lowered for phrase in
+               ("cancel the schedule", "cancel schedule", "unschedule", "stop the schedule",
+                "pause the schedule", "delete the schedule", "cancel the recurring")):
+            number = re.search(r"#?(\d+)", lowered)
+            return "cancel_schedule", {
+                "job_id": int(number.group(1)) if number else 0,
+                "description": "" if number else re.sub(
+                    r".*(?:schedule[d]?|recurring)\s*", "", lowered).strip(),
+                "pause": "pause" in lowered,
+            }
+        day_word = r"(?:mon|tues|wednes|thurs|fri|satur|sun)day"
+        recurring = re.search(
+            r"\b((?:every\s+(?:day|morning|afternoon|evening|night|weekday|weekends?|"
+            r"hour|\d+\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)|"
+            + day_word + r"(?:\s*(?:,|and)\s*" + day_word + r")*)"
+            r"|hourly|daily|each\s+(?:day|morning|evening|weekday))"
+            r"(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)",
+            lowered,
+        )
+        if recurring and parse_schedule(recurring.group(1)) is not None:
+            when = recurring.group(1).strip()
+            rest = (text[: recurring.start(1)] + " " + text[recurring.end(1):]).strip(" ,.")
+            rest = re.sub(
+                r"^(?:please\s+)?(?:can you\s+|could you\s+)?"
+                r"(?:remind me|schedule|set up|give me|tell me|run|do)\s+(?:me\s+)?(?:to\s+)?",
+                "", rest.strip(), flags=re.IGNORECASE,
+            ).strip(" ,.")
+            return "schedule_recurring", {"when": when, "what": rest or "check in"}
 
         # -- reminders -------------------------------------------------------
         reminder = re.search(

@@ -90,9 +90,12 @@ class Jarvis:
         self.brain.speaker_hook = self._status_update
 
     async def _notify(self, message: str) -> None:
-        """Announce a reminder or timer in every active channel."""
+        """Announce a reminder, timer or scheduled job in every active channel."""
         if self.cli is not None:
             self.cli.notify(message)
+        if self.web is not None:
+            with contextlib.suppress(Exception):
+                await self.web.broadcast(message)
         if self.voice is not None and self.voice.available:
             with contextlib.suppress(Exception):
                 await self.voice.speak(message)

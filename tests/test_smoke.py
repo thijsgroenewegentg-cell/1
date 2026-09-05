@@ -194,6 +194,116 @@ def test_injection_defence() -> None:
           forged)
 
 
+def test_schedule_parsing() -> None:
+    """Recurring-schedule phrases and their next firing times."""
+    print("\n[schedule parsing]")
+    from datetime import datetime as _dt
+
+    from modules.productivity import parse_schedule
+
+    saturday = _dt(2026, 9, 5, 22, 45)
+    cases = [
+        ("every weekday at 8am", "weekdays", _dt(2026, 9, 7, 8, 0)),
+        ("daily at 7:30", "daily", _dt(2026, 9, 6, 7, 30)),
+        ("every morning", "daily", _dt(2026, 9, 6, 8, 0)),
+        ("every monday and friday at 6pm", "weekly", _dt(2026, 9, 7, 18, 0)),
+        ("every weekend at 10", "weekends", _dt(2026, 9, 6, 10, 0)),
+        ("every 30 minutes", "interval", _dt(2026, 9, 5, 23, 15)),
+        ("hourly", "hourly", _dt(2026, 9, 5, 23, 0)),
+    ]
+    for phrase, kind, expected in cases:
+        rule = parse_schedule(phrase)
+        check(f"parses {phrase!r}", rule is not None and rule.kind == kind,
+              f"got {rule.kind if rule else None}")
+        if rule is not None:
+            check(f"next run for {phrase!r}", rule.next_after(saturday) == expected,
+                  str(rule.next_after(saturday)))
+    check("rejects nonsense", parse_schedule("bananas in pyjamas") is None)
+    rule = parse_schedule("every 5 seconds")
+    check("interval has a 30s floor",
+          rule is not None and (rule.next_after(saturday) - saturday).total_seconds() >= 30)
+
+
+async def test_scheduler(root: Path) -> None:
+    """Recurring jobs: creation, firing, catch-up and cancellation."""
+    print("\n[scheduler]")
+    import sqlite3
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
+    from modules.productivity import Productivity
+
+    home = root / "sched"
+    home.mkdir(exist_ok=True)
+    config = make_config(home, "http://127.0.0.1:9")
+    config.set("database.path", "sched.db")
+    module = Productivity(config)
+    announced: List[str] = []
+    module.set_notifier(lambda message: announced.append(message))
+
+    result = await module.execute("every weekday at 8am give me my daily briefing", {})
+    check("schedules a briefing", result.success and "every weekday at 08:00" in result.output,
+          result.output[:80])
+    check("resolves a known shortcut", "productivity.daily_briefing" in result.output,
+          result.output[:120])
+
+    result = await module.execute("every 30 minutes tell me to look away from the screen", {})
+    check("schedules a spoken nudge", result.success and "say:" in result.output,
+          result.output[:80])
+
+    result = await module.call_tool("list_schedules", {})
+    check("lists both jobs", result.success and result.output.startswith("2 scheduled"),
+          result.output[:60])
+
+    # Make the nudge overdue and let the scheduler pick it up.
+    connection = sqlite3.connect(str(home / "sched.db"))
+    connection.execute(
+        "UPDATE schedules SET next_run = ? WHERE action LIKE 'say:%'",
+        ((_dt.now() - _td(minutes=1)).isoformat(timespec="seconds"),),
+    )
+    connection.commit()
+    connection.close()
+
+    due = await asyncio.get_running_loop().run_in_executor(None, module._pop_due_jobs)
+    check("due job is picked up", len(due) == 1, str(len(due)))
+    for job in due:
+        await module._run_job(job)
+    check("due job announced itself",
+          any("look away" in message for message in announced), str(announced))
+
+    connection = sqlite3.connect(str(home / "sched.db"))
+    row = connection.execute(
+        "SELECT next_run, runs FROM schedules WHERE action LIKE 'say:%'"
+    ).fetchone()
+    connection.close()
+    check("job rescheduled into the future", row[0] > _dt.now().isoformat(), str(row[0]))
+    check("run counter increments", row[1] == 1, str(row[1]))
+
+    # A reminder that came due while JARVIS was off is reported once.
+    await module.call_tool("add_reminder", {"text": "call mom", "when": "in 1 second"})
+    await asyncio.sleep(1.2)
+    announced.clear()
+    await module._catch_up()
+    check("catch-up reports missed reminders",
+          any("call mom" in message and "away" in message for message in announced),
+          str(announced))
+    announced.clear()
+    await module._catch_up()
+    check("catch-up does not repeat itself", not announced, str(announced))
+
+    result = await module.execute("cancel schedule #1", {})
+    check("cancels by number", result.success and "#1" in result.output, result.output[:60])
+    result = await module.call_tool("cancel_schedule", {"description": "look away",
+                                                        "pause": True})
+    check("pauses by description", result.success and "Paused" in result.output,
+          result.output[:60])
+    result = await module.call_tool("list_schedules", {})
+    check("paused jobs are marked", "[paused]" in result.output, result.output[:120])
+    due = await asyncio.get_running_loop().run_in_executor(None, module._pop_due_jobs)
+    check("paused jobs never fire", not due, str(due))
+    await module.shutdown()
+
+
 def test_installer() -> None:
     """The one-command installer's own logic."""
     print("\n[installer]")
@@ -561,6 +671,12 @@ async def test_web_interface(root: Path, host: str) -> None:
                         check("websocket streams then replies",
                               seen_token and bool(message["text"]), str(message)[:80])
                         break
+                # Reminders and scheduled jobs are pushed to open tabs.
+                await server.broadcast("Reminder: call mom")
+                pushed = socket.receive_json()
+                check("notifications are pushed to the browser",
+                      pushed["type"] == "notice" and "call mom" in pushed["text"],
+                      str(pushed)[:80])
     except Exception as exc:  # pragma: no cover - httpx/testclient absent
         print(f"  \033[33m~\033[0m TestClient unavailable, skipping HTTP checks ({exc})")
 
@@ -820,6 +936,7 @@ async def main() -> int:
     test_helpers()
     test_security()
     test_injection_defence()
+    test_schedule_parsing()
     test_installer()
 
     port = free_port()
@@ -832,6 +949,7 @@ async def main() -> int:
         await test_degraded(workdir)
         await test_with_mock_llm(workdir, f"http://127.0.0.1:{port}")
         await test_modules(workdir)
+        await test_scheduler(workdir)
         await test_new_modules(workdir, f"http://127.0.0.1:{port}")
         await test_streaming_and_followups(workdir, f"http://127.0.0.1:{port}")
         await test_web_interface(workdir, f"http://127.0.0.1:{port}")

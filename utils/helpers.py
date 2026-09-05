@@ -389,6 +389,32 @@ def friendly_time(dt: Optional[datetime] = None) -> str:
     return dt.strftime("%A %d %B %Y, %H:%M")
 
 
+def friendly_when(dt: datetime, reference: Optional[datetime] = None) -> str:
+    """Describe a moment the way a person would say it out loud.
+
+    Args:
+        dt: The moment to describe.
+        reference: What "now" means (defaults to the current time).
+
+    Returns:
+        Strings such as ``"in 20 minutes"``, ``"tomorrow at 08:00"`` or
+        ``"on Monday 14 September at 09:00"``.
+    """
+    reference = reference or datetime.now()
+    delta = (dt - reference).total_seconds()
+    if 0 <= delta < 3600:
+        return f"in {human_duration(delta)}"
+    days = (dt.date() - reference.date()).days
+    clock = dt.strftime("%H:%M")
+    if days == 0:
+        return f"today at {clock}"
+    if days == 1:
+        return f"tomorrow at {clock}"
+    if 2 <= days <= 6:
+        return f"on {dt:%A} at {clock}"
+    return f"on {dt:%A %d %B} at {clock}"
+
+
 def parse_duration(text: str) -> Optional[int]:
     """Parse ``"10 minutes"``, ``"1h30m"``, ``"90s"`` into seconds.
 

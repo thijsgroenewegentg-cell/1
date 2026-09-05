@@ -39,11 +39,11 @@ intelligence — built entirely from free and open-source parts.
 | Phone / LAN UI | **FastAPI** + WebSockets, served from your own machine | free |
 | Self-improvement | **GitHub search API** (keyless) + `git clone` + its own LLM | free, no key |
 
-Ten capability modules, 103 callable tools:
+Ten capability modules, 109 callable tools:
 
 * **system_control** — open/close apps, screenshots, CPU/RAM/disk/battery, volume, lock screen, clipboard, keyboard & mouse automation, shell commands (guarded), time/date
 * **web_search** — DuckDuckGo search, page scraping + summarising, weather, news, Wikipedia, geocoding
-* **productivity** — todos, reminders with real notifications, timers, stopwatch, notes, daily briefing
+* **productivity** — todos, reminders with real notifications, timers, stopwatch, notes, daily briefing, and a **recurring scheduler** ("every weekday at 8am, give me my daily briefing") that also catches up on anything that came due while the machine was off
 * **code_assistant** — write, explain, debug, refactor, test, save and *run* code in a sandbox
 * **file_manager** — find files by name/content, organise folders, summarise PDF/DOCX/TXT, analyse CSVs, find duplicates, disk usage
 * **smart_assistant** — Q&A with web RAG, safe maths, unit & currency conversion, translation, summarising, creative writing
@@ -263,7 +263,7 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 | `stream on\|off` | toggle live token-by-token replies |
 | `plugins` | list the skills JARVIS has written for itself |
 | `changes` / `undo` | its own change history, and roll back the last one |
-| `selftest` | run the 154-check smoke suite against the current code |
+| `selftest` | run the 214-check smoke suite against the current code |
 | `mute` / `unmute` | speak replies in text mode |
 | `clear`, `config`, `exit` | as expected |
 
@@ -278,6 +278,10 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 "Search for the latest on fusion power"
 "Remind me to call mom at 5pm"
 "Set a timer for 10 minutes"
+"Every weekday at 8am, give me my daily briefing"
+"Remind me to stretch every 30 minutes"
+"What's on my schedule?"        (recurring jobs)
+"Cancel schedule 2"
 "Add buy milk to my todo list"
 "Give me my daily briefing"
 "Write a python script that renames files by date"
@@ -370,7 +374,7 @@ jarvis/
 │   ├── base.py              tool decorator, dispatch, offline routing
 │   ├── system_control.py    apps, stats, volume, input, shell
 │   ├── web_search.py        DuckDuckGo, scraping, weather, news, Wikipedia
-│   ├── productivity.py      todos, reminders, timers, notes, briefing
+│   ├── productivity.py      todos, reminders, timers, notes, briefing, scheduler
 │   ├── code_assistant.py    write / explain / debug / run / save code
 │   ├── file_manager.py      search, organise, summarise, CSV analysis
 │   ├── smart_assistant.py   Q&A + RAG, maths, conversions, translation, writing
@@ -392,7 +396,7 @@ jarvis/
 ├── .github/ci.yml           lint + smoke suite CI (move to .github/workflows/)
 ├── plugins/                 skills JARVIS writes for itself (loaded at start-up)
 ├── tests/
-│   ├── test_smoke.py        154-check end-to-end suite
+│   ├── test_smoke.py        214-check end-to-end suite
 │   └── mock_ollama.py       scripted LLM server (streaming + vision) for testing
 └── data/                    SQLite DB, ChromaDB, notes, code, screenshots, TTS cache
 ```
@@ -430,6 +434,10 @@ voice:
   conversation_mode: true    # no wake word needed for follow-ups
   conversation_timeout: 12
 
+productivity:
+  catch_up_on_start: true    # report anything that came due while JARVIS was off
+  scheduler_interval: 15     # seconds between checks for due reminders and jobs
+
 knowledge:
   paths: ["~/Documents"]     # folders to index
   top_k: 5
@@ -441,7 +449,9 @@ web_ui:
   enabled: false
   host: "0.0.0.0"            # reachable from your phone on the same Wi-Fi
   port: 8765
-  token: ""                  # optional shared secret: http://…:8765/?token=…
+  require_token: true        # a blank token is generated into data/web_token.txt
+  token: ""                  # shared secret: http://…:8765/?token=…
+  rate_limit_per_minute: 40
 
 email:
   enabled: false
@@ -458,6 +468,7 @@ self_improve:
   enabled: true
   allow_code_edit: true      # may rewrite its own source files
   allow_plugin_install: true # may write new skills into plugins/
+  review_plugins: true       # new skills wait in plugins/pending until approved
   allow_pip_install: false   # may NOT install packages unless you say so
   run_tests_after_edit: true # every self-edit must survive tests/test_smoke.py
   git_commit: true           # commits each change locally (never pushes)
@@ -531,6 +542,50 @@ follow-up questions flow naturally. Say **"stop"** to cut a reply short.
 
 ---
 
+## Things that happen on their own
+
+A reminder is a one-shot. A *schedule* repeats, survives reboots, and can call
+any tool JARVIS has:
+
+```
+> every weekday at 8am give me my daily briefing
+Scheduled #1: my daily briefing
+  when : every weekday at 08:00
+  next : Monday 07 September at 08:00
+  action: productivity.daily_briefing
+
+> remind me to look away from the screen every 30 minutes
+> every monday at 9 ask me what the plan for the week is
+> what's on my schedule?
+> cancel schedule 2          (or: pause the schedule briefing)
+```
+
+Phrases it understands: `every day/morning/afternoon/evening at HH:MM`,
+`every weekday`, `every weekend`, `every monday and friday at 6pm`, `hourly`,
+`every 30 minutes`, `daily at 7`, and a bare `at 18:30`.
+
+What it can do at that time:
+
+| You say | It runs |
+|---|---|
+| `my daily briefing`, `the weather`, `the news`, `my inbox`, `my calendar` | the matching tool |
+| anything ending in a question mark | a full LLM turn, answer read out |
+| `productivity.list_todos` | that exact tool |
+| anything else | speaks the words back to you |
+
+Announcements go everywhere you are: the terminal, a desktop notification,
+spoken aloud in voice mode, and pushed live into any open browser tab.
+
+Schedules live in the same SQLite database as your todos, so they persist. And
+because a reminder that fires into an empty room is useless, anything that came
+due while the machine was asleep is reported **once**, at the next start-up:
+
+```
+🔔 While I was away, 2 things came due: call mom (3h 12m ago); …
+```
+
+---
+
 ## Your documents, privately (RAG)
 
 ```bash
@@ -601,7 +656,11 @@ python main.py --web
 Open that address on any device on the same network: a dark, mobile-first chat
 page with streaming replies, a Stop button, quick-action chips and optional
 spoken answers. It is served **by your own machine** — no tunnel, no cloud.
-Set `web_ui.token` to require `?token=…`, and keep it off public Wi-Fi.
+Access needs a token by default: leave `web_ui.token` blank and JARVIS mints
+one on first run, stores it in `data/web_token.txt` and prints the full URL.
+Requests are rate-limited (`web_ui.rate_limit_per_minute`). Reminders, timers
+and scheduled jobs are pushed into the page while it is open — allow browser
+notifications and they arrive even in a background tab.
 
 There is a plain JSON API too:
 
@@ -661,7 +720,7 @@ Dependencies are never installed behind your back: `allow_pip_install` is
 ```
 you  > your weather replies are too long, fix that in your own code
 JARVIS > Rewrote modules/web_search.py (change #4).
-           tests  : 154 passed in 12.4s
+           tests  : 214 passed in 4.2s
            reload : Reloaded 'web_search' — 8 tools active
            backup : data/backups/20260906_101511_modules_web_search.py
            commit : a91f0c2
@@ -692,6 +751,8 @@ Every self-edit goes through the same gauntlet:
 | `repo_details` | stars, licence, activity and README of one repo |
 | `integrate_repo` | clone + write + load a new skill (asks first) |
 | `list_plugins` / `remove_plugin` | see and delete self-written skills |
+| `review_plugin` | read the code of a skill waiting in `plugins/pending/` |
+| `approve_plugin` / `reject_plugin` | load a reviewed skill, or bin it |
 | `install_package` | pip install into JARVIS's own venv (off by default) |
 | `code_map` | inventory of its own files, lines and tools |
 | `read_own_code` | print any of its own source files with line numbers |
@@ -731,8 +792,16 @@ Each script installs a login-time service running `python main.py --web`
   with a timeout; anything touching the filesystem, shell or network prompts
   first.
 * Self-modification is gated: dangerous tools ask for confirmation, generated
-  plugins are scanned before import, self-edits must pass the test suite, and
-  every change is backed up and revertible with `rollback`.
+  plugins are parsed with `ast` and rejected for banned imports, `eval`,
+  computed `getattr` and dunder escapes, self-edits must pass the test suite,
+  and every change is backed up and revertible with `rollback`.
+* New skills are **quarantined**, not loaded: an adapter written for a cloned
+  repository lands in `plugins/pending/`, pinned to the exact commit it was
+  built from, until you say `review_plugin <name>` and then `approve_plugin
+  <name>`. Set `self_improve.review_plugins: false` to trust them immediately.
+* Text fetched from the web, email or documents is fenced as untrusted data and
+  scanned for prompt injection; a tainted turn cannot run shell commands or
+  move your files, and JARVIS says why.
 * JARVIS commits its own changes locally but **never pushes** to a remote.
 * Every risk assessment is logged to `logs/jarvis.log`.
 
@@ -849,7 +918,7 @@ Extras mirror the optional dependencies: `pip install -e ".[voice]"`,
 
 `.github/ci.yml` (move it to `.github/workflows/ci.yml` to switch it on) runs
 pyflakes, byte-compiles every module, executes
-the 154-check offline smoke suite on Linux, macOS and Windows (Python 3.9–3.12)
+the 214-check offline smoke suite on Linux, macOS and Windows (Python 3.9–3.12)
 and builds a wheel. No models are downloaded — `tests/mock_ollama.py` scripts
 the LLM, including token streaming and vision responses.
 

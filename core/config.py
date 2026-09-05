@@ -53,6 +53,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "context_char_budget": 9000,
     },
     "database": {"path": "data/jarvis.db"},
+    "productivity": {
+        "catch_up_on_start": True,
+        "scheduler_interval": 15,
+    },
     "voice": {
         "enabled": True,
         "wake_word": "jarvis",
