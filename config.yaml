@@ -110,8 +110,8 @@ modules:
   smart_assistant: true
   knowledge: true          # RAG over your own documents
   vision: true             # look at the screen / images (needs a vision model)
-  communications: true
-  self_improve: true       # search GitHub, add plugins, edit his own code     # email (IMAP) + calendar (.ics)
+  communications: true     # email (IMAP) + calendar (.ics)
+  self_improve: true       # search GitHub, add plugins, edit his own code
 
 knowledge:
   paths:                   # folders indexed for "ask my documents"

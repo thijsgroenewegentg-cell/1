@@ -161,6 +161,51 @@ def test_helpers() -> None:
         check("safe_eval blocks imports", True)
 
 
+def test_installer() -> None:
+    """The one-command installer's own logic."""
+    print("\n[installer]")
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "jarvis_installer", PROJECT_ROOT / "install.py"
+    )
+    check("install.py is importable", spec is not None and spec.loader is not None)
+    if spec is None or spec.loader is None:
+        return
+    installer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(installer)
+
+    check("three install profiles", set(installer.PROFILES) == {"minimal", "standard", "full"})
+    known = set(installer.PACKAGE_GROUPS)
+    check("profiles only use known package groups",
+          all(set(groups) <= known for groups in installer.PROFILES.values()))
+    check("every profile installs the core group",
+          all("core" in groups for groups in installer.PROFILES.values()))
+    check("full is a superset of standard",
+          set(installer.PROFILES["standard"]) <= set(installer.PROFILES["full"]))
+    requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    missing = [
+        package.split(">=")[0].split("[")[0]
+        for group in installer.PACKAGE_GROUPS.values()
+        for package in group
+        if package.split(">=")[0].split("[")[0].lower() not in requirements.lower()
+    ]
+    check("installer packages all appear in requirements.txt", not missing, str(missing))
+
+    arguments = installer.parse_arguments(["--minimal", "--yes", "--no-ollama"])
+    check("installer parses flags",
+          arguments.profile == "minimal" and arguments.yes and arguments.no_ollama)
+    check("suggest_model returns something", bool(installer.suggest_model()))
+
+    block = 'user:\n  name: "Old"   # keep this comment\n  title: "sir"\n'
+    edited = installer._set_yaml_value(block, "name", "Tony")
+    check("config edits keep the comment",
+          '"Tony"' in edited and "# keep this comment" in edited, edited)
+    check("config edits leave other keys alone", '  title: "sir"' in edited)
+    untouched = installer._set_yaml_value(block, "missing_key", "x")
+    check("unknown keys are left alone", untouched == block)
+
+
 def test_security() -> None:
     """Risk classification."""
     print("\n[security]")
@@ -656,6 +701,7 @@ async def main() -> int:
 
     test_helpers()
     test_security()
+    test_installer()
 
     port = free_port()
     server = serve(port)

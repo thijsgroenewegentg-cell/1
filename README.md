@@ -64,18 +64,57 @@ And the things that make it feel alive:
 
 ---
 
-## Quick start
+## Quick start — the easy installer
+
+One command. It checks your machine, builds the environment, installs the
+packages, installs Ollama, pulls the model, writes the config, adds a desktop
+shortcut and self-tests the lot.
+
+**Windows** — double-click **`install.bat`** *(or `py install.py` in PowerShell)*
+
+**macOS** — double-click **`install.command`** *(or `bash install.sh` in Terminal)*
+
+**Linux**
 
 ```bash
-git clone <your-repo>            # or unzip the project
-cd jarvis
-bash setup.sh                    # installs everything, pulls the model, self-tests
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-python main.py                   # voice mode if a mic exists, otherwise text
-python main.py --web             # or chat from your phone on the same Wi-Fi
+bash install.sh
+```
+
+Nothing installed yet? The installer even fetches the project for you:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thijsgroenewegentg-cell/1/main/install.sh | bash
+```
+
+It asks three questions (install size, your name, desktop shortcut) and then
+gets on with it. Prefer no questions at all?
+
+```bash
+python3 install.py --yes          # every default, straight through
+python3 install.py --minimal      # text only, ~120 MB
+python3 install.py --standard     # everything except the microphone stack
+python3 install.py --full         # + voice, wake word, Whisper  (the default)
+python3 install.py --no-ollama    # skip the LLM engine for now
+python3 install.py --repair       # reinstall packages into an existing install
+python3 install.py --help         # all the flags
+```
+
+| Profile | What you get | Download |
+|---|---|---|
+| `--minimal` | text + web + phone UI | ~120 MB |
+| `--standard` | + memory, documents, desktop control | ~700 MB |
+| `--full` *(default)* | + voice, wake word, faster-whisper, edge-tts | ~2.5 GB |
+
+When it finishes:
+
+```bash
+.venv/bin/python main.py         # Windows: .venv\Scripts\python main.py
 ```
 
 Then say **"Jarvis"**, wait for the chime, and talk. Or just type.
+
+> Shell purist? `bash setup.sh` is the original bash installer and still works
+> on macOS/Linux. `install.py` is the cross-platform one and does more.
 
 ---
 
@@ -90,6 +129,9 @@ Then say **"Jarvis"**, wait for the chime, and talk. Or just type.
 ---
 
 ## Setup: Windows
+
+> The short version: install Python, then double-click **`install.bat`**.
+> The steps below are the manual equivalent, if you would rather do it yourself.
 
 1. **Python** — install from [python.org](https://www.python.org/downloads/windows/), ticking *"Add python.exe to PATH"*.
 2. **Ollama** — download the installer from [ollama.com/download](https://ollama.com/download), run it, then in PowerShell:
@@ -123,6 +165,9 @@ Then say **"Jarvis"**, wait for the chime, and talk. Or just type.
 
 ## Setup: macOS
 
+> The short version: double-click **`install.command`**.
+> The manual equivalent:
+
 ```bash
 # 1. Prerequisites
 brew install python@3.11 portaudio ffmpeg
@@ -153,6 +198,8 @@ python main.py
 ---
 
 ## Setup: Linux
+
+> The short version: `bash install.sh`. The manual equivalent:
 
 ```bash
 # 1. System packages (Debian/Ubuntu)
@@ -216,7 +263,7 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 | `stream on\|off` | toggle live token-by-token replies |
 | `plugins` | list the skills JARVIS has written for itself |
 | `changes` / `undo` | its own change history, and roll back the last one |
-| `selftest` | run the 143-check smoke suite against the current code |
+| `selftest` | run the 154-check smoke suite against the current code |
 | `mute` / `unmute` | speak replies in text mode |
 | `clear`, `config`, `exit` | as expected |
 
@@ -301,6 +348,10 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 
 ```
 jarvis/
+├── install.py               the easy installer (Windows / macOS / Linux)
+├── install.bat              double-click installer for Windows
+├── install.command          double-click installer for macOS
+├── install.sh               one-line installer for macOS / Linux (can self-clone)
 ├── main.py                  entry point (voice / CLI / one-shot / self-test)
 ├── config.yaml              every setting
 ├── requirements.txt
@@ -341,7 +392,7 @@ jarvis/
 ├── .github/ci.yml           lint + smoke suite CI (move to .github/workflows/)
 ├── plugins/                 skills JARVIS writes for itself (loaded at start-up)
 ├── tests/
-│   ├── test_smoke.py        143-check end-to-end suite
+│   ├── test_smoke.py        154-check end-to-end suite
 │   └── mock_ollama.py       scripted LLM server (streaming + vision) for testing
 └── data/                    SQLite DB, ChromaDB, notes, code, screenshots, TTS cache
 ```
@@ -610,7 +661,7 @@ Dependencies are never installed behind your back: `allow_pip_install` is
 ```
 you  > your weather replies are too long, fix that in your own code
 JARVIS > Rewrote modules/web_search.py (change #4).
-           tests  : 143 passed in 12.4s
+           tests  : 154 passed in 12.4s
            reload : Reloaded 'web_search' — 8 tools active
            backup : data/backups/20260906_101511_modules_web_search.py
            commit : a91f0c2
@@ -688,6 +739,34 @@ Each script installs a login-time service running `python main.py --web`
 ---
 
 ## Troubleshooting
+
+**The installer says Python was not found (Windows)**
+Reinstall Python from [python.org](https://www.python.org/downloads/windows/)
+and tick *"Add python.exe to PATH"* on the first screen, then double-click
+`install.bat` again.
+
+**A package refuses to build during installation**
+Almost always an audio or ML wheel. Rerun with a smaller profile — everything
+except voice still works:
+
+```bash
+python install.py --standard      # no microphone stack
+python install.py --minimal       # text and web only
+```
+
+The installer already retries optional groups package by package, so a single
+failure only disables that one feature; the list is repeated at the end.
+
+**Ollama was installed but "command not found"**
+Open a new terminal (PATH is only read at start-up) and rerun the installer —
+it is safe to run as often as you like and skips anything already done. On
+macOS, launch the Ollama app once so it can install its command-line tool.
+
+**Something got into a strange state**
+```bash
+python install.py --repair        # reinstall the packages, keep your config
+python install.py --recreate      # rebuild the virtual environment from scratch
+```
 
 **"My language model is offline"**
 Ollama isn't running. `ollama serve`, then `ollama list` to confirm your model
@@ -770,7 +849,7 @@ Extras mirror the optional dependencies: `pip install -e ".[voice]"`,
 
 `.github/ci.yml` (move it to `.github/workflows/ci.yml` to switch it on) runs
 pyflakes, byte-compiles every module, executes
-the 143-check offline smoke suite on Linux, macOS and Windows (Python 3.9–3.12)
+the 154-check offline smoke suite on Linux, macOS and Windows (Python 3.9–3.12)
 and builds a wheel. No models are downloaded — `tests/mock_ollama.py` scripts
 the LLM, including token streaming and vision responses.
 

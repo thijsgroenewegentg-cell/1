@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           # interfaces/voice.py deliberately imports edge_tts to probe availability.
-          python -m pyflakes core interfaces modules utils tests main.py \
+          python -m pyflakes core interfaces modules utils tests main.py install.py \
             | grep -v "interfaces/voice.py.*'edge_tts' imported but unused" \
             | grep -v "interfaces\\\\voice.py.*'edge_tts' imported but unused" \
             > pyflakes.log || true
@@ -61,7 +61,10 @@ jobs:
           echo "pyflakes clean"
 
       - name: Byte-compile every module
-        run: python -m compileall -q core interfaces modules utils tests main.py
+        run: python -m compileall -q core interfaces modules utils tests main.py install.py
+
+      - name: Check the installer's own help output
+        run: python install.py --help
 
       - name: Run the offline smoke suite
         run: python tests/test_smoke.py
