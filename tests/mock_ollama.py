@@ -208,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self) -> None:  # noqa: N802 - http.server API
+    def do_GET(self) -> None:
         """Serve ``/api/tags``."""
         if self.path.startswith("/api/tags"):
             self._send({"models": MODELS})
@@ -224,7 +224,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_DELETE(self) -> None:  # noqa: N802 - http.server API
+    def do_DELETE(self) -> None:
         """Serve ``/api/delete``."""
         length = int(self.headers.get("Content-Length", 0))
         payload = json.loads(self.rfile.read(length) or b"{}")
@@ -236,7 +236,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
         self._send({"error": "model not found"}, 404)
 
-    def do_POST(self) -> None:  # noqa: N802 - http.server API
+    def do_POST(self) -> None:
         """Serve ``/api/chat``, ``/api/embeddings``, ``/api/pull`` and ``/api/show``."""
         length = int(self.headers.get("Content-Length", 0))
         payload = json.loads(self.rfile.read(length) or b"{}")

@@ -295,7 +295,8 @@ def ask_yes_no(question: str, default: bool = True, assume_yes: bool = False) ->
 # ---------------------------------------------------------------------------
 
 
-def run(command: Sequence[str], timeout: int = 600, **kwargs: object) -> subprocess.CompletedProcess:
+def run(command: Sequence[str], timeout: int = 600,
+        **kwargs: object) -> subprocess.CompletedProcess:
     """Run a command and capture its output, never raising on failure."""
     try:
         return subprocess.run(  # type: ignore[call-overload]
@@ -902,7 +903,8 @@ def _set_yaml_value(block: str, key: str, value: str) -> str:
     Returns:
         The block with the first matching key updated.
     """
-    pattern = rf'(?m)^([ \t]*{re.escape(key)}:[ \t]*)(?:"[^"]*"|\'[^\']*\'|[^#\n]*?)([ \t]*(?:#.*)?)$'
+    pattern = (rf'(?m)^([ \t]*{re.escape(key)}:[ \t]*)'
+               rf'(?:"[^"]*"|\'[^\']*\'|[^#\n]*?)([ \t]*(?:#.*)?)$')
     return re.sub(pattern, lambda match: f'{match.group(1)}"{value}"{match.group(2)}',
                   block, count=1)
 
@@ -1297,4 +1299,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(f"\n\n  {Colour.YELLOW}Installation cancelled.{Colour.RESET} "
               f"Rerun 'python install.py' whenever you like — it picks up where it left off.\n")
-        raise SystemExit(130)
+        raise SystemExit(130) from None

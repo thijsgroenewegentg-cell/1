@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.helpers import ensure_dir, human_bytes, resolve_user_path, run_blocking, truncate
@@ -34,7 +34,7 @@ class Vision(BaseModule):
         "screenshots, and answer questions about image files. Requires a local vision "
         "model such as llava."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "what's on my screen",
         "describe this image ~/Pictures/chart.png",
         "read the error message on my screen",

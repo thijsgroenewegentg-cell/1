@@ -186,4 +186,4 @@ def document_metadata(path: Path) -> Dict[str, str]:
         return {"path": str(path), "name": path.name, "suffix": path.suffix.lower()}
 
 
-__all__ = ["extract_text", "chunk_text", "is_supported", "document_metadata", "SUPPORTED"]
+__all__ = ["SUPPORTED", "chunk_text", "document_metadata", "extract_text", "is_supported"]

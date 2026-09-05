@@ -34,9 +34,11 @@ class Cache:
     """
 
     def __init__(self, path: str | Path, default_ttl: int = 900) -> None:
-        """Args:
-        path: SQLite file used for storage.
-        default_ttl: Fallback lifetime in seconds.
+        """Open (or create) the cache database.
+
+        Args:
+            path: SQLite file used for storage.
+            default_ttl: Fallback lifetime in seconds.
         """
         self.path = Path(path)
         self.default_ttl = int(default_ttl)

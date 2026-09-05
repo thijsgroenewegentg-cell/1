@@ -254,11 +254,12 @@ class SecurityGuard:
                 if protected in ("/", "C:\\"):
                     continue
                 protected_path = Path(protected)
-                if protected_path.is_absolute() and self._is_within(target, protected_path):
-                    if not self._is_within(target, Path.home()):
-                        return RiskAssessment(
-                            RiskLevel.BLOCKED, f"{target} lives inside {protected}"
-                        )
+                if (protected_path.is_absolute()
+                        and self._is_within(target, protected_path)
+                        and not self._is_within(target, Path.home())):
+                    return RiskAssessment(
+                        RiskLevel.BLOCKED, f"{target} lives inside {protected}"
+                    )
         return RiskAssessment(RiskLevel.SAFE, "Path is fine")
 
     @staticmethod
@@ -330,7 +331,8 @@ class SecurityGuard:
 
 #: Phrases that only ever appear in text trying to hijack an assistant.
 INJECTION_PATTERNS: List[str] = [
-    r"ignore (?:all |any )?(?:the )?(?:previous|prior|above|earlier) (?:instructions|prompts|rules)",
+    r"ignore (?:all |any )?(?:the )?(?:previous|prior|above|earlier) "
+    r"(?:instructions|prompts|rules)",
     r"disregard (?:all |any )?(?:the )?(?:previous|prior|above) (?:instructions|rules)",
     r"forget (?:everything|all previous|your instructions|your rules)",
     r"you are (?:now|actually) (?:a|an|in) (?:different|new|developer|dan|jailbroken)",

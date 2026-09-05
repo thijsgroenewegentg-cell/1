@@ -13,7 +13,7 @@ import sqlite3
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, Iterable, List, Optional, Tuple
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.documents import extract_text
@@ -60,7 +60,7 @@ class FileManager(BaseModule):
         "type, summarise documents (PDF/DOCX/TXT/MD), analyse CSV files, find duplicates "
         "and report folder sizes."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "find all PDFs on my desktop",
         "organize my downloads folder",
         "summarize this document",
@@ -206,7 +206,8 @@ class FileManager(BaseModule):
                                                           "confirm", "no preview")),
             }
 
-        if any(phrase in lowered for phrase in ("summarize", "summarise", "tldr", "what's in this document")):
+        if any(phrase in lowered for phrase in
+               ("summarize", "summarise", "tldr", "what's in this document")):
             path = re.search(r"([\w./~-]+\.(?:pdf|docx?|txt|md|csv|epub))", text, re.IGNORECASE)
             if path:
                 return "summarize_document", {"path": path.group(1)}
@@ -461,7 +462,7 @@ class FileManager(BaseModule):
                     moved += 1
                 except Exception:
                     failed += 1
-            return {"plan": {key: value for key, value in plan.items()},
+            return {"plan": dict(plan),
                     "moved": moved, "failed": failed, "journal": journal}
 
         result = await run_blocking(_organize)

@@ -37,7 +37,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.helpers import (
@@ -104,7 +104,7 @@ class SelfImprove(BaseModule):
         "repository as a new skill, inspect and rewrite JARVIS's own source code, run his "
         "test suite, hot-reload modules, and roll changes back."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "search github for a python music player library",
         "integrate that repository into yourself",
         "add a new skill for controlling spotify",
@@ -1013,20 +1013,20 @@ Return ONLY the code in a single ```python block."""
         return ""
 
     #: Modules a generated adapter may never import.
-    BANNED_IMPORTS = {
+    BANNED_IMPORTS: ClassVar[Set[str]] = {
         "subprocess", "ctypes", "socket", "socketserver", "ftplib", "telnetlib",
         "smtplib", "pty", "multiprocessing", "pickle", "marshal", "shelve",
         "webbrowser", "sysconfig", "distutils", "setuptools", "pip",
     }
 
     #: Bare names that must never be called, however they are spelled.
-    BANNED_CALLS = {
+    BANNED_CALLS: ClassVar[Set[str]] = {
         "eval", "exec", "compile", "__import__", "input", "breakpoint",
         "globals", "locals", "vars", "memoryview",
     }
 
     #: Attribute calls that are always rejected (module.attr form).
-    BANNED_ATTRIBUTES = {
+    BANNED_ATTRIBUTES: ClassVar[Set[Tuple[str, str]]] = {
         ("os", "system"), ("os", "popen"), ("os", "execv"), ("os", "execve"),
         ("os", "spawnv"), ("os", "fork"), ("os", "kill"), ("os", "remove"),
         ("os", "unlink"), ("os", "rmdir"), ("os", "chmod"), ("os", "chown"),
@@ -1099,12 +1099,13 @@ Return ONLY the code in a single ```python block."""
                 if isinstance(func, ast.Name):
                     if func.id in self.BANNED_CALLS:
                         return f"it calls {func.id}(), which plugins may not use"
-                    if func.id in {"getattr", "setattr", "delattr"} and len(node.args) >= 2:
-                        if not isinstance(node.args[1], ast.Constant):
-                            return (
-                                f"it uses {func.id}() with a computed attribute name — "
-                                "too clever for a generated plugin"
-                            )
+                    if (func.id in {"getattr", "setattr", "delattr"}
+                            and len(node.args) >= 2
+                            and not isinstance(node.args[1], ast.Constant)):
+                        return (
+                            f"it uses {func.id}() with a computed attribute name — "
+                            "too clever for a generated plugin"
+                        )
                 elif isinstance(func, ast.Attribute):
                     owner = getattr(func.value, "id", "")
                     if (owner, func.attr) in self.BANNED_ATTRIBUTES:
@@ -1113,10 +1114,11 @@ Return ONLY the code in a single ```python block."""
                         return f"it calls .{func.attr}(), which plugins may not use"
 
             # 3. dunder gymnastics used to escape the sandbox
-            elif isinstance(node, ast.Attribute):
-                if node.attr in {"__globals__", "__builtins__", "__subclasses__",
-                                 "__bases__", "__code__", "__loader__", "__mro__"}:
-                    return f"it pokes at {node.attr}, which is never legitimate here"
+            elif isinstance(node, ast.Attribute) and node.attr in {
+                "__globals__", "__builtins__", "__subclasses__",
+                "__bases__", "__code__", "__loader__", "__mro__",
+            }:
+                return f"it pokes at {node.attr}, which is never legitimate here"
         return ""
 
     async def _register_plugin(self, skill: str, path: str) -> Dict[str, Any]:
@@ -1884,4 +1886,4 @@ def discover_plugins(directory: Path) -> List[Path]:
     )
 
 
-__all__ = ["SelfImprove", "load_plugin", "discover_plugins"]
+__all__ = ["SelfImprove", "discover_plugins", "load_plugin"]

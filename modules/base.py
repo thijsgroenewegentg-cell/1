@@ -17,7 +17,7 @@ import asyncio
 import inspect
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, ClassVar, Dict, List, Optional
 
 from utils.helpers import extract_json, similar, truncate
 from utils.logger import get_logger
@@ -152,7 +152,7 @@ def tool(
             keywords=[word.lower() for word in (keywords or [])],
             examples=examples or [],
         )
-        setattr(func, "_jarvis_tool", spec)
+        func._jarvis_tool = spec
         return func
 
     return decorator
@@ -243,6 +243,7 @@ class ModuleResult:
         return f"[{status}] {truncate(body, limit)}{extra}"
 
     def __str__(self) -> str:  # pragma: no cover - debugging aid
+        """Return the observation form, which is what a human wants to read."""
         return self.to_observation(200)
 
 
@@ -256,13 +257,15 @@ class BaseModule:
 
     name: str = "base"
     description: str = "Base module"
-    intent_examples: List[str] = []
+    intent_examples: ClassVar[List[str]] = []
 
     def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None:
-        """Args:
-        config: The :class:`core.config.Config` instance.
-        llm: Object exposing ``async complete(prompt, **kw) -> str`` (optional).
-        security: A :class:`utils.security.SecurityGuard` (optional).
+        """Store the shared services every module is handed.
+
+        Args:
+            config: The :class:`core.config.Config` instance.
+            llm: Object exposing ``async complete(prompt, **kw) -> str`` (optional).
+            security: A :class:`utils.security.SecurityGuard` (optional).
         """
         self.config = config
         self.llm = llm
@@ -371,7 +374,7 @@ class BaseModule:
             return ModuleResult.fail(f"Bad arguments for {spec.name}: {exc}")
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001 - modules must never crash JARVIS
+        except Exception as exc:
             self.log.exception("Tool %s.%s failed", self.name, spec.name)
             return ModuleResult.fail(f"{spec.name} failed: {exc}")
 
@@ -578,11 +581,11 @@ class BaseModule:
         params: Dict[str, Any] = {}
         cleaned = strip_command_prefix(command)
         for key, meta in spec.params.items():
-            if meta.get("required") and meta.get("type", "string") == "string":
-                if key in free_text_keys:
-                    params[key] = cleaned
-                    break
+            if (meta.get("required") and meta.get("type", "string") == "string"
+                    and key in free_text_keys):
+                params[key] = cleaned
+                break
         return params
 
 
-__all__ = ["BaseModule", "ModuleResult", "ToolSpec", "tool", "strip_command_prefix"]
+__all__ = ["BaseModule", "ModuleResult", "ToolSpec", "strip_command_prefix", "tool"]

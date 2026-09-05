@@ -828,7 +828,7 @@ async def test_streaming_and_followups(root: Path, host: str) -> None:
     check("streamed text matches reply", "".join(tokens).strip() == reply.strip(),
           f"{''.join(tokens)[:40]!r} vs {reply[:40]!r}")
 
-    brain._capture_followup(  # noqa: SLF001 - exercising the internal hook
+    brain._capture_followup(
         [("t", ModuleResult(success=True, output="plan").offering(
             "system_control.current_time", {}, "Shall I?"))]
     )
@@ -838,7 +838,7 @@ async def test_streaming_and_followups(root: Path, host: str) -> None:
           or "PM" in confirmed.upper(), confirmed[:60])
     check("follow-up cleared", brain.pending_action is None)
 
-    brain._capture_followup(  # noqa: SLF001
+    brain._capture_followup(
         [("t", ModuleResult(success=True, output="plan").offering(
             "system_control.current_time", {}, "Shall I?"))]
     )
@@ -856,8 +856,8 @@ async def test_streaming_and_followups(root: Path, host: str) -> None:
           "Earlier in this conversation" in brain.system_prompt(""))
 
     brain.streaming_enabled = True
-    brain._cancel.set()  # noqa: SLF001 - simulate a barge-in before generation
-    stopped = await brain._generate(  # noqa: SLF001
+    brain._cancel.set()
+    stopped = await brain._generate(
         [{"role": "user", "content": "hello"}], on_token=lambda _t: None
     )
     check("cancellation returns early", stopped == "", stopped[:40])
@@ -886,7 +886,7 @@ async def test_web_interface(root: Path, host: str) -> None:
         return
 
     check("web app built", server.app is not None)
-    check("token enforced", not server._authorised("") and server._authorised("s3cret"))  # noqa: SLF001
+    check("token enforced", not server._authorised("") and server._authorised("s3cret"))
     check("url includes the token", "token=s3cret" in server.url, server.url)
     check("local_addresses", any(str(server.port) in url for url in local_addresses(server.port)))
 
@@ -967,15 +967,15 @@ async def test_web_interface(root: Path, host: str) -> None:
                     """Report the size of what it was given."""
                     return f"stub heard {path.stat().st_size} bytes"
 
-            server._stt = _StubSTT()  # noqa: SLF001
-            server._stt_tried = True  # noqa: SLF001
+            server._stt = _StubSTT()
+            server._stt_tried = True
             spoken = client.post("/api/listen?token=s3cret", content=b"0" * 2048,
                                  headers={"Content-Type": "audio/webm"})
             check("browser audio is transcribed", spoken.status_code == 200
                   and spoken.json()["text"] == "stub heard 2048 bytes", spoken.text[:80])
 
-            server._stt = None  # noqa: SLF001
-            server._stt_tried = True  # noqa: SLF001
+            server._stt = None
+            server._stt_tried = True
             check("missing whisper is reported honestly",
                   client.post("/api/listen?token=s3cret", content=b"0" * 16,
                               headers={"Content-Type": "audio/webm"}).status_code == 503)
@@ -1273,7 +1273,7 @@ async def main() -> int:
 
 
 def test_everything() -> None:
-    """pytest entry point."""
+    """Pytest entry point."""
     assert asyncio.run(main()) == 0
 
 

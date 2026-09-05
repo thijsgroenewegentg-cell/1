@@ -27,7 +27,7 @@ from datetime import date, datetime, timedelta
 from email.header import decode_header, make_header
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.helpers import ensure_dir, parse_when, run_blocking, truncate
@@ -239,7 +239,7 @@ class Communications(BaseModule):
         "over SMTP (only when explicitly enabled), and read the user's calendar from .ics "
         "files or secret calendar URLs."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "check my email",
         "any unread mail from my boss",
         "what's on my calendar today",
@@ -743,4 +743,4 @@ class Communications(BaseModule):
         )
 
 
-__all__ = ["Communications", "CalendarEvent", "parse_ics"]
+__all__ = ["CalendarEvent", "Communications", "parse_ics"]

@@ -70,9 +70,11 @@ class CLI:
     """Interactive terminal front-end for the brain."""
 
     def __init__(self, brain: Any, voice: Any = None) -> None:
-        """Args:
-        brain: A :class:`core.brain.Brain` instance.
-        voice: Optional :class:`interfaces.voice.VoiceInterface` for spoken replies.
+        """Wire the terminal UI to a brain, and optionally to a voice.
+
+        Args:
+            brain: A :class:`core.brain.Brain` instance.
+            voice: Optional :class:`interfaces.voice.VoiceInterface` for spoken replies.
         """
         self.brain = brain
         self.voice = voice

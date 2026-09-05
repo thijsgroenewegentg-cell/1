@@ -17,8 +17,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import re
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -68,8 +68,10 @@ class OllamaClient:
     """
 
     def __init__(self, config: Config) -> None:
-        """Args:
-        config: The global configuration object.
+        """Prepare an Ollama client (no connection is made yet).
+
+        Args:
+            config: The global configuration object.
         """
         self.config = config
         self.host: str = str(config.get("llm.host", "http://localhost:11434")).rstrip("/")
@@ -474,8 +476,10 @@ class Brain:
     """JARVIS's cognition: persona, routing, tool use and memory integration."""
 
     def __init__(self, config: Config) -> None:
-        """Args:
-        config: The global configuration object.
+        """Build the brain and everything it owns.
+
+        Args:
+            config: The global configuration object.
         """
         self.config = config
         self.llm = OllamaClient(config)
@@ -485,6 +489,10 @@ class Brain:
         #: Set by main.py when a voice pipeline exists, so other interfaces can
         #: reuse its Whisper/TTS engines rather than loading their own.
         self.voice: Optional[Any] = None
+        #: Strong references to background tasks. Without these the event loop
+        #: only holds a weak reference and can collect a task mid-flight,
+        #: silently dropping memory writes and shutdowns.
+        self._background: Set["asyncio.Task[Any]"] = set()
         self.started_at = time.time()
         self.turn_count = 0
         self.last_intent: Optional[Intent] = None
@@ -538,7 +546,7 @@ class Brain:
                 await instance.setup()
                 self.modules[name] = instance
                 logger.debug("Loaded module '%s' with %d tools", name, len(instance.tools))
-            except Exception as exc:  # noqa: BLE001 - one bad module must not kill JARVIS
+            except Exception as exc:
                 logger.error("Could not load module '%s': %s", name, exc)
 
         await self._load_plugins()
@@ -578,7 +586,7 @@ class Brain:
                 logger.info(
                     "Loaded plugin skill '%s' with %d tools", instance.name, len(instance.tools)
                 )
-            except Exception as exc:  # noqa: BLE001 - a bad plugin must not kill JARVIS
+            except Exception as exc:
                 logger.error("Plugin '%s' failed to load: %s", name, truncate(str(exc), 160))
 
     # ------------------------------------------------------------ live wiring
@@ -604,9 +612,23 @@ class Brain:
         module = self.modules.pop(name, None)
         if module is None:
             return False
-        asyncio.create_task(self._safe_shutdown(module))
+        self._spawn(self._safe_shutdown(module))
         logger.info("Unregistered skill '%s'.", name)
         return True
+
+    def _spawn(self, coro: Any) -> "asyncio.Task[Any]":
+        """Run a coroutine in the background, keeping a strong reference.
+
+        Args:
+            coro: The coroutine to schedule.
+
+        Returns:
+            The created task.
+        """
+        task = asyncio.create_task(coro)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+        return task
 
     @staticmethod
     async def _safe_shutdown(module: BaseModule) -> None:
@@ -802,7 +824,7 @@ class Brain:
                     result = on_token(token)
                     if asyncio.iscoroutine(result):
                         await result
-                except Exception as exc:  # noqa: BLE001 - a bad sink must not kill us
+                except Exception as exc:
                     logger.debug("Token callback failed: %s", exc)
         except asyncio.CancelledError:
             raise
@@ -846,7 +868,8 @@ class Brain:
         module_lines = []
         for name, module in self.modules.items():
             examples = "; ".join(module.intent_examples[:3])
-            module_lines.append(f"- {name}: {module.description}" + (f" (e.g. {examples})" if examples else ""))
+            module_lines.append(f"- {name}: {module.description}"
+                                + (f" (e.g. {examples})" if examples else ""))
         catalog = "\n".join(module_lines) or "- (no modules loaded)"
 
         prompt = (
@@ -902,7 +925,7 @@ class Brain:
         if not name:
             return None
         best, score = None, 0.5
-        for candidate in list(self.modules) + ["conversation", "memory"]:
+        for candidate in [*self.modules, "conversation", "memory"]:
             value = similar(name.replace("_", " "), candidate.replace("_", " "))
             if value > score:
                 best, score = candidate, value
@@ -994,10 +1017,10 @@ class Brain:
             sensitive = bool(SENSITIVE_TOOL_PATTERN.search(description))
         if not sensitive:
             for value in params.values():
-                if isinstance(value, str) and value.strip():
-                    if self.security.assess(value).level is not RiskLevel.SAFE:
-                        sensitive = True
-                        break
+                if (isinstance(value, str) and value.strip()
+                        and self.security.assess(value).level is not RiskLevel.SAFE):
+                    sensitive = True
+                    break
         if not sensitive:
             return None
 
@@ -1057,7 +1080,7 @@ class Brain:
             return await module.execute(str(params.get("query", "")), params)
 
         # Bare tool name: search every module.
-        for name, module in self.modules.items():
+        for module in self.modules.values():
             if reference in module.tools:
                 return await module.call_tool(reference, params)
 
@@ -1118,7 +1141,7 @@ class Brain:
                 response = await self._process_inner(text, speak_status, on_token)
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:  # noqa: BLE001 - last line of defence
+            except Exception as exc:
                 logger.exception("Unhandled error while processing input")
                 response = (
                     f"Something went sideways in my reasoning: {exc}. "
@@ -1138,7 +1161,7 @@ class Brain:
                 text, response, self.last_intent.module if self.last_intent else ""
             )
             if self.llm.available:
-                asyncio.create_task(self._background_upkeep(text, response))
+                self._spawn(self._background_upkeep(text, response))
             return response
 
     async def _background_upkeep(self, user_text: str, response: str) -> None:
@@ -1449,7 +1472,7 @@ class Brain:
         )
 
         # Short, already-natural outputs can be spoken as-is.
-        last_reference, last_result = successes[-1]
+        _, last_result = successes[-1]
         if last_result.speak:
             return last_result.speak
 
@@ -1578,4 +1601,4 @@ class Brain:
         return strip_markdown(text)
 
 
-__all__ = ["Brain", "OllamaClient", "Intent", "INTENT_KEYWORDS"]
+__all__ = ["INTENT_KEYWORDS", "Brain", "Intent", "OllamaClient"]

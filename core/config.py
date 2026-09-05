@@ -371,12 +371,15 @@ class Config:
         return copy.deepcopy(self._data)
 
     def __getitem__(self, key: str) -> Any:
+        """Return a dotted key, so ``config["llm.model"]`` works."""
         return self.get(key)
 
     def __contains__(self, key: str) -> bool:
+        """Report whether a dotted key is present."""
         return self.get(key, _MISSING) is not _MISSING
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        """Return a short, log-friendly description of the configuration."""
         return f"<Config path={self.path} model={self.get('llm.model')!r}>"
 
     # -- paths --------------------------------------------------------------

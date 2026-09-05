@@ -7,6 +7,6 @@ Modules are imported lazily by the brain so a disabled or broken module can
 never prevent JARVIS from starting.
 """
 
-from modules.base import BaseModule, ModuleResult, ToolSpec, tool  # noqa: F401
+from modules.base import BaseModule, ModuleResult, ToolSpec, tool
 
 __all__ = ["BaseModule", "ModuleResult", "ToolSpec", "tool"]

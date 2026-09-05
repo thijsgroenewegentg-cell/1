@@ -39,7 +39,7 @@ _ROOT_NAME = "jarvis"
 class _ColorFormatter(logging.Formatter):
     """Minimal ANSI colour formatter used when rich is unavailable."""
 
-    def format(self, record: logging.LogRecord) -> str:  # noqa: D102
+    def format(self, record: logging.LogRecord) -> str:
         color = _ANSI.get(record.levelname, "")
         base = super().format(record)
         if color and sys.stderr.isatty():

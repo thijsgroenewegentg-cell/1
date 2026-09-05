@@ -13,7 +13,7 @@ from __future__ import annotations
 import html
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.cache import Cache
@@ -28,7 +28,7 @@ class WebSearch(BaseModule):
         "Research the internet: DuckDuckGo web search, reading and summarising web pages, "
         "current weather, latest news headlines and Wikipedia summaries."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "search for quantum computing breakthroughs",
         "how's the weather",
         "what's in the news today",
@@ -137,11 +137,13 @@ class WebSearch(BaseModule):
             return "read_page", {"url": url.group(1)}
 
         if "wikipedia" in lowered:
-            topic = re.sub(r".*wikipedia\s*(?:page\s*)?(?:for|on|about)?\s*", "", lowered).strip(" ?")
+            topic = re.sub(r".*wikipedia\s*(?:page\s*)?(?:for|on|about)?\s*",
+                           "", lowered).strip(" ?")
             return "wikipedia", {"topic": topic or text}
 
         if lowered.startswith(("who is", "who was", "what is the", "tell me about")):
-            topic = re.sub(r"^(who is|who was|what is the|tell me about)\s+", "", lowered).strip(" ?")
+            topic = re.sub(r"^(who is|who was|what is the|tell me about)\s+",
+                           "", lowered).strip(" ?")
             if topic:
                 return "wikipedia", {"topic": topic}
 
@@ -424,7 +426,8 @@ class WebSearch(BaseModule):
             )
             return ModuleResult(
                 success=True,
-                output=summary + ("\nForecast:\n" + "\n".join(forecast_lines) if forecast_lines else ""),
+                output=summary + ("\nForecast:\n" + "\n".join(forecast_lines)
+                                  if forecast_lines else ""),
                 speak=summary,
                 data={
                     "location": city,
@@ -475,7 +478,8 @@ class WebSearch(BaseModule):
 
         if topic:
             needle = topic.lower()
-            filtered = [item for item in entries if needle in (item["title"] + item["summary"]).lower()]
+            filtered = [item for item in entries
+                        if needle in (item["title"] + item["summary"]).lower()]
             entries = filtered or entries
 
         entries = entries[: int(limit)]
@@ -557,7 +561,8 @@ class WebSearch(BaseModule):
                     await self._store(cache_key, payload, ttl=max(self.cache_ttl, 86400))
                 extract = clean_text(payload.get("extract", ""))
                 if extract:
-                    trimmed = " ".join(re.split(r"(?<=[.!?])\s+", extract)[: max(1, int(sentences))])
+                    pieces = re.split(r"(?<=[.!?])\s+", extract)
+                    trimmed = " ".join(pieces[: max(1, int(sentences))])
                     return ModuleResult(
                         success=True,
                         output=f"{payload.get('title', subject)}: {trimmed}",

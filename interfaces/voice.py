@@ -29,7 +29,7 @@ import time
 import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, List, Optional
+from typing import Any, Awaitable, Callable, ClassVar, Dict, List, Optional, Set
 
 from utils.helpers import (
     IS_MACOS,
@@ -69,8 +69,10 @@ class TextToSpeech:
     """
 
     def __init__(self, config: Any) -> None:
-        """Args:
-        config: The global configuration object.
+        """Read the speech settings; engines are loaded on first use.
+
+        Args:
+            config: The global configuration object.
         """
         self.config = config
         self.engine: str = str(config.get("voice.tts.engine", "auto")).lower().strip()
@@ -179,7 +181,9 @@ class TextToSpeech:
         return False
 
     #: Players that can only handle one container, keyed by file suffix.
-    _FORMAT_ONLY = {"mpg123": {".mp3"}, "aplay": {".wav"}, "paplay": {".wav"}}
+    _FORMAT_ONLY: ClassVar[Dict[str, Set[str]]] = {
+        "mpg123": {".mp3"}, "aplay": {".wav"}, "paplay": {".wav"},
+    }
 
     def _player_for(self, path: Path) -> Optional[List[str]]:
         """Pick a player that can actually decode this file type.
@@ -233,7 +237,7 @@ class TextToSpeech:
         model = self._piper_model.name if self._piper_model else ""
         digest = hashlib.sha1(
             f"{self.active_engine}|{model}|{self.voice}|{self.rate}|{self.pitch}|{text}"
-            .encode("utf-8")
+            .encode()
         ).hexdigest()[:20]
         suffix = "wav" if self.active_engine == "piper" else "mp3"
         return self.cache_dir / f"{digest}.{suffix}"
@@ -280,7 +284,8 @@ class TextToSpeech:
         if not self._piper_binary or not self._piper_model:
             return None
         temporary = target.with_suffix(".part")
-        command = shlex.split(self._piper_binary) + [
+        command = [
+            *shlex.split(self._piper_binary),
             "--model", str(self._piper_model),
             "--output_file", str(temporary),
         ]
@@ -437,10 +442,12 @@ class StreamingSpeaker:
 
     def __init__(self, tts: "TextToSpeech", min_chars: int = 45,
                  max_chars: int = 320) -> None:
-        """Args:
-        tts: The text-to-speech engine to play through.
-        min_chars: Don't emit a chunk shorter than this (avoids choppy speech).
-        max_chars: Force a break once a chunk grows past this.
+        """Prepare a streaming speaker that speaks sentence by sentence.
+
+        Args:
+            tts: The text-to-speech engine to play through.
+            min_chars: Don't emit a chunk shorter than this (avoids choppy speech).
+            max_chars: Force a break once a chunk grows past this.
         """
         self.tts = tts
         self.min_chars = min_chars
@@ -468,7 +475,7 @@ class StreamingSpeaker:
                 continue
             try:
                 await self.tts.speak(chunk, interruptible=True)
-            except Exception as exc:  # noqa: BLE001 - speech must never crash a turn
+            except Exception as exc:
                 logger.debug("Streaming speech failed: %s", exc)
 
     def feed(self, token: str) -> None:
@@ -854,10 +861,12 @@ class WakeWordDetector:
     """Wake-word detection via Porcupine (free tier) or keyless Whisper."""
 
     def __init__(self, config: Any, microphone: Microphone, stt: SpeechToText) -> None:
-        """Args:
-        config: Global configuration.
-        microphone: Shared microphone wrapper.
-        stt: Shared speech-to-text engine (used by the Whisper engine).
+        """Choose a wake-word engine and remember the audio plumbing.
+
+        Args:
+            config: Global configuration.
+            microphone: Shared microphone wrapper.
+            stt: Shared speech-to-text engine (used by the Whisper engine).
         """
         self.config = config
         self.microphone = microphone
@@ -1090,8 +1099,10 @@ class VoiceInterface:
     """Ties wake word, STT, TTS and barge-in into one always-listening loop."""
 
     def __init__(self, config: Any) -> None:
-        """Args:
-        config: The global configuration object.
+        """Assemble the full voice pipeline from its parts.
+
+        Args:
+            config: The global configuration object.
         """
         self.config = config
         self.tts = TextToSpeech(config)
@@ -1119,7 +1130,7 @@ class VoiceInterface:
             True when both input and output are usable.
         """
         mic_ok = await run_blocking(self.microphone.initialize)
-        tts_ok, stt_ok = await asyncio.gather(self.tts.initialize(), self.stt.initialize())
+        _, stt_ok = await asyncio.gather(self.tts.initialize(), self.stt.initialize())
         if mic_ok and stt_ok:
             await self.wake.initialize()
         self.available = bool(mic_ok and stt_ok)
@@ -1383,7 +1394,7 @@ class VoiceInterface:
 
             except asyncio.CancelledError:
                 break
-            except Exception as exc:  # noqa: BLE001 - the loop must never die
+            except Exception as exc:
                 logger.exception("Voice loop error")
                 with contextlib.suppress(Exception):
                     await self.speak(
@@ -1432,7 +1443,7 @@ class VoiceInterface:
             "stt_model": self.stt.model_name,
             "tts": self.tts.available,
             "tts_voice": self.tts.voice,
-            "player": (self.tts._player or ["none"])[0],  # noqa: SLF001
+            "player": (self.tts._player or ["none"])[0],
             "wake_engine": self.wake.engine,
             "stream_speech": self.stream_speech,
             "conversation_mode": self.conversation_mode,
@@ -1441,10 +1452,10 @@ class VoiceInterface:
 
 
 __all__ = [
-    "VoiceInterface",
-    "TextToSpeech",
-    "SpeechToText",
     "Microphone",
-    "WakeWordDetector",
+    "SpeechToText",
     "StreamingSpeaker",
+    "TextToSpeech",
+    "VoiceInterface",
+    "WakeWordDetector",
 ]

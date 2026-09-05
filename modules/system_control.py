@@ -14,7 +14,7 @@ import shutil
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.helpers import (
@@ -106,7 +106,7 @@ class SystemControl(BaseModule):
         "stats, volume, lock screen, clipboard, keyboard/mouse automation, the current "
         "time, and running shell commands."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "open chrome",
         "what time is it",
         "take a screenshot",
@@ -184,7 +184,8 @@ class SystemControl(BaseModule):
         if url and any(w in lowered for w in ("open", "go to", "browse")):
             return "open_url", {"url": url.group(1)}
 
-        launch = re.search(r"\b(?:open|launch|start|fire up)\s+(?:the\s+|my\s+)?([\w .-]+)", lowered)
+        launch = re.search(
+            r"\b(?:open|launch|start|fire up)\s+(?:the\s+|my\s+)?([\w .-]+)", lowered)
         if launch:
             name = launch.group(1).strip().removesuffix(" app").removesuffix(" application")
             if name and name not in {"a", "the", "it", "file", "folder", "url", "website"}:
@@ -713,7 +714,8 @@ class SystemControl(BaseModule):
                 return ModuleResult.ok("Copied to clipboard.")
             content = pyperclip.paste() or ""
             return ModuleResult.ok(
-                f"Clipboard contains: {truncate(content, 500)}" if content else "Clipboard is empty.",
+                f"Clipboard contains: {truncate(content, 500)}"
+                if content else "Clipboard is empty.",
                 content=content,
             )
         except Exception as exc:

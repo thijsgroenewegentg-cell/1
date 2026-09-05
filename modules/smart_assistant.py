@@ -1,6 +1,9 @@
 # /modules/smart_assistant.py
-"""General intelligence: Q&A with optional web RAG, maths, conversions,
-translation, summarisation and creative writing."""
+"""General intelligence.
+
+Q&A with optional web RAG, maths, conversions, translation, summarisation
+and creative writing.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +11,7 @@ import ast
 import math
 import operator
 import re
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, ClassVar, Dict, List, Optional
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.helpers import clean_text, truncate
@@ -176,7 +179,7 @@ class SmartAssistant(BaseModule):
         "current), do maths, convert units and currencies, translate text, summarise "
         "long text, and write creatively."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "what is the meaning of life",
         "convert 10 miles to kilometres",
         "translate good morning into Japanese",

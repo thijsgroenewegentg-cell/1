@@ -16,7 +16,7 @@ import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 from core.memory import ChromaStore, JsonVectorStore, MemoryHit, OllamaEmbedder
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
@@ -39,7 +39,7 @@ class Knowledge(BaseModule):
         "notes and code, then answer questions from them with citations. Use this "
         "whenever the user refers to their own documents, papers, contracts or notes."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "what does my lease say about pets",
         "search my documents for the invoice total",
         "index my documents folder",
@@ -58,6 +58,7 @@ class Knowledge(BaseModule):
         self.max_file_bytes: int = int(float(section.get("max_file_mb", 25)) * 1024 * 1024)
         self.max_files: int = int(section.get("max_files", 5000))
         self.top_k: int = int(section.get("top_k", 5))
+        self._index_task: Optional["asyncio.Task[None]"] = None
         self.min_relevance: float = float(section.get("min_relevance", 0.05))
         self.auto_index: bool = bool(section.get("auto_index_on_start", False))
 
@@ -114,7 +115,9 @@ class Knowledge(BaseModule):
 
         self.store, self.backend = await run_blocking(_open)
         if self.auto_index:
-            asyncio.create_task(self._background_index())
+            # Keep a reference: a bare create_task can be garbage collected
+            # before the indexing run finishes.
+            self._index_task = asyncio.create_task(self._background_index())
 
     async def _background_index(self) -> None:
         """Index the configured roots without blocking start-up."""
@@ -130,7 +133,8 @@ class Knowledge(BaseModule):
         """Rule-based routing used when no LLM is available."""
         text = strip_command_prefix(command)
         lowered = text.lower()
-        if "status" in lowered or "how many documents" in lowered or "what have you indexed" in lowered:
+        if ("status" in lowered or "how many documents" in lowered
+                or "what have you indexed" in lowered):
             return "index_status", {}
         if "forget" in lowered or "unindex" in lowered or "remove from knowledge" in lowered:
             return "forget_documents", {"path": text}
@@ -200,7 +204,7 @@ class Knowledge(BaseModule):
 
         stat = path.stat()
         for index, chunk in chunks:
-            doc_id = hashlib.sha1(f"{path}:{index}".encode("utf-8")).hexdigest()[:24]
+            doc_id = hashlib.sha1(f"{path}:{index}".encode()).hexdigest()[:24]
             metadata = {
                 "path": str(path),
                 "name": path.name,
@@ -501,7 +505,7 @@ class Knowledge(BaseModule):
                     record for record in self.store.records
                     if needle.lower() not in str(record.get("metadata", {}).get("path", "")).lower()
                 ]
-                self.store._flush()  # noqa: SLF001
+                self.store._flush()
                 removed = max(removed, before - len(self.store.records))
             return removed
 

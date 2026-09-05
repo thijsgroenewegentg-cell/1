@@ -427,11 +427,13 @@ class WebInterface:
         host: Optional[str] = None,
         port: Optional[int] = None,
     ) -> None:
-        """Args:
-        brain: The :class:`core.brain.Brain` handling requests.
-        config: Global configuration object.
-        host: Bind address override (default ``web_ui.host``).
-        port: Port override (default ``web_ui.port``).
+        """Configure the web server without starting it.
+
+        Args:
+            brain: The :class:`core.brain.Brain` handling requests.
+            config: Global configuration object.
+            host: Bind address override (default ``web_ui.host``).
+            port: Port override (default ``web_ui.port``).
         """
         self.brain = brain
         self.config = config
@@ -707,11 +709,12 @@ class WebInterface:
             }.get((request.headers.get("content-type", "").split(";")[0] or "").strip(),
                   ".webm")
 
-            temporary = Path(tempfile.gettempdir()) / f"jarvis-listen-{secrets.token_hex(6)}{suffix}"
+            temporary = (Path(tempfile.gettempdir())
+                         / f"jarvis-listen-{secrets.token_hex(6)}{suffix}")
             try:
                 temporary.write_bytes(audio)
                 text = await stt.transcribe_file(temporary)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("Browser transcription failed: %s", exc)
                 raise HTTPException(status_code=500, detail="transcription failed") from exc
             finally:
@@ -762,7 +765,7 @@ class WebInterface:
                     await self._handle_turn(websocket, text)
             except WebSocketDisconnect:
                 pass
-            except Exception as exc:  # noqa: BLE001 - a dead socket must not kill the app
+            except Exception as exc:
                 logger.debug("WebSocket error: %s", truncate(str(exc), 160))
             finally:
                 self._sockets.discard(websocket)
@@ -794,7 +797,7 @@ class WebInterface:
             if await engine.initialize():
                 self._stt = engine
                 return engine
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Could not start speech recognition for the web UI: %s", exc)
         return None
 
@@ -814,7 +817,7 @@ class WebInterface:
         for socket in list(self._sockets):
             try:
                 await socket.send_text(payload)
-            except Exception:  # noqa: BLE001 - drop dead sockets silently
+            except Exception:
                 self._sockets.discard(socket)
 
     async def _handle_turn(self, websocket: Any, text: str) -> None:
@@ -841,7 +844,7 @@ class WebInterface:
         sender = asyncio.create_task(pump())
         try:
             reply = await self.brain.process(text, on_token=on_token)
-        except Exception as exc:  # noqa: BLE001 - report, never crash
+        except Exception as exc:
             logger.exception("Web turn failed")
             reply = ""
             with_error = {"type": "error", "text": truncate(str(exc), 200)}

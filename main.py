@@ -45,8 +45,10 @@ class Jarvis:
     """Application container wiring brain, voice and CLI together."""
 
     def __init__(self, config_path: str = "config.yaml") -> None:
-        """Args:
-        config_path: Path to ``config.yaml`` (created with defaults if absent).
+        """Load the configuration and construct the assistant.
+
+        Args:
+            config_path: Path to ``config.yaml`` (created with defaults if absent).
         """
         self.config = Config.load(PROJECT_ROOT / config_path)
         setup_logging(self.config.section("logging"))
@@ -72,7 +74,7 @@ class Jarvis:
 
                 self.voice = VoiceInterface(self.config)
                 await self.voice.initialize()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("Voice pipeline unavailable: %s", exc)
                 self.voice = None
 
@@ -218,7 +220,8 @@ class Jarvis:
         ok = bool(llm["online"])
 
         (self.cli.success if llm["online"] else self.cli.error)(
-            f"Ollama: {'online — ' + llm['model'] if llm['online'] else 'offline at ' + llm['host']}"
+            "Ollama: " + (f"online — {llm['model']}" if llm["online"]
+                          else f"offline at {llm['host']}")
         )
         self.cli.success(
             f"Memory: {report['memory']['backend']} "
@@ -335,7 +338,7 @@ def run_maintenance(args: argparse.Namespace) -> Optional[int]:
         destination = Path(args.backup).expanduser() if args.backup else None
         try:
             summary = create_backup(root, destination)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"Backup failed: {exc}")
             return 1
         print(f"Backed up {summary['files']} file(s), {human_bytes(summary['bytes'])} "
@@ -452,15 +455,13 @@ async def async_main(args: argparse.Namespace) -> int:
             await jarvis.run_web(port=args.port, with_cli=args.with_cli)
         elif args.cli:
             await jarvis.run_cli()
-        elif args.voice:
-            await jarvis.run_voice()
-        elif jarvis.voice is not None and jarvis.voice.available:
+        elif args.voice or (jarvis.voice is not None and jarvis.voice.available):
             await jarvis.run_voice()
         else:
             await jarvis.run_cli()
     except KeyboardInterrupt:
         pass
-    except Exception as exc:  # noqa: BLE001 - report rather than traceback-dump
+    except Exception as exc:
         logger.exception("Fatal error")
         print(f"\nJARVIS hit a fatal error: {exc}")
         exit_code = 1
@@ -482,7 +483,7 @@ def main() -> None:
         raise SystemExit(asyncio.run(async_main(args)))
     except KeyboardInterrupt:
         print("\nInterrupted. Goodbye, sir.")
-        raise SystemExit(130)
+        raise SystemExit(130) from None
 
 
 if __name__ == "__main__":

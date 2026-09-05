@@ -167,18 +167,18 @@ class OllamaEmbedder:
             self._available = False
         return hash_embedding(text, self._dim)
 
-    def __call__(self, input: Sequence[str]) -> List[List[float]]:  # noqa: A002
+    def __call__(self, input: Sequence[str]) -> List[List[float]]:
         """Embed a batch of documents (ChromaDB entry point)."""
         if isinstance(input, str):  # defensive: some versions pass a bare str
             input = [input]
         return [self.embed_one(item) for item in input]
 
     # ChromaDB >= 0.6 calls these explicitly instead of __call__.
-    def embed_documents(self, input: Sequence[str]) -> List[List[float]]:  # noqa: A002
+    def embed_documents(self, input: Sequence[str]) -> List[List[float]]:
         """Embed stored documents."""
         return self(input)
 
-    def embed_query(self, input: Sequence[str]) -> List[List[float]]:  # noqa: A002
+    def embed_query(self, input: Sequence[str]) -> List[List[float]]:
         """Embed a search query."""
         return self(input)
 
@@ -345,8 +345,10 @@ class ShortTermMemory:
     """Rolling window of recent exchanges held in RAM."""
 
     def __init__(self, limit: int = 20) -> None:
-        """Args:
-        limit: Maximum number of exchanges to keep.
+        """Create an empty short-term buffer.
+
+        Args:
+            limit: Maximum number of exchanges to keep.
         """
         self.limit = max(1, int(limit))
         self._buffer: Deque[Exchange] = deque(maxlen=self.limit)
@@ -395,6 +397,7 @@ class ShortTermMemory:
         return sum(len(item.user) + len(item.assistant) for item in self._buffer)
 
     def __len__(self) -> int:
+        """Return the number of exchanges currently held in memory."""
         return len(self._buffer)
 
     def to_list(self) -> List[Dict[str, Any]]:
@@ -434,8 +437,10 @@ class Memory:
     """
 
     def __init__(self, config: Any) -> None:
-        """Args:
-        config: A :class:`core.config.Config` instance.
+        """Prepare short- and long-term memory.
+
+        Args:
+            config: A :class:`core.config.Config` instance.
         """
         self.config = config
         self.enabled: bool = bool(config.get("memory.enabled", True))
@@ -633,7 +638,8 @@ class Memory:
             "Compress this conversation excerpt into a compact briefing for your future "
             "self. Keep decisions, facts about the user, open threads and anything you "
             "promised to do. Drop pleasantries. Maximum 120 words.\n"
-            + (f"\nPrevious briefing: {self.conversation_summary}\n" if self.conversation_summary else "")
+            + (f"\nPrevious briefing: {self.conversation_summary}\n"
+               if self.conversation_summary else "")
             + f"\nExcerpt:\n{transcript}"
         )
         try:
@@ -688,7 +694,7 @@ class Memory:
             "session": self.session_id,
         }
         payload.update(metadata or {})
-        doc_id = hashlib.sha1(f"{category}:{text}".encode("utf-8")).hexdigest()[:24]
+        doc_id = hashlib.sha1(f"{category}:{text}".encode()).hexdigest()[:24]
 
         async with self._lock:
             try:
@@ -888,7 +894,7 @@ class Memory:
                     for record in self.store.records
                     if keyword.lower() not in record.get("text", "").lower()
                 ]
-                self.store._flush()  # noqa: SLF001 - internal, same module family
+                self.store._flush()
                 removed = max(removed, before - len(self.store.records))
             return removed
 
@@ -898,7 +904,7 @@ class Memory:
         """Flush everything to disk (Chroma persists automatically)."""
         try:
             if isinstance(self.store, JsonVectorStore):
-                await run_blocking(self.store._flush)  # noqa: SLF001
+                await run_blocking(self.store._flush)
             return True
         except Exception:
             return False
@@ -930,10 +936,10 @@ class Memory:
 
 
 __all__ = [
+    "Exchange",
     "Memory",
     "MemoryHit",
-    "ShortTermMemory",
-    "Exchange",
     "OllamaEmbedder",
+    "ShortTermMemory",
     "hash_embedding",
 ]

@@ -4,15 +4,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import sqlite3
 import time
-import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.helpers import (
@@ -321,7 +321,7 @@ class Productivity(BaseModule):
         "Personal productivity: todo list, reminders with notifications, timers and a "
         "stopwatch, note taking with search, and a daily briefing."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "add buy milk to my todo list",
         "remind me to call mom at 5pm",
         "set a timer for 10 minutes",
@@ -619,7 +619,7 @@ class Productivity(BaseModule):
         self.log.info("Running scheduled job '%s' (%s).", description, action)
         try:
             spoken = await self._perform(action, params, description)
-        except Exception as exc:  # noqa: BLE001 - a bad job must not kill the loop
+        except Exception as exc:
             self.log.warning("Scheduled job '%s' failed: %s", description, exc)
             spoken = f"The scheduled '{description}' failed: {truncate(str(exc), 120)}"
         if spoken:
@@ -674,7 +674,7 @@ class Productivity(BaseModule):
             action, params = self._resolve_action(step)
             try:
                 spoken = await self._perform(action, params, step)
-            except Exception as exc:  # noqa: BLE001 - one bad step, not the lot
+            except Exception as exc:
                 self.log.warning("Routine step '%s' failed: %s", step, exc)
                 spoken = f"{step} failed"
             if spoken:
@@ -785,7 +785,7 @@ class Productivity(BaseModule):
         )
 
     #: Plain-English names for tools a schedule commonly calls.
-    ACTION_SHORTCUTS: Dict[str, str] = {
+    ACTION_SHORTCUTS: ClassVar[Dict[str, str]] = {
         "daily briefing": "productivity.daily_briefing",
         "morning briefing": "productivity.daily_briefing",
         "briefing": "productivity.daily_briefing",
@@ -809,7 +809,7 @@ class Productivity(BaseModule):
     }
 
     #: Which parameter carries the free-text argument of a shortcut tool.
-    ACTION_ARGUMENTS: Dict[str, str] = {
+    ACTION_ARGUMENTS: ClassVar[Dict[str, str]] = {
         "web_search.weather": "location",
         "web_search.news": "topic",
         "web_search.search": "query",
@@ -1064,7 +1064,7 @@ class Productivity(BaseModule):
                 continue
             right_parts = cls._split_on_and(right)
             if not cls._resolve_action(right_parts[0])[0].startswith("say:"):
-                return [left] + right_parts
+                return [left, *right_parts]
         return [piece]
 
     def _routine_names(self) -> List[str]:
@@ -1283,7 +1283,9 @@ class Productivity(BaseModule):
                 return "cancel_timer", {"timer": "all"}
             if any(word in lowered for word in ("list", "running", "left", "remaining", "check")):
                 return "list_timers", {}
-            duration = re.search(r"(?:for|of|in)?\s*([\d.]+\s*(?:hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b|\d+)", lowered)
+            duration = re.search(
+                r"(?:for|of|in)?\s*([\d.]+\s*"
+                r"(?:hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b|\d+)", lowered)
             label = re.search(r"\bcalled\s+([\w -]+)", lowered)
             return "start_timer", {
                 "duration": duration.group(1).strip() if duration else lowered,
@@ -1305,7 +1307,8 @@ class Productivity(BaseModule):
         if note:
             index = lowered.index(note.group(1))
             return "add_note", {"content": text[index:].strip()}
-        if "note" in lowered and any(w in lowered for w in ("find", "search", "show", "my", "what")):
+        if "note" in lowered and any(w in lowered for w in
+                                     ("find", "search", "show", "my", "what")):
             keyword = re.sub(r".*notes?\s*(about|on|for|containing)?\s*", "", lowered).strip()
             return "search_notes", {"query": keyword}
 
@@ -1318,7 +1321,8 @@ class Productivity(BaseModule):
             r"\b(?:mark|tick|cross)\s+(?:off\s+)?(.+?)\s*(?:as\s+)?(?:done|complete[d]?|off)?$",
             lowered,
         )
-        if any(word in lowered for word in ("done with", "completed", "finished", "mark ")) and completion:
+        if completion and any(word in lowered for word in
+                              ("done with", "completed", "finished", "mark ")):
             return "complete_todo", {"task": completion.group(1).strip()}
 
         if any(word in lowered for word in ("delete", "remove", "scrap")) and (
@@ -1334,7 +1338,8 @@ class Productivity(BaseModule):
         if add_task:
             start = lowered.index(add_task.group(1))
             task_text = text[start : start + len(add_task.group(1))].strip()
-            priority = "high" if any(w in lowered for w in ("urgent", "important", "asap")) else "normal"
+            urgent = any(w in lowered for w in ("urgent", "important", "asap"))
+            priority = "high" if urgent else "normal"
             return "add_todo", {"task": task_text, "priority": priority}
 
         if re.search(r"\b(?:add|new)\s+(?:a\s+)?(?:task|todo)\b", lowered):
@@ -1576,7 +1581,8 @@ class Productivity(BaseModule):
 
         rows = await run_blocking(_select)
         if not rows:
-            return ModuleResult(success=True, output="No pending reminders.", data={"reminders": []})
+            return ModuleResult(success=True, output="No pending reminders.",
+                                data={"reminders": []})
         lines = [f"#{row['id']} {row['due']} — {row['text']}" for row in rows]
         return ModuleResult(success=True, output="\n".join(lines), data={"reminders": rows})
 

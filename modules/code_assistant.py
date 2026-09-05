@@ -9,7 +9,7 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.helpers import (
@@ -55,7 +55,7 @@ class CodeAssistant(BaseModule):
         "Programming help: write code from a description, explain existing code, debug "
         "errors, generate unit tests, save snippets to files and run Python in a sandbox."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "write a python script that renames files",
         "explain this code",
         "debug this traceback",
@@ -322,7 +322,8 @@ class CodeAssistant(BaseModule):
             return ModuleResult.fail("No code supplied.")
         answer = await self.llm.complete(
             f"Write {framework} tests covering the happy path, edge cases and failure modes "
-            f"for this code. Output one fenced code block only.\n\n```\n{truncate(source, 7000)}\n```",
+            "for this code. Output one fenced code block only.\n\n"
+            f"```\n{truncate(source, 7000)}\n```",
             temperature=0.2,
             max_tokens=1200,
         )
@@ -337,7 +338,8 @@ class CodeAssistant(BaseModule):
             "timeout": {"type": "integer", "description": "Seconds", "default": 0},
         },
         dangerous=False,
-        keywords=["run this code", "execute python", "run the script", "try running", "test this code"],
+        keywords=["run this code", "execute python", "run the script",
+                  "try running", "test this code"],
     )
     async def run_python(self, code: str = "", timeout: int = 0) -> ModuleResult:
         """Execute Python in a temporary directory as a separate process.
@@ -465,7 +467,8 @@ class CodeAssistant(BaseModule):
             ".py": "python", ".js": "javascript", ".ts": "typescript", ".sh": "bash",
             ".sql": "sql", ".go": "go", ".rs": "rust",
         }.get(target.suffix.lower(), "text")
-        suffix = f"\n… ({len(lines) - int(max_lines)} more lines)" if len(lines) > int(max_lines) else ""
+        suffix = (f"\n… ({len(lines) - int(max_lines)} more lines)"
+                  if len(lines) > int(max_lines) else "")
         return ModuleResult(
             success=True,
             output=f"{target} ({len(lines)} lines):\n{shown}{suffix}",

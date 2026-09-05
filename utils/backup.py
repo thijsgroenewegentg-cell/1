@@ -59,9 +59,7 @@ def _skipped(relative: str) -> bool:
     for part in SKIP_PARTS:
         if normalised == part or normalised.startswith(part + "/"):
             return True
-    if normalised.endswith((".pyc", ".pyo", ".log", ".wal", ".shm")):
-        return True
-    return False
+    return normalised.endswith((".pyc", ".pyo", ".log", ".wal", ".shm"))
 
 
 def _iter_backup_files(root: Path) -> Iterable[Path]:
@@ -105,9 +103,9 @@ def _copy_database(source: Path, destination: Path) -> bool:
     """
     try:
         ensure_dir(destination.parent)
-        with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as origin:
-            with sqlite3.connect(str(destination)) as target:
-                origin.backup(target)
+        with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as origin, \
+                sqlite3.connect(str(destination)) as target:
+            origin.backup(target)
         return True
     except Exception as exc:
         logger.debug("Online backup of %s failed (%s); copying the file instead.",
@@ -196,9 +194,9 @@ def inspect_backup(archive_path: Path) -> Dict[str, Any]:
         The manifest, plus ``ok`` and ``error`` keys.
     """
     try:
-        with zipfile.ZipFile(archive_path) as archive:
-            with archive.open("jarvis-manifest.json") as handle:
-                manifest = json.loads(handle.read().decode("utf-8"))
+        with zipfile.ZipFile(archive_path) as archive, \
+                archive.open("jarvis-manifest.json") as handle:
+            manifest = json.loads(handle.read().decode("utf-8"))
         manifest["ok"] = True
         manifest["error"] = ""
         return manifest
@@ -391,7 +389,7 @@ def uninstall(root: Path, keep_data: bool = False,
                 shutil.rmtree(path)
             removed.append(entry["path"])
             freed += int(entry["bytes"])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Could not remove %s: %s", path, exc)
             failed.append(f"{path}: {exc}")
 

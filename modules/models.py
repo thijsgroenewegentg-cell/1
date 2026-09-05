@@ -13,7 +13,7 @@ import asyncio
 import json
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.helpers import human_bytes, human_duration, truncate
@@ -67,7 +67,7 @@ class Models(BaseModule):
         "recommend which free model suits a task. Use for anything about models, "
         "Ollama, download sizes or how fast/slow JARVIS is."
     )
-    intent_examples = [
+    intent_examples: ClassVar[List[str]] = [
         "what models do i have",
         "switch to mistral",
         "download qwen2.5",
@@ -339,7 +339,7 @@ class Models(BaseModule):
                         )
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001 - network failures are expected
+        except Exception as exc:
             error = str(exc)
         finally:
             self._pulling = None
@@ -419,7 +419,7 @@ class Models(BaseModule):
                 return ModuleResult.fail(
                     f"Ollama refused to delete {resolved}: {response.status_code}."
                 )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ModuleResult.fail(f"Could not delete {resolved}: {truncate(str(exc), 120)}")
         finally:
             await client.aclose()
@@ -456,7 +456,7 @@ class Models(BaseModule):
             if response.status_code >= 400:
                 return ModuleResult.fail(f"Ollama does not know '{wanted}', sir.")
             payload = response.json()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ModuleResult.fail(f"Could not read model details: {truncate(str(exc), 120)}")
         finally:
             await client.aclose()
@@ -596,7 +596,7 @@ class Models(BaseModule):
         """Persist config.yaml, logging rather than raising when it fails."""
         try:
             self.config.save()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.log.warning("Could not save config.yaml: %s", exc)
 
     async def _status(self, message: str) -> None:
