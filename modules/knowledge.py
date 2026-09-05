@@ -337,6 +337,7 @@ class Knowledge(BaseModule):
             "query": {"type": "string", "description": "What to look for", "required": True},
             "k": {"type": "integer", "description": "Number of passages", "default": 5},
         },
+        untrusted=True,
         keywords=["search my documents", "find in my files", "which document mentions",
                   "look in my notes"],
     )
@@ -375,6 +376,7 @@ class Knowledge(BaseModule):
             "question": {"type": "string", "description": "The question", "required": True},
             "k": {"type": "integer", "description": "Passages to consider", "default": 6},
         },
+        untrusted=True,
         keywords=["according to my documents", "what does my", "in my files", "ask my documents",
                   "my notes say", "from my pdfs"],
         examples=['ask_documents(question="what is the notice period in my lease")'],

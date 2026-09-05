@@ -64,6 +64,12 @@ DEFAULT_MODEL: str = os.environ.get("JARVIS_MODEL", "llama3.2")
 EMBED_MODEL: str = os.environ.get("JARVIS_EMBED_MODEL", "nomic-embed-text")
 VISION_MODEL: str = os.environ.get("JARVIS_VISION_MODEL", "llava")
 
+#: A free, offline Piper voice (CC-BY licensed, no account needed).
+PIPER_VOICE_NAME: str = "en_GB-alan-medium"
+PIPER_VOICE_BASE: str = (
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/"
+)
+
 #: Package groups, straight out of requirements.txt but installable in stages
 #: so that one optional failure cannot sink the whole install.
 PACKAGE_GROUPS: Dict[str, List[str]] = {
@@ -101,6 +107,7 @@ PACKAGE_GROUPS: Dict[str, List[str]] = {
     ],
     "voice": [
         "edge-tts>=6.1.10",
+        "piper-tts>=1.2.0",
         "faster-whisper>=1.0.3",
         "sounddevice>=0.4.6",
         "numpy>=1.26.0",
@@ -845,6 +852,40 @@ def setup_ollama(assume_yes: bool, model: str, want_embed: bool,
     return ready
 
 
+def install_piper_voice(assume_yes: bool) -> bool:
+    """Download a free offline Piper voice so speech needs no network.
+
+    Args:
+        assume_yes: Skip the question and download.
+
+    Returns:
+        True when a voice model is present afterwards.
+    """
+    folder = PROJECT_DIR / "data" / "piper"
+    existing = list(folder.glob("*.onnx")) if folder.exists() else []
+    if existing:
+        ok(f"offline voice already installed ({existing[0].name})")
+        return True
+    if not ask_yes_no(
+        "Download a fully offline voice so speech never touches the internet (~65 MB)?",
+        default=True, assume_yes=assume_yes,
+    ):
+        info("skipped — JARVIS will use Microsoft's free online voices instead")
+        return False
+
+    folder.mkdir(parents=True, exist_ok=True)
+    model = folder / f"{PIPER_VOICE_NAME}.onnx"
+    config_file = folder / f"{PIPER_VOICE_NAME}.onnx.json"
+    if not download(f"{PIPER_VOICE_BASE}{PIPER_VOICE_NAME}.onnx", model,
+                    "downloading the offline voice"):
+        return False
+    if not download(f"{PIPER_VOICE_BASE}{PIPER_VOICE_NAME}.onnx.json", config_file,
+                    "downloading the voice config"):
+        return False
+    ok(f"offline voice installed ({PIPER_VOICE_NAME})")
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Step 5 — configuration
 # ---------------------------------------------------------------------------
@@ -1127,6 +1168,8 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--no-test", action="store_true", help="skip the closing self-test")
     parser.add_argument("--no-shortcut", action="store_true", help="do not create a shortcut")
     parser.add_argument("--vision", action="store_true", help="also pull the llava vision model")
+    parser.add_argument("--no-voice-model", action="store_true",
+                        help="skip the offline Piper voice download")
     parser.add_argument("--venv", default=str(PROJECT_DIR / ".venv"),
                         help="virtual environment location (default: ./.venv)")
     parser.add_argument("--recreate", action="store_true",
@@ -1205,6 +1248,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             want_vision=wants_vision and not arguments.no_model,
         ):
             model_installed = model
+
+    if profile == "full" and not arguments.no_voice_model:
+        install_piper_voice(assume_yes)
 
     step(5, total_steps, "Configuration")
     if arguments.repair:

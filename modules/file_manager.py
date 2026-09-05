@@ -280,6 +280,7 @@ class FileManager(BaseModule):
             "path": {"type": "string", "description": "Folder to search", "default": "~"},
             "limit": {"type": "integer", "description": "Max matches", "default": 20},
         },
+        untrusted=True,
         keywords=["grep", "search inside files", "which file contains", "find text in"],
     )
     async def search_content(self, text: str, path: str = "~", limit: int = 20) -> ModuleResult:
@@ -538,6 +539,7 @@ class FileManager(BaseModule):
                 "default": "",
             },
         },
+        untrusted=True,
         keywords=["summarize this document", "summarise the pdf", "what's in this file",
                   "read this document", "tldr of the file"],
     )
@@ -589,6 +591,7 @@ class FileManager(BaseModule):
                 "default": "",
             },
         },
+        untrusted=True,
         keywords=["csv", "spreadsheet", "analyse the data", "analyze the data", "read the csv"],
     )
     async def analyze_csv(self, path: str, question: str = "") -> ModuleResult:
@@ -662,6 +665,7 @@ class FileManager(BaseModule):
             "path": {"type": "string", "description": "File path", "required": True},
             "max_chars": {"type": "integer", "description": "Character cap", "default": 4000},
         },
+        untrusted=True,
         keywords=["read the file", "show me the contents", "open the text file", "cat"],
     )
     async def read_file(self, path: str, max_chars: int = 4000) -> ModuleResult:

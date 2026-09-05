@@ -386,6 +386,7 @@ class Communications(BaseModule):
             "limit": {"type": "integer", "description": "How many messages", "default": 10},
             "sender": {"type": "string", "description": "Filter by sender", "default": ""},
         },
+        untrusted=True,
         keywords=["check my email", "check my mail", "any new mail", "unread mail", "my inbox",
                   "read my email"],
         examples=['check_email(unread_only=true, limit=5)'],
@@ -430,6 +431,7 @@ class Communications(BaseModule):
         description="Summarise unread mail into a short briefing.",
         params={"limit": {"type": "integer", "description": "Messages to read",
                           "default": 5}},
+        untrusted=True,
         keywords=["summarize my email", "summarise my inbox", "what's in my inbox",
                   "email briefing"],
     )
@@ -565,6 +567,7 @@ class Communications(BaseModule):
             "refresh": {"type": "boolean", "description": "Bypass the 5-minute cache",
                         "default": False},
         },
+        untrusted=True,
         keywords=["my calendar", "my schedule", "what's on today", "agenda", "my meetings",
                   "appointments", "events this week"],
         examples=["upcoming_events(days=1)"],
@@ -622,6 +625,7 @@ class Communications(BaseModule):
     @tool(
         description="Report the very next calendar event.",
         params={},
+        untrusted=True,
         keywords=["next meeting", "next event", "when is my next", "what's next"],
     )
     async def next_event(self) -> ModuleResult:

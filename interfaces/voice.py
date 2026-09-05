@@ -18,10 +18,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import importlib.util
 import inspect
 import math
+import shlex
 import struct
 import subprocess
+import sys
 import time
 import wave
 from dataclasses import dataclass
@@ -52,13 +55,30 @@ CommandHandler = Callable[..., Awaitable[str]]
 
 
 class TextToSpeech:
-    """Free neural speech via edge-tts, with interruptible playback."""
+    """Free neural speech with interruptible playback.
+
+    Two engines, both free:
+
+    * **piper** — fully offline neural TTS. Nothing leaves the machine, so this
+      is the default when a Piper voice model is present.
+    * **edge-tts** — Microsoft's public neural voices. Better prosody, but it
+      is a network call, which breaks the "everything is local" promise.
+
+    ``voice.tts.engine`` picks between them: ``auto`` (Piper when available,
+    otherwise edge-tts), ``piper``, or ``edge``.
+    """
 
     def __init__(self, config: Any) -> None:
         """Args:
         config: The global configuration object.
         """
         self.config = config
+        self.engine: str = str(config.get("voice.tts.engine", "auto")).lower().strip()
+        self.piper_voice: str = str(config.get("voice.tts.piper_voice", "")).strip()
+        self.piper_speed: float = float(config.get("voice.tts.piper_speed", 1.0) or 1.0)
+        self.active_engine: str = ""
+        self._piper_binary: Optional[str] = None
+        self._piper_model: Optional[Path] = None
         self.voice: str = str(config.get("voice.tts.voice", "en-GB-RyanNeural"))
         self.rate: str = str(config.get("voice.tts.rate", "+8%"))
         self.volume: str = str(config.get("voice.tts.volume", "+0%"))
@@ -73,12 +93,28 @@ class TextToSpeech:
 
     # -- setup --------------------------------------------------------------
     async def initialize(self) -> bool:
-        """Check that edge-tts and an audio player are usable."""
-        try:
-            import edge_tts  # noqa: F401
-        except Exception as exc:
-            logger.warning("edge-tts unavailable (%s) — speech output disabled.", exc)
+        """Pick a speech engine and an audio player.
+
+        Returns:
+            True when JARVIS can speak.
+        """
+        engines: List[str] = []
+        if self.engine in ("auto", "piper") and self._find_piper():
+            engines.append("piper")
+        if self.engine in ("auto", "edge") and importlib.util.find_spec("edge_tts"):
+            engines.append("edge")
+
+        if not engines:
+            if self.engine == "piper":
+                logger.warning(
+                    "Piper is not installed — pip install piper-tts and download a voice "
+                    "from https://huggingface.co/rhasspy/piper-voices (free)."
+                )
+            else:
+                logger.warning("No speech engine available (edge-tts / piper) — "
+                               "speech output disabled.")
             return False
+
         self._player = self._find_player()
         if self._player is None:
             logger.warning(
@@ -86,13 +122,88 @@ class TextToSpeech:
                 "or on Linux: sudo apt install ffmpeg"
             )
             return False
+
+        self.active_engine = engines[0]
         self.available = True
-        logger.info("TTS ready — voice=%s player=%s", self.voice, self._player[0])
+        detail = (
+            f"piper model={self._piper_model.name if self._piper_model else '?'}"
+            if self.active_engine == "piper"
+            else f"edge voice={self.voice}"
+        )
+        logger.info("TTS ready — engine=%s %s player=%s",
+                    self.active_engine, detail, self._player[0])
         return True
 
+    def _find_piper(self) -> bool:
+        """Locate the Piper binary (or module) and a voice model.
+
+        Piper voices are ``.onnx`` files paired with ``.onnx.json`` config.
+        JARVIS looks at ``voice.tts.piper_voice`` first, then in
+        ``data/piper``, ``~/.local/share/piper-voices`` and ``/usr/share/piper``.
+
+        Returns:
+            True when both a runner and a voice model were found.
+        """
+        runner: Optional[str] = which("piper")
+        if runner is None and importlib.util.find_spec("piper") is not None:
+            runner = f"{sys.executable} -m piper"
+        if runner is None:
+            return False
+
+        candidates: List[Path] = []
+        if self.piper_voice:
+            explicit = Path(self.piper_voice).expanduser()
+            if explicit.is_file():
+                candidates.append(explicit)
+            else:
+                candidates.extend(
+                    sorted(self.config.resolve("data/piper").glob(f"*{self.piper_voice}*.onnx"))
+                )
+        for folder in (
+            self.config.resolve("data/piper"),
+            Path.home() / ".local" / "share" / "piper-voices",
+            Path("/usr/share/piper-voices"),
+            Path("/usr/share/piper"),
+        ):
+            try:
+                candidates.extend(sorted(folder.glob("**/*.onnx")))
+            except Exception:
+                continue
+
+        for model in candidates:
+            if model.is_file() and (model.with_suffix(".onnx.json").exists()
+                                    or Path(f"{model}.json").exists()):
+                self._piper_binary = runner
+                self._piper_model = model
+                return True
+        return False
+
+    #: Players that can only handle one container, keyed by file suffix.
+    _FORMAT_ONLY = {"mpg123": {".mp3"}, "aplay": {".wav"}, "paplay": {".wav"}}
+
+    def _player_for(self, path: Path) -> Optional[List[str]]:
+        """Pick a player that can actually decode this file type.
+
+        Args:
+            path: The audio file about to be played.
+
+        Returns:
+            An argv prefix, or ``None`` when nothing suitable exists.
+        """
+        suffix = path.suffix.lower()
+        if self._player is not None:
+            supported = self._FORMAT_ONLY.get(self._player[0])
+            if supported is None or suffix in supported:
+                return self._player
+        for candidate in self._all_players():
+            supported = self._FORMAT_ONLY.get(candidate[0])
+            if (supported is None or suffix in supported) and which(candidate[0]):
+                return candidate
+        return self._player
+
     @staticmethod
-    def _find_player() -> Optional[List[str]]:
-        """Locate a command-line audio player that can handle MP3."""
+    def _all_players() -> List[List[str]]:
+        """Every playback command JARVIS knows about, best first."""
         candidates: List[List[str]] = []
         if IS_MACOS:
             candidates.append(["afplay"])
@@ -106,7 +217,12 @@ class TextToSpeech:
             ["paplay"],
             ["aplay", "-q"],
         ]
-        for candidate in candidates:
+        return candidates
+
+    @classmethod
+    def _find_player(cls) -> Optional[List[str]]:
+        """Locate a command-line audio player."""
+        for candidate in cls._all_players():
             if which(candidate[0]):
                 return candidate
         return None
@@ -114,10 +230,13 @@ class TextToSpeech:
     # -- synthesis ----------------------------------------------------------
     def _cache_path(self, text: str) -> Path:
         """Deterministic cache filename for a phrase."""
+        model = self._piper_model.name if self._piper_model else ""
         digest = hashlib.sha1(
-            f"{self.voice}|{self.rate}|{self.pitch}|{text}".encode("utf-8")
+            f"{self.active_engine}|{model}|{self.voice}|{self.rate}|{self.pitch}|{text}"
+            .encode("utf-8")
         ).hexdigest()[:20]
-        return self.cache_dir / f"{digest}.mp3"
+        suffix = "wav" if self.active_engine == "piper" else "mp3"
+        return self.cache_dir / f"{digest}.{suffix}"
 
     async def synthesize(self, text: str) -> Optional[Path]:
         """Render ``text`` to an MP3 file and return its path."""
@@ -128,6 +247,9 @@ class TextToSpeech:
         target = self._cache_path(clean)
         if self.cache_enabled and target.exists() and target.stat().st_size > 1024:
             return target
+
+        if self.active_engine == "piper":
+            return await self._synthesize_piper(clean, target)
 
         try:
             import edge_tts
@@ -145,11 +267,57 @@ class TextToSpeech:
             logger.warning("Speech synthesis failed: %s", truncate(str(exc), 160))
             return None
 
+    async def _synthesize_piper(self, text: str, target: Path) -> Optional[Path]:
+        """Render speech entirely offline with Piper.
+
+        Args:
+            text: Clean text to speak.
+            target: Where to write the WAV file.
+
+        Returns:
+            The written path, or ``None`` on failure.
+        """
+        if not self._piper_binary or not self._piper_model:
+            return None
+        temporary = target.with_suffix(".part")
+        command = shlex.split(self._piper_binary) + [
+            "--model", str(self._piper_model),
+            "--output_file", str(temporary),
+        ]
+        if self.piper_speed and abs(self.piper_speed - 1.0) > 0.01:
+            command += ["--length_scale", f"{1.0 / self.piper_speed:.3f}"]
+
+        def _run() -> bool:
+            try:
+                finished = subprocess.run(
+                    command, input=text.encode("utf-8"),
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=120,
+                )
+                if finished.returncode != 0:
+                    logger.warning("Piper failed: %s",
+                                   truncate(finished.stderr.decode("utf-8", "ignore"), 160))
+                    return False
+                return temporary.exists() and temporary.stat().st_size > 1024
+            except Exception as exc:
+                logger.warning("Piper failed: %s", truncate(str(exc), 160))
+                return False
+
+        if not await run_blocking(_run):
+            with contextlib.suppress(Exception):
+                temporary.unlink(missing_ok=True)
+            return None
+        temporary.replace(target)
+        if not self.cache_enabled:
+            self._prune_cache(keep=0)
+        return target
+
     def _prune_cache(self, keep: int = 200) -> None:
         """Keep the TTS cache from growing without bound."""
         try:
             files = sorted(
-                self.cache_dir.glob("*.mp3"), key=lambda item: item.stat().st_mtime, reverse=True
+                [path for pattern in ("*.mp3", "*.wav") for path in self.cache_dir.glob(pattern)],
+                key=lambda item: item.stat().st_mtime,
+                reverse=True,
             )
             for stale in files[keep:]:
                 stale.unlink(missing_ok=True)
@@ -206,10 +374,11 @@ class TextToSpeech:
         return True
 
     def _playback_command(self, path: Path) -> Optional[List[str]]:
-        """Build the argv for the detected player."""
-        if self._player is None:
+        """Build the argv for a player that can handle this file."""
+        player = self._player_for(path)
+        if player is None:
             return None
-        if self._player[0] == "powershell":
+        if player[0] == "powershell":
             script = (
                 "Add-Type -AssemblyName presentationCore; "
                 "$p=New-Object System.Windows.Media.MediaPlayer; "
@@ -218,8 +387,8 @@ class TextToSpeech:
                 "while($p.NaturalDuration.HasTimeSpan -eq $false){Start-Sleep -Milliseconds 100}; "
                 "Start-Sleep -Seconds $p.NaturalDuration.TimeSpan.TotalSeconds"
             )
-            return [*self._player, script]
-        return [*self._player, str(path)]
+            return [*player, script]
+        return [*player, str(path)]
 
     def stop(self) -> None:
         """Immediately stop any speech in progress (barge-in)."""

@@ -136,6 +136,8 @@ class SelfImprove(BaseModule):
         self.plugins_dir: Path = config.resolve(section.get("plugins_dir", "plugins"))
         self.repos_dir: Path = config.resolve(section.get("repos_dir", "data/repos"))
         self.backup_dir: Path = config.resolve(section.get("backup_dir", "data/backups"))
+        self.review_plugins: bool = bool(section.get("review_plugins", True))
+        self.pending_dir: Path = self.plugins_dir / "pending"
         self.protected: List[str] = list(
             dict.fromkeys(
                 [str(item) for item in (section.get("protected") or [])]
@@ -327,6 +329,7 @@ class SelfImprove(BaseModule):
             "min_stars": {"type": "integer", "description": "Minimum stars", "default": 25},
             "limit": {"type": "integer", "description": "How many results", "default": 8},
         },
+        untrusted=True,
         keywords=["search github", "find a repo", "github for", "is there a library",
                   "open source project for", "find a package"],
         examples=['search_github(query="home assistant control", min_stars=100)'],
@@ -408,6 +411,7 @@ class SelfImprove(BaseModule):
         params={
             "repo": {"type": "string", "description": "owner/name", "required": True},
         },
+        untrusted=True,
         keywords=["tell me about the repo", "repo details", "what does that project do",
                   "show me the readme"],
     )
@@ -527,6 +531,8 @@ class SelfImprove(BaseModule):
         if not cloned:
             return ModuleResult.fail(f"Clone failed: {truncate(error, 300)}")
 
+        commit = await run_blocking(self._clone_commit, destination)
+
         survey = await run_blocking(self._survey_repo, destination)
         installed = ""
         if pip_install:
@@ -535,9 +541,14 @@ class SelfImprove(BaseModule):
             )
             installed = result.output
 
-        adapter = await self._write_adapter(skill, slug_source, destination, survey, goal)
+        adapter = await self._write_adapter(
+            skill, slug_source, destination, survey, goal, commit=commit
+        )
         if not adapter.success:
             return adapter
+
+        if self.review_plugins:
+            return await self._quarantine(skill, slug_source, destination, adapter, commit)
 
         registered = await self._register_plugin(skill, adapter.data.get("path", ""))
         self._record(
@@ -567,6 +578,187 @@ class SelfImprove(BaseModule):
             data={"skill": skill, "repo": slug_source, "tools": registered.get("tools", []),
                   "adapter": adapter.data.get("path", "")},
         )
+
+    @staticmethod
+    def _clone_commit(path: Path) -> str:
+        """Return the exact commit a clone is pinned to (empty when unknown)."""
+        try:
+            finished = subprocess.run(
+                ["git", "-C", str(path), "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=30,
+            )
+            return finished.stdout.strip()[:12] if finished.returncode == 0 else ""
+        except Exception:
+            return ""
+
+    async def _quarantine(
+        self, skill: str, repo: str, clone: Path, adapter: ModuleResult, commit: str
+    ) -> ModuleResult:
+        """Hold a freshly generated adapter until the user has approved it.
+
+        The file is moved to ``plugins/pending/`` and *not* imported. Nothing
+        written by a language model out of a stranger's repository runs in this
+        process before a human has had the chance to read it.
+
+        Args:
+            skill: The new skill name.
+            repo: The upstream repository.
+            clone: Where the source was cloned.
+            adapter: The result of adapter generation.
+            commit: The pinned upstream commit.
+
+        Returns:
+            A result describing what to do next.
+        """
+        written = Path(adapter.data.get("path", ""))
+        ensure_dir(self.pending_dir)
+        held = self.pending_dir / f"{skill}.py"
+        try:
+            if written.exists():
+                shutil.move(str(written), str(held))
+        except Exception as exc:
+            return ModuleResult.fail(f"Could not quarantine the adapter: {exc}")
+
+        body = held.read_text(encoding="utf-8", errors="replace")
+        tools = re.findall(r"async def (\w+)\(", body)
+        self._record(
+            "plugin_pending", skill,
+            f"Generated an adapter for {repo}"
+            + (f" at commit {commit}" if commit else ""),
+            backup="", tests="", committed="",
+        )
+        preview = "\n".join(body.splitlines()[:40])
+        return ModuleResult(
+            success=True,
+            output=(
+                f"I wrote a '{skill}' skill for {repo}"
+                + (f" (pinned at commit {commit})" if commit else "")
+                + f", but I have not loaded it yet.\n"
+                f"  source  : {clone}\n"
+                f"  adapter : {held}\n"
+                f"  tools   : {', '.join(dict.fromkeys(tools)) or 'none detected'}\n\n"
+                f"First forty lines:\n{preview}\n\n"
+                f"Read it, then say \"approve the {skill} plugin\" and I will load it — "
+                f"or \"reject the {skill} plugin\" and I will bin it."
+            ),
+            speak=(
+                f"I have written a {skill} skill from {repo}, sir, but I have not run it. "
+                f"Review the file and approve it when you are satisfied."
+            ),
+            data={"skill": skill, "repo": repo, "pending": str(held), "commit": commit,
+                  "tools": tools},
+        ).offering(
+            "self_improve.approve_plugin", {"name": skill},
+            f"Shall I load the {skill} plugin now?",
+        )
+
+    @tool(
+        description=(
+            "Load a plugin that is waiting in the review queue, after you have read it."
+        ),
+        params={"name": {"type": "string", "description": "Skill name", "required": True}},
+        dangerous=True,
+        keywords=["approve the plugin", "approve plugin", "load the plugin",
+                  "accept the plugin", "trust that plugin"],
+    )
+    async def approve_plugin(self, name: str) -> ModuleResult:
+        """Move a reviewed adapter out of quarantine and register it live."""
+        skill = re.sub(r"[^a-z0-9_]", "", (name or "").strip().lower())
+        held = self.pending_dir / f"{skill}.py"
+        if not held.exists():
+            waiting = ", ".join(sorted(p.stem for p in self.pending_dir.glob("*.py"))) \
+                if self.pending_dir.exists() else ""
+            return ModuleResult.fail(
+                f"Nothing called '{skill}' is waiting for review."
+                + (f" Waiting: {waiting}." if waiting else "")
+            )
+
+        code = held.read_text(encoding="utf-8", errors="replace")
+        accepted, why = self._validate_adapter(code, skill)
+        if not accepted:
+            return ModuleResult.fail(
+                f"I re-checked {skill} before loading it and it failed: {why}. "
+                f"The file is still at {held}."
+            )
+
+        target = self.plugins_dir / f"{skill}.py"
+        try:
+            shutil.move(str(held), str(target))
+        except Exception as exc:
+            return ModuleResult.fail(f"Could not move the plugin into place: {exc}")
+
+        registered = await self._register_plugin(skill, str(target))
+        committed = await self._git_commit([str(target)], f"self: approve plugin {skill}")
+        self._record("plugin", skill, f"Approved and loaded the {skill} plugin",
+                     backup="", tests="", committed=committed)
+        return ModuleResult(
+            success=True,
+            output=(
+                f"'{skill}' is live.\n"
+                f"  adapter: {target}\n"
+                f"  tools  : {', '.join(registered.get('tools', [])) or 'none'}\n"
+                f"  status : {registered.get('status')}"
+            ),
+            speak=f"{skill} is part of me now, sir.",
+            data={"skill": skill, "tools": registered.get("tools", [])},
+        )
+
+    @tool(
+        description="Delete a plugin that is waiting for review without loading it.",
+        params={"name": {"type": "string", "description": "Skill name", "required": True}},
+        keywords=["reject the plugin", "bin that plugin", "discard the plugin",
+                  "don't load that plugin"],
+    )
+    async def reject_plugin(self, name: str) -> ModuleResult:
+        """Throw away a quarantined adapter."""
+        skill = re.sub(r"[^a-z0-9_]", "", (name or "").strip().lower())
+        held = self.pending_dir / f"{skill}.py"
+        if not held.exists():
+            return ModuleResult.fail(f"Nothing called '{skill}' is waiting for review.")
+        try:
+            held.unlink()
+        except Exception as exc:
+            return ModuleResult.fail(f"Could not delete it: {exc}")
+        self._record("plugin_rejected", skill, "Rejected the generated adapter",
+                     backup="", tests="", committed="")
+        return ModuleResult.ok(
+            f"Binned the '{skill}' adapter. The cloned source is still in "
+            f"{self.repos_dir / skill} if you want it.",
+        )
+
+    @tool(
+        description="Show plugins waiting for your review, with their code.",
+        params={"name": {"type": "string", "description": "Skill name", "default": ""}},
+        keywords=["pending plugins", "plugins waiting", "review the plugin",
+                  "show me the plugin code", "what is waiting for review"],
+    )
+    async def review_plugin(self, name: str = "") -> ModuleResult:
+        """List quarantined adapters, or print one in full."""
+        if not self.pending_dir.exists():
+            return ModuleResult.ok("Nothing is waiting for review, sir.")
+        waiting = sorted(self.pending_dir.glob("*.py"))
+        if not waiting:
+            return ModuleResult.ok("Nothing is waiting for review, sir.")
+
+        skill = re.sub(r"[^a-z0-9_]", "", (name or "").strip().lower())
+        if skill:
+            held = self.pending_dir / f"{skill}.py"
+            if not held.exists():
+                return ModuleResult.fail(f"'{skill}' is not in the review queue.")
+            body = held.read_text(encoding="utf-8", errors="replace")
+            return ModuleResult.ok(
+                f"{held} ({human_bytes(held.stat().st_size)}):\n\n"
+                f"{truncate(body, 6000)}\n\n"
+                f"Say \"approve the {skill} plugin\" or \"reject the {skill} plugin\".",
+                skill=skill, path=str(held),
+            )
+
+        lines = [f"{len(waiting)} plugin(s) waiting for review:"]
+        for path in waiting:
+            size = human_bytes(path.stat().st_size)
+            lines.append(f"  {path.stem:20} {size:>9}  {path}")
+        lines.append("Ask me to 'review the <name> plugin' to see the code.")
+        return ModuleResult.ok("\n".join(lines), pending=[p.stem for p in waiting])
 
     def _survey_repo(self, path: Path) -> Dict[str, Any]:
         """Collect the facts the LLM needs to write an adapter."""
@@ -654,9 +846,22 @@ class SelfImprove(BaseModule):
         return info
 
     async def _write_adapter(
-        self, skill: str, repo: str, clone: Path, survey: Dict[str, Any], goal: str
+        self, skill: str, repo: str, clone: Path, survey: Dict[str, Any], goal: str,
+        commit: str = "",
     ) -> ModuleResult:
-        """Ask the LLM for an adapter module, validate it, and write it to disk."""
+        """Ask the LLM for an adapter module, validate it, and write it to disk.
+
+        Args:
+            skill: The new skill name.
+            repo: Upstream ``owner/name`` (or a local path).
+            clone: Where the repository was cloned.
+            survey: Facts collected by :meth:`_survey_repo`.
+            goal: What the user wants the skill to do.
+            commit: The pinned upstream commit, recorded in the file header.
+
+        Returns:
+            A result whose ``data['path']`` is the written adapter.
+        """
         classname = "".join(part.title() for part in skill.split("_")) or "Skill"
         target = self.plugins_dir / f"{skill}.py"
         ensure_dir(self.plugins_dir)
@@ -719,7 +924,9 @@ class SelfImprove(BaseModule):
             f"# Generated by JARVIS self_improve on "
             f"{datetime.now():%Y-%m-%d %H:%M} from {repo}\n"
             f"# Upstream: https://github.com/{repo}\n"
-            f"# Local clone: {clone}\n"
+            + (f"# Pinned commit: {commit}\n" if commit else "")
+            + f"# Local clone: {clone}\n"
+            f"# Reviewed by: (nobody yet — read this before trusting it)\n"
         )
         if not code.startswith("#"):
             code = header + code
@@ -805,8 +1012,41 @@ Return ONLY the code in a single ```python block."""
             return stripped
         return ""
 
+    #: Modules a generated adapter may never import.
+    BANNED_IMPORTS = {
+        "subprocess", "ctypes", "socket", "socketserver", "ftplib", "telnetlib",
+        "smtplib", "pty", "multiprocessing", "pickle", "marshal", "shelve",
+        "webbrowser", "sysconfig", "distutils", "setuptools", "pip",
+    }
+
+    #: Bare names that must never be called, however they are spelled.
+    BANNED_CALLS = {
+        "eval", "exec", "compile", "__import__", "input", "breakpoint",
+        "globals", "locals", "vars", "memoryview",
+    }
+
+    #: Attribute calls that are always rejected (module.attr form).
+    BANNED_ATTRIBUTES = {
+        ("os", "system"), ("os", "popen"), ("os", "execv"), ("os", "execve"),
+        ("os", "spawnv"), ("os", "fork"), ("os", "kill"), ("os", "remove"),
+        ("os", "unlink"), ("os", "rmdir"), ("os", "chmod"), ("os", "chown"),
+        ("shutil", "rmtree"), ("shutil", "move"), ("shutil", "chown"),
+        ("sys", "exit"), ("importlib", "import_module"),
+    }
+
     def _validate_adapter(self, code: str, skill: str) -> Tuple[bool, str]:
-        """Static safety and structure checks for generated plugin code."""
+        """Static safety and structure checks for generated plugin code.
+
+        The analysis walks the AST rather than grepping the text, so string
+        tricks (``getattr(os, "sys" + "tem")``) are caught too.
+
+        Args:
+            code: The candidate adapter source.
+            skill: The expected module name.
+
+        Returns:
+            ``(accepted, reason)``.
+        """
         if len(code) > self.max_file_bytes:
             return False, "generated file is implausibly large"
         try:
@@ -814,14 +1054,9 @@ Return ONLY the code in a single ```python block."""
         except SyntaxError as exc:
             return False, f"syntax error on line {exc.lineno}: {exc.msg}"
 
-        banned = {
-            "os.system", "subprocess.run", "subprocess.Popen", "subprocess.call",
-            "shutil.rmtree", "eval", "exec", "compile", "__import__",
-        }
-        source = code.replace(" ", "")
-        for pattern in banned:
-            if pattern.replace(" ", "") + "(" in source:
-                return False, f"generated code calls {pattern}, which I will not accept"
+        problem = self._scan_adapter_ast(tree)
+        if problem:
+            return False, problem
 
         has_class = any(
             isinstance(node, ast.ClassDef)
@@ -836,6 +1071,53 @@ Return ONLY the code in a single ```python block."""
         if "@tool" not in code:
             return False, "no @tool methods were defined"
         return True, ""
+
+    def _scan_adapter_ast(self, tree: ast.AST) -> str:
+        """Walk a parsed adapter looking for anything hostile.
+
+        Args:
+            tree: The parsed module.
+
+        Returns:
+            A description of the first problem found, or ``""`` when clean.
+        """
+        for node in ast.walk(tree):
+            # 1. imports of dangerous modules
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split(".")[0]
+                    if root in self.BANNED_IMPORTS:
+                        return f"it imports '{alias.name}', which plugins may not use"
+            elif isinstance(node, ast.ImportFrom):
+                root = (node.module or "").split(".")[0]
+                if root in self.BANNED_IMPORTS:
+                    return f"it imports from '{node.module}', which plugins may not use"
+
+            # 2. dangerous calls, including dynamic attribute lookups
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name):
+                    if func.id in self.BANNED_CALLS:
+                        return f"it calls {func.id}(), which plugins may not use"
+                    if func.id in {"getattr", "setattr", "delattr"} and len(node.args) >= 2:
+                        if not isinstance(node.args[1], ast.Constant):
+                            return (
+                                f"it uses {func.id}() with a computed attribute name — "
+                                "too clever for a generated plugin"
+                            )
+                elif isinstance(func, ast.Attribute):
+                    owner = getattr(func.value, "id", "")
+                    if (owner, func.attr) in self.BANNED_ATTRIBUTES:
+                        return f"it calls {owner}.{func.attr}(), which plugins may not use"
+                    if func.attr in {"system", "popen", "rmtree", "check_output", "Popen"}:
+                        return f"it calls .{func.attr}(), which plugins may not use"
+
+            # 3. dunder gymnastics used to escape the sandbox
+            elif isinstance(node, ast.Attribute):
+                if node.attr in {"__globals__", "__builtins__", "__subclasses__",
+                                 "__bases__", "__code__", "__loader__", "__mro__"}:
+                    return f"it pokes at {node.attr}, which is never legitimate here"
+        return ""
 
     async def _register_plugin(self, skill: str, path: str) -> Dict[str, Any]:
         """Import a plugin file and register it with the running brain."""

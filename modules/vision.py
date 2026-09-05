@@ -251,6 +251,7 @@ class Vision(BaseModule):
                 "default": "Describe what is on this screen.",
             }
         },
+        untrusted=True,
         keywords=["what's on my screen", "whats on my screen", "look at my screen",
                   "see my screen", "what do you see", "check my screen"],
         examples=['describe_screen(question="what error is showing?")'],
@@ -292,6 +293,7 @@ class Vision(BaseModule):
     @tool(
         description="Read and transcribe the text visible on screen.",
         params={},
+        untrusted=True,
         keywords=["read my screen", "read the text on screen", "what does the screen say",
                   "transcribe my screen"],
     )
@@ -314,6 +316,7 @@ class Vision(BaseModule):
                 "default": "Describe this image in detail.",
             },
         },
+        untrusted=True,
         keywords=["describe this image", "what is in this picture", "look at this photo",
                   "analyze the image", "analyse this picture"],
         examples=['describe_image(path="~/Pictures/chart.png", question="what is the trend?")'],

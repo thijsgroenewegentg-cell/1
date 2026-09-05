@@ -25,6 +25,7 @@ feedparser>=6.0.11           # free RSS news feeds
 
 # ---- Voice (all free / local) ----------------------------------------------
 edge-tts>=6.1.10             # Microsoft Edge TTS - free, no key, many voices
+piper-tts>=1.2.0             # fully offline neural TTS (no network at all)
 faster-whisper>=1.0.3        # local speech-to-text (CTranslate2 Whisper)
 sounddevice>=0.4.6           # microphone capture
 numpy>=1.26.0                # audio buffers

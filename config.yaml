@@ -86,6 +86,12 @@ voice:
     vad_filter: true
 
   tts:
+    # auto  -> Piper if a local voice model is installed, else edge-tts
+    # piper -> fully offline neural speech (nothing leaves the machine)
+    # edge  -> Microsoft's free online voices (nicer prosody, needs internet)
+    engine: "auto"
+    piper_voice: ""                        # name or path of a .onnx voice in data/piper
+    piper_speed: 1.0                       # >1 faster, <1 slower
     voice: "en-GB-RyanNeural"              # try en-US-GuyNeural, en-AU-WilliamNeural
     rate: "+8%"
     volume: "+0%"
@@ -158,6 +164,7 @@ self_improve:
   enabled: true
   allow_code_edit: true      # let him modify files in this project
   allow_plugin_install: true # let him clone repos and generate adapters
+  review_plugins: true       # generated plugins wait in plugins/pending until you approve
   allow_pip_install: false   # let him install packages into the venv (off by default)
   run_tests_after_edit: true # keep an edit only if tests/test_smoke.py still passes
   test_command: "tests/test_smoke.py"
@@ -180,7 +187,9 @@ web_ui:
   enabled: false           # phone/browser access on your LAN
   host: "0.0.0.0"
   port: 8765
-  token: ""                # optional shared secret (?token=... )
+  token: ""                # shared secret; blank = one is generated for you
+  require_token: true      # false = deliberately open (only on a trusted LAN)
+  rate_limit_per_minute: 40
   allow_tts: true
   title: "JARVIS"
 

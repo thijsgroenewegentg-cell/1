@@ -165,6 +165,7 @@ class WebSearch(BaseModule):
             "query": {"type": "string", "description": "Search query", "required": True},
             "max_results": {"type": "integer", "description": "How many results", "default": 5},
         },
+        untrusted=True,
         keywords=["search", "google", "look up", "find online", "web search", "duckduckgo"],
         examples=['search(query="quantum computing 2026")'],
     )
@@ -237,6 +238,7 @@ class WebSearch(BaseModule):
     @tool(
         description="Search the web and return a short synthesised answer with sources.",
         params={"query": {"type": "string", "description": "Question", "required": True}},
+        untrusted=True,
         keywords=["what is the latest", "research", "find out about", "tell me about the news on"],
     )
     async def research(self, query: str) -> ModuleResult:
@@ -322,6 +324,7 @@ class WebSearch(BaseModule):
                 "default": "",
             },
         },
+        untrusted=True,
         keywords=["scrape", "read this page", "summarize this url", "what does this page say",
                   "open link and"],
     )
@@ -368,6 +371,7 @@ class WebSearch(BaseModule):
                 "default": "",
             }
         },
+        untrusted=True,
         keywords=["weather", "forecast", "temperature", "is it raining", "how hot", "how cold"],
         examples=['weather(location="Amsterdam")'],
     )
@@ -439,6 +443,7 @@ class WebSearch(BaseModule):
             "topic": {"type": "string", "description": "Optional topic filter", "default": ""},
             "limit": {"type": "integer", "description": "Number of headlines", "default": 8},
         },
+        untrusted=True,
         keywords=["news", "headlines", "what's happening", "current events", "top stories"],
     )
     async def news(self, topic: str = "", limit: int = 8) -> ModuleResult:
@@ -527,6 +532,7 @@ class WebSearch(BaseModule):
             "topic": {"type": "string", "description": "Article topic", "required": True},
             "sentences": {"type": "integer", "description": "Length hint", "default": 5},
         },
+        untrusted=True,
         keywords=["wikipedia", "who is", "who was", "what is a", "encyclopedia", "tell me about"],
     )
     async def wikipedia(self, topic: str, sentences: int = 5) -> ModuleResult:
@@ -583,6 +589,7 @@ class WebSearch(BaseModule):
     @tool(
         description="Look up a place, business or address using OpenStreetMap.",
         params={"query": {"type": "string", "description": "Place to find", "required": True}},
+        untrusted=True,
         keywords=["where is", "address of", "location of", "nearest"],
     )
     async def find_place(self, query: str) -> ModuleResult:
@@ -612,6 +619,7 @@ class WebSearch(BaseModule):
     @tool(
         description="Get today's date-relevant summary of a topic from multiple sources.",
         params={"topic": {"type": "string", "description": "Topic", "required": True}},
+        untrusted=True,
         keywords=["what's new with", "latest on", "any updates on"],
     )
     async def latest_on(self, topic: str) -> ModuleResult:

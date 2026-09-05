@@ -15,7 +15,10 @@ network can chat with it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import secrets
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -242,15 +245,82 @@ class WebInterface:
         section = config.section("web_ui")
         self.host = host or str(section.get("host", "0.0.0.0"))
         self.port = int(port or section.get("port", 8765))
-        self.token = str(section.get("token", "") or "")
+        self.token = self._resolve_token(str(section.get("token", "") or ""),
+                                         bool(section.get("require_token", True)))
         self.allow_tts = bool(section.get("allow_tts", True))
         self.title = str(section.get("title", config.get("assistant.name", "JARVIS")))
         self.clients: int = 0
+        self.rate_limit = int(section.get("rate_limit_per_minute", 40) or 40)
+        self._hits: Dict[str, List[float]] = {}
         self._server: Optional[Any] = None
         self._tts: Optional[Any] = None
         self.app = self._build_app()
 
     # ------------------------------------------------------------------ utils
+    def _resolve_token(self, configured: str, require: bool) -> str:
+        """Return the shared secret, generating a stable one when needed.
+
+        An unauthenticated chat window bound to ``0.0.0.0`` is an open door on
+        any shared network, so when no token is configured JARVIS mints one,
+        stores it in ``data/web_token.txt`` (owner-readable) and prints it in
+        the URL. Set ``web_ui.require_token: false`` for a deliberately open
+        instance.
+
+        Args:
+            configured: The token from ``config.yaml``.
+            require: Whether a token is mandatory.
+
+        Returns:
+            The token to enforce, or ``""`` when explicitly disabled.
+        """
+        if configured:
+            return configured
+        if not require:
+            logger.warning("Web interface running without a token — anyone on your "
+                           "network can talk to JARVIS.")
+            return ""
+        path = self.config.resolve("data/web_token.txt")
+        try:
+            if path.exists():
+                existing = path.read_text(encoding="utf-8").strip()
+                if existing:
+                    return existing
+            token = secrets.token_urlsafe(12)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(token + "\n", encoding="utf-8")
+            with contextlib.suppress(Exception):
+                path.chmod(0o600)
+            logger.info("Generated a web access token (stored in %s).", path)
+            return token
+        except Exception as exc:  # pragma: no cover - read-only filesystem
+            logger.warning("Could not persist a web token (%s); using a session-only one.", exc)
+            return secrets.token_urlsafe(12)
+
+    def _rate_limited(self, client: str, cost: int = 1) -> bool:
+        """Simple per-IP token bucket protecting the LLM from abuse.
+
+        Args:
+            client: The caller's address.
+            cost: How much of the budget this request consumes.
+
+        Returns:
+            True when the caller has exceeded the allowance.
+        """
+        now = time.monotonic()
+        window, allowance = 60.0, self.rate_limit
+        used = [stamp for stamp in self._hits.get(client, []) if now - stamp < window]
+        if len(used) + cost > allowance:
+            self._hits[client] = used
+            logger.warning("Rate-limited %s (%d requests in the last minute).",
+                           client, len(used))
+            return True
+        used.extend([now] * cost)
+        self._hits[client] = used
+        if len(self._hits) > 256:  # keep the table from growing forever
+            for key in [k for k, v in self._hits.items() if not v or now - v[-1] > window]:
+                self._hits.pop(key, None)
+        return False
+
     @property
     def url(self) -> str:
         """The address to open in a browser."""
@@ -259,10 +329,10 @@ class WebInterface:
         return f"http://{host}:{self.port}/{suffix}"
 
     def _authorised(self, supplied: Optional[str]) -> bool:
-        """Constant-ish time check of the optional shared secret."""
+        """Constant-time check of the shared secret."""
         if not self.token:
             return True
-        return bool(supplied) and str(supplied) == self.token
+        return bool(supplied) and secrets.compare_digest(str(supplied), self.token)
 
     async def _tts_engine(self) -> Optional[Any]:
         """Lazily build a TTS engine for the ``/api/tts`` endpoint."""
@@ -333,6 +403,9 @@ class WebInterface:
             text = str(payload.get("text", "")).strip()
             if not text:
                 raise HTTPException(status_code=400, detail="missing 'text'")
+            client = request.client.host if request.client else "unknown"
+            if self._rate_limited(client):
+                raise HTTPException(status_code=429, detail="slow down a moment, sir")
             reply = await self.brain.process(text)
             intent = getattr(self.brain, "last_intent", None)
             return JSONResponse(
@@ -350,10 +423,14 @@ class WebInterface:
             engine = await self._tts_engine()
             if engine is None:
                 raise HTTPException(status_code=503, detail="tts unavailable")
+            if self._rate_limited("tts"):
+                raise HTTPException(status_code=429, detail="too much speech")
             path: Optional[Path] = await engine.synthesize(text[:1500])
             if path is None or not path.exists():
                 raise HTTPException(status_code=503, detail="synthesis failed")
-            return FileResponse(str(path), media_type="audio/mpeg", filename="reply.mp3")
+            media = "audio/wav" if path.suffix.lower() == ".wav" else "audio/mpeg"
+            return FileResponse(str(path), media_type=media,
+                                filename=f"reply{path.suffix or '.mp3'}")
 
         @app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -362,6 +439,7 @@ class WebInterface:
             if not self._authorised(token):
                 await websocket.close(code=1008)
                 return
+            peer = websocket.client.host if websocket.client else "unknown"
             await websocket.accept()
             self.clients += 1
             logger.info("Web client connected (%d active).", self.clients)
@@ -381,6 +459,13 @@ class WebInterface:
                         continue
 
                     text = str(message.get("text", "")).strip()
+                    if text and self._rate_limited(peer):
+                        await websocket.send_text(json.dumps(
+                            {"type": "error",
+                             "text": "That is a lot of questions for one minute, sir. "
+                                     "Give me a moment."}
+                        ))
+                        continue
                     if not text:
                         continue
                     await self._handle_turn(websocket, text)
