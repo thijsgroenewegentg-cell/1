@@ -34,6 +34,7 @@ llm:
   max_tokens: 700
   timeout: 180
   keep_alive: "10m"
+  stream: true                            # stream tokens (faster perceived replies)
   # A smaller/faster model can be used for intent classification & tool picking
   router_model: ""                        # "" = reuse main model
 
@@ -48,6 +49,9 @@ memory:
   min_relevance: 0.20
   autosave: true
   auto_extract_facts: true                # let the LLM mine facts worth keeping
+  summarize: true                         # compress old turns into a running summary
+  summary_trigger: 12                     # exchanges before compressing
+  context_char_budget: 9000               # rough prompt budget for history
 
 database:
   path: "data/jarvis.db"
@@ -64,6 +68,14 @@ voice:
   sensitivity: 0.6
   interrupt: true                          # stop talking when you talk
   chime: true
+  stream_speech: true                      # speak each sentence as it is generated
+  conversation_mode: true                  # keep listening after a reply, no wake word
+  conversation_timeout: 20                 # seconds to stay awake for follow-ups
+
+  openwakeword:                            # fully local, no account at all
+    model: "hey_jarvis"                    # or alexa, hey_mycroft, hey_rhasspy
+    threshold: 0.5
+    inference_framework: "onnx"
 
   stt:
     model: "base.en"                       # tiny.en | base.en | small.en | medium
@@ -96,6 +108,55 @@ modules:
   code_assistant: true
   file_manager: true
   smart_assistant: true
+  knowledge: true          # RAG over your own documents
+  vision: true             # look at the screen / images (needs a vision model)
+  communications: true     # email (IMAP) + calendar (.ics)
+
+knowledge:
+  paths:                   # folders indexed for "ask my documents"
+    - "~/Documents"
+  store_path: "data/knowledge"
+  collection: "jarvis_documents"
+  chunk_size: 1200
+  chunk_overlap: 150
+  max_file_mb: 25
+  max_files: 5000
+  top_k: 5
+  min_relevance: 0.05
+  auto_index_on_start: false
+
+vision:
+  model: "llava"           # ollama pull llava   (or moondream, llama3.2-vision)
+  fallback_models: ["llava:7b", "bakllava", "moondream", "llama3.2-vision"]
+  max_tokens: 400
+  temperature: 0.2
+
+email:
+  enabled: false           # set true and fill in the details below
+  imap_host: ""            # e.g. imap.gmail.com
+  imap_port: 993
+  smtp_host: ""            # e.g. smtp.gmail.com
+  smtp_port: 587
+  user: ""
+  password_env: "JARVIS_EMAIL_PASSWORD"   # password read from this env var, never stored
+  mailbox: "INBOX"
+  fetch_limit: 10
+  allow_send: false
+
+calendar:
+  enabled: true
+  files: []                # local .ics files
+  urls: []                 # secret .ics URLs (Google/Outlook "private address")
+  local_file: "data/jarvis.ics"
+  look_ahead_days: 7
+
+web_ui:
+  enabled: false           # phone/browser access on your LAN
+  host: "0.0.0.0"
+  port: 8765
+  token: ""                # optional shared secret (?token=... )
+  allow_tts: true
+  title: "JARVIS"
 
 security:
   confirm_dangerous: true
@@ -116,6 +177,8 @@ web:
     - "http://feeds.bbci.co.uk/news/world/rss.xml"
     - "https://feeds.arstechnica.com/arstechnica/index"
     - "https://hnrss.org/frontpage"
+  cache_ttl: 900           # seconds to cache search/weather/news results
+  cache_path: "data/cache.db"
 
 paths:
   data: "data"
@@ -125,6 +188,7 @@ paths:
   screenshots: "data/screenshots"
   downloads: "data/downloads"
   tts_cache: "data/tts"
+  knowledge: "data/knowledge"
 
 logging:
   level: "INFO"            # DEBUG | INFO | WARNING | ERROR

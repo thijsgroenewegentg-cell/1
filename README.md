@@ -33,8 +33,12 @@ intelligence — built entirely from free and open-source parts.
 | Encyclopaedia | **Wikipedia** REST API | free |
 | Database | **SQLite** | free |
 | Desktop control | **pyautogui / psutil** + native OS commands | free |
+| Document RAG | your files + **ChromaDB** + local embeddings | free |
+| Vision | **llava** through Ollama | free |
+| Email & calendar | plain **IMAP/SMTP** + **iCalendar** | free |
+| Phone / LAN UI | **FastAPI** + WebSockets, served from your own machine | free |
 
-Six capability modules, ~70 callable tools:
+Nine capability modules, ~95 callable tools:
 
 * **system_control** — open/close apps, screenshots, CPU/RAM/disk/battery, volume, lock screen, clipboard, keyboard & mouse automation, shell commands (guarded), time/date
 * **web_search** — DuckDuckGo search, page scraping + summarising, weather, news, Wikipedia, geocoding
@@ -42,6 +46,18 @@ Six capability modules, ~70 callable tools:
 * **code_assistant** — write, explain, debug, refactor, test, save and *run* code in a sandbox
 * **file_manager** — find files by name/content, organise folders, summarise PDF/DOCX/TXT, analyse CSVs, find duplicates, disk usage
 * **smart_assistant** — Q&A with web RAG, safe maths, unit & currency conversion, translation, summarising, creative writing
+* **knowledge** — a private knowledge base built from *your* documents: index folders, semantic search, cited answers ("what does my lease say about pets?")
+* **vision** — looks at your screen or any image with a local llava model: describe, read text, compare screenshots
+* **communications** — IMAP inbox triage with LLM summaries, SMTP sending (off by default), and calendars from `.ics` files or secret export URLs
+
+And the things that make it feel alive:
+
+* **Streaming replies** — tokens appear as they are generated, in the terminal *and* over the web UI
+* **Pipelined speech** — the first sentence is spoken while the third is still being written
+* **Barge-in that really cancels** — talking over JARVIS stops both playback *and* generation
+* **Follow-ups** — "shall I organise it for real?" → just say **yes**
+* **Rolling summaries** — long conversations are compressed instead of forgotten
+* **Cached web lookups** — a SQLite TTL cache keeps the free endpoints happy
 
 ---
 
@@ -53,6 +69,7 @@ cd jarvis
 bash setup.sh                    # installs everything, pulls the model, self-tests
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 python main.py                   # voice mode if a mic exists, otherwise text
+python main.py --web             # or chat from your phone on the same Wi-Fi
 ```
 
 Then say **"Jarvis"**, wait for the chime, and talk. Or just type.
@@ -169,6 +186,8 @@ python main.py
 python main.py                     # auto: voice if audio works, else text
 python main.py --cli               # text interface only
 python main.py --voice             # force voice mode
+python main.py --web               # phone/browser interface on your LAN
+python main.py --web --port 9000 --with-cli   # web + terminal in one process
 python main.py --say "what's my CPU doing"   # one-shot, then exit
 python main.py --test              # component self-test
 python main.py --debug             # verbose logging
@@ -187,6 +206,10 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 | `recall <query>` | semantic search of memory |
 | `forget <text>` | delete matching memories |
 | `voice` | jump into voice mode |
+| `web [port]` | start the phone/LAN interface in the background |
+| `index [path]` | add documents to the private knowledge base |
+| `look` | describe what is on your screen (needs `ollama pull llava`) |
+| `stream on\|off` | toggle live token-by-token replies |
 | `mute` / `unmute` | speak replies in text mode |
 | `clear`, `config`, `exit` | as expected |
 
@@ -211,6 +234,15 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 "Convert 10 miles to kilometres"
 "Translate good morning into Japanese"
 "Remember that I hate meetings before 10am"
+"Index my documents"
+"What does my travel policy say about per-diem?"
+"What's on my screen?"
+"Read the error message on my screen"
+"What's on my calendar today"
+"Add a dentist appointment tomorrow at 9am"
+"Check my email"          (after configuring IMAP)
+"Summarise my inbox"
+"Stop"                    (cancels a reply mid-sentence)
 ```
 
 ---
@@ -261,9 +293,12 @@ jarvis/
 │   ├── brain.py             Ollama client, intent router, ReAct loop, persona
 │   ├── memory.py            short-term window + ChromaDB long-term memory
 │   └── config.py            YAML config with defaults and env overrides
+├── pyproject.toml           optional packaging → a global `jarvis` command
 ├── interfaces/
-│   ├── voice.py             wake word, VAD, faster-whisper STT, edge-tts, barge-in
-│   └── cli.py               rich terminal UI
+│   ├── voice.py             wake word (porcupine/openWakeWord/whisper), VAD,
+│   │                        faster-whisper STT, edge-tts, streaming speech, barge-in
+│   ├── cli.py               rich terminal UI with live streaming replies
+│   └── web.py               FastAPI + WebSocket phone/LAN chat interface
 ├── modules/
 │   ├── base.py              tool decorator, dispatch, offline routing
 │   ├── system_control.py    apps, stats, volume, input, shell
@@ -271,14 +306,25 @@ jarvis/
 │   ├── productivity.py      todos, reminders, timers, notes, briefing
 │   ├── code_assistant.py    write / explain / debug / run / save code
 │   ├── file_manager.py      search, organise, summarise, CSV analysis
-│   └── smart_assistant.py   Q&A + RAG, maths, conversions, translation, writing
+│   ├── smart_assistant.py   Q&A + RAG, maths, conversions, translation, writing
+│   ├── knowledge.py         private document knowledge base (index + cited answers)
+│   ├── vision.py            screen and image understanding via llava
+│   └── communications.py    IMAP/SMTP email and .ics calendars
 ├── utils/
 │   ├── logger.py            coloured console + rotating file logs
 │   ├── helpers.py           shared utilities
-│   └── security.py          risk assessment + confirmation gate
+│   ├── security.py          risk assessment + confirmation gate
+│   ├── cache.py             SQLite TTL cache for web lookups
+│   └── documents.py         shared PDF/DOCX/PPTX/HTML text extraction + chunking
+├── scripts/
+│   ├── jarvis.sh / jarvis.bat            launchers that also start Ollama
+│   ├── install_service_linux.sh          systemd user service
+│   ├── install_service_macos.sh          LaunchAgent
+│   └── install_service_windows.ps1       scheduled task at logon
+├── .github/ci.yml           lint + smoke suite CI (move to .github/workflows/)
 ├── tests/
-│   ├── test_smoke.py        61-check end-to-end suite
-│   └── mock_ollama.py       scripted LLM server for testing
+│   ├── test_smoke.py        111-check end-to-end suite
+│   └── mock_ollama.py       scripted LLM server (streaming + vision) for testing
 └── data/                    SQLite DB, ChromaDB, notes, code, screenshots, TTS cache
 ```
 
@@ -306,9 +352,45 @@ voice:
   stt: { model: "base.en" }      # tiny.en is faster, small.en is sharper
   tts: { voice: "en-GB-RyanNeural", rate: "+8%" }
 
+memory:
+  summarize: true            # compress old turns into a running briefing
+  summary_trigger: 12        # …once the window passes this many exchanges
+
+voice:
+  stream_speech: true        # speak sentence-by-sentence while generating
+  conversation_mode: true    # no wake word needed for follow-ups
+  conversation_timeout: 12
+
+knowledge:
+  paths: ["~/Documents"]     # folders to index
+  top_k: 5
+
+vision:
+  model: "llava"             # ollama pull llava
+
+web_ui:
+  enabled: false
+  host: "0.0.0.0"            # reachable from your phone on the same Wi-Fi
+  port: 8765
+  token: ""                  # optional shared secret: http://…:8765/?token=…
+
+email:
+  enabled: false
+  imap_host: "imap.gmail.com"
+  user: "you@gmail.com"
+  password_env: "JARVIS_EMAIL_PASSWORD"   # the password is NEVER stored in config
+  allow_send: false
+
+calendar:
+  files: ["~/calendars/work.ics"]
+  urls: []                   # Google/Outlook "secret address in iCal format"
+
 modules:                 # switch any capability off; nothing else breaks
   system_control: true
   web_search: true
+  knowledge: true
+  vision: true
+  communications: true
   ...
 
 security:
@@ -328,6 +410,7 @@ Any setting can be overridden by an environment variable:
 | `llama3.1` (8B) | 16 GB | strongest tool use |
 | `phi3` (3.8B) | 8 GB | tiny and quick |
 | `qwen2.5:7b` | 16 GB | excellent at code |
+| `llava` (7B) | 8 GB | the eyes — used by the vision module |
 
 ```bash
 ollama pull mistral
@@ -351,9 +434,113 @@ By default (`voice.engine: auto` with no key) JARVIS listens with
 also accepts common mishearings ("jarvas", "jervis", …) and lets you speak the
 whole command in one breath: *"Jarvis, what's the weather?"*
 
-For lower CPU use, get a **free** Picovoice access key
-([console.picovoice.ai](https://console.picovoice.ai/)) and paste it into
-`voice.porcupine_access_key`. Porcupine's free tier is fine for personal use.
+For lower CPU use you have two free options:
+
+* **openWakeWord** — fully open source, no account at all:
+  `pip install openwakeword`, then set `voice.engine: openwakeword`. The
+  bundled `hey_jarvis` model is downloaded automatically on first run.
+* **Porcupine** — get a free access key from
+  [console.picovoice.ai](https://console.picovoice.ai/) and paste it into
+  `voice.porcupine_access_key`. The free tier is fine for personal use.
+
+With `voice.conversation_mode: true` you only need the wake word once: after a
+reply the microphone stays open for `voice.conversation_timeout` seconds so
+follow-up questions flow naturally. Say **"stop"** to cut a reply short.
+
+---
+
+## Your documents, privately (RAG)
+
+```bash
+# point it at your folders in config.yaml, then:
+python main.py --cli
+> index ~/Documents
+> what does my travel policy say about per-diem?
+```
+
+Files are extracted (PDF, DOCX, PPTX, Markdown, HTML, code, plain text),
+chunked with overlap, embedded locally with `nomic-embed-text` and stored in a
+ChromaDB collection under `data/knowledge`. Re-indexing only touches files whose
+modification time changed. Answers cite the documents they came from. Nothing is
+uploaded anywhere.
+
+---
+
+## Eyes: seeing your screen
+
+```bash
+ollama pull llava        # ~4.7 GB, free
+```
+
+```
+"What's on my screen?"          → describes the active desktop
+"Read the error on my screen"   → transcribes the text it sees
+"Describe ~/Pictures/chart.png" → answers questions about any image
+```
+
+Screen capture uses `screencapture` (macOS), PowerShell + .NET (Windows) or
+`gnome-screenshot`/`spectacle`/`scrot`/`maim`/`grim` (Linux), with a Pillow
+fallback. Screenshots stay in `data/screenshots` and are pruned automatically.
+
+---
+
+## Email and calendar
+
+Email is plain IMAP/SMTP, so every provider works. The password is read from an
+environment variable — it is never written to `config.yaml`:
+
+```bash
+export JARVIS_EMAIL_PASSWORD='your-app-password'    # Gmail: an App Password
+```
+
+```yaml
+email:
+  enabled: true
+  imap_host: "imap.gmail.com"
+  smtp_host: "smtp.gmail.com"
+  user: "you@gmail.com"
+  allow_send: false      # set true only if you want JARVIS to send mail
+```
+
+Calendars are read from local `.ics` files and from the "secret address in iCal
+format" URL that Google Calendar, Outlook and Nextcloud all publish for free.
+`add_event` writes to a local `data/jarvis.ics` you can subscribe to from your
+phone. Today's events are folded into the daily briefing.
+
+---
+
+## Chat from your phone
+
+```bash
+python main.py --web
+#  ✓ Web interface: http://192.168.1.24:8765/
+```
+
+Open that address on any device on the same network: a dark, mobile-first chat
+page with streaming replies, a Stop button, quick-action chips and optional
+spoken answers. It is served **by your own machine** — no tunnel, no cloud.
+Set `web_ui.token` to require `?token=…`, and keep it off public Wi-Fi.
+
+There is a plain JSON API too:
+
+```bash
+curl -X POST localhost:8765/api/ask -H 'Content-Type: application/json' \
+     -d '{"text":"what time is it"}'
+```
+
+---
+
+## Starting automatically
+
+```bash
+bash scripts/install_service_linux.sh      # systemd user service
+bash scripts/install_service_macos.sh      # LaunchAgent
+powershell -ExecutionPolicy Bypass -File scripts\install_service_windows.ps1
+```
+
+Each script installs a login-time service running `python main.py --web`
+(override with `JARVIS_ARGS="--voice"`), logs to `logs/service.log`, and takes a
+`--remove` / `-Remove` flag to uninstall.
 
 ---
 
@@ -398,9 +585,49 @@ in a noisy one. Run with `--debug` to see what Whisper thinks it heard.
 JARVIS automatically falls back to a JSON vector store with the same behaviour —
 memory keeps working.
 
+**"The web interface needs FastAPI and uvicorn"**
+`pip install fastapi "uvicorn[standard]"` — both are free and small.
+
+**"I have no eyes yet"**
+The vision module needs a multimodal model: `ollama pull llava`.
+Check the rest of the pipeline with `look` in the CLI or "vision status".
+
+**Email says "No password found"**
+Export the variable named by `email.password_env` before starting JARVIS:
+`export JARVIS_EMAIL_PASSWORD='…'`. Gmail and Outlook require an *app
+password*, not your account password.
+
+**The phone can't reach the web UI**
+Both devices must be on the same network, `web_ui.host` must be `0.0.0.0`, and
+your firewall must allow the port (macOS: System Settings → Network → Firewall;
+Windows: `New-NetFirewallRule -DisplayName JARVIS -Direction Inbound -LocalPort 8765 -Protocol TCP -Action Allow`).
+
 **Everything is slow on first run**
 The Whisper model downloads once (~150 MB for `base.en`) and Ollama loads the
 LLM into RAM on the first prompt. Subsequent turns are much faster.
+
+---
+
+## Installing it as a command (optional)
+
+```bash
+pip install -e .            # from the project directory
+jarvis --cli                # now available anywhere
+jarvis --web --port 8765
+```
+
+Extras mirror the optional dependencies: `pip install -e ".[voice]"`,
+`".[web]"`, `".[vision]"` or `".[all]"`.
+
+---
+
+## Continuous integration
+
+`.github/ci.yml` (move it to `.github/workflows/ci.yml` to switch it on) runs
+pyflakes, byte-compiles every module, executes
+the 111-check offline smoke suite on Linux, macOS and Windows (Python 3.9–3.12)
+and builds a wheel. No models are downloaded — `tests/mock_ollama.py` scripts
+the LLM, including token streaming and vision responses.
 
 ---
 

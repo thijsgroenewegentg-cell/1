@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
+from utils.cache import Cache
 from utils.helpers import clean_text, run_blocking, truncate
 
 
@@ -44,8 +45,37 @@ class WebSearch(BaseModule):
         self.feeds: List[str] = list(config.get("web.news_feeds", []) or [])
         self.units = str(config.get("user.units", "metric"))
         self.default_location = str(config.get("user.location", "auto"))
+        self.cache_ttl = int(config.get("web.cache_ttl", 900))
+        self.cache: Optional[Cache] = None
+        if self.cache_ttl > 0:
+            try:
+                self.cache = Cache(
+                    config.resolve(config.get("web.cache_path", "data/web_cache.db")),
+                    default_ttl=self.cache_ttl,
+                )
+            except Exception as exc:  # pragma: no cover - disk problems only
+                self.log.debug("Web cache unavailable: %s", exc)
+                self.cache = None
 
     # ------------------------------------------------------------- internals
+    async def _cached(self, key: str, ttl: Optional[int] = None) -> Optional[Any]:
+        """Read a value from the TTL cache (``None`` when absent or disabled)."""
+        if self.cache is None:
+            return None
+        try:
+            return await self.cache.aget(key)
+        except Exception:
+            return None
+
+    async def _store(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+        """Write a value into the TTL cache, ignoring failures."""
+        if self.cache is None:
+            return
+        try:
+            await self.cache.aset(key, value, ttl=ttl)
+        except Exception:
+            pass
+
     async def _get(self, url: str, **kwargs: Any) -> Optional[Any]:
         """HTTP GET with a browser-ish user agent. Returns the response or None."""
         try:
@@ -150,6 +180,19 @@ class WebSearch(BaseModule):
             return ModuleResult.fail("What should I search for, sir?")
         limit = int(max_results) or self.max_results
 
+        cache_key = Cache.make_key("ddg", query.lower(), limit)
+        cached = await self._cached(cache_key)
+        if cached:
+            lines = [
+                f"{index}. {row['title']}\n   {truncate(row['snippet'], 220)}\n   {row['url']}"
+                for index, row in enumerate(cached, 1)
+            ]
+            return ModuleResult(
+                success=True,
+                output=f"Top results for '{query}' (cached):\n" + "\n".join(lines),
+                data={"results": cached, "query": query, "cached": True},
+            )
+
         ddgs_class = self._ddgs_class()
         if ddgs_class is None:
             return ModuleResult.fail(
@@ -177,6 +220,7 @@ class WebSearch(BaseModule):
         if not results:
             return ModuleResult.ok(f"No results for '{query}'.", results=[])
 
+        await self._store(cache_key, results)
         lines = [
             f"{index}. {row['title']}\n   {truncate(row['snippet'], 220)}\n   {row['url']}"
             for index, row in enumerate(results, 1)
@@ -330,13 +374,21 @@ class WebSearch(BaseModule):
         if not place or place.lower() == "auto":
             place = "" if self.default_location.lower() == "auto" else self.default_location
 
-        response = await self._get(f"https://wttr.in/{place}?format=j1")
-        if response is None:
-            return ModuleResult.fail(
-                "Weather service unreachable — wttr.in isn't answering. Check your connection."
-            )
+        cache_key = Cache.make_key("wttr", place.lower(), self.units)
+        payload = await self._cached(cache_key)
+        if payload is None:
+            response = await self._get(f"https://wttr.in/{place}?format=j1")
+            if response is None:
+                return ModuleResult.fail(
+                    "Weather service unreachable — wttr.in isn't answering. "
+                    "Check your connection."
+                )
+            try:
+                payload = response.json()
+            except Exception as exc:
+                return ModuleResult.fail(f"Could not parse the weather data: {exc}")
+            await self._store(cache_key, payload, ttl=min(self.cache_ttl, 900))
         try:
-            payload = response.json()
             current = payload["current_condition"][0]
             area = payload.get("nearest_area", [{}])[0]
             city = (area.get("areaName", [{}])[0].get("value") or place or "your location")
@@ -396,10 +448,17 @@ class WebSearch(BaseModule):
 
         entries: List[Dict[str, str]] = []
         for feed_url in feeds[:4]:
+            feed_key = Cache.make_key("rss", feed_url)
+            cached_entries = await self._cached(feed_key)
+            if cached_entries:
+                entries.extend(cached_entries)
+                continue
             response = await self._get(feed_url)
             if response is None:
                 continue
-            entries.extend(self._parse_feed(response.text, feed_url))
+            parsed = self._parse_feed(response.text, feed_url)
+            await self._store(feed_key, parsed, ttl=min(self.cache_ttl, 600))
+            entries.extend(parsed)
             if len(entries) >= int(limit) * 2:
                 break
 
@@ -474,13 +533,19 @@ class WebSearch(BaseModule):
             return ModuleResult.fail("Which topic?")
 
         slug = subject.replace(" ", "_")
-        response = await self._get(
-            f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}",
-            headers={"Accept": "application/json"},
-        )
-        if response is not None:
+        cache_key = Cache.make_key("wiki", slug.lower())
+        payload = await self._cached(cache_key)
+        response = None
+        if payload is None:
+            response = await self._get(
+                f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}",
+                headers={"Accept": "application/json"},
+            )
+        if payload is not None or response is not None:
             try:
-                payload = response.json()
+                if payload is None:
+                    payload = response.json()
+                    await self._store(cache_key, payload, ttl=max(self.cache_ttl, 86400))
                 extract = clean_text(payload.get("extract", ""))
                 if extract:
                     trimmed = " ".join(re.split(r"(?<=[.!?])\s+", extract)[: max(1, int(sentences))])

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
+from utils.documents import extract_text
 from utils.helpers import (
     ensure_dir,
     human_bytes,
@@ -397,11 +398,14 @@ class FileManager(BaseModule):
             return ModuleResult(
                 success=True,
                 output=f"Plan for {root} (nothing moved yet):\n{summary}\n\n"
-                "Say 'organize it for real' to apply.",
+                "Say yes and I'll apply it.",
                 speak=f"I can sort {sum(len(v) for v in plan.values())} files into "
                 f"{len(plan)} categories. Shall I go ahead?",
                 data={"plan": plan, "dry_run": True},
-                needs_followup=True,
+            ).offering(
+                "file_manager.organize_files",
+                {"path": str(root), "dry_run": False},
+                f"Organise {root} for real?",
             )
         return ModuleResult(
             success=True,
@@ -506,35 +510,23 @@ class FileManager(BaseModule):
 
     # -------------------------------------------------------------- documents
     def _extract_document(self, path: Path, limit: int = 60_000) -> str:
-        """Extract plain text from PDF, DOCX, or any text-ish file."""
-        suffix = path.suffix.lower()
-        if suffix == ".pdf":
-            try:
-                from pypdf import PdfReader
+        """Extract plain text from PDF, DOCX, PPTX, HTML or any text-ish file.
 
-                reader = PdfReader(str(path))
-                pages = [page.extract_text() or "" for page in reader.pages[:80]]
-                return "\n".join(pages)[:limit]
-            except Exception as exc:
-                self.log.debug("PDF extraction failed: %s", exc)
-                return ""
-        if suffix in {".docx", ".docm"}:
-            try:
-                import docx  # python-docx
+        Delegates to :func:`utils.documents.extract_text` so the file manager and
+        the knowledge base always read documents the same way.
 
-                document = docx.Document(str(path))
-                body = "\n".join(paragraph.text for paragraph in document.paragraphs)
-                for table in document.tables:
-                    for row in table.rows:
-                        body += "\n" + " | ".join(cell.text for cell in row.cells)
-                return body[:limit]
-            except Exception as exc:
-                self.log.debug("DOCX extraction failed: %s", exc)
-                return ""
-        if suffix in {".epub", ".html", ".htm", ".xml"}:
-            raw = read_text_file(path, limit)
-            return re.sub(r"<[^>]+>", " ", raw)
-        return read_text_file(path, limit)
+        Args:
+            path: File to read.
+            limit: Maximum number of characters to return.
+
+        Returns:
+            The extracted text, or ``""`` when nothing could be read.
+        """
+        try:
+            return extract_text(path, limit=limit)
+        except Exception as exc:
+            self.log.debug("Extraction failed for %s: %s", path, exc)
+            return ""
 
     @tool(
         description="Summarise a document (PDF, DOCX, TXT, MD, CSV).",

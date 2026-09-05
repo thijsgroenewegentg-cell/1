@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import inspect
 import math
 import struct
 import subprocess
@@ -40,7 +41,9 @@ from utils.logger import get_logger
 
 logger = get_logger("interfaces.voice")
 
-CommandHandler = Callable[[str], Awaitable[str]]
+# A handler is any coroutine turning a transcript into a reply. Handlers that
+# also accept an ``on_token`` keyword get their replies streamed into speech.
+CommandHandler = Callable[..., Awaitable[str]]
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +253,119 @@ class TextToSpeech:
 # ---------------------------------------------------------------------------
 # Microphone + VAD
 # ---------------------------------------------------------------------------
+
+
+class StreamingSpeaker:
+    """Speaks a reply while it is still being generated.
+
+    Tokens are fed in as they arrive; whenever a sentence boundary is reached
+    the sentence is queued for synthesis, so the user hears the first sentence
+    while the model is still writing the third. This removes most of the
+    perceived latency of a local LLM.
+    """
+
+    BOUNDARIES = ".!?…\n"
+
+    def __init__(self, tts: "TextToSpeech", min_chars: int = 45,
+                 max_chars: int = 320) -> None:
+        """Args:
+        tts: The text-to-speech engine to play through.
+        min_chars: Don't emit a chunk shorter than this (avoids choppy speech).
+        max_chars: Force a break once a chunk grows past this.
+        """
+        self.tts = tts
+        self.min_chars = min_chars
+        self.max_chars = max_chars
+        self.buffer = ""
+        self.spoken: List[str] = []
+        self.cancelled = False
+        self._queue: "asyncio.Queue[Optional[str]]" = asyncio.Queue()
+        self._worker: Optional[asyncio.Task] = None
+        self._in_code = False
+
+    def start(self) -> None:
+        """Begin consuming the sentence queue."""
+        if self._worker is None:
+            self.cancelled = False
+            self._worker = asyncio.create_task(self._drain())
+
+    async def _drain(self) -> None:
+        """Play queued sentences strictly in order."""
+        while True:
+            chunk = await self._queue.get()
+            if chunk is None:
+                return
+            if self.cancelled or not chunk.strip():
+                continue
+            try:
+                await self.tts.speak(chunk, interruptible=True)
+            except Exception as exc:  # noqa: BLE001 - speech must never crash a turn
+                logger.debug("Streaming speech failed: %s", exc)
+
+    def feed(self, token: str) -> None:
+        """Add a generated token, emitting complete sentences as they form."""
+        if self.cancelled:
+            return
+        self.buffer += token
+        if "```" in token:
+            self._in_code = not self._in_code
+        if self._in_code:
+            return
+        while True:
+            chunk = self._next_chunk()
+            if chunk is None:
+                return
+            self.spoken.append(chunk)
+            self._queue.put_nowait(chunk)
+
+    def _next_chunk(self) -> Optional[str]:
+        """Cut the longest speakable sentence out of the buffer, if any."""
+        text = self.buffer
+        if len(text) < self.min_chars:
+            return None
+        cut = -1
+        for index, char in enumerate(text):
+            if char in self.BOUNDARIES and index + 1 >= self.min_chars:
+                following = text[index + 1: index + 2]
+                if following in ("", " ", "\n", '"', "'", ")"):
+                    cut = index + 1
+                    break  # speak the first complete sentence, not the last
+        if cut < 0:
+            if len(text) < self.max_chars:
+                return None
+            space = text.rfind(" ", 0, self.max_chars)
+            cut = space if space > self.min_chars else self.max_chars
+        chunk = text[:cut].strip()
+        self.buffer = text[cut:].lstrip()
+        return chunk or None
+
+    async def finish(self) -> None:
+        """Flush the tail of the buffer and wait for playback to finish."""
+        remainder = self.buffer.strip()
+        self.buffer = ""
+        if remainder and not self.cancelled:
+            self.spoken.append(remainder)
+            self._queue.put_nowait(remainder)
+        self._queue.put_nowait(None)
+        if self._worker is not None:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._worker
+            self._worker = None
+
+    def cancel(self) -> None:
+        """Abandon anything not yet spoken and silence playback."""
+        self.cancelled = True
+        self.buffer = ""
+        while not self._queue.empty():
+            with contextlib.suppress(Exception):
+                self._queue.get_nowait()
+        self._queue.put_nowait(None)
+        self.tts.stop()
+
+    @property
+    def text(self) -> str:
+        """Everything queued for speech so far."""
+        return " ".join(self.spoken)
 
 
 @dataclass
@@ -554,6 +670,11 @@ class WakeWordDetector:
         self.engine = "none"
         self.pending_command: str = ""
         self._porcupine: Optional[Any] = None
+        oww = config.section("voice").get("openwakeword", {}) or {}
+        self.oww_model = str(oww.get("model", "hey_jarvis"))
+        self.oww_threshold = float(oww.get("threshold", 0.5))
+        self.oww_framework = str(oww.get("inference_framework", "onnx"))
+        self._oww: Optional[Any] = None
 
     async def initialize(self) -> str:
         """Pick and prepare the best available wake-word engine.
@@ -561,6 +682,19 @@ class WakeWordDetector:
         Returns:
             The engine in use: ``porcupine``, ``whisper`` or ``none``.
         """
+        wants_openwakeword = self.requested_engine in {"openwakeword", "oww", "auto"}
+        if wants_openwakeword and await run_blocking(self._init_openwakeword):
+            self.engine = "openwakeword"
+            logger.info(
+                "Wake word: openWakeWord ('%s', threshold %.2f) — free and keyless.",
+                self.oww_model, self.oww_threshold,
+            )
+            return self.engine
+        if self.requested_engine in {"openwakeword", "oww"}:
+            logger.warning(
+                "openWakeWord unavailable (pip install openwakeword) — falling back."
+            )
+
         wants_porcupine = self.requested_engine in {"porcupine", "auto"} and self.access_key
 
         if wants_porcupine:
@@ -607,6 +741,63 @@ class WakeWordDetector:
             self._porcupine = None
             return False
 
+    def _init_openwakeword(self) -> bool:
+        """Create an openWakeWord model handle (blocking).
+
+        Returns:
+            True when the detector is ready to use.
+        """
+        try:
+            import openwakeword
+            from openwakeword.model import Model
+
+            with contextlib.suppress(Exception):
+                openwakeword.utils.download_models()
+            try:
+                self._oww = Model(
+                    wakeword_models=[self.oww_model],
+                    inference_framework=self.oww_framework,
+                )
+            except Exception:
+                # Unknown model name -> load every bundled model instead.
+                self._oww = Model(inference_framework=self.oww_framework)
+            return True
+        except Exception as exc:
+            logger.debug("openWakeWord unavailable: %s", exc)
+            self._oww = None
+            return False
+
+    async def _wait_openwakeword(self, stop_event: asyncio.Event) -> bool:
+        """Stream 16 kHz frames into openWakeWord until a model fires."""
+        model = self._oww
+        if model is None:
+            return False
+
+        def _listen() -> bool:
+            try:
+                import numpy as np
+                import sounddevice as sd
+
+                chunk = 1280  # 80 ms at 16 kHz, openWakeWord's native frame
+                with sd.InputStream(
+                    samplerate=16000, blocksize=chunk, dtype="int16", channels=1
+                ) as stream:
+                    while not stop_event.is_set():
+                        data, _ = stream.read(chunk)
+                        frame = np.frombuffer(bytes(data), dtype=np.int16)
+                        scores = model.predict(frame)
+                        for name, score in scores.items():
+                            if score >= self.oww_threshold:
+                                logger.debug("openWakeWord '%s' fired at %.2f", name, score)
+                                with contextlib.suppress(Exception):
+                                    model.reset()
+                                return True
+            except Exception as exc:
+                logger.debug("openWakeWord listen loop error: %s", exc)
+            return False
+
+        return bool(await run_blocking(_listen))
+
     async def wait(self, stop_event: asyncio.Event) -> bool:
         """Block until the wake word is heard.
 
@@ -616,6 +807,8 @@ class WakeWordDetector:
         Returns:
             True when the wake word was detected.
         """
+        if self.engine == "openwakeword":
+            return await self._wait_openwakeword(stop_event)
         if self.engine == "porcupine":
             return await self._wait_porcupine(stop_event)
         if self.engine == "whisper":
@@ -680,11 +873,12 @@ class WakeWordDetector:
         return False
 
     def close(self) -> None:
-        """Release the Porcupine handle."""
+        """Release the wake-word engine handles."""
         if self._porcupine is not None:
             with contextlib.suppress(Exception):
                 self._porcupine.delete()
             self._porcupine = None
+        self._oww = None
 
 
 # ---------------------------------------------------------------------------
@@ -706,11 +900,16 @@ class VoiceInterface:
         self.wake = WakeWordDetector(config, self.microphone, self.stt)
         self.interrupt_enabled = bool(config.get("voice.interrupt", True))
         self.chime_enabled = bool(config.get("voice.chime", True))
+        self.stream_speech = bool(config.get("voice.stream_speech", True))
+        self.conversation_mode = bool(config.get("voice.conversation_mode", True))
+        self.conversation_timeout = float(config.get("voice.conversation_timeout", 12))
         self.available = False
         self.listening = False
+        self.interrupt_hook: Optional[Callable[[], None]] = None
         self._stop_event = asyncio.Event()
         self._monitor_task: Optional[asyncio.Task] = None
         self.pending_command: str = ""
+        self._speaker: Optional[StreamingSpeaker] = None
 
     # -- lifecycle ----------------------------------------------------------
     async def initialize(self) -> bool:
@@ -769,12 +968,67 @@ class VoiceInterface:
             if heard and self.tts.speaking:
                 logger.debug("Barge-in detected — stopping playback.")
                 self.tts.stop()
+                self.notify_interrupt()
                 return
             await asyncio.sleep(0.05)
 
     def stop_speaking(self) -> None:
         """Immediately silence any current speech."""
         self.tts.stop()
+        if self._speaker is not None:
+            self._speaker.cancel()
+
+    def notify_interrupt(self) -> None:
+        """Tell the brain to abandon the reply the user just talked over."""
+        if self._speaker is not None:
+            self._speaker.cancel()
+        if self.interrupt_hook is not None:
+            with contextlib.suppress(Exception):
+                self.interrupt_hook()
+
+    async def speak_stream(self, generate: Callable[[Callable[[str], None]], Awaitable[str]]
+                           ) -> str:
+        """Speak a reply sentence-by-sentence while it is being generated.
+
+        Args:
+            generate: Coroutine function taking an ``on_token`` callback and
+                returning the finished reply.
+
+        Returns:
+            The complete reply text.
+        """
+        if not self.tts.available or not self.stream_speech:
+            reply = await generate(lambda _token: None)
+            await self.speak(reply)
+            return reply
+
+        speaker = StreamingSpeaker(self.tts)
+        self._speaker = speaker
+        speaker.start()
+        monitor = None
+        if self.interrupt_enabled and self.microphone.available:
+            monitor = asyncio.create_task(self._watch_stream(speaker))
+        try:
+            reply = await generate(speaker.feed)
+        finally:
+            await speaker.finish()
+            if monitor is not None:
+                monitor.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await monitor
+            self._speaker = None
+        return reply
+
+    async def _watch_stream(self, speaker: "StreamingSpeaker") -> None:
+        """Watch for barge-in during a streamed reply."""
+        await asyncio.sleep(1.0)
+        while not speaker.cancelled:
+            heard = await run_blocking(self.microphone.detect_voice, 0.3)
+            if heard and self.tts.speaking:
+                logger.debug("Barge-in during streamed reply.")
+                self.notify_interrupt()
+                return
+            await asyncio.sleep(0.05)
 
     async def chime(self, kind: str = "wake") -> None:
         """Play a short tone to acknowledge the wake word."""
@@ -841,6 +1095,11 @@ class VoiceInterface:
     ) -> None:
         """Always-on loop: wake word → command → response.
 
+        When ``handler`` accepts an ``on_token`` keyword (the brain's
+        ``process`` does), replies are spoken sentence-by-sentence as they are
+        generated. After each reply the microphone stays open for
+        ``voice.conversation_timeout`` seconds so follow-ups need no wake word.
+
         Args:
             handler: Coroutine turning a transcript into a reply string.
             on_wake: Optional coroutine called when the wake word fires.
@@ -850,15 +1109,28 @@ class VoiceInterface:
             logger.error("Voice loop requested but audio is unavailable.")
             return
 
+        streaming = False
+        with contextlib.suppress(Exception):
+            streaming = "on_token" in inspect.signature(handler).parameters
+
         self._stop_event.clear()
         logger.info(
-            "Listening for '%s' (engine: %s). Ctrl+C to stop.",
+            "Listening for '%s' (engine: %s, streaming speech: %s). Ctrl+C to stop.",
             self.wake.wake_word, self.wake.engine,
+            "on" if (streaming and self.stream_speech) else "off",
         )
 
+        in_conversation = False
         while not self._stop_event.is_set():
             try:
-                if self.wake.engine == "none":
+                if in_conversation:
+                    # Follow-up turn: no wake word, just listen for a while.
+                    transcript = await self.listen(timeout=self.conversation_timeout)
+                    if not transcript.strip():
+                        in_conversation = False
+                        logger.debug("Conversation window closed.")
+                        continue
+                elif self.wake.engine == "none":
                     # No wake engine: behave as push-to-talk on any speech.
                     transcript = await self.listen(timeout=30)
                     if not transcript:
@@ -882,7 +1154,13 @@ class VoiceInterface:
                 if on_transcript:
                     await on_transcript(transcript)
 
+                if self._is_stop_command(transcript):
+                    self.stop_speaking()
+                    self.notify_interrupt()
+                    in_conversation = self.conversation_mode
+                    continue
                 if self._is_sleep_command(transcript):
+                    in_conversation = False
                     await self.speak("Going quiet. Say my name when you need me.")
                     continue
                 if self._is_shutdown_command(transcript):
@@ -890,9 +1168,18 @@ class VoiceInterface:
                     self._stop_event.set()
                     break
 
-                reply = await handler(transcript)
-                if reply:
-                    await self.speak(reply)
+                if streaming and self.stream_speech:
+                    reply = await self.speak_stream(
+                        lambda on_token, text=transcript: handler(text, on_token=on_token)
+                    )
+                else:
+                    reply = await handler(transcript)
+                    if reply:
+                        await self.speak(reply)
+
+                in_conversation = self.conversation_mode
+                if in_conversation:
+                    await self.chime("listen")
 
             except asyncio.CancelledError:
                 break
@@ -903,6 +1190,15 @@ class VoiceInterface:
                         f"Something went wrong in my audio pipeline: {truncate(str(exc), 120)}"
                     )
                 await asyncio.sleep(0.5)
+
+    @staticmethod
+    def _is_stop_command(text: str) -> bool:
+        """Detect a bare 'stop' — cancel the reply but stay in the conversation."""
+        lowered = text.lower().strip(" .!,")
+        return lowered in {
+            "stop", "stop it", "shut up", "be quiet", "quiet", "enough", "cancel",
+            "cancel that", "hold on", "wait",
+        }
 
     @staticmethod
     def _is_sleep_command(text: str) -> bool:
@@ -938,8 +1234,17 @@ class VoiceInterface:
             "tts_voice": self.tts.voice,
             "player": (self.tts._player or ["none"])[0],  # noqa: SLF001
             "wake_engine": self.wake.engine,
+            "stream_speech": self.stream_speech,
+            "conversation_mode": self.conversation_mode,
         }
         return report
 
 
-__all__ = ["VoiceInterface", "TextToSpeech", "SpeechToText", "Microphone", "WakeWordDetector"]
+__all__ = [
+    "VoiceInterface",
+    "TextToSpeech",
+    "SpeechToText",
+    "Microphone",
+    "WakeWordDetector",
+    "StreamingSpeaker",
+]

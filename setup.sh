@@ -142,6 +142,7 @@ if [ "$MINIMAL" -eq 1 ]; then
   note "Minimal mode: core + text interface only."
   "$VPY" -m pip install -q PyYAML httpx rich psutil python-dateutil ddgs \
       beautifulsoup4 lxml requests feedparser chromadb pypdf pandas pyperclip \
+      fastapi "uvicorn[standard]" \
     && ok "Core packages installed" || warn "Some core packages failed — see output above."
 else
   if "$VPY" -m pip install -q -r requirements.txt; then
@@ -150,7 +151,7 @@ else
     warn "Full install hit an error — retrying without the optional voice stack."
     "$VPY" -m pip install -q PyYAML httpx rich psutil python-dateutil ddgs \
         beautifulsoup4 lxml requests feedparser chromadb pypdf python-docx pandas \
-        pyautogui pyperclip Pillow \
+        pyautogui pyperclip Pillow fastapi "uvicorn[standard]" \
       && ok "Core packages installed (voice extras skipped)" \
       || fail "Package installation failed. Check the errors above."
   fi
@@ -315,6 +316,7 @@ cat <<EOF
     ${BLUE}python main.py${RESET}                   voice mode if a mic is available, else text
     ${BLUE}python main.py --cli${RESET}             force the text interface
     ${BLUE}python main.py --voice${RESET}           force voice mode
+    ${BLUE}python main.py --web${RESET}             chat from your phone on the same Wi-Fi
     ${BLUE}python main.py --say "what time is it"${RESET}
     ${BLUE}python main.py --test${RESET}            component self-test
 
@@ -322,13 +324,19 @@ cat <<EOF
     "what time is it"            "open chrome"
     "how's the weather"          "set a timer for 10 minutes"
     "add buy milk to my todos"   "write a python script that renames files"
-    "find all PDFs on my desktop"
+    "find all PDFs on my desktop"  "index my documents"
+    "what's on my screen"          "what's on my calendar today"
 
   ${BOLD}Notes${RESET}
     · Ollama must be running: ${BLUE}ollama serve${RESET}
     · Wake word works with no API key (local Whisper). For Porcupine's
       lower-power detector, put a free key from console.picovoice.ai into
       config.yaml under voice.porcupine_access_key.
+    · Optional extras, all free:
+        ${BLUE}pip install openwakeword${RESET}     keyless "hey jarvis" wake word
+        ${BLUE}ollama pull llava${RESET}            let JARVIS look at your screen
+        ${BLUE}bash scripts/install_service_linux.sh${RESET}   start at login (systemd)
+        ${BLUE}bash scripts/install_service_macos.sh${RESET}   start at login (LaunchAgent)
     · Everything runs locally. Nothing is sent to a paid service.
 
 EOF

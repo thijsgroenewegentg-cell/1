@@ -1,0 +1,97 @@
+# /.github/ci.yml  →  copy to .github/workflows/ci.yml to activate
+# Continuous integration: lint the tree and run the offline smoke suite on
+# Linux, macOS and Windows. Everything here is free GitHub-hosted CI — no
+# model downloads, no secrets, no paid services.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.9"
+          - os: ubuntu-latest
+            python-version: "3.12"
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyYAML httpx rich psutil python-dateutil pyflakes
+          pip install chromadb ddgs beautifulsoup4 feedparser pypdf || echo "optional extras unavailable, continuing"
+          pip install fastapi "uvicorn[standard]" || echo "web extras unavailable, continuing"
+
+      - name: Lint with pyflakes
+        shell: bash
+        run: |
+          # interfaces/voice.py deliberately imports edge_tts to probe availability.
+          python -m pyflakes core interfaces modules utils tests main.py \
+            | grep -v "interfaces/voice.py.*'edge_tts' imported but unused" \
+            | grep -v "interfaces\\\\voice.py.*'edge_tts' imported but unused" \
+            > pyflakes.log || true
+          if [ -s pyflakes.log ]; then
+            echo "pyflakes found problems:"; cat pyflakes.log; exit 1
+          fi
+          echo "pyflakes clean"
+
+      - name: Byte-compile every module
+        run: python -m compileall -q core interfaces modules utils tests main.py
+
+      - name: Run the offline smoke suite
+        run: python tests/test_smoke.py
+
+      - name: Verify the CLI answers without an LLM
+        shell: bash
+        run: |
+          python main.py --no-voice --say "what time is it" | tee reply.txt
+          test -s reply.txt
+
+  package:
+    name: Build the package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Build a wheel and sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Check the built artefacts
+        run: |
+          python -m pip install --upgrade twine
+          twine check dist/*
+      - name: Upload the artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-dist
+          path: dist/*
+          if-no-files-found: error

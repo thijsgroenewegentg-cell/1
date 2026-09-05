@@ -810,6 +810,42 @@ class Productivity(BaseModule):
         else:
             parts.append("No outstanding tasks.")
 
+        # Calendar (optional dependency on the communications module).
+        if self.config.get("modules.communications", True) and self.config.get(
+            "calendar.enabled", True
+        ):
+            try:
+                from modules.communications import Communications
+
+                comms = Communications(self.config, llm=self.llm, security=self.security)
+                agenda = await comms.upcoming_events(days=1)
+                events = agenda.data.get("events", []) if agenda.success else []
+                if events:
+                    listed = "; ".join(
+                        f"{item['summary']} at {item['start'][11:16]}" for item in events[:4]
+                    )
+                    parts.append(f"{len(events)} event(s) today: {listed}.")
+            except Exception as exc:
+                self.log.debug("Briefing calendar failed: %s", exc)
+
+        # Unread mail count, when email is configured.
+        if self.config.get("modules.communications", True) and self.config.get(
+            "email.enabled", False
+        ):
+            try:
+                from modules.communications import Communications
+
+                mailer = Communications(self.config, llm=self.llm, security=self.security)
+                inbox = await mailer.check_email(unread_only=True, limit=5)
+                unread = inbox.data.get("messages", []) if inbox.success else []
+                if unread:
+                    parts.append(
+                        f"{len(unread)} unread email(s), the latest from "
+                        f"{unread[0]['from'].split('<')[0].strip()}."
+                    )
+            except Exception as exc:
+                self.log.debug("Briefing email failed: %s", exc)
+
         reminders = await self.list_reminders(limit=3)
         pending = reminders.data.get("reminders", [])
         if pending:

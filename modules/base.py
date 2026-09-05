@@ -166,6 +166,24 @@ class ModuleResult:
     error: str = ""
     speak: str = ""
     needs_followup: bool = False
+    followup: Optional[Dict[str, Any]] = None
+
+    def offering(
+        self, tool: str, params: Optional[Dict[str, Any]] = None, prompt: str = ""
+    ) -> "ModuleResult":
+        """Attach a "shall I?" action the user can confirm with a simple yes.
+
+        Args:
+            tool: ``module.tool`` reference to run on confirmation.
+            params: Parameters for that tool.
+            prompt: The question that was asked.
+
+        Returns:
+            ``self``, so this can be chained onto a result.
+        """
+        self.followup = {"tool": tool, "params": params or {}, "prompt": prompt}
+        self.needs_followup = True
+        return self
 
     @classmethod
     def ok(cls, output: str, **data: Any) -> "ModuleResult":

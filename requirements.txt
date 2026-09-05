@@ -30,6 +30,7 @@ sounddevice>=0.4.6           # microphone capture
 numpy>=1.26.0                # audio buffers
 soundfile>=0.12.1            # wav read/write
 pvporcupine>=3.0.2           # wake word (free tier, personal use)
+openwakeword>=0.6.0          # wake word, fully open source and keyless ("hey jarvis")
 webrtcvad-wheels>=2.0.14     # voice activity detection (optional but nice)
 
 # ---- Desktop control -------------------------------------------------------
@@ -37,10 +38,15 @@ pyautogui>=0.9.54            # type / click / hotkeys / screenshots
 Pillow>=10.3.0               # image handling for screenshots
 pyperclip>=1.8.2             # clipboard access
 
+# ---- Web interface (phone / LAN access, all local) --------------------------
+fastapi>=0.110.0             # the /--web chat UI and JSON API
+uvicorn[standard]>=0.29.0    # ASGI server with WebSocket support
+
 # ---- Documents -------------------------------------------------------------
 pypdf>=4.2.0                 # PDF text extraction
 python-docx>=1.1.2           # DOCX text extraction
 pandas>=2.2.0                # CSV analysis
+python-pptx>=0.6.23          # PPTX text extraction for the knowledge base
 
 # ---- Platform specific (installed only where relevant) ---------------------
 pycaw>=20240210; sys_platform == "win32"          # Windows volume control

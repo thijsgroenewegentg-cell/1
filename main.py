@@ -53,6 +53,7 @@ class Jarvis:
         self.brain = Brain(self.config)
         self.voice: Optional[Any] = None
         self.cli: Optional[CLI] = None
+        self.web: Optional[Any] = None
         self._shutting_down = False
 
     # ------------------------------------------------------------------ setup
@@ -137,9 +138,11 @@ class Jarvis:
             assert self.cli is not None
             self.cli.print(f"[green]{self.config.get('user.name', 'You')}[/green] › {text}")
 
-        async def handler(text: str) -> str:
+        self.voice.interrupt_hook = self.brain.cancel
+
+        async def handler(text: str, on_token: Any = None) -> str:
             """Route a transcript through the brain and display the reply."""
-            reply = await self.brain.process(text, speak_status=True)
+            reply = await self.brain.process(text, speak_status=True, on_token=on_token)
             assert self.cli is not None
             self.cli.assistant_panel(reply)
             return reply
@@ -150,6 +153,41 @@ class Jarvis:
         """Run the rich text interface."""
         assert self.cli is not None
         await self.cli.run()
+
+    async def run_web(self, port: Optional[int] = None, with_cli: bool = False) -> None:
+        """Serve the browser/phone interface.
+
+        Args:
+            port: Override the configured port.
+            with_cli: Also run the terminal REPL in the same process.
+        """
+        from interfaces.web import WebInterface, local_addresses
+
+        server = WebInterface(self.brain, self.config, port=port)
+        self.web = server
+        assert self.cli is not None
+        self.cli.banner()
+        for address in local_addresses(server.port):
+            suffix = f"?token={server.token}" if server.token else ""
+            self.cli.success(f"Web interface: {address}{suffix}")
+        if not server.token:
+            self.cli.warn(
+                "No web_ui.token set — anyone on your network can talk to JARVIS."
+            )
+        self.cli.info("Press Ctrl+C to stop the server.")
+
+        serve_task = asyncio.create_task(server.serve())
+        try:
+            if with_cli:
+                await self.cli.run()
+                await server.stop()
+            else:
+                await serve_task
+        finally:
+            await server.stop()
+            serve_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await serve_task
 
     async def run_once(self, text: str) -> str:
         """Answer a single request (for scripting and cron jobs)."""
@@ -209,6 +247,9 @@ class Jarvis:
             return
         self._shutting_down = True
         logger.info("Shutting down…")
+        if self.web is not None:
+            with contextlib.suppress(Exception):
+                await self.web.stop()
         if self.voice is not None:
             with contextlib.suppress(Exception):
                 await self.voice.shutdown()
@@ -227,6 +268,15 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     mode.add_argument("--cli", "--text", dest="cli", action="store_true", help="force text mode")
     mode.add_argument("--say", metavar="TEXT", help="answer one request and exit")
     mode.add_argument("--test", action="store_true", help="run a component self-test")
+    mode.add_argument(
+        "--web", action="store_true", help="serve the phone/browser interface"
+    )
+    parser.add_argument(
+        "--port", type=int, default=None, help="port for --web (default web_ui.port)"
+    )
+    parser.add_argument(
+        "--with-cli", action="store_true", help="run the terminal REPL alongside --web"
+    )
     parser.add_argument("--config", default="config.yaml", help="path to config.yaml")
     parser.add_argument("--no-voice", action="store_true", help="skip audio initialisation")
     parser.add_argument("--debug", action="store_true", help="verbose logging")
@@ -244,7 +294,12 @@ async def async_main(args: argparse.Namespace) -> int:
         jarvis.config.set("logging.level", "DEBUG")
         setup_logging(jarvis.config.section("logging"))
 
-    want_voice = not args.no_voice and not args.cli and jarvis.config.get("voice.enabled", True)
+    want_voice = (
+        not args.no_voice
+        and not args.cli
+        and not args.web
+        and jarvis.config.get("voice.enabled", True)
+    )
     await jarvis.initialize(want_voice=want_voice)
 
     # Ctrl+C / SIGTERM shut down cleanly on POSIX.
@@ -273,6 +328,8 @@ async def async_main(args: argparse.Namespace) -> int:
             exit_code = 0 if await jarvis.self_test() else 1
         elif args.say:
             await jarvis.run_once(args.say)
+        elif args.web:
+            await jarvis.run_web(port=args.port, with_cli=args.with_cli)
         elif args.cli:
             await jarvis.run_cli()
         elif args.voice:

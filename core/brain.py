@@ -15,12 +15,13 @@ and file tools keep working without a model.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 
 from core.config import Config
 from core.memory import Memory
@@ -39,6 +40,9 @@ from utils.security import SecurityGuard
 logger = get_logger("core.brain")
 
 MAX_REACT_STEPS = 4
+PENDING_ACTION_TTL = 180  # seconds a "shall I?" offer stays valid
+
+TokenCallback = Callable[[str], Any]
 
 
 # ---------------------------------------------------------------------------
@@ -242,17 +246,21 @@ class OllamaClient:
         )
 
     async def stream(
-        self, messages: List[Dict[str, str]], temperature: Optional[float] = None
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
     ) -> AsyncIterator[str]:
-        """Yield response tokens as they arrive (used by the CLI)."""
+        """Yield response tokens as they arrive (used for streaming replies)."""
         if not self.available and not await self.initialize():
             return
         payload = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": messages,
             "stream": True,
             "keep_alive": self.config.get("llm.keep_alive", "10m"),
-            "options": self._options(temperature=temperature),
+            "options": self._options(temperature=temperature, max_tokens=max_tokens),
         }
         try:
             client = await self._http()
@@ -273,6 +281,52 @@ class OllamaClient:
             logger.debug("Streaming failed: %s", exc)
             return
 
+    async def vision(
+        self,
+        prompt: str,
+        images: List[str],
+        model: str = "llava",
+        temperature: float = 0.2,
+        max_tokens: int = 400,
+        timeout: Optional[float] = None,
+    ) -> str:
+        """Ask a multimodal model about one or more images.
+
+        Args:
+            prompt: The question to ask about the image(s).
+            images: Base64-encoded image data (no data-URI prefix).
+            model: Vision model tag, e.g. ``llava``.
+            temperature: Sampling temperature.
+            max_tokens: Response length cap.
+            timeout: Optional request timeout in seconds (vision is slow).
+
+        Returns:
+            The model's description, or ``""`` on failure.
+        """
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt, "images": images}],
+            "stream": False,
+            "keep_alive": self.config.get("llm.keep_alive", "10m"),
+            "options": {"temperature": temperature, "num_predict": max_tokens},
+        }
+        try:
+            client = await self._http()
+            response = await client.post(
+                f"{self.host}/api/chat", json=payload, timeout=timeout or self.timeout
+            )
+            response.raise_for_status()
+            return (response.json().get("message") or {}).get("content", "").strip()
+        except Exception as exc:
+            logger.warning("Vision request failed: %s", truncate(str(exc), 160))
+            return ""
+
+    async def has_model(self, name: str) -> Optional[str]:
+        """Return the installed tag matching ``name``, or ``None``."""
+        if not self.models:
+            self.models = await self.list_models()
+        return self._resolve_model(name)
+
     async def close(self) -> None:
         """Close the underlying HTTP client."""
         if self._client is not None:
@@ -286,6 +340,32 @@ class OllamaClient:
 # ---------------------------------------------------------------------------
 # Routing types
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class PendingAction:
+    """An action JARVIS offered to perform, awaiting a yes/no."""
+
+    tool: str
+    params: Dict[str, Any] = field(default_factory=dict)
+    prompt: str = ""
+    created_at: float = field(default_factory=time.time)
+
+    @property
+    def expired(self) -> bool:
+        """True once the offer is too old to still make sense."""
+        return (time.time() - self.created_at) > PENDING_ACTION_TTL
+
+
+AFFIRMATIVE = {
+    "yes", "yep", "yeah", "yup", "sure", "ok", "okay", "do it", "go ahead", "please do",
+    "confirm", "confirmed", "affirmative", "proceed", "make it so", "go for it",
+    "yes please", "do that", "run it", "for real", "absolutely",
+}
+NEGATIVE = {
+    "no", "nope", "nah", "don't", "dont", "cancel", "stop", "never mind", "nevermind",
+    "forget it", "negative", "leave it", "not now",
+}
 
 
 @dataclass
@@ -340,6 +420,23 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "spreadsheet", "in my downloads", "on my desktop", "folder", "directory",
         "duplicate files", "disk usage of",
     ],
+    "knowledge": [
+        "my documents", "my notes folder", "in my files", "according to my",
+        "what does my", "search my documents", "index my", "knowledge base",
+        "my pdfs say", "from my documents", "ask my documents", "in the contract",
+        "in the paper", "reindex",
+    ],
+    "vision": [
+        "what's on my screen", "whats on my screen", "look at my screen", "see my screen",
+        "read my screen", "describe this image", "what is in this picture", "look at this",
+        "what does this screenshot", "analyze the image", "analyse the image",
+        "what do you see",
+    ],
+    "communications": [
+        "my email", "my inbox", "unread mail", "any new mail", "check mail",
+        "send an email", "reply to", "my calendar", "my schedule", "my meetings",
+        "next meeting", "what's on my calendar", "events today", "appointments",
+    ],
     "smart_assistant": [
         "meaning of life", "explain", "why does", "how does", "what does",
         "calculate", "convert", "translate", "summarize this text", "summarise this text",
@@ -370,7 +467,10 @@ class Brain:
         self.turn_count = 0
         self.last_intent: Optional[Intent] = None
         self.speaker_hook: Optional[Any] = None  # set by main for status updates
+        self.pending_action: Optional[PendingAction] = None
+        self.streaming_enabled: bool = bool(config.get("llm.stream", True))
         self._busy = asyncio.Lock()
+        self._cancel = asyncio.Event()
 
     # ------------------------------------------------------------------ setup
     async def initialize(self) -> None:
@@ -392,6 +492,9 @@ class Brain:
             "code_assistant": ("modules.code_assistant", "CodeAssistant"),
             "file_manager": ("modules.file_manager", "FileManager"),
             "smart_assistant": ("modules.smart_assistant", "SmartAssistant"),
+            "knowledge": ("modules.knowledge", "Knowledge"),
+            "vision": ("modules.vision", "Vision"),
+            "communications": ("modules.communications", "Communications"),
         }
         import importlib
 
@@ -480,9 +583,86 @@ class Brain:
             f"Context: {friendly_time()}. Host OS: {detect_os()}. "
             f"Capabilities online: {', '.join(self.modules) or 'none'}.",
         ]
+        summary = getattr(self.memory, "conversation_summary", "")
+        if summary:
+            lines += ["", f"Earlier in this conversation: {summary}"]
         if memory_context:
             lines += ["", memory_context]
         return "\n".join(lines)
+
+    # -------------------------------------------------------------- generation
+    async def _generate(
+        self,
+        messages: List[Dict[str, str]],
+        on_token: Optional[TokenCallback] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        """Generate a reply, streaming tokens when a callback is supplied.
+
+        Honours :meth:`cancel` — a cancelled generation returns whatever text
+        had already been produced.
+
+        Args:
+            messages: Chat messages for the model.
+            on_token: Optional callback invoked with each token as it arrives.
+            temperature: Sampling temperature.
+            max_tokens: Response length cap.
+
+        Returns:
+            The complete (or partial, if cancelled) response text.
+        """
+        if on_token is None or not self.streaming_enabled:
+            task = asyncio.create_task(
+                self.llm.chat(messages, temperature=temperature, max_tokens=max_tokens)
+            )
+            cancel_task = asyncio.create_task(self._cancel.wait())
+            done, _ = await asyncio.wait(
+                {task, cancel_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            cancel_task.cancel()
+            if task in done:
+                return task.result()
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+            return ""
+
+        pieces: List[str] = []
+        try:
+            async for token in self.llm.stream(
+                messages, temperature=temperature, max_tokens=max_tokens
+            ):
+                if self._cancel.is_set():
+                    logger.debug("Generation cancelled mid-stream.")
+                    break
+                pieces.append(token)
+                try:
+                    result = on_token(token)
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception as exc:  # noqa: BLE001 - a bad sink must not kill us
+                    logger.debug("Token callback failed: %s", exc)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug("Streaming generation failed: %s", exc)
+            if not pieces:
+                return await self.llm.chat(
+                    messages, temperature=temperature, max_tokens=max_tokens
+                )
+        return "".join(pieces).strip()
+
+    def cancel(self) -> None:
+        """Abort the in-flight response (used for voice barge-in and Ctrl+C)."""
+        if self._busy.locked():
+            logger.debug("Cancellation requested.")
+            self._cancel.set()
+
+    @property
+    def busy(self) -> bool:
+        """True while a turn is being processed."""
+        return self._busy.locked()
 
     # ------------------------------------------------------------ classifying
     async def classify(self, text: str) -> Intent:
@@ -675,12 +855,19 @@ class Brain:
         return ModuleResult.fail(f"Unknown memory tool '{tool_name}'.")
 
     # -------------------------------------------------------------- reasoning
-    async def process(self, text: str, speak_status: bool = False) -> str:
+    async def process(
+        self,
+        text: str,
+        speak_status: bool = False,
+        on_token: Optional[TokenCallback] = None,
+    ) -> str:
         """Main entry point: turn a user utterance into JARVIS's reply.
 
         Args:
             text: What the user said or typed.
             speak_status: Emit progress updates through ``speaker_hook``.
+            on_token: Optional callback receiving tokens of the final answer as
+                they are generated (used for live typing and streaming speech).
 
         Returns:
             The assistant's response text (already persona-shaped).
@@ -690,10 +877,11 @@ class Brain:
             return "You'll have to actually say something, sir."
 
         async with self._busy:
+            self._cancel.clear()
             self.turn_count += 1
             start = time.perf_counter()
             try:
-                response = await self._process_inner(text, speak_status)
+                response = await self._process_inner(text, speak_status, on_token)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - last line of defence
@@ -710,22 +898,32 @@ class Brain:
                 elapsed,
                 self.last_intent.module if self.last_intent else "?",
             )
+            if self._cancel.is_set() and not response.strip():
+                response = "Stopped."
             await self.memory.add_exchange(
                 text, response, self.last_intent.module if self.last_intent else ""
             )
-            if self.llm.available and self.config.get("memory.auto_extract_facts", True):
-                asyncio.create_task(self._background_fact_extraction(text, response))
+            if self.llm.available:
+                asyncio.create_task(self._background_upkeep(text, response))
             return response
 
-    async def _background_fact_extraction(self, user_text: str, response: str) -> None:
-        """Mine the exchange for durable facts without blocking the reply."""
+    async def _background_upkeep(self, user_text: str, response: str) -> None:
+        """Mine facts and compress old history without blocking the reply."""
         try:
-            await self.memory.extract_and_store_facts(user_text, response, self.llm)
+            if self.config.get("memory.auto_extract_facts", True):
+                await self.memory.extract_and_store_facts(user_text, response, self.llm)
+            await self.memory.summarize_if_needed(self.llm)
         except Exception as exc:
-            logger.debug("Fact extraction failed: %s", exc)
+            logger.debug("Background upkeep failed: %s", exc)
 
-    async def _process_inner(self, text: str, speak_status: bool) -> str:
+    async def _process_inner(
+        self, text: str, speak_status: bool, on_token: Optional[TokenCallback] = None
+    ) -> str:
         """Classification + routing + answer generation."""
+        followup = await self._resolve_pending(text)
+        if followup is not None:
+            return followup
+
         memory_context = await self.memory.build_context(text)
         intent = await self.classify(text)
         self.last_intent = intent
@@ -738,12 +936,58 @@ class Brain:
             return await self._handle_memory_intent(text, memory_context)
 
         if intent.is_conversation or intent.module not in self.modules:
-            return await self._converse(text, memory_context)
+            return await self._converse(text, memory_context, on_token)
 
         if speak_status and self.speaker_hook:
             await self._status(f"Working on it, {self.config.user_address()}.")
 
-        return await self._react(text, intent, memory_context)
+        return await self._react(text, intent, memory_context, on_token)
+
+    # --------------------------------------------------------- follow-up state
+    async def _resolve_pending(self, text: str) -> Optional[str]:
+        """Handle a yes/no answer to a previously offered action.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            The reply string when the utterance resolved a pending offer,
+            otherwise ``None`` so normal processing continues.
+        """
+        pending = self.pending_action
+        if pending is None:
+            return None
+        if pending.expired:
+            self.pending_action = None
+            return None
+
+        normalised = text.lower().strip(" .!?,")
+        if normalised in NEGATIVE or any(
+            normalised.startswith(word + " ") for word in NEGATIVE
+        ):
+            self.pending_action = None
+            self.last_intent = Intent("conversation", 1.0, "declined follow-up", method="pending")
+            return f"Understood, {self.config.user_address()} — I'll leave it alone."
+
+        affirmative = normalised in AFFIRMATIVE or any(
+            normalised.startswith(word) for word in ("yes", "yeah", "yep", "do it", "go ahead")
+        )
+        if not affirmative:
+            return None
+
+        self.pending_action = None
+        module_name = pending.tool.split(".")[0]
+        self.last_intent = Intent(
+            module_name if module_name in self.modules else "conversation",
+            1.0,
+            "confirmed follow-up",
+            method="pending",
+        )
+        logger.info("Executing confirmed follow-up: %s", pending.tool)
+        result = await self.dispatch(pending.tool, pending.params)
+        if result.success:
+            return result.speak or result.output or "Done, sir."
+        return self._humorous_failure(result.error or result.output)
 
     async def _status(self, message: str) -> None:
         """Emit a spoken/printed progress update if a hook is installed."""
@@ -790,31 +1034,40 @@ class Brain:
             return await self._converse(text, memory_context)
         return "My long-term memory is offline at the moment, sir."
 
-    async def _converse(self, text: str, memory_context: str) -> str:
+    async def _converse(
+        self, text: str, memory_context: str, on_token: Optional[TokenCallback] = None
+    ) -> str:
         """Plain conversational reply with persona and history."""
         if not self.llm.available:
             return self._offline_reply(text)
 
         messages = [{"role": "system", "content": self.system_prompt(memory_context)}]
-        messages.extend(self.memory.short_term.messages(limit=8))
+        messages.extend(self.memory.context_messages())
         messages.append({"role": "user", "content": text})
-        reply = await self.llm.chat(messages)
+        reply = await self._generate(messages, on_token=on_token)
         return reply.strip() or self._offline_reply(text)
 
-    async def _react(self, text: str, intent: Intent, memory_context: str) -> str:
+    async def _react(
+        self,
+        text: str,
+        intent: Intent,
+        memory_context: str,
+        on_token: Optional[TokenCallback] = None,
+    ) -> str:
         """Run the Reason → Act → Observe loop, then compose the answer.
 
         Args:
             text: The user's request.
             intent: The classified intent (its module is the primary toolset).
             memory_context: Long-term memory block for the prompt.
+            on_token: Optional streaming callback for the final answer.
 
         Returns:
             The final natural-language answer.
         """
         module = self.modules.get(intent.module)
         if module is None:
-            return await self._converse(text, memory_context)
+            return await self._converse(text, memory_context, on_token)
 
         # --- degraded mode: no LLM, drive the module directly ---------------
         if not self.llm.available:
@@ -828,6 +1081,8 @@ class Brain:
         catalog = self.tool_registry(intent.module)
 
         for step in range(1, MAX_REACT_STEPS + 1):
+            if self._cancel.is_set():
+                break
             prompt = self._react_prompt(text, catalog, transcript, step, memory_context)
             raw = await self.llm.complete(
                 prompt,
@@ -878,7 +1133,7 @@ class Brain:
             if result.success and self._is_terminal(reference, result):
                 break
 
-        return await self._compose_answer(text, observations, memory_context)
+        return await self._compose_answer(text, observations, memory_context, on_token)
 
     def _react_prompt(
         self,
@@ -932,10 +1187,13 @@ class Brain:
         text: str,
         observations: List[Tuple[str, ModuleResult]],
         memory_context: str,
+        on_token: Optional[TokenCallback] = None,
     ) -> str:
         """Turn raw tool observations into a JARVIS-flavoured reply."""
         if not observations:
-            return await self._converse(text, memory_context)
+            return await self._converse(text, memory_context, on_token)
+
+        self._capture_followup(observations)
 
         successes = [item for item in observations if item[1].success]
         if not successes:
@@ -960,14 +1218,33 @@ class Brain:
             "If a result is a list, summarise the highlights rather than dumping everything. "
             "If the tools failed, say so honestly with a light touch."
         )
-        reply = await self.llm.complete(
-            prompt, system=self.system_prompt(memory_context), temperature=0.5, max_tokens=500
+        reply = await self._generate(
+            [
+                {"role": "system", "content": self.system_prompt(memory_context)},
+                {"role": "user", "content": prompt},
+            ],
+            on_token=on_token,
+            temperature=0.5,
+            max_tokens=500,
         )
         if reply.strip():
             return self._finalize(reply)
 
         # LLM went quiet — return the raw tool output rather than nothing.
         return truncate(last_result.output or "Done, sir.", 1200)
+
+    def _capture_followup(self, observations: List[Tuple[str, ModuleResult]]) -> None:
+        """Remember any action a tool offered to perform on confirmation."""
+        for _, result in reversed(observations):
+            offer = getattr(result, "followup", None)
+            if isinstance(offer, dict) and offer.get("tool"):
+                self.pending_action = PendingAction(
+                    tool=str(offer["tool"]),
+                    params=dict(offer.get("params") or {}),
+                    prompt=str(offer.get("prompt", "")),
+                )
+                logger.debug("Pending follow-up armed: %s", self.pending_action.tool)
+                return
 
     @staticmethod
     def _finalize(text: str) -> str:
@@ -1040,6 +1317,8 @@ class Brain:
                 "confirm_dangerous": self.security.confirm_dangerous,
                 "allow_shell": self.security.allow_shell,
             },
+            "streaming": self.streaming_enabled,
+            "pending_action": self.pending_action.tool if self.pending_action else None,
         }
 
     def speakable(self, text: str) -> str:

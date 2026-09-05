@@ -383,6 +383,17 @@ class ShortTermMemory:
         """Forget the conversation window."""
         self._buffer.clear()
 
+    def drain_oldest(self, count: int) -> List[Exchange]:
+        """Remove and return the ``count`` oldest exchanges."""
+        removed: List[Exchange] = []
+        for _ in range(min(count, len(self._buffer))):
+            removed.append(self._buffer.popleft())
+        return removed
+
+    def char_length(self) -> int:
+        """Rough size of the window in characters (a crude token proxy)."""
+        return sum(len(item.user) + len(item.assistant) for item in self._buffer)
+
     def __len__(self) -> int:
         return len(self._buffer)
 
@@ -442,6 +453,10 @@ class Memory:
         )
         self.store: Optional[Any] = None
         self.backend: str = "disabled"
+        self.conversation_summary: str = ""
+        self.summarize_enabled: bool = bool(config.get("memory.summarize", True))
+        self.summary_trigger: int = int(config.get("memory.summary_trigger", 12))
+        self.context_budget: int = int(config.get("memory.context_char_budget", 9000))
         self._lock = asyncio.Lock()
         self._init_sqlite()
 
@@ -569,6 +584,76 @@ class Memory:
                 pending_user = None
                 restored += 1
         return restored
+
+    def context_messages(self, limit: int = 10) -> List[Dict[str, str]]:
+        """Recent turns as chat messages, trimmed to the character budget.
+
+        Args:
+            limit: Maximum number of exchanges to consider.
+
+        Returns:
+            A message list that fits inside ``memory.context_char_budget``.
+        """
+        messages = self.short_term.messages(limit=limit)
+        total = sum(len(message["content"]) for message in messages)
+        while messages and total > self.context_budget:
+            dropped = messages.pop(0)
+            total -= len(dropped["content"])
+        return messages
+
+    async def summarize_if_needed(self, llm: Any) -> bool:
+        """Compress the oldest half of the window into a running summary.
+
+        Triggered when the window exceeds ``memory.summary_trigger`` exchanges
+        or the character budget. The summary is prepended to future system
+        prompts and also stored as a long-term memory.
+
+        Args:
+            llm: An object exposing ``async complete(prompt, ...) -> str``.
+
+        Returns:
+            True when a new summary was produced.
+        """
+        if not self.summarize_enabled or llm is None:
+            return False
+        too_many = len(self.short_term) >= self.summary_trigger
+        too_long = self.short_term.char_length() > self.context_budget
+        if not (too_many or too_long):
+            return False
+
+        drained = self.short_term.drain_oldest(max(2, len(self.short_term) // 2))
+        if not drained:
+            return False
+
+        transcript = "\n".join(
+            f"User: {truncate(item.user, 300)}\nJARVIS: {truncate(item.assistant, 300)}"
+            for item in drained
+        )
+        prompt = (
+            "Compress this conversation excerpt into a compact briefing for your future "
+            "self. Keep decisions, facts about the user, open threads and anything you "
+            "promised to do. Drop pleasantries. Maximum 120 words.\n"
+            + (f"\nPrevious briefing: {self.conversation_summary}\n" if self.conversation_summary else "")
+            + f"\nExcerpt:\n{transcript}"
+        )
+        try:
+            summary = await llm.complete(prompt, temperature=0.2, max_tokens=250)
+        except Exception as exc:
+            logger.debug("Summarisation failed: %s", exc)
+            return False
+
+        summary = (summary or "").strip()
+        if not summary:
+            return False
+        self.conversation_summary = truncate(summary, 1200)
+        logger.debug("Conversation summary updated (%d chars).", len(self.conversation_summary))
+        await self.remember(
+            f"Conversation summary ({datetime.now():%Y-%m-%d %H:%M}): {self.conversation_summary}",
+            category="session_summary",
+            importance=0.4,
+            source="summarizer",
+        )
+        return True
 
     # -- long term ----------------------------------------------------------
     async def remember(
@@ -753,6 +838,7 @@ class Memory:
         return {
             "backend": self.backend,
             "session": self.session_id,
+            "summary": truncate(self.conversation_summary, 160) or "(none)",
             "short_term": len(self.short_term),
             "short_term_limit": self.short_term.limit,
             "long_term": await self.count(),
@@ -818,8 +904,9 @@ class Memory:
             return False
 
     async def clear_short_term(self) -> None:
-        """Wipe the in-RAM conversation window."""
+        """Wipe the in-RAM conversation window and the running summary."""
         self.short_term.clear()
+        self.conversation_summary = ""
 
     async def wipe_all(self) -> bool:
         """Destroy every stored memory. Irreversible."""

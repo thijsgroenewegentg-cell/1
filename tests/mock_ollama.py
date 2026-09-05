@@ -18,7 +18,11 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict
 
-MODELS = [{"name": "llama3.2:latest"}, {"name": "nomic-embed-text:latest"}]
+MODELS = [
+    {"name": "llama3.2:latest"},
+    {"name": "nomic-embed-text:latest"},
+    {"name": "llava:latest"},
+]
 
 
 def _last_user_content(payload: Dict[str, Any]) -> str:
@@ -46,6 +50,9 @@ def scripted_reply(prompt: str) -> str:
             ("productivity", ("todo", "task", "remind", "timer", "note", "briefing")),
             ("code_assistant", ("code", "script", "function", "debug", "python")),
             ("file_manager", ("file", "pdf", "folder", "organize", "document")),
+            ("knowledge", ("my documents", "my notes", "index", "knowledge base")),
+            ("vision", ("my screen", "this image", "what do you see", "screenshot of")),
+            ("communications", ("my email", "my inbox", "my calendar", "next meeting")),
             ("smart_assistant", ("calculate", "convert", "translate", "meaning", "explain")),
         ]
         for name, triggers in rules:
@@ -90,7 +97,11 @@ def scripted_reply(prompt: str) -> str:
     if "you are the dispatcher" in lowered:
         return json.dumps({"tool": "current_time", "params": {}})
 
-    # 5. Final composition / plain conversation
+    # 5. Summarisation of an older conversation slice
+    if "compress this conversation excerpt" in lowered:
+        return "Mock briefing: the user asked about timers and the weather."
+
+    # 6. Final composition / plain conversation
     if "tool results:" in lowered:
         return "Here is the mock synthesis of those tool results, sir."
     return "Mock response, sir. The scripted brain is functioning."
@@ -103,6 +114,25 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *_: Any) -> None:  # noqa: D102 - silence the server
         return
+
+    def _send_stream(self, text: str) -> None:
+        """Send a reply as newline-delimited JSON chunks, like Ollama does."""
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        pieces = [piece + " " for piece in text.split(" ")]
+        for piece in pieces:
+            chunk = json.dumps(
+                {"message": {"role": "assistant", "content": piece}, "done": False}
+            ).encode() + b"\n"
+            self.wfile.write(f"{len(chunk):X}\r\n".encode() + chunk + b"\r\n")
+            self.wfile.flush()
+        final = json.dumps({"message": {"role": "assistant", "content": ""},
+                            "done": True}).encode() + b"\n"
+        self.wfile.write(f"{len(final):X}\r\n".encode() + final + b"\r\n")
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
 
     def _send(self, payload: Dict[str, Any], status: int = 200) -> None:
         """Send a JSON response."""
@@ -132,8 +162,16 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/chat"):
-            reply = scripted_reply(_last_user_content(payload))
-            self._send({"message": {"role": "assistant", "content": reply}, "done": True})
+            has_image = any(message.get("images") for message in payload.get("messages", []))
+            if has_image:
+                reply = ("Mock vision: a desktop with a terminal window and a text editor, "
+                         "sir.")
+            else:
+                reply = scripted_reply(_last_user_content(payload))
+            if payload.get("stream"):
+                self._send_stream(reply)
+            else:
+                self._send({"message": {"role": "assistant", "content": reply}, "done": True})
             return
 
         self._send({"error": "not found"}, 404)

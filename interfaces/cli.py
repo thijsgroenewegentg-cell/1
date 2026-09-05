@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import datetime
-from typing import Any, List
+from typing import Any, List, Optional
 
 from utils.helpers import extract_code_blocks, human_duration, truncate
 from utils.logger import get_logger
@@ -20,6 +20,7 @@ logger = get_logger("interfaces.cli")
 
 try:
     from rich.console import Console, Group
+    from rich.live import Live
     from rich.markdown import Markdown
     from rich.panel import Panel
     from rich.syntax import Syntax
@@ -51,6 +52,10 @@ HELP_ROWS: List[tuple[str, str]] = [
     ("forget <text>", "Delete matching memories"),
     ("clear", "Clear the screen and the short-term context"),
     ("voice", "Switch to voice mode (if audio is available)"),
+    ("web", "Start the phone/LAN web interface"),
+    ("index [path]", "Add documents to the private knowledge base"),
+    ("look", "Look at the screen with the local vision model"),
+    ("stream on|off", "Toggle live token-by-token replies"),
     ("mute / unmute", "Toggle spoken replies in text mode"),
     ("config", "Show the active configuration"),
     ("exit / quit", "Shut JARVIS down"),
@@ -70,6 +75,7 @@ class CLI:
         self.console = Console(highlight=False) if HAS_RICH else None
         self.speak_replies = False
         self.running = False
+        self._web_task: Optional[asyncio.Task] = None
         self.user_name = str(brain.config.get("user.name", "Sir"))
         self.assistant_name = str(brain.config.get("assistant.name", "JARVIS"))
 
@@ -284,7 +290,64 @@ class CLI:
             await self.start_voice_mode()
             return True
 
+        if command.startswith("stream"):
+            if argument in {"on", "off"}:
+                self.brain.streaming_enabled = argument == "on"
+            else:
+                self.brain.streaming_enabled = not self.brain.streaming_enabled
+            self.info(
+                f"Streaming replies {'on' if self.brain.streaming_enabled else 'off'}."
+            )
+            return True
+
+        if command.split(" ")[0] in {"index", "reindex"}:
+            await self._run_module("knowledge", "index_documents", {"path": argument})
+            return True
+
+        if command in {"look", "screen", "see"}:
+            await self._run_module("vision", "describe_screen", {})
+            return True
+
+        if command.split(" ")[0] == "web":
+            await self.start_web(argument)
+            return True
+
         return False
+
+    async def _run_module(self, module: str, tool_name: str, params: dict) -> None:
+        """Run one module tool directly and print the outcome."""
+        target = self.brain.modules.get(module)
+        if target is None:
+            self.error(
+                f"The {module} module is disabled — enable modules.{module} in config.yaml."
+            )
+            return
+        if self.console is not None:
+            with self.console.status(f"[cyan]{module}…", spinner="dots"):
+                result = await target.call_tool(tool_name, params)
+        else:
+            result = await target.call_tool(tool_name, params)
+        if result.success:
+            self.assistant_panel(result.output or "Done.")
+        else:
+            self.error(result.error or result.output or "That did not work.")
+
+    async def start_web(self, argument: str = "") -> None:
+        """Start (or report) the web interface in the background."""
+        try:
+            from interfaces.web import WebInterface
+        except Exception as exc:
+            self.error(f"Web interface unavailable: {exc}")
+            return
+        if self._web_task is not None and not self._web_task.done():
+            self.info("The web interface is already running.")
+            return
+        port = int(argument) if argument.isdigit() else None
+        server = WebInterface(self.brain, self.brain.config, port=port)
+        self._web_task = asyncio.create_task(server.serve())
+        await asyncio.sleep(1.0)
+        self.success(f"Web interface listening on {server.url}")
+        self.info("Open that address on your phone — same Wi-Fi, no cloud involved.")
 
     def show_help(self) -> None:
         """Print the command reference."""
@@ -438,11 +501,64 @@ class CLI:
         self.info("Goodbye.")
 
     async def _think(self, text: str) -> str:
-        """Process input with a spinner while the brain works."""
+        """Process input, streaming the reply live when possible.
+
+        Args:
+            text: The user's request.
+
+        Returns:
+            The complete reply text.
+        """
+        streaming = bool(getattr(self.brain, "streaming_enabled", False)) and HAS_RICH
         if self.console is None:
-            return await self.brain.process(text)
-        with self.console.status("[cyan]thinking…", spinner="dots"):
-            return await self.brain.process(text)
+            return await self._guarded(self.brain.process(text))
+        if not streaming:
+            with self.console.status("[cyan]thinking…", spinner="dots"):
+                return await self._guarded(self.brain.process(text))
+
+        buffer: List[str] = []
+        with Live(
+            Panel(
+                Text("thinking…", style="dim"),
+                title=f"[bold cyan]{self.assistant_name}[/]",
+                border_style="cyan",
+                padding=(0, 1),
+            ),
+            console=self.console,
+            refresh_per_second=12,
+            transient=True,
+        ) as live:
+
+            def on_token(token: str) -> None:
+                """Append a token and refresh the live panel."""
+                buffer.append(token)
+                live.update(
+                    Panel(
+                        Text("".join(buffer)),
+                        title=f"[bold cyan]{self.assistant_name}[/]",
+                        border_style="cyan",
+                        padding=(0, 1),
+                    )
+                )
+
+            reply = await self._guarded(self.brain.process(text, on_token=on_token))
+        return reply or "".join(buffer)
+
+    async def _guarded(self, coroutine: Any) -> str:
+        """Await the brain, converting Ctrl+C into a clean cancellation."""
+        task = asyncio.ensure_future(coroutine)
+        try:
+            return await task
+        except KeyboardInterrupt:
+            self.brain.cancel()
+            self.warn("Cancelled.")
+            try:
+                return await task
+            except Exception:
+                return "Stopped."
+        except asyncio.CancelledError:
+            self.brain.cancel()
+            return "Stopped."
 
     def _subtitle(self) -> str:
         """Small footer showing how the last turn was routed."""
