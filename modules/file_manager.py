@@ -186,6 +186,16 @@ class FileManager(BaseModule):
         explicit = re.search(r"(?:in|on|under|inside)\s+(~?[\w./~-]+/[\w./~-]*|~[\w./-]*)", text)
         if explicit:
             location = explicit.group(1)
+        else:
+            # A bare folder name ("in core", "in Projects") only counts when a
+            # directory of that name really exists, so ordinary English like
+            # "in my todo list" cannot be mistaken for a path.
+            bare = re.search(r"(?:in|under|inside)\s+(?:the\s+|my\s+)?([\w.-]+)\b", text)
+            if bare:
+                for base in (Path.cwd(), Path.home()):
+                    if (base / bare.group(1)).is_dir():
+                        location = str(base / bare.group(1))
+                        break
 
         if any(phrase in lowered for phrase in
                ("undo that", "undo the move", "undo the last", "put them back",
@@ -235,12 +245,34 @@ class FileManager(BaseModule):
             "pdf", "png", "jpg", "jpeg", "gif", "mp3", "mp4", "csv", "txt", "md", "doc",
             "docx", "xls", "xlsx", "ppt", "pptx", "zip", "py", "js", "ts", "json", "log",
         }
+        # People ask for "python files", not "py files". Without this the
+        # extension scan found nothing and quietly searched for *everything*.
+        spoken_types = {
+            "python": "*.py", "javascript": "*.js", "typescript": "*.ts",
+            "markdown": "*.md", "spreadsheet": "*.xlsx|*.xls|*.csv",
+            "spreadsheets": "*.xlsx|*.xls|*.csv",
+            "presentation": "*.pptx|*.ppt", "presentations": "*.pptx|*.ppt",
+            "image": "*.png|*.jpg|*.jpeg|*.gif|*.webp",
+            "images": "*.png|*.jpg|*.jpeg|*.gif|*.webp",
+            "photo": "*.jpg|*.jpeg|*.png", "photos": "*.jpg|*.jpeg|*.png",
+            "picture": "*.png|*.jpg|*.jpeg", "pictures": "*.png|*.jpg|*.jpeg",
+            "video": "*.mp4|*.mov|*.mkv|*.avi", "videos": "*.mp4|*.mov|*.mkv|*.avi",
+            "music": "*.mp3|*.flac|*.m4a|*.wav", "song": "*.mp3|*.flac|*.m4a",
+            "songs": "*.mp3|*.flac|*.m4a", "archive": "*.zip|*.tar|*.gz|*.7z",
+            "archives": "*.zip|*.tar|*.gz|*.7z",
+        }
         if any(word in lowered for word in ("find", "search", "list", "show", "locate", "where")):
             candidate = ""
             for token in re.findall(r"[a-z0-9]+", lowered):
+                singular = token[:-1] if len(token) > 3 and token.endswith("s") else token
                 if token in known_extensions:
                     candidate = token
                     break
+                if singular in known_extensions:
+                    candidate = singular
+                    break
+                if token in spoken_types:
+                    return "find_files", {"pattern": spoken_types[token], "path": location}
             if candidate:
                 return "find_files", {"pattern": f"*.{candidate}", "path": location}
             named = re.search(r"(?:file|files)\s+(?:called|named)\s+([\w.*?-]+)", lowered)
@@ -299,11 +331,16 @@ class FileManager(BaseModule):
         else:
             glob_pattern = f"*{raw_pattern}*"
         needle = (contains or "").strip().lower()
+        # A pattern may list alternatives ("*.png|*.jpg"), which is how one
+        # request for "images" covers every image extension.
+        globs = [part.strip().lower() for part in re.split(r"[|,]", glob_pattern)
+                 if part.strip()] or ["*"]
 
         def _scan() -> List[Dict[str, Any]]:
             matches: List[Dict[str, Any]] = []
             for file_path in self._iter_files(root, recursive, self.max_scan_files):
-                if not fnmatch.fnmatch(file_path.name.lower(), glob_pattern.lower()):
+                name = file_path.name.lower()
+                if not any(fnmatch.fnmatch(name, glob) for glob in globs):
                     continue
                 if needle:
                     if file_path.suffix.lower() not in TEXT_EXTENSIONS:

@@ -1230,6 +1230,16 @@ class Productivity(BaseModule):
             r"\b(?:create|make|define|set up|save)\s+(?:a|an|my|the)?\s*[\w -]*routine\b",
             lowered,
         )
+        if recurring:
+            # "give me my daily briefing" asks for a briefing now — it is not a
+            # standing order. A bare "daily"/"hourly" only means a schedule if
+            # something else in the sentence actually asks for one.
+            bare = recurring.group(1).strip() in ("daily", "hourly")
+            asks = any(word in lowered for word in
+                       ("schedule", "remind", "every", "each", "from now on"))
+            if bare and not asks:
+                recurring = None
+
         if recurring and not defining_routine and parse_schedule(recurring.group(1)) is not None:
             when = recurring.group(1).strip()
             rest = (text[: recurring.start(1)] + " " + text[recurring.end(1):]).strip(" ,.")
@@ -1292,12 +1302,16 @@ class Productivity(BaseModule):
                 "label": label.group(1).strip() if label else "",
             }
 
-        if "stopwatch" in lowered:
+        if "stopwatch" in lowered or "stop watch" in lowered:
+            # The noun "stopwatch" contains "stop", so a naive substring test
+            # turned "start a stopwatch" into a stop request. Decide the verb
+            # from what is left once the noun is removed.
+            rest = lowered.replace("stopwatch", " ").replace("stop watch", " ")
             action = (
-                "stop" if "stop" in lowered else
-                "lap" if "lap" in lowered else
-                "check" if any(w in lowered for w in ("check", "how long")) else
-                "start"
+                "stop" if re.search(r"\b(stop|end|finish|reset|halt)\b", rest) else
+                "lap" if "lap" in rest else
+                "check" if re.search(r"\b(check|how long|status|elapsed|so far)\b", rest)
+                else "start"
             )
             return "stopwatch", {"action": action}
 
@@ -1842,7 +1856,7 @@ class Productivity(BaseModule):
         description="Give the daily briefing: time, weather, tasks, reminders and headlines.",
         params={},
         keywords=["daily briefing", "brief me", "morning briefing", "what's on today",
-                  "status of my day", "agenda"],
+                  "status of my day", "agenda", "my day", "how does my day look"],
     )
     async def daily_briefing(self) -> ModuleResult:
         """Assemble the morning briefing from every available source."""

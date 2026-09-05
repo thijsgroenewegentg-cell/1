@@ -167,7 +167,37 @@ UNIT_TABLE: Dict[str, Dict[str, float]] = {
     },
 }
 
-TEMPERATURE_UNITS = {"c", "celsius", "f", "fahrenheit", "k", "kelvin", "°c", "°f"}
+def _expand_units(tables: Dict[str, Dict[str, float]]) -> Dict[str, Dict[str, float]]:
+    """Add plural forms and British/American spellings to every unit table.
+
+    Written out by hand, ``megabytes`` and ``kilometres`` were simply missing,
+    so perfectly ordinary requests ("how many megabytes in 3 gigabytes")
+    fell through to the language model and failed without one.
+
+    Args:
+        tables: The hand-written unit tables.
+
+    Returns:
+        The same tables, with the derived spellings filled in.
+    """
+    swaps = (("meter", "metre"), ("metre", "meter"), ("liter", "litre"),
+             ("litre", "liter"))
+    for table in tables.values():
+        for name, factor in list(table.items()):
+            for source, target in swaps:
+                if source in name:
+                    table.setdefault(name.replace(source, target), factor)
+        for name, factor in list(table.items()):
+            # Symbols ("km", "m/s") and existing plurals are left alone.
+            if len(name) > 3 and not name.endswith("s") and "/" not in name:
+                table.setdefault(name + "s", factor)
+    return tables
+
+
+UNIT_TABLE = _expand_units(UNIT_TABLE)
+
+TEMPERATURE_UNITS = {"c", "celsius", "f", "fahrenheit", "k", "kelvin", "°c", "°f",
+                     "centigrade", "degrees celsius", "degrees fahrenheit"}
 
 
 class SmartAssistant(BaseModule):
@@ -227,6 +257,21 @@ class SmartAssistant(BaseModule):
             symbol in lowered for symbol in "+-*/^%"
         ):
             return "calculate", {"expression": text.strip(" ?")}
+
+        inverted = re.search(
+            r"how many\s+([a-z°/]+(?:\s[a-z]+)?)\s+(?:are\s+|is\s+)?(?:in|per|to)\s+"
+            r"([\d.,]+)\s*([a-z°/]+(?:\s[a-z]+)?)",
+            lowered,
+        )
+        if inverted:
+            try:
+                return "convert", {
+                    "value": float(inverted.group(2).replace(",", "")),
+                    "from_unit": inverted.group(3).strip(),
+                    "to_unit": inverted.group(1).strip(),
+                }
+            except ValueError:
+                pass
 
         conversion = re.search(
             r"(?:convert\s+)?([\d.,]+)\s*([a-z°/]+(?:\s[a-z]+)?)\s+(?:in|to|into)\s+([a-z°/]+(?:\s[a-z]+)?)",

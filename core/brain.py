@@ -419,6 +419,7 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "todo", "to-do", "to do list", "task", "add task", "remind", "reminder",
         "timer", "stopwatch", "alarm", "note", "notes", "jot", "briefing",
         "agenda", "schedule", "shopping list", "checklist", "mark done",
+        "brief me", "my day",
     ],
     "code_assistant": [
         "write a python", "write code", "write a script", "write a function",
@@ -463,6 +464,7 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "calculate", "convert", "translate", "summarize this text", "summarise this text",
         "write a poem", "write a story", "brainstorm", "idea", "advice",
         "compare", "pros and cons", "how many", "solve", "math",
+        "% of", "percent of", "square root", "average of",
     ],
 }
 

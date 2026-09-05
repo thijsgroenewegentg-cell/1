@@ -511,3 +511,116 @@ def test_render_icon_produces_a_valid_png(size):
 def test_render_icon_is_deterministic():
     assert render_icon(192) == render_icon(192)
     assert render_icon(192) != render_icon(512)
+
+
+# --------------------------------------------------------------------------
+# regressions: bugs found by exercising the offline routers by hand
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def offline_modules():
+    """Build the modules with no LLM, so only the rule-based routers run."""
+    import copy
+
+    from core.config import DEFAULT_CONFIG as DEFAULTS
+    from modules.file_manager import FileManager
+    from modules.productivity import Productivity
+    from modules.smart_assistant import SmartAssistant
+
+    data = copy.deepcopy(DEFAULTS)
+    data["llm"]["host"] = "http://127.0.0.1:59999"
+    config = Config(data=data, path=None)
+    return {
+        "productivity": Productivity(config),
+        "smart_assistant": SmartAssistant(config),
+        "file_manager": FileManager(config),
+    }
+
+
+@pytest.mark.parametrize(
+    ("phrase", "expected"),
+    [
+        ("start a stopwatch", "start"),
+        ("start the stopwatch please", "start"),
+        ("stop the stopwatch", "stop"),
+        ("how long has the stopwatch been going", "check"),
+        ("lap the stopwatch", "lap"),
+    ],
+)
+def test_stopwatch_verb_is_not_confused_by_the_noun(offline_modules, phrase, expected):
+    # "stopwatch" contains "stop", which used to make every phrase a stop.
+    tool, params = offline_modules["productivity"].offline_router(phrase)
+    assert tool == "stopwatch"
+    assert params["action"] == expected
+
+
+def test_asking_for_the_daily_briefing_does_not_create_a_schedule(offline_modules):
+    tool, _ = offline_modules["productivity"].offline_router("give me my daily briefing")
+    assert tool == "daily_briefing"
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "every weekday at 8am give me my daily briefing",
+        "schedule the daily briefing",
+        "remind me hourly to stretch",
+    ],
+)
+def test_real_schedule_requests_still_schedule(offline_modules, phrase):
+    tool, _ = offline_modules["productivity"].offline_router(phrase)
+    assert tool == "schedule_recurring"
+
+
+@pytest.mark.parametrize(
+    ("phrase", "value", "source", "target"),
+    [
+        ("convert 10 miles to kilometres", 10.0, "miles", "kilometres"),
+        ("how many megabytes in 3 gigabytes", 3.0, "gigabytes", "megabytes"),
+        ("how many km in 5 miles", 5.0, "miles", "km"),
+    ],
+)
+def test_conversion_phrasings(offline_modules, phrase, value, source, target):
+    tool, params = offline_modules["smart_assistant"].offline_router(phrase)
+    assert tool == "convert"
+    assert params["value"] == value
+    assert params["from_unit"] == source
+    assert params["to_unit"] == target
+
+
+@pytest.mark.parametrize(
+    "unit",
+    ["kilometres", "megabytes", "gigabytes", "millimetres", "litres", "tonnes", "kilobytes"],
+)
+def test_british_spellings_and_plurals_are_known_units(unit):
+    from modules.smart_assistant import UNIT_TABLE
+
+    assert any(unit in table for table in UNIT_TABLE.values())
+
+
+@pytest.mark.parametrize(
+    ("phrase", "pattern"),
+    [
+        ("find all PDFs on my desktop", "*.pdf"),          # the plural used to miss
+        ("find all pdf files", "*.pdf"),
+        ("find all python files", "*.py"),                 # spoken type, not extension
+        ("find all the logs", "*.log"),
+    ],
+)
+def test_find_files_narrows_to_the_right_extension(offline_modules, phrase, pattern):
+    tool, params = offline_modules["file_manager"].offline_router(phrase)
+    assert tool == "find_files"
+    assert params["pattern"] == pattern
+
+
+def test_find_files_understands_a_type_with_several_extensions(offline_modules):
+    _, params = offline_modules["file_manager"].offline_router("find all images")
+    assert "*.png" in params["pattern"] and "*.jpg" in params["pattern"]
+
+
+def test_writes_to_system_locations_are_blocked_not_merely_confirmed():
+    # The allowed-roots rule used to short-circuit the protected-location rule.
+    guard = SecurityGuard(allowed_roots=[str(Path.home())])
+    assert guard.is_path_allowed("/etc/shadow", write=True).blocked
+    assert guard.is_path_allowed("/usr/bin/python", write=True).blocked
