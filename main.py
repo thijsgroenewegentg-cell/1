@@ -223,6 +223,8 @@ class Jarvis:
             "Ollama: " + (f"online — {llm['model']}" if llm["online"]
                           else f"offline at {llm['host']}")
         )
+        if llm.get("last_error"):
+            self.cli.warn(f"Last LLM problem: {llm['last_error']}")
         self.cli.success(
             f"Memory: {report['memory']['backend']} "
             f"({report['memory']['long_term']} long-term entries)"

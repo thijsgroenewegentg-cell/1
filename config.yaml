@@ -35,6 +35,9 @@ llm:
   timeout: 180
   keep_alive: "10m"
   stream: true                            # stream tokens (faster perceived replies)
+  retries: 2                              # extra attempts when Ollama hiccups
+  retry_backoff: 0.75                     # seconds; doubles on each further try
+  warm_up: true                           # load the model at start-up, not mid-question
   # A smaller/faster model can be used for intent classification & tool picking
   router_model: ""                        # "" = reuse main model
 

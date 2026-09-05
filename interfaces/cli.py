@@ -407,6 +407,8 @@ class CLI:
             f"[green]online[/] — {llm['model']}" if llm["online"] else "[red]offline[/]",
         )
         table.add_row("Host", llm["host"])
+        if llm.get("last_error"):
+            table.add_row("Last LLM problem", f"[yellow]{llm['last_error']}[/]")
         table.add_row("Installed models", ", ".join(llm["installed"][:6]) or "none")
         table.add_row("Memory backend", memory["backend"])
         table.add_row(

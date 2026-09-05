@@ -36,6 +36,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "keep_alive": "10m",
         "router_model": "",
         "stream": True,
+        "retries": 2,              # extra attempts when Ollama hiccups
+        "retry_backoff": 0.75,     # seconds, doubled on each further attempt
+        "warm_up": True,           # load the model at start-up, not mid-question
     },
     "memory": {
         "enabled": True,

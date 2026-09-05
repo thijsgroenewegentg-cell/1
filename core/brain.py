@@ -22,7 +22,18 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Set, Tuple
+from typing import (
+    Any,
+    AsyncIterator,
+    Callable,
+    ClassVar,
+    Dict,
+    FrozenSet,
+    List,
+    Optional,
+    Set,
+    Tuple,
+)
 
 from core.config import Config
 from core.memory import Memory
@@ -83,6 +94,10 @@ class OllamaClient:
         self.models: List[str] = []
         self._client: Optional[Any] = None
         self._warned = False
+        self.retries: int = max(0, int(config.get("llm.retries", 2)))
+        self.retry_backoff: float = max(0.0, float(config.get("llm.retry_backoff", 0.75)))
+        #: Human-readable explanation of the last failure, for the status line.
+        self.last_error: str = ""
 
     # -- connection ---------------------------------------------------------
     async def _http(self) -> Any:
@@ -150,6 +165,117 @@ class OllamaClient:
                 return installed
         return None
 
+    #: Statuses worth trying again: the server is busy, restarting or loading.
+    RETRYABLE_STATUS: ClassVar[FrozenSet[int]] = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+    @staticmethod
+    def _out_of_memory(text: str) -> bool:
+        """Recognise Ollama's out-of-memory complaint in an error body."""
+        lowered = (text or "").lower()
+        return "memory" in lowered and any(
+            phrase in lowered for phrase in ("requires more", "available", "not enough", "oom")
+        )
+
+    def _friendly_error(self, detail: str) -> str:
+        """Turn a transport error into something worth reading.
+
+        Args:
+            detail: The raw exception text or response body.
+
+        Returns:
+            A one-line explanation, with the fix where there is one.
+        """
+        lowered = (detail or "").lower()
+        if self._out_of_memory(lowered):
+            return (
+                f"'{self.model}' needs more memory than this machine has free. "
+                "Ask me to recommend a smaller model, or close something heavy."
+            )
+        if "timed out" in lowered or "timeout" in lowered:
+            return (
+                f"Ollama took longer than {self.timeout:.0f}s to answer. "
+                "A smaller model, or a larger llm.timeout, would help."
+            )
+        if "connect" in lowered or "refused" in lowered or "connection" in lowered:
+            return f"Ollama is not answering at {self.host}. Start it with: ollama serve"
+        return detail
+
+    async def _post(
+        self, path: str, payload: Dict[str, Any], timeout: Optional[float] = None
+    ) -> Optional[Any]:
+        """POST to Ollama, retrying transient failures with a growing pause.
+
+        A dropped connection or a busy server is worth a second attempt; a
+        model that does not fit in RAM is not, so that case stops immediately.
+
+        Args:
+            path: API path, e.g. ``/api/chat``.
+            payload: The JSON body.
+            timeout: Optional per-call timeout override.
+
+        Returns:
+            The successful response, or ``None`` once the attempts run out.
+        """
+        attempts = self.retries + 1
+        detail = ""
+        for attempt in range(1, attempts + 1):
+            try:
+                client = await self._http()
+                response = await client.post(
+                    f"{self.host}{path}", json=payload, timeout=timeout or self.timeout
+                )
+                if response.status_code >= 400:
+                    body = ""
+                    try:
+                        body = response.text[:500]
+                    except Exception:
+                        body = ""
+                    detail = f"HTTP {response.status_code}: {truncate(body, 200)}"
+                    if self._out_of_memory(body):
+                        break
+                    if (response.status_code in self.RETRYABLE_STATUS
+                            and attempt < attempts):
+                        await asyncio.sleep(self.retry_backoff * attempt)
+                        continue
+                    break
+                self.last_error = ""
+                return response
+            except Exception as exc:
+                detail = truncate(str(exc) or type(exc).__name__, 200)
+                if attempt >= attempts:
+                    break
+                logger.debug("Ollama attempt %d/%d failed (%s); retrying.",
+                             attempt, attempts, detail)
+                await asyncio.sleep(self.retry_backoff * attempt)
+        self.last_error = self._friendly_error(detail)
+        return None
+
+    async def warm_up(self) -> bool:
+        """Ask the model for one token so the first real question is fast.
+
+        Ollama loads a model on first use, which can take twenty seconds. Doing
+        it in the background at start-up hides that from the user.
+
+        Returns:
+            True when the model responded.
+        """
+        if not self.available:
+            return False
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": False,
+            "keep_alive": self.config.get("llm.keep_alive", "10m"),
+            "options": {"num_predict": 1, "temperature": 0.0},
+        }
+        started = time.perf_counter()
+        response = await self._post("/api/chat", payload)
+        if response is None:
+            logger.debug("Warm-up failed: %s", self.last_error)
+            return False
+        logger.info("Model '%s' warm in %.1fs.", self.model, time.perf_counter() - started)
+        return True
+
     async def list_models(self) -> List[str]:
         """Return the tags of every locally installed model."""
         try:
@@ -171,6 +297,7 @@ class OllamaClient:
             "model": self.model,
             "router_model": self.router_model,
             "installed": models,
+            "last_error": self.last_error,
         }
 
     # -- generation ---------------------------------------------------------
@@ -223,17 +350,19 @@ class OllamaClient:
         if json_mode:
             payload["format"] = "json"
 
+        response = await self._post("/api/chat", payload)
+        if response is None:
+            if not self._warned:
+                logger.warning("LLM request failed: %s", self.last_error)
+                self._warned = True
+            self.available = False
+            return ""
         try:
-            client = await self._http()
-            response = await client.post(f"{self.host}/api/chat", json=payload)
-            response.raise_for_status()
             data = response.json()
             return (data.get("message") or {}).get("content", "").strip()
         except Exception as exc:
-            if not self._warned:
-                logger.warning("LLM request failed: %s", truncate(str(exc), 160))
-                self._warned = True
-            self.available = False
+            self.last_error = f"Ollama sent something unreadable: {truncate(str(exc), 120)}"
+            logger.warning("%s", self.last_error)
             return ""
 
     async def complete(
@@ -275,24 +404,40 @@ class OllamaClient:
             "keep_alive": self.config.get("llm.keep_alive", "10m"),
             "options": self._options(temperature=temperature, max_tokens=max_tokens),
         }
-        try:
-            client = await self._http()
-            async with client.stream("POST", f"{self.host}/api/chat", json=payload) as response:
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except Exception:
-                        continue
-                    piece = (chunk.get("message") or {}).get("content", "")
-                    if piece:
-                        yield piece
-                    if chunk.get("done"):
-                        break
-        except Exception as exc:
-            logger.debug("Streaming failed: %s", exc)
-            return
+        attempts = self.retries + 1
+        for attempt in range(1, attempts + 1):
+            emitted = False
+            try:
+                client = await self._http()
+                async with client.stream(
+                    "POST", f"{self.host}/api/chat", json=payload
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                        except Exception:
+                            continue
+                        piece = (chunk.get("message") or {}).get("content", "")
+                        if piece:
+                            emitted = True
+                            yield piece
+                        if chunk.get("done"):
+                            break
+                self.last_error = ""
+                return
+            except Exception as exc:
+                detail = truncate(str(exc) or type(exc).__name__, 200)
+                # Once tokens are on screen a retry would repeat them.
+                if emitted or attempt >= attempts:
+                    self.last_error = self._friendly_error(detail)
+                    logger.debug("Streaming failed: %s", detail)
+                    return
+                logger.debug("Stream attempt %d/%d failed (%s); retrying.",
+                             attempt, attempts, detail)
+                await asyncio.sleep(self.retry_backoff * attempt)
 
     async def vision(
         self,
@@ -513,6 +658,10 @@ class Brain:
         """Boot the LLM connection, memory and every enabled module."""
         await asyncio.gather(self.llm.initialize(), self.memory.initialize())
         await self._load_modules()
+        if self.llm.available and self.config.get("llm.warm_up", True):
+            # Ollama loads the weights on first use; doing it now, in the
+            # background, keeps that delay out of the first question.
+            self._spawn(self.llm.warm_up())
         logger.info(
             "Brain online — %d modules, LLM %s",
             len(self.modules),
