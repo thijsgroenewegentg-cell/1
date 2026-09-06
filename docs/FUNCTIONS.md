@@ -9,7 +9,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## Contents
 
-- [`main.py`](#mainpy) — 18
+- [`main.py`](#mainpy) — 19
 - [`install.py`](#installpy) — 54
 - [`core/brain.py`](#corebrainpy) — 55
 - [`core/config.py`](#coreconfigpy) — 26
@@ -22,7 +22,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`interfaces/voice.py`](#interfacesvoicepy) — 73
 - [`interfaces/web.py`](#interfaceswebpy) — 26
 - [`modules/base.py`](#modulesbasepy) — 32
-- [`modules/blender.py`](#modulesblenderpy) — 23
+- [`modules/blender.py`](#modulesblenderpy) — 24
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
 - [`modules/communications.py`](#modulescommunicationspy) — 24
 - [`modules/file_manager.py`](#modulesfile_managerpy) — 32
@@ -46,7 +46,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`utils/security.py`](#utilssecuritypy) — 14
 - [`tests/fake_blender.py`](#testsfake_blenderpy) — 22
 - [`tests/mock_ollama.py`](#testsmock_ollamapy) — 10
-- [`tests/test_blender.py`](#teststest_blenderpy) — 39
+- [`tests/test_blender.py`](#teststest_blenderpy) — 43
 - [`tests/test_brain.py`](#teststest_brainpy) — 30
 - [`tests/test_cli.py`](#teststest_clipy) — 14
 - [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 15
@@ -65,8 +65,8 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
 - [`tests/test_system_control.py`](#teststest_system_controlpy) — 12
 - [`tests/test_units.py`](#teststest_unitspy) — 96
-- [`tests/test_utils.py`](#teststest_utilspy) — 35
-- [`tests/test_vision.py`](#teststest_visionpy) — 8
+- [`tests/test_utils.py`](#teststest_utilspy) — 37
+- [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
 - [`tests/test_web.py`](#teststest_webpy) — 12
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 13
@@ -75,7 +75,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `main.py`
 
-*18 functions*
+*19 functions*
 
 > JARVIS — a fully local, completely free personal AI assistant.
 
@@ -96,6 +96,7 @@ and marked with `·`; methods the intent router can call are marked
   · `async def on_transcript(text: str) -> None` — Echo what was heard into the terminal.
   · `async def handler(text: str, on_token: Any = None) -> str` — Route a transcript through the brain and display the reply.
 - `async def run_cli(self) -> None` — Run the rich text interface.
+- `async def start_background_web(self) -> None` — Serve the phone interface alongside whatever else is running.
 - `async def run_web(self, port: Optional[int] = None, with_cli: bool = False) -> None` — Serve the browser/phone interface.
 - `async def run_once(self, text: str) -> str` — Answer a single request (for scripting and cron jobs).
 - `async def self_test(self) -> bool` — Check every component and print a report.
@@ -667,7 +668,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/blender.py`
 
-*23 functions*
+*24 functions*
 
 > Drive Blender from its command line: render, script, inspect and export.
 
@@ -687,6 +688,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def render(self, blend_file: str = '', frame: int = 0, animation: bool = False, output: str = '', engine: str = '', format: str = 'png', resolution_percent: int = 0, samples: int = 0) -> ModuleResult` **@tool** — Render stills or an animation from a .blend file.
 - `def _outputs_since(prefix: Path, since: float) -> List[Path]` *staticmethod* — Find the frames a render just wrote.
 - `async def _render_via_bpy(self, target: Path, frame: int, animation: bool, output: str, engine: str, image_format: str, resolution_percent: int, samples: int) -> ModuleResult` — Render through the bpy module, which has no command line.
+- `def _is_blend(path: Path) -> bool` *staticmethod* — Whether a path is plausibly a Blender file.
 - `async def scene_info(self, blend_file: str) -> ModuleResult` **@tool** — Open a .blend headlessly and summarise its contents.
 - `async def run_script(self, script: str, blend_file: str = '', save_as: str = '') -> ModuleResult` **@tool** — Execute Blender Python and report what it printed.
 - `async def _resolve_script(self, script: str) -> str` — Accept either Python source or a path to a ``.py`` file.
@@ -1082,7 +1084,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def _capture(self, destination: Path) -> str` — Capture the screen to ``destination``; returns the method used.
 - `def _shrink(self, path: Path) -> Path` — Downscale a large image so the model isn't fed a 4K wall of pixels.
 - `def _prune(self) -> None` — Keep only the newest ``keep_screenshots`` captures.
-- `async def _ensure_model(self) -> Optional[str]` — Return an error message if the vision model isn't usable.
+- `async def _ensure_model(self) -> Optional[str]` — Check a vision model is usable, falling back where configured.
 - `async def _ask_model(self, image_path: Path, prompt: str) -> str` — Send an image plus prompt to the local vision model.
 - `async def take_screenshot(self, path: str = '') -> ModuleResult` **@tool** — Capture the whole screen to a PNG file.
 - `async def describe_screen(self, question: str = 'Describe what is on this screen.') -> ModuleResult` **@tool** — Capture the screen and hand it to the local vision model.
@@ -1447,7 +1449,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_blender.py`
 
-*39 functions*
+*43 functions*
 
 > Unit tests for modules/blender.py.
 
@@ -1489,6 +1491,10 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_scene_is_built_from_a_description(blender, tmp_path, monkeypatch)` — make_scene: the model writes bpy, JARVIS runs it and saves the result.
 - `def test_building_a_scene_without_a_model_says_so(blender)`
 - `def test_a_description_becomes_a_sensible_filename(blender)`
+- `def test_a_text_file_is_not_a_scene(blender, tmp_path)`
+- `def test_blend_backups_are_still_accepted(blender, scene, tmp_path)`
+- `def test_unrelated_files_are_not_counted_as_rendered(blender, scene, tmp_path)`
+- `def test_every_tool_is_still_registered(blender)`
 
 ## `tests/test_brain.py`
 
@@ -1610,7 +1616,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_an_empty_value_keeps_the_default(tmp_path)`
 - `def test_quiet_hours_can_be_a_plain_string(tmp_path)`
 - `def test_every_setting_is_read_by_something()` — A setting that nothing reads is a promise the assistant cannot keep.
-  · `def walk(node: dict, prefix: str = '') -> 'Iterator[str]'`
+  · `def walk(node: dict, prefix: str = '') -> Iterator[str]`
 - `def test_every_setting_is_documented()` — A knob nobody can explain is a knob nobody can use.
 
 ## `tests/test_event_bus.py`
@@ -2025,7 +2031,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_utils.py`
 
-*35 functions*
+*37 functions*
 
 > Unit tests for the utils package: scheduler, logger, security and cache.
 
@@ -2064,10 +2070,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_doctor_names_capabilities_that_cannot_run(tmp_path)` — Turning a module on says what you want; this says whether it can work.
 - `def test_a_disabled_module_is_not_complained_about(tmp_path)`
 - `def test_missing_packages_are_one_command_not_several(tmp_path)`
+- `def test_code_that_reaches_outside_needs_confirmation(code)`
+- `def test_ordinary_code_runs_without_nagging(code)`
 
 ## `tests/test_vision.py`
 
-*8 functions*
+*15 functions*
 
 > Unit tests for modules/vision.py — screenshots and image understanding.
 
@@ -2079,6 +2087,11 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_describing_the_screen_without_a_display_does_not_crash(vision)`
 - `def test_comparing_two_missing_images_fails_politely(vision, tmp_path)`
 - `def test_image_descriptions_are_untrusted(vision)`
+- `def test_the_model_settings_are_actually_read(config)`
+- `def test_screenshots_default_to_the_configured_folder(config)`
+- `def test_an_explicit_screenshot_folder_wins(config, tmp_path)`
+- `def test_a_missing_model_falls_back_to_an_installed_one(config)` — Llava absent used to be a flat refusal, ignoring the fallback list.
+- `def test_no_vision_model_at_all_lists_what_to_pull(config)`
 
 ## `tests/test_voice.py`
 
@@ -2179,5 +2192,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1478 functions across 63 files.**
+**1493 functions across 63 files.**
 
