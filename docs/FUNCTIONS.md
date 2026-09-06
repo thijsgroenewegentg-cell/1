@@ -9,8 +9,8 @@ and marked with `·`; methods the intent router can call are marked
 
 ## Contents
 
-- [`main.py`](#mainpy) — 19
-- [`install.py`](#installpy) — 54
+- [`main.py`](#mainpy) — 20
+- [`install.py`](#installpy) — 56
 - [`core/brain.py`](#corebrainpy) — 55
 - [`core/config.py`](#coreconfigpy) — 28
 - [`core/event_bus.py`](#coreevent_buspy) — 13
@@ -54,7 +54,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_config.py`](#teststest_configpy) — 27
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
-- [`tests/test_install.py`](#teststest_installpy) — 13
+- [`tests/test_install.py`](#teststest_installpy) — 17
 - [`tests/test_knowledge.py`](#teststest_knowledgepy) — 15
 - [`tests/test_memory.py`](#teststest_memorypy) — 19
 - [`tests/test_models.py`](#teststest_modelspy) — 7
@@ -68,14 +68,14 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
-- [`tests/test_web.py`](#teststest_webpy) — 12
+- [`tests/test_web.py`](#teststest_webpy) — 13
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 13
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
 
 ## `main.py`
 
-*19 functions*
+*20 functions*
 
 > JARVIS — a fully local, completely free personal AI assistant.
 
@@ -95,16 +95,17 @@ and marked with `·`; methods the intent router can call are marked
   · `async def on_wake() -> None` — Show a listening indicator when the wake word fires.
   · `async def on_transcript(text: str) -> None` — Echo what was heard into the terminal.
   · `async def handler(text: str, on_token: Any = None) -> str` — Route a transcript through the brain and display the reply.
+- `async def _open_in_browser(self, server: Any) -> None` — Open the running interface in the user's default browser.
 - `async def run_cli(self) -> None` — Run the rich text interface.
 - `async def start_background_web(self) -> None` — Serve the phone interface alongside whatever else is running.
-- `async def run_web(self, port: Optional[int] = None, with_cli: bool = False) -> None` — Serve the browser/phone interface.
+- `async def run_web(self, port: Optional[int] = None, with_cli: bool = False, open_browser: bool = False) -> None` — Serve the browser/phone interface.
 - `async def run_once(self, text: str) -> str` — Answer a single request (for scripting and cron jobs).
 - `async def self_test(self) -> bool` — Check every component and print a report.
 - `async def shutdown(self) -> None` — Persist state and release every resource.
 
 ## `install.py`
 
-*54 functions*
+*56 functions*
 
 > JARVIS — one-command installer.
 
@@ -151,10 +152,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def install_autostart(assume_yes: bool, force: bool = False) -> None` — Offer to start JARVIS automatically at login.
 - `def run_doctor(python: Path) -> None` — Finish by telling the user exactly what is still missing.
 - `def create_directories(python: Path) -> None` — Create the data/logs/notes folders declared in the configuration.
-- `def create_shortcut() -> None` — Create a desktop / Start-menu entry that launches JARVIS.
-- `def _shortcut_windows() -> None` — Create ``JARVIS.lnk`` on the desktop and in the Start menu.
+- `def write_icons(python: Path) -> Dict[str, Path]` — Draw JARVIS's icon to disk for the desktop shortcuts to use.
+- `def create_shortcut(icons: Optional[Dict[str, Path]] = None) -> None` — Create a desktop / Start-menu entry that launches JARVIS.
+- `def _shortcut_windows(icon: Optional[Path] = None) -> None` — Create ``JARVIS.lnk`` on the desktop and in the Start menu.
 - `def _shortcut_macos() -> None` — Create a double-clickable ``JARVIS.command`` on the desktop.
-- `def _shortcut_linux() -> None` — Create a ``.desktop`` entry in the applications menu.
+- `def desktop_entry(name: str, comment: str, arguments: str, icon: Optional[Path], terminal: bool) -> str` — Build a freedesktop ``.desktop`` file.
+- `def _shortcut_linux(icon: Optional[Path] = None) -> None` — Add JARVIS to the applications menu, as an app and as a terminal.
 - `def make_launchers_executable() -> None` — Ensure the shell launchers are executable after a ZIP download.
 - `def self_test(python: Path) -> bool` — Run ``main.py --test`` and report whether it succeeded.
 - `def final_summary(started: float, model: str, profile: str) -> None` — Print the closing instructions.
@@ -1696,7 +1699,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_install.py`
 
-*13 functions*
+*17 functions*
 
 > Unit tests for install.py, in particular its --everything mode.
 
@@ -1713,6 +1716,10 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_audio_libraries_cover_every_manager(installer)`
 - `def test_the_package_manager_lookup_never_raises(installer)`
 - `def test_a_long_error_is_shortened_for_one_line(installer)`
+- `def test_the_desktop_entry_is_valid(installer, tmp_path)` — A .desktop file the desktop environment rejects is worse than none.
+- `def test_the_terminal_entry_keeps_its_window(installer)`
+- `def test_a_missing_icon_falls_back_to_a_stock_one(installer)`
+- `def test_shortcuts_land_in_the_right_places(installer, tmp_path, monkeypatch)`
 
 ## `tests/test_knowledge.py`
 
@@ -2150,7 +2157,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*12 functions*
+*13 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -2166,6 +2173,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_an_enormous_message_is_refused(web)`
 - `def test_a_normal_message_is_accepted(web)`
 - `def test_every_endpoint_demands_the_token(web)`
+- `def test_the_page_can_be_installed_as_an_app(web)` — --app relies on the page being a standalone-display PWA.
 
 ## `tests/test_web_search.py`
 
@@ -2216,5 +2224,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1517 functions across 63 files.**
+**1525 functions across 63 files.**
 

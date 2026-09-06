@@ -98,3 +98,18 @@ def test_every_endpoint_demands_the_token(web):
     assert client.get("/").status_code == 401
     assert client.get("/api/status").status_code == 401
     assert client.post("/api/ask", json={"text": "hi"}).status_code == 401
+
+
+def test_the_page_can_be_installed_as_an_app(web):
+    """--app relies on the page being a standalone-display PWA."""
+    import json
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    response = client.get("/manifest.webmanifest", params={"token": web.token})
+    assert response.status_code == 200
+    manifest = json.loads(response.text)
+    assert manifest["display"] == "standalone"
+    assert manifest["icons"]
+    assert manifest["start_url"]

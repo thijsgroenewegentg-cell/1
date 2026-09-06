@@ -161,6 +161,26 @@ class Jarvis:
 
         await self.voice.run(handler, on_wake=on_wake, on_transcript=on_transcript)
 
+    async def _open_in_browser(self, server: Any) -> None:
+        """Open the running interface in the user's default browser.
+
+        Args:
+            server: The :class:`~interfaces.web.WebInterface` that is serving.
+        """
+        import webbrowser
+
+        await asyncio.sleep(0.8)   # give uvicorn a moment to bind
+        url = server.url
+        try:
+            opened = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: webbrowser.open(url)
+            )
+        except Exception as exc:
+            opened = False
+            logger.debug("Could not open a browser: %s", exc)
+        if not opened and self.cli is not None:
+            self.cli.info(f"Open this yourself: {url}")
+
     async def run_cli(self) -> None:
         """Run the rich text interface."""
         assert self.cli is not None
@@ -192,12 +212,17 @@ class Jarvis:
             if self.cli is not None:
                 self.cli.warn(f"Web interface unavailable: {exc}")
 
-    async def run_web(self, port: Optional[int] = None, with_cli: bool = False) -> None:
+    async def run_web(self, port: Optional[int] = None, with_cli: bool = False,
+                      open_browser: bool = False) -> None:
         """Serve the browser/phone interface.
 
         Args:
             port: Override the configured port.
             with_cli: Also run the terminal REPL in the same process.
+            open_browser: Open the interface in the default browser once it is
+                listening. The page is a progressive web app, so "install to
+                dock" turns it into a proper window with its own icon — which
+                is what ``--app`` and the desktop shortcuts use.
         """
         from interfaces.web import WebInterface, local_addresses
 
@@ -215,6 +240,8 @@ class Jarvis:
         self.cli.info("Press Ctrl+C to stop the server.")
 
         serve_task = asyncio.create_task(server.serve())
+        if open_browser:
+            await self._open_in_browser(server)
         try:
             if with_cli:
                 await self.cli.run()
@@ -327,6 +354,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     mode.add_argument(
         "--web", action="store_true", help="serve the phone/browser interface"
+    )
+    mode.add_argument(
+        "--app", action="store_true",
+        help="desktop app: serve the interface and open it in a window",
     )
     mode.add_argument(
         "--backup", nargs="?", const="", metavar="PATH",
@@ -499,8 +530,9 @@ async def async_main(args: argparse.Namespace) -> int:
             exit_code = 0 if await jarvis.self_test() else 1
         elif args.say:
             await jarvis.run_once(args.say)
-        elif args.web:
-            await jarvis.run_web(port=args.port, with_cli=args.with_cli)
+        elif args.web or args.app:
+            await jarvis.run_web(port=args.port, with_cli=args.with_cli,
+                                 open_browser=args.app)
         else:
             # web_ui.enabled means "serve it too", not "serve it instead".
             if jarvis.config.get("web_ui.enabled", False):

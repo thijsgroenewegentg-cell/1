@@ -158,6 +158,15 @@ Then say **"Jarvis"**, wait for the chime, and talk. Or just type.
    python main.py
    ```
 
+### As a desktop app
+
+The installer adds **JARVIS** to your applications menu and desktop with its
+own icon (drawn locally — no download). Launching it starts the interface and
+opens it in a window; the page is a progressive web app, so "Install" in the
+browser's address bar turns it into a proper standalone window in your dock or
+taskbar. A second entry, **JARVIS (terminal)**, opens the text interface
+instead. From a shell it is `python main.py --app`.
+
 **Or let the installer do all of it:**
 
 ```bash

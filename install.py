@@ -1225,21 +1225,67 @@ def create_directories(python: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def create_shortcut() -> None:
+def write_icons(python: Path) -> Dict[str, Path]:
+    """Draw JARVIS's icon to disk for the desktop shortcuts to use.
+
+    The interface already draws its own icon for the phone home screen, with
+    nothing but zlib, so the desktop entries may as well use it instead of
+    borrowing a stock terminal glyph.
+
+    Args:
+        python: The virtual environment's interpreter, which has the code.
+
+    Returns:
+        A mapping of format to path for whatever could be written.
+    """
+    folder = PROJECT_DIR / "data" / "icons"
+    written: Dict[str, Path] = {}
+    code = (
+        "import pathlib, struct;"
+        "from interfaces.web import render_icon;"
+        f"folder = pathlib.Path({str(folder)!r});"
+        "folder.mkdir(parents=True, exist_ok=True);"
+        "png = render_icon(256);"
+        "(folder / 'jarvis.png').write_bytes(png);"
+        # An .ico may simply contain a PNG: header, one directory entry, payload.
+        "head = struct.pack('<HHH', 0, 1, 1) + struct.pack('<BBBBHHII', 0, 0, 0, 0, 1, 32,"
+        " len(png), 22);"
+        "(folder / 'jarvis.ico').write_bytes(head + png);"
+        "print('icons written')"
+    )
+    result = run([str(python), "-c", code], timeout=120)
+    if result.returncode != 0:
+        warn("could not draw the application icon", remember=False)
+        return written
+    for name, key in (("jarvis.png", "png"), ("jarvis.ico", "ico")):
+        candidate = folder / name
+        if candidate.is_file():
+            written[key] = candidate
+    if written:
+        ok(f"application icon written to {folder}")
+    return written
+
+
+def create_shortcut(icons: Optional[Dict[str, Path]] = None) -> None:
     """Create a desktop / Start-menu entry that launches JARVIS."""
+    icons = icons or {}
     try:
         if IS_WINDOWS:
-            _shortcut_windows()
+            _shortcut_windows(icons.get("ico"))
         elif IS_MACOS:
             _shortcut_macos()
         else:
-            _shortcut_linux()
+            _shortcut_linux(icons.get("png"))
     except Exception as exc:  # pragma: no cover - cosmetic feature
         warn(f"could not create a shortcut ({exc})", remember=False)
 
 
-def _shortcut_windows() -> None:
-    """Create ``JARVIS.lnk`` on the desktop and in the Start menu."""
+def _shortcut_windows(icon: Optional[Path] = None) -> None:
+    """Create ``JARVIS.lnk`` on the desktop and in the Start menu.
+
+    Args:
+        icon: The ``.ico`` to use, when one was drawn.
+    """
     target = PROJECT_DIR / "scripts" / "jarvis.bat"
     desktop = Path(os.path.expanduser("~")) / "Desktop"
     start_menu = Path(os.environ.get("APPDATA", "")) / (
@@ -1255,9 +1301,10 @@ def _shortcut_windows() -> None:
         script_lines += [
             f'$s = $shell.CreateShortcut("{link}")',
             '$s.TargetPath = "cmd.exe"',
-            f'$s.Arguments = \'/k "{target}" --cli\'',
+            f'$s.Arguments = \'/c "{target}" --app\'',
             f'$s.WorkingDirectory = "{PROJECT_DIR}"',
-            '$s.IconLocation = "%SystemRoot%\\System32\\shell32.dll,13"',
+            (f'$s.IconLocation = "{icon}"' if icon
+             else '$s.IconLocation = "%SystemRoot%\\System32\\shell32.dll,13"'),
             '$s.Description = "JARVIS local AI assistant"',
             "$s.Save()",
         ]
@@ -1278,37 +1325,77 @@ def _shortcut_macos() -> None:
     launcher.write_text(
         "#!/bin/bash\n"
         f'cd "{PROJECT_DIR}" || exit 1\n'
-        'exec ./scripts/jarvis.sh --cli\n',
+        'exec ./scripts/jarvis.sh --app\n',
         encoding="utf-8",
     )
     launcher.chmod(0o755)
     ok(f"double-clickable launcher created: {launcher}")
 
 
-def _shortcut_linux() -> None:
-    """Create a ``.desktop`` entry in the applications menu."""
+def desktop_entry(name: str, comment: str, arguments: str, icon: Optional[Path],
+                  terminal: bool) -> str:
+    """Build a freedesktop ``.desktop`` file.
+
+    Args:
+        name: What the launcher is called.
+        comment: The tooltip.
+        arguments: Arguments passed to ``scripts/jarvis.sh``.
+        icon: Path to an icon, or ``None`` for a stock one.
+        terminal: Whether it should open a terminal window.
+
+    Returns:
+        The file's contents.
+    """
+    command = f'bash -c \'cd "{PROJECT_DIR}" && ./scripts/jarvis.sh {arguments}\''
+    if terminal:
+        command = command[:-1] + "; exec bash'"
+    return (
+        "[Desktop Entry]\n"
+        "Version=1.0\n"
+        "Type=Application\n"
+        f"Name={name}\n"
+        f"Comment={comment}\n"
+        f"Exec={command}\n"
+        f"Path={PROJECT_DIR}\n"
+        f"Icon={icon if icon else 'utilities-terminal'}\n"
+        f"Terminal={'true' if terminal else 'false'}\n"
+        "StartupNotify=true\n"
+        "Categories=Utility;Office;\n"
+        "Keywords=assistant;ai;voice;jarvis;\n"
+    )
+
+
+def _shortcut_linux(icon: Optional[Path] = None) -> None:
+    """Add JARVIS to the applications menu, as an app and as a terminal.
+
+    Args:
+        icon: The PNG to use, when one was drawn.
+    """
     applications = Path.home() / ".local" / "share" / "applications"
     applications.mkdir(parents=True, exist_ok=True)
-    entry = (
-        "[Desktop Entry]\n"
-        "Type=Application\n"
-        "Name=JARVIS\n"
-        "Comment=Free, local AI assistant\n"
-        f"Exec=bash -c 'cd \"{PROJECT_DIR}\" && ./scripts/jarvis.sh --cli; exec bash'\n"
-        f"Path={PROJECT_DIR}\n"
-        "Icon=utilities-terminal\n"
-        "Terminal=true\n"
-        "Categories=Utility;Development;\n"
-    )
-    target = applications / "jarvis.desktop"
-    target.write_text(entry, encoding="utf-8")
-    target.chmod(0o755)
     desktop = Path.home() / "Desktop"
-    if desktop.exists():
-        copy = desktop / "jarvis.desktop"
-        copy.write_text(entry, encoding="utf-8")
-        copy.chmod(0o755)
-    ok("JARVIS added to your applications menu")
+
+    entries = {
+        "jarvis.desktop": desktop_entry(
+            "JARVIS", "Free, local AI assistant", "--app", icon, terminal=False,
+        ),
+        "jarvis-terminal.desktop": desktop_entry(
+            "JARVIS (terminal)", "JARVIS in a terminal window", "--cli", icon,
+            terminal=True,
+        ),
+    }
+    for filename, text in entries.items():
+        target = applications / filename
+        target.write_text(text, encoding="utf-8")
+        target.chmod(0o755)
+        if desktop.is_dir() and filename == "jarvis.desktop":
+            copy = desktop / filename
+            copy.write_text(text, encoding="utf-8")
+            copy.chmod(0o755)
+    # Some desktops only notice new entries after the cache is rebuilt.
+    if shutil.which("update-desktop-database"):
+        run(["update-desktop-database", str(applications)], timeout=60)
+    ok("JARVIS added to your applications menu (app and terminal)")
 
 
 def make_launchers_executable() -> None:
@@ -1545,7 +1632,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         info("skipped (--no-shortcut)")
     elif ask_yes_no("Add a JARVIS shortcut to your desktop?", default=True,
                     assume_yes=assume_yes):
-        create_shortcut()
+        create_shortcut(write_icons(python))
     else:
         info("no shortcut created")
 

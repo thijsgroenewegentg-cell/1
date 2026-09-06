@@ -106,3 +106,50 @@ def test_a_long_error_is_shortened_for_one_line(installer):
     assert len(installer.truncate_reason("x" * 400)) <= 90
     assert installer.truncate_reason("first line\nsecond line") == "first line"
     assert installer.truncate_reason("") == "unknown error"
+
+
+# ---------------------------------------------------------------- desktop app
+def test_the_desktop_entry_is_valid(installer, tmp_path):
+    """A .desktop file the desktop environment rejects is worse than none."""
+    import configparser
+
+    icon = tmp_path / "jarvis.png"
+    icon.write_bytes(b"\x89PNG\r\n\x1a\n")
+    text = installer.desktop_entry("JARVIS", "Free, local AI assistant", "--app",
+                                   icon, terminal=False)
+    parser = configparser.ConfigParser(interpolation=None, strict=True)
+    parser.read_string(text)
+    entry = parser["Desktop Entry"]
+
+    assert entry["Type"] == "Application"
+    assert entry["Name"] == "JARVIS"
+    assert entry["Terminal"] == "false"
+    assert entry["Icon"] == str(icon)
+    assert "--app" in entry["Exec"]
+    # freedesktop requires list values to end with a semicolon
+    assert entry["Categories"].endswith(";")
+    assert entry["Keywords"].endswith(";")
+
+
+def test_the_terminal_entry_keeps_its_window(installer):
+    text = installer.desktop_entry("JARVIS (terminal)", "x", "--cli", None, terminal=True)
+    assert "Terminal=true" in text
+    assert "exec bash" in text, "the window must not vanish when JARVIS exits"
+
+
+def test_a_missing_icon_falls_back_to_a_stock_one(installer):
+    text = installer.desktop_entry("JARVIS", "x", "--app", None, terminal=False)
+    assert "Icon=utilities-terminal" in text
+
+
+def test_shortcuts_land_in_the_right_places(installer, tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / "Desktop").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: home))
+
+    installer.create_shortcut({})
+    applications = home / ".local" / "share" / "applications"
+    assert (applications / "jarvis.desktop").is_file()
+    assert (applications / "jarvis-terminal.desktop").is_file()
+    assert (home / "Desktop" / "jarvis.desktop").is_file()
