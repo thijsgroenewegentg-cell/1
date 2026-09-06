@@ -82,7 +82,7 @@ button:focus-visible, input:focus-visible {
   letter-spacing: .62em; text-indent: .62em; text-transform: uppercase;
   color: rgba(231, 235, 243, .92);
   text-shadow: 0 0 44px rgba(110, 168, 255, .38);
-  animation: mark 2.8s cubic-bezier(.3, .6, .3, 1) forwards;
+  animation: mark 2.8s cubic-bezier(.3, .6, .3, 1) 1.2s forwards;
 }
 @keyframes mark {
   0%   { opacity: 0;  filter: blur(16px); letter-spacing: .95em; }
@@ -90,6 +90,76 @@ button:focus-visible, input:focus-visible {
   68%  { opacity: .85; }
   100% { opacity: 0;  filter: blur(8px); letter-spacing: .68em; }
 }
+
+/* ------------------------------------------------------------- power-on */
+/* One black frame, one line of light sweeping down it, then the room exists. */
+#boot {
+  position: fixed; inset: 0; z-index: 6; background: #000; pointer-events: none;
+  animation: bootFade 1.5s cubic-bezier(.4, 0, .3, 1) forwards;
+}
+#boot i {
+  position: absolute; left: 0; right: 0; top: -2%; height: 1px;
+  background: linear-gradient(90deg, transparent 4%, rgba(160, 195, 255, .9) 50%, transparent 96%);
+  box-shadow: 0 0 26px rgba(120, 170, 255, .75), 0 0 90px rgba(90, 130, 255, .35);
+  animation: scan 1.35s cubic-bezier(.45, 0, .55, 1) forwards;
+}
+@keyframes scan {
+  0%   { top: -2%;   opacity: 0; }
+  10%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { top: 102%;  opacity: 0; }
+}
+/* the black holds for a beat, then lifts while the line is still falling, so
+   the sphere is seen arriving rather than found already arrived */
+@keyframes bootFade {
+  0%   { opacity: 1; }
+  26%  { opacity: 1; }
+  100% { opacity: 0; visibility: hidden; }
+}
+
+/* ------------------------------------------------------- the act subtitle */
+/* A film title for whatever he is doing, one word, faint, above the sphere. */
+#act {
+  position: fixed; left: 50%; top: max(16px, 8vh); transform: translateX(-50%);
+  z-index: 3; pointer-events: none; white-space: nowrap;
+  font: 9.5px/1 var(--mono); letter-spacing: .6em; text-indent: .6em;
+  text-transform: uppercase; color: var(--accent); opacity: 0;
+  transition: opacity .9s ease, color 1.2s ease;
+  text-shadow: 0 0 22px rgba(110, 168, 255, .35);
+}
+#act.on { opacity: .3; }
+#act.hit { animation: actIn 1s cubic-bezier(.2, .7, .3, 1); }
+@keyframes actIn {
+  from { opacity: 0; letter-spacing: 1em; filter: blur(6px); }
+  to   { opacity: .3; letter-spacing: .6em; filter: blur(0); }
+}
+
+/* --------------------------------------------------- film grain + hiccup */
+/* Grain lives in the compositor rather than in the render loop: one static
+   turbulence tile, stepped around by CSS, screened over the whole room so the
+   black is never quite dead. Free at runtime, and it covers the glass too. */
+#grain {
+  position: fixed; inset: -20%; z-index: 7; pointer-events: none;
+  opacity: .05; mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grain 1.2s steps(5) infinite;
+}
+@keyframes grain {
+  0%   { transform: translate3d(0, 0, 0); }
+  20%  { transform: translate3d(-2%, 1.5%, 0); }
+  40%  { transform: translate3d(1.5%, -2.5%, 0); }
+  60%  { transform: translate3d(-1%, -1%, 0); }
+  80%  { transform: translate3d(2%, 1%, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+/* For three frames every so often the room mis-tracks, like a bad feed. */
+body.glitch #hud, body.glitch #log {
+  transition: none !important;
+  filter: hue-rotate(-30deg) saturate(1.7) contrast(1.15);
+}
+body.glitch #log { transform: translateX(calc(-50% + 4px)); }
+body.glitch #hud { transform: translateX(calc(-50% - 3px)); }
 
 /* a finished reply gets one slow pass of light across it */
 .line.ai { position: relative; }
@@ -161,8 +231,16 @@ body.dragging #field { cursor: grabbing; }
 /* the room pulses with the voice: readout while speaking, mic while hearing */
 body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinite; }
 @keyframes speakGlow { 50% { text-shadow: 0 0 24px rgba(110, 168, 255, .85); } }
-.dot-btn.recording { animation: recPulse 1.2s ease-in-out infinite; }
-@keyframes recPulse { 50% { box-shadow: 0 0 28px rgba(55, 200, 232, .5); } }
+.dot-btn.recording {
+  animation: recPulse 1.2s ease-in-out infinite;
+  transition: box-shadow .09s linear, transform .12s ease-out,
+              border-color .25s ease, color .25s ease;
+  /* --lvl is written straight from the microphone meter: the button swells
+     and lights up by however hard you are actually talking */
+  box-shadow: 0 0 calc(10px + var(--lvl, 0) * 42px) rgba(55, 200, 232, calc(.2 + var(--lvl, 0) * .55));
+  transform: scale(calc(1 + var(--lvl, 0) * .08));
+}
+@keyframes recPulse { 50% { filter: brightness(1.45); } }
 
 /* ---------------------------------------------------------- the transcript */
 /* A short, centred column of type floating under the sphere. Old lines sink
@@ -180,6 +258,11 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
 .line.me::before { content: "› "; color: var(--faint); }
 .line.ai { color: var(--ink); font-size: 15.5px; line-height: 1.62; white-space: pre-wrap;
            letter-spacing: .01em; text-shadow: 0 0 26px rgba(110, 168, 255, .22); }
+/* whatever he is saying right now is lit by the level he is saying it at:
+   --glow is written from the voice meter, so the type breathes with him */
+#log > .line.ai:last-child {
+  text-shadow: 0 0 calc(20px + var(--glow, 0) * 34px) rgba(150, 195, 255, calc(.2 + var(--glow, 0) * .5));
+}
 .line.ai code { font: 12px/1.4 var(--mono); color: #9fb6e8; }
 .line.ai pre {
   text-align: left; white-space: pre; overflow-x: auto; margin: 7px 0;
@@ -427,6 +510,12 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
   }
   .shock { display: none; }
   #wordmark { display: none; }
+  #boot { display: none; }
+  #grain { animation: none; opacity: .04; }
+  #act { transition: none; }
+  #act.on { opacity: .5; }
+  #act.hit { animation: none; }
+  body.glitch #hud, body.glitch #log { filter: none; }
   .line.ai.sweep::after { display: none; }
   .glass::after { display: none; }
   .line.ai .w { animation: none; opacity: 1; }
@@ -435,7 +524,10 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
 </head>
 <body data-mood="idle">
 <canvas id="field"></canvas>
+<div id="grain" aria-hidden="true"></div>
+<div id="boot" aria-hidden="true"><i></i></div>
 <div id="wordmark" aria-hidden="true">__TITLE__</div>
+<div id="act" aria-hidden="true"></div>
 
 <div id="log" aria-live="polite"></div>
 <div id="hint">hold <b>space</b> to speak · <b>K</b> every tool · <b>T</b> type</div>
@@ -493,6 +585,7 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
       <div id="statusList"></div>
       <div class="mods" id="modList"></div>
       <div class="switch"><span>read replies aloud</span><button id="setSpeech">off</button></div>
+      <div class="switch"><span>room sound</span><button id="setSfx">on</button></div>
       <div class="switch"><span>high contrast</span><button id="setContrast">off</button></div>
       <div class="switch"><span>clear the transcript</span><button id="setClear">clear</button></div>
     </div>
@@ -530,6 +623,7 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
       <kbd>Ctrl /</kbd><span>status, tools, audit</span>
       <kbd>H</kbd><span>this session's transcript</span>
       <kbd>S</kbd><span>read replies aloud</span>
+      <kbd>M</kbd><span>room sound — the whooshes, the drone, the chimes</span>
       <kbd>?</kbd><span>this list</span>
       <kbd>esc</kbd><span>cancel recording, close whatever is open</span>
     </div>
@@ -549,6 +643,10 @@ const auth = token ? "?token=" + encodeURIComponent(token) : "";
 const settings = {
   speech: localStorage.getItem("jarvis.speech") === "1",
   contrast: localStorage.getItem("jarvis.contrast") === "1",
+  /* room sound: on by default, off for anyone who asked the OS to calm down */
+  sfx: localStorage.getItem("jarvis.sfx") === null
+    ? !matchMedia("(prefers-reduced-motion: reduce)").matches
+    : localStorage.getItem("jarvis.sfx") === "1",
 };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const recents = (() => {
@@ -584,12 +682,32 @@ const orb = {
   shake: 0, flash: 0, warp: 0,           // one-frame cinema, decaying
   bolt: 0, boltSeed: 0,                  // lightning on error
   thinkMix: 0, speakMix: 0,              // smoothed mood weights for shape
+  sleep: 0,                              // left alone, the room dims
+  wave: new Uint8Array(512),             // live waveform, mic or voice
+  waveOn: 0,                             // how loudly the ring is drawn
+  glitch: 0, nextGlitch: 22,             // signal hiccups, in seconds
 };
 let sparks = [];                         // per-dot thinking glints
 let frontPts = [];                       // projected near-side dots, for arcs
 let dust = [];                           // foreground motes, out of focus
 let shoot = null;                        // the occasional shooting star
-const drag = { on: false, x: 0, moved: 0 };
+let photons = [];                        // light thrown out by a loud voice
+let photonLast = 0;                      // level tracking, for peak detection
+let ripples = [];                        // where you touched the lattice
+let glitching = false;                   // whether the room is mis-tracking
+
+/* A camera with a shot list rather than a fixed viewpoint: it pushes in while
+   he thinks, pulls back to listen, punches in on the answer and whips on an
+   error. Every value is a target eased once a frame, so it always feels held. */
+const cam = {
+  zoom: 1, zt: 1, tilt: 0.42, tt: 0.42, roll: 0, rt: 0, punch: 0,
+  /* the pointer as a lamp: your cursor lights and dents the lattice */
+  fx: 0, fy: 0, field: 0, fieldT: 0, lastMove: 0,
+};
+/* post-processing surface, rebuilt on resize: a half-resolution bloom buffer */
+let bloom = null, bctx = null;
+
+const drag = { on: false, x: 0, moved: 0, rip: 0 };
 const MOODS = {
   idle:   { bright: 1.00, spin: 0.10, floor: 0.05, glow: [63, 109, 255] },
   listen: { bright: 1.15, spin: 0.16, floor: 0.22, glow: [55, 200, 232] },
@@ -664,6 +782,7 @@ function resize() {
     y: hash(i, 23) * height,
     a: 0.03 + hash(i, 37) * 0.09,
     w: hash(i, 51) * 6.2832,
+    z: 0.2 + hash(i, 59) * 0.8,          // depth, for parallax against the pointer
   }));
   /* foreground dust: motes drifting between the viewer and the lattice */
   dust = Array.from({ length: 26 }, (_, i) => ({
@@ -674,6 +793,13 @@ function resize() {
     dx: (hash(i, 113) - 0.5) * 6,
     dy: (hash(i, 127) - 0.5) * 4,
   }));
+  /* bloom buffer at half resolution: blur is cheap when there are a quarter
+     as many pixels to blur, and half-res glow reads as lens, not as smudge */
+  bloom = document.createElement("canvas");
+  bloom.width = Math.max(2, Math.round(width * dpr * 0.5));
+  bloom.height = Math.max(2, Math.round(height * dpr * 0.5));
+  bctx = bloom.getContext("2d");
+  cam.fx = width / 2; cam.fy = height / 2;
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, width, height);
 }
@@ -681,7 +807,11 @@ addEventListener("resize", resize);
 addEventListener("pointermove", (event) => {
   orb.tx = (event.clientX / width - 0.5) * 2;
   orb.ty = (event.clientY / height - 0.5) * 2;
+  cam.fx = event.clientX; cam.fy = event.clientY;
+  cam.fieldT = 1; cam.lastMove = orb.time;
 });
+addEventListener("pointerleave", () => { cam.fieldT = 0; });
+addEventListener("blur", () => { cam.fieldT = 0; });
 
 /* the specular sheen on every glass surface tracks the pointer, one
    rAF-throttled pass over the handful of surfaces that exist */
@@ -726,6 +856,36 @@ function measure(now) {
   return Math.min(0.05, dt / 1000);
 }
 
+/* Whether this browser can blur a canvas draw. If it cannot, the lens pass
+   leans on the downscale alone for softness instead of failing outright. */
+const canFilter = (() => {
+  try {
+    ctx.filter = "blur(2px)";
+    const ok = ctx.filter === "blur(2px)";
+    ctx.filter = "none";
+    return ok;
+  } catch (err) { return false; }
+})();
+
+/** One blurred, optionally tinted copy of the room, added back over itself. */
+function bloomPass(dx, tint, alpha) {
+  if (!bloom || alpha <= 0.004) return;
+  const bw = bloom.width, bh = bloom.height;
+  bctx.globalCompositeOperation = "source-over";
+  bctx.clearRect(0, 0, bw, bh);
+  if (canFilter) bctx.filter = "blur(6px)";
+  bctx.drawImage(canvas, 0, 0, bw, bh);
+  bctx.filter = "none";
+  if (tint) {
+    bctx.globalCompositeOperation = "multiply";
+    bctx.fillStyle = tint;
+    bctx.fillRect(0, 0, bw, bh);
+    bctx.globalCompositeOperation = "source-over";
+  }
+  ctx.globalAlpha = Math.min(1, alpha);
+  ctx.drawImage(bloom, dx, 0, width, height);
+}
+
 function draw(now) {
   const dt = measure(now);
   orb.time += dt;
@@ -740,15 +900,20 @@ function draw(now) {
   const idle = mood.floor + Math.sin(t * 0.7) * 0.03;
   const target = Math.max(idle, orb.mic, orb.tts, orb.kick);
   orb.energy += (target - orb.energy) * (target > orb.energy ? 0.35 : 0.08);
+  /* left alone for a while, the room goes to sleep: the lattice dims and
+     slows, and the first touch wakes it with a frame of light */
+  const sleepy = t - lastAct > 75 && !busy && orb.mood === "idle" ? 1 : 0;
+  orb.sleep += (sleepy - orb.sleep) * 0.01;
   if (!drag.on) { orb.spin += orb.vel; orb.vel *= 0.94; }
   /* the boot spin: the lattice arrives turning fast, then settles */
   orb.spin += dt * (mood.spin + orb.energy * 0.55 + Math.max(0, 1.6 - t) * 1.1)
-            * (reduced ? 0.15 : 1);
+            * (reduced ? 0.15 : 1) * (1 - orb.sleep * 0.55);
   orb.px += (orb.tx - orb.px) * 0.04;
   orb.py += (orb.ty - orb.py) * 0.04;
   /* how strongly the frequency bands own the shape right now */
   const specTarget = Math.max(orb.mic > 0.04 ? orb.mic : 0, orb.tts > 0.04 ? orb.tts : 0);
   orb.specOn += (Math.min(1, specTarget * 2.2) - orb.specOn) * 0.12;
+  orb.waveOn += ((specTarget > 0.05 ? Math.min(1, specTarget * 2.4) : 0) - orb.waveOn) * 0.14;
   /* thinking glints: a few random dots flare and cool again */
   if (orb.mood === "think" && !reduced) {
     for (let k = 0; k < 3; k++) sparks[(Math.random() * dots.length) | 0] = 1;
@@ -760,20 +925,48 @@ function draw(now) {
   orb.bolt *= 0.86;
   frontPts.length = 0;
 
+  /* ---------------------------------------------------------------- camera
+     Every mood is a shot. He pushes in while thinking, pulls back to listen,
+     leans closer on the voice and whips sideways on an error. Each value is a
+     target eased once a frame, so the room always feels held by someone. */
+  if (reduced) { cam.zt = 1; cam.tt = 0.42; }
+  else if (orb.mood === "think") { cam.zt = 1.13; cam.tt = 0.30; }
+  else if (orb.mood === "listen") { cam.zt = 1.01; cam.tt = 0.48; }
+  else if (orb.mood === "speak") { cam.zt = 1.06 + orb.tts * 0.07; cam.tt = 0.40; }
+  else if (orb.mood === "lost") { cam.zt = 0.93; cam.tt = 0.44; }
+  else { cam.zt = 1; cam.tt = 0.42; }
+  /* a punch-in on the moments that matter: the answer, or the failure */
+  cam.zt += cam.punch * 0.16;
+  cam.punch *= reduced ? 0 : 0.9;
+  cam.rt = reduced ? 0
+    : Math.sin(t * 0.07) * 0.012 + orb.bolt * 0.05 * Math.sin(t * 24)
+      + orb.shake * 0.014 * Math.sin(t * 41);
+  cam.zoom += (cam.zt - cam.zoom) * 0.045;
+  cam.tilt += (cam.tt - cam.tilt) * 0.05;
+  cam.roll += (cam.rt - cam.roll) * 0.16;
+  /* your cursor is a lamp in the room, and it goes out a couple of seconds
+     after you stop moving it, so a tap does not dent the lattice for ever */
+  if (t - cam.lastMove > 2.4) cam.fieldT = 0;
+  cam.field += (cam.fieldT - cam.field) * 0.07;
+
   const e = orb.energy;
   const amp = (0.035 + e * 0.30) * (reduced ? 0.4 : 1);
   const rotY = orb.spin + orb.px * 0.22;
-  const rotX = 0.42 + Math.sin(t * 0.11) * 0.14 + orb.py * 0.16;
+  const rotX = cam.tilt + Math.sin(t * 0.11) * 0.10 + orb.py * 0.16;
   const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
   const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
   const breathe = 1 + Math.sin(t * 0.6) * 0.012 + e * 0.05;
-  const bright = mood.bright * (1.05 + e * 0.25);
+  /* once every eleven seconds he blinks: the lattice dims and comes back */
+  const bph = reduced ? 0 : t % 11.5;
+  const blink = bph > 10.9 ? 0.55 + 0.45 * Math.abs((bph - 11.2) / 0.3) : 1;
+  const bright = mood.bright * (1.05 + e * 0.25) * blink * (1 - orb.sleep * 0.5);
   const base = Math.max(0.9, Math.min(1.8, Math.min(width, height) / 720)) * (dpr > 1 ? 1.05 : 1);
   /* at rest the cool dots carry the lattice; heat pulls it back to white */
   const gain = [0.72 + e * 0.9, 1.06 - e * 0.25, 1.0 - e * 0.2];
 
   /* fade, not clear: yesterday's lattice ghosts for a frame or two */
   ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = reduced ? "#000" : "rgba(0,0,0,0.34)";
   ctx.fillRect(0, 0, width, height);
   ctx.save();
@@ -785,37 +978,49 @@ function draw(now) {
   /* cinematic drift: the camera never quite holds still */
   const cxNow = cx + Math.sin(t * 0.05) * 10;
   const cyNow = cy + Math.cos(t * 0.041) * 7;
-  /* aurora: the room itself takes the mood's colour, faintly */
+  if (!reduced && Math.abs(cam.roll) > 0.0004) {
+    ctx.translate(cxNow, cyNow);
+    ctx.rotate(cam.roll);
+    ctx.translate(-cxNow, -cyNow);
+  }
+  const R = radius * cam.zoom;
   const glow = mood.glow;
-  const aura = ctx.createRadialGradient(cxNow, cyNow, radius * 0.2, cxNow, cyNow, radius * 2.3);
+
+  /* aurora: the room itself takes the mood's colour, faintly */
+  const aura = ctx.createRadialGradient(cxNow, cyNow, R * 0.2, cxNow, cyNow, R * 2.3);
   aura.addColorStop(0, `rgba(${glow[0]},${glow[1]},${glow[2]},${0.07 + e * 0.14})`);
   aura.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = aura;
   ctx.fillRect(0, 0, width, height);
-  /* a second, counter-coloured nebula lobe, so the void has weather */
-  const lobe = ctx.createRadialGradient(
-    cxNow - radius * 1.25, cyNow + radius * 0.85, radius * 0.1,
-    cxNow - radius * 1.25, cyNow + radius * 0.85, radius * 1.9);
+  /* a second, counter-coloured nebula lobe, drifting: the void has weather */
+  const lx = cxNow - R * 1.25 + Math.sin(t * 0.06) * R * 0.5;
+  const ly = cyNow + R * 0.85 + Math.cos(t * 0.047) * R * 0.4;
+  const lobe = ctx.createRadialGradient(lx, ly, R * 0.1, lx, ly, R * 1.9);
   lobe.addColorStop(0, `rgba(138,92,255,${0.03 + e * 0.05})`);
   lobe.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = lobe;
   ctx.fillRect(0, 0, width, height);
-  /* a few cold stars, far behind the lattice — and on send they streak
-     away from the centre for half a second, like a jump to lightspeed */
-  ctx.strokeStyle = ctx.fillStyle = "rgb(159,180,255)";
+
+  /* a few cold stars in three depths, parallaxing against the pointer — and
+     on send they streak away from the centre, like a jump to lightspeed */
   ctx.lineWidth = 1;
   for (let i = 0; i < stars.length; i++) {
     const s = stars[i];
-    ctx.globalAlpha = Math.min(1, s.a * (0.7 + 0.3 * Math.sin(t * 0.8 + s.w)) + orb.warp * 0.25);
+    const sxp = s.x - orb.px * 26 * s.z;
+    const syp = s.y - orb.py * 18 * s.z;
+    ctx.globalAlpha = Math.min(1, s.a * (0.7 + 0.3 * Math.sin(t * 0.8 + s.w)) * (0.45 + s.z)
+                               + orb.warp * 0.25);
+    ctx.strokeStyle = ctx.fillStyle = s.z > 0.72 ? "rgb(190,205,255)" : "rgb(138,160,236)";
     if (orb.warp > 0.03 && !reduced) {
-      const dx = s.x - cx, dy = s.y - cy;
+      const dx = sxp - cx, dy = syp - cy;
       const len = Math.hypot(dx, dy) || 1;
       ctx.beginPath();
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(s.x + (dx / len) * orb.warp * 34, s.y + (dy / len) * orb.warp * 34);
+      ctx.moveTo(sxp, syp);
+      ctx.lineTo(sxp + (dx / len) * orb.warp * 42 * s.z, syp + (dy / len) * orb.warp * 42 * s.z);
       ctx.stroke();
     } else {
-      ctx.fillRect(s.x, s.y, 1, 1);
+      const w = s.z > 0.82 ? 1.4 : 1;
+      ctx.fillRect(sxp, syp, w, w);
     }
   }
   ctx.globalAlpha = 1;
@@ -839,6 +1044,7 @@ function draw(now) {
     shoot.x += shoot.vx; shoot.y += shoot.vy; shoot.life -= 0.025;
     if (shoot.life <= 0 || shoot.x < -60 || shoot.x > width + 60) shoot = null;
   }
+
   /* ignition: the sphere arrives small, overshoots, then settles */
   const iq = Math.min(1, t / 1.5);
   const c1 = 1.70158, c3 = c1 + 1;
@@ -851,7 +1057,76 @@ function draw(now) {
            + 0.6 * Math.pow(Math.max(0, Math.sin(t * 4.6 - 0.9)), 10);
   if (!reduced) scaleNow *= 1 + orb.speakMix * 0.035 * hb;
 
+  /* ------------------------------------------------------- volumetric light
+     A hot core inside the lattice, shafts of it into the room, and the lamp
+     you are holding. All additive, so they brighten rather than cover. */
+  ctx.globalCompositeOperation = "lighter";
+  const coreR = Math.max(2, R * scaleNow * (0.52 + e * 0.3 + orb.tts * 0.22));
+  const core = ctx.createRadialGradient(cxNow, cyNow, 0, cxNow, cyNow, coreR);
+  core.addColorStop(0, `rgba(228,238,255,${0.09 + e * 0.15 + orb.tts * 0.13})`);
+  core.addColorStop(0.4, `rgba(${glow[0]},${glow[1]},${glow[2]},${0.05 + e * 0.09})`);
+  core.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = core;
+  ctx.fillRect(cxNow - coreR, cyNow - coreR, coreR * 2, coreR * 2);
+  if (!reduced) {
+    const rayLen = R * (1.8 + e * 1.1 + orb.tts * 0.6);
+    for (let i = 0; i < 6; i++) {
+      const a = t * 0.045 + (i * 6.2832) / 6 + Math.sin(t * 0.19 + i * 2.1) * 0.06;
+      const w = R * (0.022 + 0.05 * Math.abs(Math.sin(t * 0.27 + i * 1.7)));
+      ctx.save();
+      ctx.translate(cxNow, cyNow);
+      ctx.rotate(a);
+      const shaft = ctx.createLinearGradient(0, 0, rayLen, 0);
+      shaft.addColorStop(0, `rgba(${glow[0]},${glow[1]},${glow[2]},${0.045 + e * 0.05})`);
+      shaft.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = shaft;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(rayLen, -w);
+      ctx.lineTo(rayLen, w);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  if (cam.field > 0.02 && !reduced) {
+    const lamp = ctx.createRadialGradient(cam.fx, cam.fy, 0, cam.fx, cam.fy, R * 0.8);
+    lamp.addColorStop(0, `rgba(${glow[0]},${glow[1]},${glow[2]},${0.055 * cam.field})`);
+    lamp.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = lamp;
+    ctx.fillRect(cam.fx - R, cam.fy - R, R * 2, R * 2);
+  }
+  ctx.globalCompositeOperation = "source-over";
+
+  /* a loud voice throws light into the room: photons off the lattice */
+  const level = Math.max(orb.tts, orb.mic);
+  photonLast += (level - photonLast) * 0.4;
+  if (!reduced && level > 0.3 && level > photonLast + 0.09 && photons.length < 90) {
+    const n = 2 + Math.round(level * 6);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * 6.2832;
+      const rr = R * scaleNow * (0.85 + Math.random() * 0.25);
+      const sp = (70 + Math.random() * 220) * (0.5 + level);
+      photons.push({
+        x: cxNow + Math.cos(a) * rr, y: cyNow + Math.sin(a) * rr,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1,
+      });
+    }
+  }
+  /* touch ripples widen and die */
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const rp = ripples[i];
+    if (!reduced) rp.r += dt * R * 1.5;
+    rp.life -= dt * 0.85;
+    if (rp.life <= 0) ripples.splice(i, 1);
+  }
+
   for (const b of buckets) b.length = 0;
+
+  const fieldLim = R * 0.62;
+  const fieldOn = !reduced && cam.field > 0.02;
+  const fieldPush = R * (reduced ? 0.06 : 0.15);
+  const ripBand = R * 0.17;
 
   for (let n = 0; n < dots.length; n++) {
     const p = dots[n];
@@ -894,15 +1169,43 @@ function draw(now) {
     const persp = 3.0 / (3.0 - Z);
     const depth = Math.max(0, Math.min(1, (Z + 1.25) / 2.5));
     const spark = sparks[n] *= 0.88;
-    const sx = cxNow + X * radius * scaleNow * persp;
-    const sy = cyNow + Y * radius * scaleNow * persp;
+    let sx = cxNow + X * R * scaleNow * persp;
+    let sy = cyNow + Y * R * scaleNow * persp;
+    let boost = 0;
+    /* the lattice answers your hand: dots near the cursor are pushed out of
+       the way and light up, so the sphere feels like an object, not a video */
+    if (fieldOn) {
+      const dx = sx - cam.fx, dy = sy - cam.fy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < fieldLim * fieldLim) {
+        const d = Math.sqrt(d2) || 1;
+        const f = 1 - d / fieldLim;
+        const push = f * f * fieldPush * cam.field;
+        sx += (dx / d) * push;
+        sy += (dy / d) * push;
+        boost += f * 0.5 * cam.field;
+      }
+    }
+    /* and a tap sends a shockwave through it, dot by dot */
+    for (let i = 0; i < ripples.length; i++) {
+      const rp = ripples[i];
+      const dx = sx - rp.x, dy = sy - rp.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const off = d - rp.r;
+      if (off > -ripBand && off < ripBand) {
+        const f = (1 - Math.abs(off) / ripBand) * rp.life;
+        sx += (dx / d) * f * R * 0.12;
+        sy += (dy / d) * f * R * 0.12;
+        boost += f * 0.55;
+      }
+    }
     if (depth > 0.62 && frontPts.length < 960) frontPts.push(sx, sy);
     buckets[p.c * 2 + (depth < 0.45 ? 1 : 0)].push(
       sx,
       sy,
       base * (0.8 + 1.2 * depth) + spark * 1.4,
       Math.min(1, Math.pow(depth, 1.1) * bright * (0.86 + 0.14 * Math.sin(t * 2 + p.w * 7))
-             + spark * 0.9) * ease * (1 - loose * 0.25)
+             + spark * 0.9 + boost) * ease * (1 - loose * 0.25)
     );
   }
 
@@ -935,7 +1238,7 @@ function draw(now) {
       const a = ((Math.random() * (frontPts.length / 2)) | 0) * 2;
       const b = ((Math.random() * (frontPts.length / 2)) | 0) * 2;
       const dx = frontPts[a] - frontPts[b], dy = frontPts[a + 1] - frontPts[b + 1];
-      if (dx * dx + dy * dy > radius * radius * 0.25) continue;
+      if (dx * dx + dy * dy > R * R * 0.25) continue;
       ctx.strokeStyle = `rgba(${glow[0]},${glow[1]},${glow[2]},${0.08 + Math.random() * 0.14})`;
       ctx.beginPath();
       ctx.moveTo(frontPts[a], frontPts[a + 1]);
@@ -944,19 +1247,46 @@ function draw(now) {
     }
   }
   ctx.globalAlpha = 1;
+  /* the voice as a ring: while hearing or speaking the actual waveform is
+     drawn just outside the lattice, so sound has a shape you can look at */
+  if (orb.waveOn > 0.03 && !reduced) {
+    const N = 120, wl = orb.wave.length - 1;
+    ctx.lineWidth = 1.1;
+    ctx.strokeStyle = `rgba(${glow[0]},${glow[1]},${glow[2]},${0.1 + orb.waveOn * 0.28})`;
+    ctx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const a = (i / N) * 6.2832 - 1.5708;
+      const v = (orb.wave[((i / N) * wl) | 0] - 128) / 128;
+      const rr = R * scaleNow * 1.3 + v * R * 0.2 * orb.waveOn;
+      const x = cxNow + Math.cos(a) * rr, y = cyNow + Math.sin(a) * rr;
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
   /* voice rings: while hearing or speaking, the sound stands just outside
      the lattice as one or two concentric halos, sized by the live level */
-  const ringLevel = Math.max(orb.tts, orb.mic);
+  const ringLevel = level;
   if (ringLevel > 0.05 && !reduced) {
     ctx.lineWidth = 1;
     ctx.strokeStyle = `rgba(${glow[0]},${glow[1]},${glow[2]},${0.10 + ringLevel * 0.30})`;
     ctx.beginPath();
-    ctx.arc(cxNow, cyNow, radius * scaleNow * (1.16 + ringLevel * 0.10), 0, 6.2832);
+    ctx.arc(cxNow, cyNow, R * scaleNow * (1.16 + ringLevel * 0.10), 0, 6.2832);
     ctx.stroke();
     if (orb.tts > 0.05) {
       ctx.strokeStyle = `rgba(${glow[0]},${glow[1]},${glow[2]},${orb.tts * 0.22})`;
       ctx.beginPath();
-      ctx.arc(cxNow, cyNow, radius * scaleNow * (1.05 + orb.tts * 0.06), 0, 6.2832);
+      ctx.arc(cxNow, cyNow, R * scaleNow * (1.05 + orb.tts * 0.06), 0, 6.2832);
+      ctx.stroke();
+    }
+  }
+  /* where you touched: a ring widening out of the lattice */
+  if (ripples.length && !reduced) {
+    ctx.lineWidth = 1;
+    for (const rp of ripples) {
+      ctx.strokeStyle = `rgba(${glow[0]},${glow[1]},${glow[2]},${rp.life * 0.2})`;
+      ctx.beginPath();
+      ctx.arc(rp.x, rp.y, rp.r, 0, 6.2832);
       ctx.stroke();
     }
   }
@@ -967,17 +1297,41 @@ function draw(now) {
       ctx.lineWidth = pass ? 1.1 : 3.4;
       ctx.strokeStyle = `rgba(248,113,113,${orb.bolt * (pass ? 0.55 : 0.16)})`;
       ctx.beginPath();
-      ctx.moveTo(cxNow - radius * 0.65, cyNow - radius * 0.85);
+      ctx.moveTo(cxNow - R * 0.65, cyNow - R * 0.85);
       for (let k = 1; k <= 12; k++) {
         const f = k / 12;
         ctx.lineTo(
-          cxNow - radius * 0.65 + f * radius * 1.2
-            + (hash(k, orb.boltSeed) - 0.5) * radius * 0.34,
-          cyNow - radius * 0.85 + f * radius * 1.7
-            + (hash(k + 40, orb.boltSeed) - 0.5) * radius * 0.2);
+          cxNow - R * 0.65 + f * R * 1.2
+            + (hash(k, orb.boltSeed) - 0.5) * R * 0.34,
+          cyNow - R * 0.85 + f * R * 1.7
+            + (hash(k + 40, orb.boltSeed) - 0.5) * R * 0.2);
       }
       ctx.stroke();
     }
+  }
+  /* photons: the light a loud voice shakes off, with a streak behind each */
+  if (photons.length) {
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineWidth = 1;
+    for (let i = photons.length - 1; i >= 0; i--) {
+      const p = photons[i];
+      if (!reduced) {
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        p.vx *= 0.985; p.vy *= 0.985;
+      }
+      p.life -= dt * 1.05;
+      if (p.life <= 0) { photons.splice(i, 1); continue; }
+      ctx.strokeStyle = `rgba(${glow[0]},${glow[1]},${glow[2]},${p.life * 0.45})`;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx * 0.035, p.y - p.vy * 0.035);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(228,238,255,${p.life * 0.7})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.1, 0, 6.2832);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = "source-over";
   }
   ctx.restore();
   /* one faint frame of light on the big moments, then the room settles */
@@ -1001,6 +1355,47 @@ function draw(now) {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+
+  /* ------------------------------------------------------------------ lens
+     Signal hiccups, then bloom — with the frame splitting into red and blue
+     on the violent moments. Grain is a CSS layer above the canvas, so it
+     costs the render loop nothing. */
+  if (!reduced) {
+    orb.nextGlitch -= dt;
+    if (orb.nextGlitch <= 0) {
+      orb.nextGlitch = 24 + Math.random() * 40;
+      if (orb.mood !== "lost") orb.glitch = 0.14;
+    }
+    if (orb.bolt > 0.85) orb.glitch = Math.max(orb.glitch, 0.22);
+  }
+  if (orb.glitch > 0 && !reduced) {
+    orb.glitch -= dt;
+    if (!glitching) { glitching = true; document.body.classList.add("glitch"); }
+    for (let i = 0; i < 5; i++) {
+      const h = 6 + Math.random() * 46;
+      const y = Math.random() * Math.max(1, height - h);
+      ctx.drawImage(canvas, 0, y * dpr, canvas.width, h * dpr,
+                    (Math.random() - 0.5) * 46, y, width, h);
+    }
+  } else if (glitching) {
+    glitching = false;
+    document.body.classList.remove("glitch");
+  }
+  if (!reduced && bloom && orb.quality >= 1) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    bloomPass(0, null, 0.46);
+    const hard = Math.max(orb.shake, orb.bolt);
+    if (hard > 0.08) {
+      /* the frame mis-registers: red one way, blue the other */
+      bloomPass(-4 - hard * 6, "#ff2b52", 0.34 * hard);
+      bloomPass(4 + hard * 6, "#2b6bff", 0.34 * hard);
+    }
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  sfx.balance();
   requestAnimationFrame(draw);
 }
 
@@ -1014,9 +1409,29 @@ function feedSpectrum(spectrum) {
   }
 }
 
+/* The act titles: one word above the sphere while something is happening. */
+const ACTS = {
+  idle: "standing by", listen: "listening", think: "thinking",
+  speak: "speaking", lost: "signal lost",
+};
 function mood(name) {
+  const changed = orb.mood !== name;
   orb.mood = name;
   document.body.dataset.mood = name;
+  /* thinking is the only mood the room hums through */
+  if (name === "think") sfx.droneOn(); else sfx.droneOff();
+  if (!changed) return;
+  const act = $("act");
+  if (act) {
+    act.textContent = ACTS[name] || "";
+    const shown = name !== "idle";
+    act.classList.toggle("on", shown);
+    if (shown && !reduced) {
+      act.classList.remove("hit");
+      void act.offsetWidth;            // retrigger the title card
+      act.classList.add("hit");
+    }
+  }
 }
 function spawnShock(extraClass, delay) {
   const ring = document.createElement("div");
@@ -1038,6 +1453,302 @@ function pulse(strength) {
   }
 }
 
+/* =======================================================================
+   Room sound.
+
+   Everything here is built at runtime out of oscillators and one buffer of
+   noise: no files, no engine to install, nothing to download. It can only
+   start after you touch the page (browsers insist), it ducks under JARVIS's
+   voice instead of competing with it, and M — or the switch in the status
+   panel — silences the room again. Every call is wrapped, because a machine
+   without an audio context should still be a perfectly good interface.
+   ===================================================================== */
+const sfx = {
+  master: null, noise: null, drone: null, blips: null, ducked: null,
+  /** Lazily build the bus. Returns null when sound is off or unsupported. */
+  ctx() {
+    if (!settings.sfx) return null;
+    const ac = audioReady();
+    if (!ac) return null;
+    if (!this.master) {
+      this.master = ac.createGain();
+      this.master.gain.value = this.ducked === null ? 0.5 : this.ducked;
+      this.master.connect(ac.destination);
+      const len = Math.floor(ac.sampleRate * 1.5);
+      const buffer = ac.createBuffer(1, len, ac.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      this.noise = buffer;
+    }
+    if (ac.state === "suspended") ac.resume().catch(() => {});
+    return ac;
+  },
+  /** Keep the room underneath the butler, never on top of him. */
+  balance() {
+    if (!settings.sfx || !this.master || !audioCtx) return;
+    const want = (speechActive || orb.tts > 0.06) ? 0.1 : 0.5;
+    if (this.ducked === want) return;
+    this.ducked = want;
+    try { this.master.gain.setTargetAtTime(want, audioCtx.currentTime, 0.12); }
+    catch (err) { this.master.gain.value = want; }
+  },
+  /** A percussive envelope, already wired to the master bus. */
+  env(ac, peak, attack, decay) {
+    const g = ac.createGain();
+    const now = ac.currentTime;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), now + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + attack + decay);
+    g.connect(this.master);
+    return g;
+  },
+  hiss(ac) {
+    const src = ac.createBufferSource();
+    src.buffer = this.noise;
+    src.loop = true;
+    src.playbackRate.value = 0.85 + Math.random() * 0.3;
+    return src;
+  },
+  /** A question leaving the room: air out, with a low thud under it. */
+  whoosh() {
+    const ac = this.ctx(); if (!ac) return;
+    try {
+      const now = ac.currentTime;
+      const bp = ac.createBiquadFilter();
+      bp.type = "bandpass"; bp.Q.value = 0.9;
+      bp.frequency.setValueAtTime(280, now);
+      bp.frequency.exponentialRampToValueAtTime(2600, now + 0.34);
+      const src = this.hiss(ac);
+      src.connect(bp); bp.connect(this.env(ac, 0.15, 0.05, 0.36));
+      src.start(now); src.stop(now + 0.5);
+      const thud = ac.createOscillator();
+      thud.type = "sine";
+      thud.frequency.setValueAtTime(96, now);
+      thud.frequency.exponentialRampToValueAtTime(44, now + 0.3);
+      thud.connect(this.env(ac, 0.13, 0.01, 0.32));
+      thud.start(now); thud.stop(now + 0.45);
+    } catch (err) { /* silence is an acceptable failure */ }
+  },
+  /** The answer arriving: three partials, staggered, and a breath of air. */
+  chime() {
+    const ac = this.ctx(); if (!ac) return;
+    try {
+      const now = ac.currentTime;
+      [660, 990, 1480].forEach((freq, i) => {
+        const osc = ac.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = freq * (1 + (Math.random() - 0.5) * 0.004);
+        osc.connect(this.env(ac, [0.085, 0.045, 0.028][i], 0.012 + i * 0.03, 1.1 + i * 0.22));
+        osc.start(now + i * 0.05);
+        osc.stop(now + 1.9 + i * 0.2);
+      });
+      const hp = ac.createBiquadFilter();
+      hp.type = "highpass"; hp.frequency.value = 3200;
+      const src = this.hiss(ac);
+      src.connect(hp); hp.connect(this.env(ac, 0.045, 0.02, 0.3));
+      src.start(now); src.stop(now + 0.5);
+    } catch (err) { /* silence is an acceptable failure */ }
+  },
+  /** Something broke: a buzz falling through a dirty crackle. */
+  zap() {
+    const ac = this.ctx(); if (!ac) return;
+    try {
+      const now = ac.currentTime;
+      const osc = ac.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(240, now);
+      osc.frequency.exponentialRampToValueAtTime(58, now + 0.5);
+      const lp = ac.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = 900; lp.Q.value = 7;
+      osc.connect(lp); lp.connect(this.env(ac, 0.15, 0.006, 0.55));
+      osc.start(now); osc.stop(now + 0.7);
+      const hp = ac.createBiquadFilter();
+      hp.type = "highpass"; hp.frequency.value = 1800;
+      const src = this.hiss(ac);
+      src.connect(hp); hp.connect(this.env(ac, 0.09, 0.004, 0.22));
+      src.start(now); src.stop(now + 0.35);
+    } catch (err) { /* silence is an acceptable failure */ }
+  },
+  /** Your finger on the lattice. */
+  tap() {
+    const ac = this.ctx(); if (!ac) return;
+    try {
+      const now = ac.currentTime;
+      const osc = ac.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(190, now);
+      osc.frequency.exponentialRampToValueAtTime(68, now + 0.18);
+      osc.connect(this.env(ac, 0.09, 0.004, 0.2));
+      osc.start(now); osc.stop(now + 0.3);
+    } catch (err) { /* silence is an acceptable failure */ }
+  },
+  /** One row of the palette, or one key: a click of static, nothing more. */
+  tick() {
+    const ac = this.ctx(); if (!ac) return;
+    try {
+      const now = ac.currentTime;
+      const hp = ac.createBiquadFilter();
+      hp.type = "highpass"; hp.frequency.value = 4200;
+      const src = this.hiss(ac);
+      src.connect(hp); hp.connect(this.env(ac, 0.03, 0.001, 0.028));
+      src.start(now); src.stop(now + 0.06);
+    } catch (err) { /* silence is an acceptable failure */ }
+  },
+  /** The room opening its ears: the sweep goes down instead of up. */
+  hear() {
+    const ac = this.ctx(); if (!ac) return;
+    try {
+      const now = ac.currentTime;
+      const bp = ac.createBiquadFilter();
+      bp.type = "bandpass"; bp.Q.value = 1.2;
+      bp.frequency.setValueAtTime(2800, now);
+      bp.frequency.exponentialRampToValueAtTime(340, now + 0.4);
+      const src = this.hiss(ac);
+      src.connect(bp); bp.connect(this.env(ac, 0.1, 0.02, 0.4));
+      src.start(now); src.stop(now + 0.55);
+    } catch (err) { /* silence is an acceptable failure */ }
+  },
+  /** A single thought crossing the lattice. */
+  blip() {
+    const ac = this.ctx(); if (!ac) return;
+    try {
+      const now = ac.currentTime;
+      const osc = ac.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = 1300 + Math.random() * 1500;
+      osc.connect(this.env(ac, 0.026, 0.004, 0.09));
+      osc.start(now); osc.stop(now + 0.14);
+    } catch (err) { /* silence is an acceptable failure */ }
+  },
+  /** While he thinks the room hums: three lows, detuned, swelling slowly. */
+  droneOn() {
+    const ac = this.ctx(); if (!ac || this.drone) return;
+    try {
+      const now = ac.currentTime;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.05, now + 1.4);
+      const lp = ac.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = 260; lp.Q.value = 2;
+      lp.connect(g); g.connect(this.master);
+      const oscs = [55, 82.5, 110.3].map((freq, i) => {
+        const osc = ac.createOscillator();
+        osc.type = i === 2 ? "triangle" : "sine";
+        osc.frequency.value = freq;
+        osc.detune.value = (i - 1) * 7;
+        osc.connect(lp);
+        osc.start(now);
+        return osc;
+      });
+      const lfo = ac.createOscillator();
+      lfo.type = "sine"; lfo.frequency.value = 0.14;
+      const swing = ac.createGain();
+      swing.gain.value = 0.02;
+      lfo.connect(swing); swing.connect(g.gain);
+      lfo.start(now);
+      this.drone = { oscs, lfo, g };
+      clearInterval(this.blips);
+      this.blips = setInterval(() => { if (!reduced) this.blip(); }, 620);
+    } catch (err) { this.drone = null; }
+  },
+  droneOff() {
+    clearInterval(this.blips);
+    this.blips = null;
+    const drone = this.drone;
+    this.drone = null;
+    if (!drone || !audioCtx) return;
+    try {
+      const now = audioCtx.currentTime;
+      drone.g.gain.cancelScheduledValues(now);
+      drone.g.gain.setValueAtTime(Math.max(0.0002, drone.g.gain.value), now);
+      drone.g.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+      drone.oscs.forEach((osc) => osc.stop(now + 0.6));
+      drone.lfo.stop(now + 0.6);
+    } catch (err) { /* already gone */ }
+  },
+  /** Powering on: a hum climbing out of nothing, then the sphere igniting. */
+  boot() {
+    const ac = this.ctx(); if (!ac || ac.state !== "running") return;
+    try {
+      const now = ac.currentTime;
+      const osc = ac.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(42, now);
+      osc.frequency.exponentialRampToValueAtTime(138, now + 1.3);
+      osc.connect(this.env(ac, 0.075, 0.7, 0.7));
+      osc.start(now); osc.stop(now + 1.6);
+      const at = now + 1.32;
+      const hit = ac.createOscillator();
+      hit.type = "sine";
+      hit.frequency.setValueAtTime(124, at);
+      hit.frequency.exponentialRampToValueAtTime(46, at + 0.4);
+      const hg = ac.createGain();
+      hg.gain.setValueAtTime(0.0001, at);
+      hg.gain.exponentialRampToValueAtTime(0.15, at + 0.012);
+      hg.gain.exponentialRampToValueAtTime(0.0001, at + 0.5);
+      hg.connect(this.master);
+      hit.connect(hg); hit.start(at); hit.stop(at + 0.6);
+      const lp = ac.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = 520;
+      const ng = ac.createGain();
+      ng.gain.setValueAtTime(0.0001, at);
+      ng.gain.exponentialRampToValueAtTime(0.075, at + 0.02);
+      ng.gain.exponentialRampToValueAtTime(0.0001, at + 0.7);
+      ng.connect(this.master);
+      const src = this.hiss(ac);
+      src.connect(lp); lp.connect(ng);
+      src.start(at); src.stop(at + 0.8);
+    } catch (err) { /* silence is an acceptable failure */ }
+  },
+  /** Hard stop, used when the room sound is switched off. */
+  mute() {
+    this.droneOff();
+    if (this.master && audioCtx) {
+      try { this.master.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05); }
+      catch (err) { this.master.gain.value = 0; }
+    }
+    this.ducked = null;
+  },
+  unmute() {
+    if (this.master && audioCtx) {
+      try { this.master.gain.setTargetAtTime(0.5, audioCtx.currentTime, 0.08); }
+      catch (err) { this.master.gain.value = 0.5; }
+      this.ducked = 0.5;
+    }
+  },
+};
+/* one gesture is all a browser needs before it will let the room make sound */
+let ignited = false;
+function unlockAudio() {
+  if (!settings.sfx) return;
+  const ac = sfx.ctx();
+  if (!ac || ignited) return;
+  ignited = true;
+  /* the room powers up the first time you touch it */
+  setTimeout(() => sfx.boot(), 40);
+  if (!reduced) { orb.flash = Math.max(orb.flash, 0.45); pulse(0.4); }
+}
+addEventListener("pointerdown", unlockAudio, { once: true });
+addEventListener("keydown", unlockAudio, { once: true });
+
+/* Any touch at all keeps the room awake, and wakes it with a flicker of
+   light if it had dozed off. */
+let lastAct = 0;
+function awake() {
+  const idle = orb.time - lastAct;
+  lastAct = orb.time;
+  if (!reduced && idle > 75 && orb.sleep > 0.2) orb.flash = Math.max(orb.flash, 0.4);
+}
+addEventListener("pointerdown", awake);
+addEventListener("pointermove", awake);
+addEventListener("keydown", awake);
+
+/** A tap on the lattice: a ring widening out of it, dot by dot. */
+function touch(x, y) {
+  if (reduced) return;
+  ripples.push({ x, y, r: 0, life: 1 });
+  if (ripples.length > 4) ripples.shift();
+}
 /* =======================================================================
    Readout, transcript, toasts.
    ===================================================================== */
@@ -1280,6 +1991,7 @@ function handle(data) {
     remember("ai", replyText);
     orb.inhale = -1.4;   // exhale: the answer lands and the sphere swells
     pulse(0.9);
+    sfx.chime();
     setBusy(false);
     turns += 1;
     /* say whatever the sentence harvester had not finished yet */
@@ -1294,11 +2006,15 @@ function handle(data) {
       const tool = String(data.data.tool || "");
       status("working · " + (tool.split(".").slice(1).join(".") || tool));
       pulse(0.55);
+      sfx.blip();
     } else if (data.name === "tool.result") {
       const summary = summarise(data.data.tool, data.data.data);
       if (summary) line("tool", summary);
+      sfx.tick();
     } else if (data.name === "error.raised") {
       line("tool", "error · " + String(data.data.error || "").slice(0, 90));
+      orb.glitch = Math.max(orb.glitch, 0.18);
+      sfx.blip();
     }
   } else if (data.type === "status") {
     status(data.text);
@@ -1315,6 +2031,9 @@ function handle(data) {
     spawnShock("bad");
     orb.bolt = 1;
     orb.boltSeed = (Math.random() * 10000) | 0;
+    orb.glitch = 0.34;                 // the feed mis-tracks for a few frames
+    cam.punch = 1;                     // and the camera recoils
+    sfx.zap();
     setBusy(false);
   }
 }
@@ -1358,6 +2077,7 @@ function send(text) {
   socket.send(JSON.stringify({ text }));
   setBusy(true);
   pulse(0.65);
+  sfx.whoosh();
   $("input").value = "";
 }
 
@@ -1376,6 +2096,7 @@ function stopSpeech() {
   if (currentAudio) { try { currentAudio.pause(); } catch (err) { /* gone */ } currentAudio = null; }
   clearInterval(ttsMeter);
   orb.tts = 0;
+  logEl.style.setProperty("--glow", "0");
 }
 
 function speakNext() {
@@ -1419,10 +2140,10 @@ function audioReady() {
   try {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     ttsAnalyser = audioCtx.createAnalyser();
-    ttsAnalyser.fftSize = 256;
+    ttsAnalyser.fftSize = 1024;
     ttsAnalyser.smoothingTimeConstant = 0.7;
     ttsAnalyser.connect(audioCtx.destination);
-    ttsWave = new Uint8Array(ttsAnalyser.fftSize);
+    ttsWave = orb.wave;                  // the renderer draws this same buffer
   } catch (err) { audioCtx = null; }
   return audioCtx;
 }
@@ -1434,6 +2155,7 @@ function speakAloud(text, next) {
   const done = () => {
     clearInterval(ttsMeter);
     orb.tts = 0;
+    logEl.style.setProperty("--glow", "0");
     if (currentAudio === audio) currentAudio = null;
     if (next) next();
     else if (!busy) status("");
@@ -1454,6 +2176,7 @@ function speakAloud(text, next) {
         let peak = 0;
         for (const value of ttsWave) peak = Math.max(peak, Math.abs(value - 128));
         orb.tts = Math.min(1, (peak / 128) * 2.6);
+        if (!reduced) logEl.style.setProperty("--glow", orb.tts.toFixed(2));
       }, 45);
       audio.addEventListener("ended", done);
       audio.addEventListener("error", done);
@@ -1502,6 +2225,7 @@ async function startRecording() {
   $("mic").classList.add("recording");
   status("listening", true);
   spawnShock("in");                       // sound arriving: the ring collapses
+  sfx.hear();
   sttNode = line("me", "…");
   liveFinal = "";
   startLiveStt();
@@ -1545,10 +2269,10 @@ function listenTo(stream) {
   try {
     micCtx = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = micCtx.createAnalyser();
-    analyser.fftSize = 256;
+    analyser.fftSize = 1024;
     analyser.smoothingTimeConstant = 0.72;
     micCtx.createMediaStreamSource(stream).connect(analyser);
-    const wave = new Uint8Array(analyser.fftSize);
+    const wave = orb.wave;               // the same buffer the ring is drawn from
     const spectrum = new Uint8Array(analyser.frequencyBinCount);
     micMeter = setInterval(() => {
       analyser.getByteTimeDomainData(wave);
@@ -1557,6 +2281,7 @@ function listenTo(stream) {
       let peak = 0;
       for (const value of wave) peak = Math.max(peak, Math.abs(value - 128));
       orb.mic = Math.min(1, (peak / 128) * 3.2);
+      if (!reduced) $("mic").style.setProperty("--lvl", orb.mic.toFixed(3));
     }, 45);
   } catch (err) { /* the meter is a luxury, not a requirement */ }
 }
@@ -1567,6 +2292,7 @@ async function finishRecording(stream) {
   ringCircle.style.strokeDashoffset = RING;
   if (micCtx) { micCtx.close().catch(() => {}); micCtx = null; }
   orb.mic = 0;
+  $("mic").style.setProperty("--lvl", "0");
   $("mic").classList.remove("recording");
   if (logEl.lastChild && logEl.lastChild.textContent === "…") logEl.removeChild(logEl.lastChild);
   if (!chunks.length) { status(""); return; }
@@ -1636,6 +2362,7 @@ const QUICK = [
   { label: "How much disk space is left?", hint: "storage", kind: "quick" },
   { label: "What have you done that needed permission?", hint: "audit", kind: "quick" },
   { label: "Read replies aloud", hint: "toggle speech", kind: "speech" },
+  { label: "Room sound", hint: "whooshes · the thinking hum · chimes", kind: "sfx" },
   { label: "Remember this", hint: "store a durable memory", kind: "remember" },
   { label: "Show my memories", hint: "what he keeps, and forget", kind: "memory" },
   { label: "High contrast", hint: "easier on the eyes", kind: "contrast" },
@@ -1789,6 +2516,7 @@ function runOption(index) {
   closeSheets();
   if (!option) return;
   if (option.kind === "speech") { toggleSpeech(); return; }
+  if (option.kind === "sfx") { toggleSfx(); return; }
   if (option.kind === "panel") { togglePanel(true); return; }
   if (option.kind === "memory") { togglePanel(true, "memory"); return; }
   if (option.kind === "contrast") { toggleContrast(); return; }
@@ -1887,8 +2615,10 @@ async function loadStatus() {
          " long · " + (memory.backend || "?")) +
       kv("clients", data.clients ?? 1) +
       kv("turns", turns) +
-      kv("render", (fps | 0) + " fps · " + dots.length + " dots") +
-      kv("speech", settings.speech ? "on" : "off");
+      kv("render", (fps | 0) + " fps · " + dots.length + " dots · " +
+         (!reduced && bloom && orb.quality >= 1 ? "bloom" : "flat")) +
+      kv("speech", settings.speech ? "on" : "off") +
+      kv("room sound", settings.sfx ? "on" : "off");
     mods.innerHTML = "";
     const modules = data.modules || {};
     for (const [name, count] of Object.entries(modules)) {
@@ -2012,7 +2742,29 @@ function toggleSpeech() {
       Notification.requestPermission().catch(() => {});
     }
   } else {
+    stopSpeech();
     toast("Silent again.");
+  }
+}
+function paintSfx() {
+  const button = $("setSfx");
+  if (!button) return;
+  button.textContent = settings.sfx ? "on" : "off";
+  button.classList.toggle("on", settings.sfx);
+}
+/** The room's own sound — the whooshes, the thinking hum, the chimes. */
+function toggleSfx() {
+  settings.sfx = !settings.sfx;
+  localStorage.setItem("jarvis.sfx", settings.sfx ? "1" : "0");
+  paintSfx();
+  if (settings.sfx) {
+    ignited = true;                     // it is already awake: no boot swell
+    sfx.ctx();
+    sfx.unmute();
+    toast("The room has sound again.");
+  } else {
+    sfx.mute();
+    toast("Silent room.");
   }
 }
 
@@ -2027,7 +2779,9 @@ function showTyped(show) {
 
 /* drag the sphere to spin it; a click without a move just pulses it */
 canvas.addEventListener("pointerdown", (event) => {
-  drag.on = true; drag.x = event.clientX; drag.moved = 0;
+  drag.on = true; drag.x = event.clientX; drag.moved = 0; drag.rip = 0;
+  cam.fx = event.clientX; cam.fy = event.clientY;
+  cam.fieldT = 1; cam.lastMove = orb.time;
   document.body.classList.add("dragging");
   try { canvas.setPointerCapture(event.pointerId); } catch (err) { /* older browsers */ }
 });
@@ -2038,13 +2792,21 @@ canvas.addEventListener("pointermove", (event) => {
   drag.moved += Math.abs(dx);
   orb.spin += dx * 0.004;
   orb.vel = dx * 0.0022;
+  /* dragging a hand through the lattice throws rings behind it */
+  cam.fx = event.clientX; cam.fy = event.clientY;
+  cam.fieldT = 1; cam.lastMove = orb.time;
+  if (drag.moved - drag.rip > 90) { drag.rip = drag.moved; touch(event.clientX, event.clientY); }
 });
 for (const name of ["pointerup", "pointercancel"]) {
-  canvas.addEventListener(name, () => {
+  canvas.addEventListener(name, (event) => {
     if (!drag.on) return;
     drag.on = false;
     document.body.classList.remove("dragging");
-    if (drag.moved < 4) pulse(0.5);
+    if (drag.moved < 4) {
+      pulse(0.5);
+      touch(event.clientX || cam.fx, event.clientY || cam.fy);
+      sfx.tap();
+    }
   });
 }
 
@@ -2080,9 +2842,11 @@ for (const name of ["pointerup", "pointercancel"]) {
 }
 $("paletteInput").addEventListener("input", (event) => drawPalette(event.target.value));
 $("paletteInput").addEventListener("keydown", (event) => {
-  if (event.key === "ArrowDown") { cursor = Math.min(options.length - 1, cursor + 1); paintPalette(); event.preventDefault(); }
-  else if (event.key === "ArrowUp") { cursor = Math.max(0, cursor - 1); paintPalette(); event.preventDefault(); }
-  else if (event.key === "Enter") { event.preventDefault(); runOption(cursor); }
+  if (event.key === "ArrowDown") {
+    cursor = Math.min(options.length - 1, cursor + 1); paintPalette(); sfx.tick(); event.preventDefault();
+  } else if (event.key === "ArrowUp") {
+    cursor = Math.max(0, cursor - 1); paintPalette(); sfx.tick(); event.preventDefault();
+  } else if (event.key === "Enter") { event.preventDefault(); sfx.tick(); runOption(cursor); }
 });
 $("palette").addEventListener("click", (event) => { if (event.target === $("palette")) closeSheets(); });
 $("panel").addEventListener("click", (event) => { if (event.target === $("panel")) closeSheets(); });
@@ -2091,6 +2855,7 @@ $("keys").addEventListener("click", (event) => { if (event.target === $("keys"))
 $("toolSearch").addEventListener("input", drawTools);
 $("auditRefresh").addEventListener("click", loadAudit);
 $("setSpeech").addEventListener("click", toggleSpeech);
+$("setSfx").addEventListener("click", toggleSfx);
 $("setContrast").addEventListener("click", toggleContrast);
 $("setClear").addEventListener("click", () => {
   transcript = []; logEl.innerHTML = ""; endStream();
@@ -2141,6 +2906,8 @@ addEventListener("keydown", (event) => {
     event.preventDefault(); toggleHistory();
   } else if (event.key === "s" || event.key === "S") {
     event.preventDefault(); toggleSpeech();
+  } else if (event.key === "m" || event.key === "M") {
+    event.preventDefault(); toggleSfx();
   } else if (event.key === "?") {
     event.preventDefault(); noteFocus(); closeSheets(); $("keys").classList.add("show");
   } else if (event.key === "/" && (event.ctrlKey || event.metaKey)) {
@@ -2165,8 +2932,11 @@ buildSphere(Math.max(30, Math.min(52, Math.round(Math.min(width, height) / 16)))
 requestAnimationFrame(draw);
 connect();
 paintSpeech();
+paintSfx();
 paintContrast();
 status("offline");
+/* nothing is written into the room until the power-on frame has lifted */
+const BOOT_AT = reduced ? 200 : 1300;
 /** The greeting types itself out, like everything else JARVIS says. */
 let greetTimer = null;
 function typeOut(text) {
@@ -2202,9 +2972,9 @@ fetch("/api/status" + auth)
         node.style.opacity = "0";
         setTimeout(() => node.remove(), 700);
       }, 3400);
-    }, 400 + i * 430));
+    }, BOOT_AT + i * 430));
     if (data.greeting) {
-      setTimeout(() => typeOut(data.greeting), 400 + boot.length * 430 + 260);
+      setTimeout(() => typeOut(data.greeting), BOOT_AT + boot.length * 430 + 260);
     }
   })
   .catch(() => {});
@@ -2212,6 +2982,16 @@ setTimeout(() => document.body.classList.add("ready"), 60);
 /* the wordmark dissolves into the room and leaves no node behind */
 const mark = $("wordmark");
 if (mark) mark.addEventListener("animationend", () => mark.remove());
+/* the power-on frame: one line of light down a black screen, then the room */
+const bootEl = $("boot");
+if (bootEl) {
+  bootEl.addEventListener("animationend", (event) => {
+    if (event.target === bootEl) bootEl.remove();
+  });
+  setTimeout(() => bootEl.remove(), 2600);
+}
+/* the room arriving: one frame of light and a ring as the black lifts */
+if (!reduced) setTimeout(() => { orb.flash = 0.6; pulse(0.62); }, 900);
 /* warm the tool catalogue while nobody is looking, so the first K is instant */
 setTimeout(() => {
   if (toolCache) return;
