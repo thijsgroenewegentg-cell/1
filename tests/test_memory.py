@@ -128,3 +128,17 @@ def test_clearing_short_term_memory_leaves_the_long_term_alone(memory):
     run(memory.add_exchange("hello", "good evening", "conversation"))
     memory.short_term.clear()
     assert memory.short_term.messages() == []
+
+
+def test_an_unwritable_data_directory_does_not_take_the_assistant_down(config, tmp_path):
+    # ChromaDB failing used to fall back to the JSON store, which then raised
+    # on the same unwritable path and killed start-up entirely.
+    blocked = tmp_path / "blocked"
+    blocked.write_text("this is a file, so nothing can be created inside it")
+    config.set("memory.path", str(blocked / "vectors"))
+    memory = Memory(config)
+    backend = run(memory.initialize())
+    assert backend in {"disabled", "json", "chromadb"}
+    run(memory.add_exchange("hello", "good evening", "conversation"))
+    assert memory.short_term.messages()
+    assert isinstance(run(memory.recall("anything")), list)

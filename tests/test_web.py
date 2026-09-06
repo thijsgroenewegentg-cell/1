@@ -68,3 +68,33 @@ def test_binding_to_all_interfaces_is_the_default(config):
     brain = Brain(config)
     interface = WebInterface(brain, config)
     assert interface.host in {"0.0.0.0", "127.0.0.1", "localhost"}
+
+
+def test_an_enormous_message_is_refused(web):
+    from fastapi.testclient import TestClient
+
+    from interfaces.web import MAX_MESSAGE_CHARS
+
+    client = TestClient(web.app)
+    response = client.post("/api/ask", json={"text": "x" * (MAX_MESSAGE_CHARS + 1)},
+                           params={"token": web.token})
+    assert response.status_code == 413
+
+
+def test_a_normal_message_is_accepted(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    response = client.post("/api/ask", json={"text": "what time is it"},
+                           params={"token": web.token})
+    assert response.status_code == 200
+    assert response.json()["reply"]
+
+
+def test_every_endpoint_demands_the_token(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    assert client.get("/").status_code == 401
+    assert client.get("/api/status").status_code == 401
+    assert client.post("/api/ask", json={"text": "hi"}).status_code == 401

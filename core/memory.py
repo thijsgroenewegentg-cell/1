@@ -601,8 +601,17 @@ class Memory:
                 return chroma, "chromadb"
             except Exception as exc:
                 logger.info("Falling back to JSON vector memory (%s).", truncate(str(exc), 140))
+            try:
                 store = JsonVectorStore(self.vector_path / "memory.json", self.embedder)
                 return store, "json"
+            except Exception as exc:
+                # The fallback needs a fallback: an unwritable data directory
+                # used to take the whole assistant down at start-up.
+                logger.warning(
+                    "Long-term memory is unavailable (%s) — I'll remember this "
+                    "conversation but nothing beyond it.", truncate(str(exc), 140),
+                )
+                return None, "disabled"
 
         self.store, self.backend = await run_blocking(_open)
         await self.load_recent_window()

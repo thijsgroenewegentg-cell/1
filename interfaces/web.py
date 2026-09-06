@@ -417,6 +417,11 @@ if ("serviceWorker" in navigator) {
 """
 
 
+#: Longest message accepted from a browser. Generous for dictation, small
+#: enough that nobody can push a megabyte into the model and the database.
+MAX_MESSAGE_CHARS = 8000
+
+
 class WebInterface:
     """FastAPI + WebSocket front-end that runs alongside the CLI."""
 
@@ -605,6 +610,13 @@ class WebInterface:
             text = str(payload.get("text", "")).strip()
             if not text:
                 raise HTTPException(status_code=400, detail="missing 'text'")
+            if len(text) > MAX_MESSAGE_CHARS:
+                # Otherwise a phone can push a megabyte through the model and
+                # into the conversation database in one request.
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"that message is too long (limit {MAX_MESSAGE_CHARS} characters)",
+                )
             client = request.client.host if request.client else "unknown"
             if self._rate_limited(client):
                 raise HTTPException(status_code=429, detail="slow down a moment, sir")
@@ -753,6 +765,13 @@ class WebInterface:
                         continue
 
                     text = str(message.get("text", "")).strip()
+                    if len(text) > MAX_MESSAGE_CHARS:
+                        await websocket.send_text(json.dumps(
+                            {"type": "error",
+                             "text": f"That message is rather long, sir — keep it under "
+                                     f"{MAX_MESSAGE_CHARS} characters."}
+                        ))
+                        continue
                     if text and self._rate_limited(peer):
                         await websocket.send_text(json.dumps(
                             {"type": "error",

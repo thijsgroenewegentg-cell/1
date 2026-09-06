@@ -471,8 +471,13 @@ class Config:
             except Exception:
                 data = {}
         config = cls(data, path=config_path)
-        if not config_path.exists():
-            config.save()
+        if not config_path.exists() and not config.save():
+            # A mistyped --config path (or a read-only disk) must produce a
+            # sentence, not a traceback from three frames deeper.
+            logger.warning(
+                "Could not write %s — running with defaults held in memory only.",
+                config_path,
+            )
         config.ensure_directories()
         return config
 
@@ -546,6 +551,23 @@ class Config:
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         """Return a short, log-friendly description of the configuration."""
         return f"<Config path={self.path} model={self.get('llm.model')!r}>"
+
+    def unwritable_paths(self) -> List[Path]:
+        """Configured directories that could not be created.
+
+        Returns:
+            The paths that are missing after :meth:`ensure_directories` has
+            tried; empty when everything is in order.
+        """
+        broken: List[Path] = []
+        for entry in list(self.section("paths").values()):
+            try:
+                directory = self.resolve(entry)
+            except Exception:
+                continue
+            if not directory.is_dir():
+                broken.append(directory)
+        return broken
 
     # -- paths --------------------------------------------------------------
     def resolve(self, relative: str | Path) -> Path:
