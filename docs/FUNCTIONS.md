@@ -12,7 +12,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`main.py`](#mainpy) — 18
 - [`install.py`](#installpy) — 47
 - [`core/brain.py`](#corebrainpy) — 55
-- [`core/config.py`](#coreconfigpy) — 25
+- [`core/config.py`](#coreconfigpy) — 26
 - [`core/event_bus.py`](#coreevent_buspy) — 13
 - [`core/intent_router.py`](#coreintent_routerpy) — 5
 - [`core/memory.py`](#corememorypy) — 66
@@ -21,7 +21,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 73
 - [`interfaces/web.py`](#interfaceswebpy) — 26
-- [`modules/base.py`](#modulesbasepy) — 31
+- [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
 - [`modules/communications.py`](#modulescommunicationspy) — 24
 - [`modules/file_manager.py`](#modulesfile_managerpy) — 32
@@ -29,7 +29,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/models.py`](#modulesmodelspy) — 17
 - [`modules/productivity.py`](#modulesproductivitypy) — 72
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
-- [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 22
+- [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 24
 - [`modules/system_control.py`](#modulessystem_controlpy) — 23
 - [`modules/vision.py`](#modulesvisionpy) — 15
 - [`modules/web_search.py`](#modulesweb_searchpy) — 19
@@ -38,33 +38,33 @@ and marked with `·`; methods the intent router can call are marked
 - [`utils/cache.py`](#utilscachepy) — 12
 - [`utils/doctor.py`](#utilsdoctorpy) — 23
 - [`utils/documents.py`](#utilsdocumentspy) — 8
-- [`utils/helpers.py`](#utilshelperspy) — 33
+- [`utils/helpers.py`](#utilshelperspy) — 36
 - [`utils/language.py`](#utilslanguagepy) — 8
 - [`utils/logger.py`](#utilsloggerpy) — 3
 - [`utils/scheduler.py`](#utilsschedulerpy) — 26
 - [`utils/security.py`](#utilssecuritypy) — 14
 - [`tests/mock_ollama.py`](#testsmock_ollamapy) — 10
-- [`tests/test_brain.py`](#teststest_brainpy) — 25
+- [`tests/test_brain.py`](#teststest_brainpy) — 30
 - [`tests/test_cli.py`](#teststest_clipy) — 14
-- [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 13
+- [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 15
 - [`tests/test_communications.py`](#teststest_communicationspy) — 8
-- [`tests/test_config.py`](#teststest_configpy) — 15
-- [`tests/test_event_bus.py`](#teststest_event_buspy) — 22
-- [`tests/test_file_manager.py`](#teststest_file_managerpy) — 16
-- [`tests/test_knowledge.py`](#teststest_knowledgepy) — 11
-- [`tests/test_memory.py`](#teststest_memorypy) — 18
+- [`tests/test_config.py`](#teststest_configpy) — 18
+- [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
+- [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
+- [`tests/test_knowledge.py`](#teststest_knowledgepy) — 13
+- [`tests/test_memory.py`](#teststest_memorypy) — 19
 - [`tests/test_models.py`](#teststest_modelspy) — 7
 - [`tests/test_plugins.py`](#teststest_pluginspy) — 18
-- [`tests/test_productivity.py`](#teststest_productivitypy) — 21
-- [`tests/test_self_improve.py`](#teststest_self_improvepy) — 14
-- [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 10
+- [`tests/test_productivity.py`](#teststest_productivitypy) — 23
+- [`tests/test_self_improve.py`](#teststest_self_improvepy) — 17
+- [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 16
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
 - [`tests/test_system_control.py`](#teststest_system_controlpy) — 12
 - [`tests/test_units.py`](#teststest_unitspy) — 96
-- [`tests/test_utils.py`](#teststest_utilspy) — 29
+- [`tests/test_utils.py`](#teststest_utilspy) — 32
 - [`tests/test_vision.py`](#teststest_visionpy) — 8
 - [`tests/test_voice.py`](#teststest_voicepy) — 20
-- [`tests/test_web.py`](#teststest_webpy) — 9
+- [`tests/test_web.py`](#teststest_webpy) — 12
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 10
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 
@@ -225,7 +225,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/config.py`
 
-*25 functions*
+*26 functions*
 
 > YAML configuration with sane defaults, dot-path access and hot reload.
 
@@ -233,7 +233,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def _dig(data: Any, parts: List[str]) -> Any` — Read a nested key, returning :data:`_ABSENT` when it is not there.
 - `def _plant(data: Dict[str, Any], parts: List[str], value: Any) -> None` — Write a nested key, creating the intermediate dictionaries.
 - `def _drop(data: Dict[str, Any], parts: List[str]) -> None` — Delete a nested key if it is there, pruning nothing else.
-- `def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]` — Recursively merge ``override`` into a copy of ``base``.
+- `def _deep_merge(base: Dict[str, Any], override: Dict[str, Any], path: str = '') -> Dict[str, Any]` — Recursively merge ``override`` into a copy of ``base``.
 - `def _coerce(value: str) -> Any` — Convert an environment string into bool/int/float when possible.
 - `def _underscore_variants(name: str) -> List[str]` — Every way an underscored env-var name could map onto dotted keys.
 - `def load_config(path: str | Path = 'config.yaml') -> Config` — Convenience wrapper around :meth:`Config.load`.
@@ -251,6 +251,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def __getitem__(self, key: str) -> Any` — Return a dotted key, so ``config["llm.model"]`` works.
 - `def __contains__(self, key: str) -> bool` — Report whether a dotted key is present.
 - `def __repr__(self) -> str` — Return a short, log-friendly description of the configuration.
+- `def unwritable_paths(self) -> List[Path]` — Configured directories that could not be created.
 - `def resolve(self, relative: str | Path) -> Path` — Resolve a possibly-relative path against the project root.
 - `def path_for(self, key: str) -> Path` — Resolve one of the ``paths.*`` entries to an absolute path.
 - `def ensure_directories(self) -> List[Path]` — Create every configured directory. Returns the created paths.
@@ -371,7 +372,7 @@ and marked with `·`; methods the intent router can call are marked
 ### `class Memory` — Short-term + long-term memory with SQLite persistence.
 
 - `def __init__(self, config: Any) -> None` — Prepare short- and long-term memory.
-- `def _connect(self) -> sqlite3.Connection` — Open a SQLite connection with sensible defaults.
+- `def _connect(self) -> Iterator[sqlite3.Connection]` — Open a SQLite connection and guarantee it is closed again.
 - `def _init_sqlite(self) -> None` — Create the conversation/fact tables if they do not exist.
 - `async def initialize(self) -> str` — Open the vector store and restore the last conversation window.
   · `def _open() -> tuple[Any, str]`
@@ -602,12 +603,12 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/base.py`
 
-*31 functions*
+*32 functions*
 
 > Shared plumbing for every JARVIS capability module.
 
 - `def strip_command_prefix(command: str) -> str` — Remove polite filler from the front of a spoken command.
-- `def _coerce_value(kind: str, value: Any) -> Any` — Coerce one supplied value to the type the tool declared.
+- `def _coerce_value(kind: str, value: Any, name: str = '') -> Any` — Coerce one supplied value to the type the tool declared.
 - `def _closest_param(supplied: str, candidates: List[str]) -> Optional[str]` — Map an invented parameter name onto a real, still-empty one.
 - `def tool(name: Optional[str] = None, description: str = '', params: Optional[Dict[str, Dict[str, Any]]] = None, dangerous: bool = False, untrusted: bool = False, keywords: Optional[List[str]] = None, examples: Optional[List[str]] = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]` — Decorator marking a method as an LLM-callable tool.
   · `def decorator(func: Callable[..., Any]) -> Callable[..., Any]`
@@ -617,6 +618,10 @@ and marked with `·`; methods the intent router can call are marked
 - `def signature(self) -> str` — Human/LLM readable one-line signature.
 - `def describe(self) -> str` — Multi-line description used inside LLM prompts.
 - `def to_schema(self) -> Dict[str, Any]` — JSON-schema-ish dict (handy for OpenAI-style function calling).
+
+### `class ToolParamError` — A supplied parameter cannot be used as the tool declared it.
+
+*(no methods)*
 
 ### `class ModuleResult` — Uniform return value for every tool and module.
 
@@ -636,6 +641,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def schemas(self) -> List[Dict[str, Any]]` — OpenAI-style function schemas for every tool.
 - `async def setup(self) -> None` — Optional async initialisation hook (override as needed).
 - `async def shutdown(self) -> None` — Optional async teardown hook (override as needed).
+- `async def guard_path(self, path: Any, write: bool = True, what: str = 'touch') -> Optional[ModuleResult]` — Check a filesystem path against the security guard.
 - `async def call_tool(self, name: str, params: Optional[Dict[str, Any]] = None) -> ModuleResult` — Invoke a tool by name with keyword parameters.
 - `def _mark_untrusted(self, result: ModuleResult, source: str) -> ModuleResult` — Flag a result as third-party content and scan it for injection.
 - `def _closest_tool(self, name: str) -> Optional[str]` — Fuzzy-match a hallucinated tool name onto a real one.
@@ -717,7 +723,7 @@ and marked with `·`; methods the intent router can call are marked
 ### `class FileManager` — Find, organise, read and summarise files on disk.
 
 - `def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None` — Cache config values and prepare the undo journal.
-- `def _journal(self) -> sqlite3.Connection` — Open the SQLite connection holding the move journal.
+- `def _journal(self) -> Iterator[sqlite3.Connection]` — Open a SQLite connection and guarantee it is closed again.
 - `def _record_moves(self, kind: str, description: str, moves: List[Tuple[str, str]]) -> int` — Store a completed batch of moves so it can be reversed.
 - `def _iter_files(root: Path, recursive: bool = True, limit: int = 40000) -> Iterable[Path]` *staticmethod* — Walk ``root`` yielding files, skipping noisy directories.
 - `def _describe(path: Path) -> str` *staticmethod* — One-line description of a file.
@@ -758,7 +764,7 @@ and marked with `·`; methods the intent router can call are marked
 ### `class Knowledge` — A private, local knowledge base built from your own files.
 
 - `def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None` — Prepare the vector store and the index bookkeeping table.
-- `def _connect(self) -> sqlite3.Connection` — Open the shared SQLite database.
+- `def _connect(self) -> Iterator[sqlite3.Connection]` — Open a SQLite connection and guarantee it is closed again.
 - `def _init_db(self) -> None` — Create the table tracking which files have been indexed.
 - `async def setup(self) -> None` — Open the vector store, optionally kicking off a background index.
   · `def _open() -> Tuple[Any, str]`
@@ -766,7 +772,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]` — Rule-based routing used when no LLM is available.
 - `def _iter_documents(self, root: Path) -> List[Path]` — Collect indexable files under ``root``.
 - `def _needs_index(self, path: Path, force: bool) -> bool` — Check whether a file is new or modified since the last index.
-- `def _index_one(self, path: Path) -> int` — Extract, chunk and embed a single document. Returns chunk count.
+- `def _index_one(self, path: Path) -> int` — Extract, chunk and embed a single document.
 - `async def index_documents(self, path: str = '', force: bool = False) -> ModuleResult` **@tool** — Walk a folder, extract text and embed it for later retrieval.
   · `def _run() -> Dict[str, Any]`
 - `async def _retrieve(self, query: str, k: Optional[int] = None) -> List[MemoryHit]` — Vector-search the knowledge base.
@@ -822,7 +828,7 @@ and marked with `·`; methods the intent router can call are marked
 ### `class Productivity` — Personal organisation: tasks, reminders, timers, notes, briefings.
 
 - `def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None` — Open the SQLite database and prepare in-memory timers.
-- `def _connect(self) -> sqlite3.Connection` — Open a configured SQLite connection.
+- `def _connect(self) -> Iterator[sqlite3.Connection]` — Open a SQLite connection and guarantee it is closed again.
 - `def _init_db(self) -> None` — Create tables if they do not exist.
 - `def set_notifier(self, notifier: Optional[Callable[[str], Any]]) -> None` — Register the callback used to announce reminders and timers.
 - `async def setup(self) -> None` — Start the background scheduler and report anything missed.
@@ -900,7 +906,7 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None` — Read the ``self_improve`` configuration and prepare bookkeeping.
 - `async def setup(self) -> None` — Make sure the plugin, repo and backup directories exist.
-- `def _connect(self) -> sqlite3.Connection` — Open the shared SQLite database.
+- `def _connect(self) -> Iterator[sqlite3.Connection]` — Open a SQLite connection and guarantee it is closed again.
 - `def _init_db(self) -> None` — Create the change-log table.
 - `def _record(self, kind: str, target: str, description: str, backup: str = '', tests: str = '', committed: str = '') -> int` — Write a row into the change log and return its id.
 - `def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]` — Rule-based routing used when no LLM is available.
@@ -953,12 +959,14 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/smart_assistant.py`
 
-*22 functions*
+*24 functions*
 
 > General intelligence.
 
+- `def _guard_size(value: Any) -> Any` — Reject an intermediate result that is too large to be reasonable.
 - `def safe_eval(expression: str) -> float` — Evaluate an arithmetic expression without executing arbitrary code.
   · `def _eval(node: ast.AST) -> Any`
+- `def parse_number(text: str) -> float` — Read a human-written number, thousands separators and all.
 - `def _expand_units(tables: Dict[str, Dict[str, float]]) -> Dict[str, Dict[str, float]]` — Add plural forms and British/American spellings to every unit table.
 
 ### `class SmartAssistant` — Reasoning, maths, conversions, translation and writing.
@@ -1116,7 +1124,7 @@ and marked with `·`; methods the intent router can call are marked
 ### `class Cache` — A persistent key/value cache with per-entry expiry.
 
 - `def __init__(self, path: str | Path, default_ttl: int = 900) -> None` — Open (or create) the cache database.
-- `def _connect(self) -> sqlite3.Connection` — Open a SQLite connection.
+- `def _connect(self) -> Iterator[sqlite3.Connection]` — Open a SQLite connection and guarantee it is closed again.
 - `def _init(self) -> None` — Create the cache table.
 - `def make_key(*parts: Any) -> str` *staticmethod* — Build a stable cache key from arbitrary parts.
 - `def get(self, key: str) -> Optional[Any]` — Return a cached value, or ``None`` when missing or expired.
@@ -1180,7 +1188,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `utils/helpers.py`
 
-*33 functions*
+*36 functions*
 
 > Small, dependency-light helpers shared across the whole JARVIS codebase.
 
@@ -1191,7 +1199,9 @@ and marked with `·`; methods the intent router can call are marked
 - `def ssl_verify() -> Any` — Return the TLS verification setting for HTTP clients.
 - `async def run_blocking(func: Callable[..., T], *args: Any, **kwargs: Any) -> T` — Run a blocking callable in the default thread pool.
 - `async def with_timeout(awaitable: Awaitable[T], seconds: float, default: Optional[T] = None) -> Optional[T]` — Await ``awaitable`` but return ``default`` if it exceeds ``seconds``.
-- `async def run_command(command: Sequence[str] | str, timeout: float = 30.0, cwd: Optional[str] = None, shell: bool = False, env: Optional[Dict[str, str]] = None) -> Tuple[int, str, str]` — Run a subprocess asynchronously with a hard timeout.
+- `def _resource_limiter(memory_mb: int) -> Optional[Callable[[], None]]` — Build a ``preexec_fn`` that caps a child process's memory.
+  · `def _apply() -> None` — Runs in the child between fork and exec.
+- `async def run_command(command: Sequence[str] | str, timeout: float = 30.0, cwd: Optional[str] = None, shell: bool = False, env: Optional[Dict[str, str]] = None, memory_mb: int = 0) -> Tuple[int, str, str]` — Run a subprocess asynchronously with a hard timeout.
 - `def run_command_sync(command: Sequence[str] | str, timeout: float = 30.0, shell: bool = False) -> Tuple[int, str, str]` — Blocking variant of :func:`run_command` for setup/CLI paths.
 - `def truncate(text: str, limit: int = 500, suffix: str = '…') -> str` — Trim ``text`` to ``limit`` characters, appending ``suffix`` when cut.
 - `def clean_text(text: str) -> str` — Collapse whitespace and normalise unicode for LLM/TTS friendliness.
@@ -1214,6 +1224,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def expand_path(path: str | Path) -> Path` — Expand ``~``, environment variables and resolve to an absolute path.
 - `def resolve_user_path(text: str) -> Path` — Resolve friendly folder names (``desktop``, ``downloads``, ``~/x``).
 - `def safe_filename(name: str, extension: str = '') -> str` — Build a filesystem-safe filename, optionally forcing an extension.
+- `def looks_binary(path: Path, sample: int = 4096) -> bool` — Guess whether a file is binary rather than text.
 - `def read_text_file(path: str | Path, limit: int = 200000) -> str` — Read a text file defensively, tolerating odd encodings.
 - `def bullet_list(items: Sequence[str], bullet: str = '•', limit: int = 20) -> str` — Render a bullet list, capped at ``limit`` entries.
 - `def python_executable() -> str` — Return the interpreter to use for sandboxed code execution.
@@ -1348,7 +1359,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_brain.py`
 
-*25 functions*
+*30 functions*
 
 > Unit tests for core/brain.py and the pieces it delegates to.
 
@@ -1377,6 +1388,11 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_exchange_is_remembered(brain)`
 - `def test_the_planner_has_a_step_budget()`
 - `def test_an_intent_is_a_plain_data_object()`
+- `def test_a_number_shaped_parameter_rejects_prose(brain)`
+- `def test_an_interrupted_answer_says_stopped_not_offline(brain)` — Stopping mid-answer used to report that Ollama was unreachable.
+- `def test_a_genuinely_offline_model_still_explains_itself(brain)`
+- `def test_a_stale_stop_does_not_kill_the_next_turn(brain)`
+- `def test_a_blank_optional_number_falls_back_to_its_default(brain)`
 
 ## `tests/test_cli.py`
 
@@ -1401,7 +1417,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_code_assistant.py`
 
-*13 functions*
+*15 functions*
 
 > Unit tests for modules/code_assistant.py.
 
@@ -1418,6 +1434,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_reading_a_file_that_is_not_there_fails_politely(coder)`
 - `def test_environment_info_lists_the_interpreter(coder)`
 - `def test_writing_code_without_a_model_says_so(coder)`
+- `def test_a_memory_hog_is_stopped(coder)`
+- `def test_modest_allocations_still_work(coder)`
 
 ## `tests/test_communications.py`
 
@@ -1436,7 +1454,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_config.py`
 
-*15 functions*
+*18 functions*
 
 > Unit tests for core/config.py.
 
@@ -1455,10 +1473,13 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_quiet_hours_can_be_written_as_a_block(tmp_path)`
 - `def test_disabled_quiet_hours_become_an_empty_window(tmp_path)`
 - `def test_every_alias_points_at_a_plausible_key()`
+- `def test_a_malformed_section_keeps_the_defaults(tmp_path)`
+- `def test_an_empty_value_keeps_the_default(tmp_path)`
+- `def test_quiet_hours_can_be_a_plain_string(tmp_path)`
 
 ## `tests/test_event_bus.py`
 
-*22 functions*
+*28 functions*
 
 > Unit tests for core/event_bus.py.
 
@@ -1484,10 +1505,16 @@ and marked with `·`; methods the intent router can call are marked
   · `async def scenario() -> int`
 - `def test_events_carry_a_source_and_a_timestamp()`
 - `def test_the_standard_event_names_are_namespaced(name)`
+- `def test_a_slow_handler_cannot_hold_up_the_publisher()` — Subscribers are observers; none may delay the answer the user waits for.
+  · `async def scenario() -> tuple`
+    · `async def glacial(event: Event) -> None`
+- `def test_handlers_run_concurrently_not_one_after_another()`
+  · `async def scenario() -> float`
+    · `async def waits(event: Event) -> None`
 
 ## `tests/test_file_manager.py`
 
-*16 functions*
+*21 functions*
 
 > Unit tests for modules/file_manager.py.
 
@@ -1507,10 +1534,15 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_reading_a_text_file_returns_its_contents(files, tree)`
 - `def test_document_contents_are_marked_untrusted(files)`
 - `def test_folder_stats_counts_the_tree(files, tree)`
+- `def test_binary_files_are_not_read_aloud(files, tmp_path)`
+- `def test_text_files_are_still_readable(files, tree)`
+- `def test_writing_outside_the_allowed_roots_needs_confirmation(tmp_path, monkeypatch)`
+  · `async def decline(prompt: str) -> bool`
+- `def test_writing_inside_the_allowed_roots_is_unchallenged(tmp_path)`
 
 ## `tests/test_knowledge.py`
 
-*11 functions*
+*13 functions*
 
 > Unit tests for modules/knowledge.py — the RAG document index.
 
@@ -1525,10 +1557,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_status_reports_the_index_size(knowledge, library)`
 - `def test_documents_can_be_forgotten(knowledge, library)`
 - `def test_indexed_text_is_treated_as_untrusted(knowledge)`
+- `def test_a_short_note_is_indexed_and_findable(knowledge, tmp_path)`
+- `def test_an_empty_file_is_reported_not_hidden(knowledge, tmp_path)`
 
 ## `tests/test_memory.py`
 
-*18 functions*
+*19 functions*
 
 > Unit tests for core/memory.py.
 
@@ -1550,6 +1584,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_memory_survives_a_save_and_reload(config)`
 - `def test_stats_report_the_backend_and_counts(memory)`
 - `def test_clearing_short_term_memory_leaves_the_long_term_alone(memory)`
+- `def test_an_unwritable_data_directory_does_not_take_the_assistant_down(config, tmp_path)`
 
 ## `tests/test_models.py`
 
@@ -1592,7 +1627,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_productivity.py`
 
-*21 functions*
+*23 functions*
 
 > Unit tests for modules/productivity.py.
 
@@ -1617,10 +1652,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_quiet_hours_rejects_rubbish(text)`
 - `def test_the_scheduler_is_running_after_setup(productivity)`
 - `def test_a_tick_with_nothing_due_is_harmless(productivity)`
+- `def test_a_negative_duration_is_refused(productivity)`
+- `def test_a_non_numeric_id_is_refused_politely(productivity)`
 
 ## `tests/test_self_improve.py`
 
-*14 functions*
+*17 functions*
 
 > Unit tests for modules/self_improve.py — JARVIS editing his own source.
 
@@ -1638,10 +1675,13 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_editing_is_refused_when_the_config_forbids_it(config)`
 - `def test_installing_a_package_is_refused_when_forbidden(config)`
 - `def test_repository_readmes_are_untrusted(self_improve)`
+- `def test_a_protected_file_is_refused_for_being_protected(self_improve)`
+- `def test_a_broken_rewrite_is_rejected_by_the_syntax_gate(self_improve)`
+- `def test_a_sound_rewrite_passes_the_syntax_gate(self_improve)`
 
 ## `tests/test_smart_assistant.py`
 
-*10 functions*
+*16 functions*
 
 > Unit tests for modules/smart_assistant.py.
 
@@ -1655,6 +1695,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_language_table_covers_the_common_requests()`
 - `def test_answering_without_a_model_explains_itself(smart)`
 - `def test_translating_an_empty_string_is_refused(smart)`
+- `def test_ruinous_arithmetic_is_refused_quickly(smart, expression)`
+- `def test_dividing_by_zero_gets_a_straight_answer(smart)`
+- `def test_sensible_big_numbers_still_work(smart)`
+- `def test_numbers_survive_the_router(smart, phrase, value)`
+- `def test_freezing_temperatures_convert_correctly(smart)`
+- `def test_units_do_not_swallow_the_grammar(smart)`
 
 ## `tests/test_smoke.py`
 
@@ -1820,7 +1866,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_utils.py`
 
-*29 functions*
+*32 functions*
 
 > Unit tests for the utils package: scheduler, logger, security and cache.
 
@@ -1853,6 +1899,9 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_logger_is_namespaced_under_jarvis()`
 - `def test_setting_up_logging_twice_is_harmless(tmp_path)`
 - `def test_logging_to_a_file_actually_writes_it(tmp_path)`
+- `def test_negative_durations_are_rejected(text)`
+- `def test_binary_files_are_recognised(tmp_path)`
+- `def test_database_connections_do_not_leak(tmp_path)` — `with sqlite3.connect(...)` commits but does not close.
 
 ## `tests/test_vision.py`
 
@@ -1898,7 +1947,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*9 functions*
+*12 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -1911,6 +1960,9 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_an_access_token_is_generated(web)`
 - `def test_the_app_exposes_the_expected_routes(web)`
 - `def test_binding_to_all_interfaces_is_the_default(config)`
+- `def test_an_enormous_message_is_refused(web)`
+- `def test_a_normal_message_is_accepted(web)`
+- `def test_every_endpoint_demands_the_token(web)`
 
 ## `tests/test_web_search.py`
 
@@ -1946,5 +1998,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1302 functions across 58 files.**
+**1350 functions across 58 files.**
 

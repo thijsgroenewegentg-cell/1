@@ -498,6 +498,8 @@ web_ui:
   token: ""                  # shared secret: http://…:8765/?token=…
   rate_limit_per_minute: 40
   max_audio_mb: 25           # largest hold-to-talk recording accepted
+  # Messages are capped at 8000 characters, so a phone cannot push a megabyte
+  # through the model and into the conversation database.
 
 email:
   enabled: false
@@ -535,7 +537,14 @@ modules:                 # switch any capability off; nothing else breaks
 security:
   confirm_dangerous: true   # ask before rm, sudo, kill, moving files…
   allow_shell: true
+  allowed_roots: []         # empty = home and the working directory
+  shell_blacklist: []       # extra commands to refuse outright (literal text)
+  sandbox_timeout: 20       # seconds a snippet from run_python may take
+  sandbox_memory_mb: 1024   # and how much memory it may claim (POSIX)
 ```
+
+Writes outside `allowed_roots` are not silently refused or silently allowed —
+JARVIS asks first, then remembers your answer for that action.
 
 Any setting can be overridden by an environment variable:
 `JARVIS_LLM__MODEL=mistral python main.py`. The single-underscore spelling
