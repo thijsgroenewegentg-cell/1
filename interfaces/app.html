@@ -37,6 +37,17 @@
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+/* high contrast: same room, lights up */
+body.hc {
+  --ink: #ffffff;
+  --dim: #9aa7bb;
+  --faint: #7a8496;
+  --line: #2a3249;
+  --line-warm: #38445c;
+  --blue-deep: #6f92ff;
+}
+body.hc .line.ai { text-shadow: none; }
+body.hc .glass { background: rgba(10, 13, 19, .92); }
 body[data-mood="listen"] { --accent: var(--cyan); }
 body[data-mood="think"]  { --accent: var(--violet); }
 body[data-mood="speak"]  { --accent: #6ea8ff; }
@@ -265,6 +276,9 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
   display: flex; justify-content: space-between; gap: 12px;
 }
 .box h2 span { color: #232833; letter-spacing: .2em; }
+.box h2 button { color: var(--faint); font: 8.5px/1 var(--mono); letter-spacing: .2em;
+                 text-transform: uppercase; }
+.box h2 button:hover { color: var(--accent); }
 .box .scroll { overflow-y: auto; overscroll-behavior: contain; }
 .box input.search {
   width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line);
@@ -413,8 +427,10 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
   <div class="box glass">
     <h2>everything __TITLE__ can do <span id="toolCount"></span></h2>
     <input class="search" id="paletteInput" placeholder="ask, or search every tool…"
-           autocomplete="off" aria-label="Command palette">
-    <div class="scroll" id="paletteList"></div>
+           autocomplete="off" aria-label="Command palette"
+           role="combobox" aria-controls="paletteList" aria-autocomplete="list"
+           aria-expanded="true">
+    <div class="scroll" id="paletteList" role="listbox" aria-label="Commands and tools"></div>
     <div class="pfoot"><span>↵ run</span><span>↑ ↓ move</span><span>esc close</span></div>
   </div>
 </div>
@@ -423,13 +439,19 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
   <div class="box glass">
     <div class="tabs">
       <button data-tab="status" class="on">status</button>
+      <button data-tab="memory">memory</button>
       <button data-tab="tools">tools</button>
       <button data-tab="audit">audit</button>
+    </div>
+    <div class="pane scroll" id="pane-memory">
+      <div id="memorySummary"></div>
+      <div id="memoryList"></div>
     </div>
     <div class="pane on scroll" id="pane-status">
       <div id="statusList"></div>
       <div class="mods" id="modList"></div>
       <div class="switch"><span>read replies aloud</span><button id="setSpeech">off</button></div>
+      <div class="switch"><span>high contrast</span><button id="setContrast">off</button></div>
       <div class="switch"><span>clear the transcript</span><button id="setClear">clear</button></div>
     </div>
     <div class="pane scroll" id="pane-tools">
@@ -445,7 +467,10 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
 
 <div class="sheet" id="history" role="dialog" aria-label="Conversation history">
   <div class="box glass">
-    <h2>this session</h2>
+    <h2>this session
+      <span><button id="exportMd" title="Download as markdown">md</button>
+      · <button id="exportJson" title="Download as json">json</button></span>
+    </h2>
     <div class="scroll hist" id="historyList"></div>
   </div>
 </div>
@@ -479,7 +504,10 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
 const $ = (id) => document.getElementById(id);
 const token = new URLSearchParams(location.search).get("token") || "";
 const auth = token ? "?token=" + encodeURIComponent(token) : "";
-const settings = { speech: localStorage.getItem("jarvis.speech") === "1" };
+const settings = {
+  speech: localStorage.getItem("jarvis.speech") === "1",
+  contrast: localStorage.getItem("jarvis.contrast") === "1",
+};
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const recents = (() => {
   try { return JSON.parse(localStorage.getItem("jarvis.recent") || "[]"); }
@@ -962,6 +990,30 @@ function endStream() { streamNode = null; }
 
 function remember(who, text) {
   transcript.push({ who, text, at: new Date().toTimeString().slice(0, 5) });
+  /* a reload should not be an amnesia event */
+  try { sessionStorage.setItem("jarvis.transcript", JSON.stringify(transcript.slice(-200))); }
+  catch (err) { /* private mode */ }
+}
+
+function download(name, mime, content) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function exportSession(kind) {
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  if (kind === "json") {
+    download("jarvis-" + stamp + ".json", "application/json", JSON.stringify(transcript, null, 2));
+    return;
+  }
+  const md = transcript
+    .map((entry) => (entry.who === "me" ? "**you** · " + entry.at : "**jarvis** · " + entry.at)
+      + "\n\n" + entry.text + "\n")
+    .join("\n---\n\n");
+  download("jarvis-" + stamp + ".md", "text/markdown", "# JARVIS session\n\n" + md);
 }
 
 function toast(text, bad) {
@@ -1025,6 +1077,7 @@ function handle(data) {
     if (!replyText) pulse(0.5);
     replyText += data.text;
     streamText(replyText, true);
+    harvestSentences();
     orb.kick = Math.min(1, orb.kick + 0.05);
     mood("speak");
   } else if (data.type === "reply") {
@@ -1034,7 +1087,11 @@ function handle(data) {
     pulse(0.9);
     setBusy(false);
     turns += 1;
-    if (settings.speech && replyText) speakAloud(replyText);
+    /* say whatever the sentence harvester had not finished yet */
+    const rest = cleanSpeak(replyText.slice(spokenUpTo));
+    if (!inFence && rest.length > 2) enqueueSpeech(rest);
+    spokenUpTo = replyText.length;
+    inFence = false;
   } else if (data.type === "event") {
     if (data.name === "turn.intent") {
       status("routing");
@@ -1054,7 +1111,7 @@ function handle(data) {
     line("sys", "• " + data.text);
     remember("ai", data.text);
     pulse(0.7);
-    if (settings.speech) speakAloud(data.text);
+    enqueueSpeech(cleanSpeak(data.text));
     if (window.Notification && Notification.permission === "granted") {
       try { new Notification("__TITLE__", { body: data.text }); } catch (err) { /* denied */ }
     }
@@ -1072,7 +1129,11 @@ function setBusy(value) {
   sendBtn.title = value ? "Cancel the turn" : "Send";
   sendBtn.setAttribute("aria-label", value ? "Cancel the turn" : "Send");
   $("input").placeholder = value ? "thinking… enter cancels" : "say something…";
-  if (value) { status("thinking"); streamNode = null; replyText = ""; turnStarted = performance.now(); }
+  if (value) {
+    stopSpeech();
+    spokenUpTo = 0; inFence = false;
+    status("thinking"); streamNode = null; replyText = ""; turnStarted = performance.now();
+  }
   else status("");
 }
 
@@ -1106,6 +1167,53 @@ function send(text) {
    the voice that is actually playing.
    ===================================================================== */
 let audioCtx = null, ttsAnalyser = null, ttsWave = null, ttsMeter = null;
+let speechQueue = [], speechActive = false, currentAudio = null;
+let spokenUpTo = 0, inFence = false;
+
+/** Barge-in: the user started talking, so whatever JARVIS was saying stops. */
+function stopSpeech() {
+  speechQueue.length = 0;
+  speechActive = false;
+  if (currentAudio) { try { currentAudio.pause(); } catch (err) { /* gone */ } currentAudio = null; }
+  clearInterval(ttsMeter);
+  orb.tts = 0;
+}
+
+function speakNext() {
+  const text = speechQueue.shift();
+  if (!text) {
+    speechActive = false;
+    if (!busy) status("");
+    return;
+  }
+  speechActive = true;
+  speakAloud(text, speakNext);
+}
+
+function enqueueSpeech(text) {
+  if (!settings.speech) return;
+  speechQueue.push(text);
+  if (!speechActive) speakNext();
+}
+
+function cleanSpeak(text) { return text.replace(/[*_`#>]/g, "").trim(); }
+
+/** Cut finished, fence-free sentences out of a still-streaming reply, so
+    JARVIS starts talking while he is still writing. Code blocks never speak. */
+function harvestSentences() {
+  let i = spokenUpTo, start = i;
+  while (i < replyText.length) {
+    if (replyText.startsWith("```", i)) { inFence = !inFence; i += 3; start = i; continue; }
+    const ch = replyText[i];
+    if (!inFence && ".!?".includes(ch) && /[\s\n]/.test(replyText[i + 1] || " ")) {
+      const sentence = cleanSpeak(replyText.slice(start, i + 1));
+      if (sentence.length > 2) enqueueSpeech(sentence);
+      i += 1; start = i; continue;
+    }
+    i += 1;
+  }
+  spokenUpTo = i;
+}
 
 function audioReady() {
   if (audioCtx) return audioCtx;
@@ -1120,9 +1228,17 @@ function audioReady() {
   return audioCtx;
 }
 
-function speakAloud(text) {
+function speakAloud(text, next) {
   const audio = new Audio("/api/tts?text=" + encodeURIComponent(text.slice(0, 900)) +
     (token ? "&token=" + encodeURIComponent(token) : ""));
+  currentAudio = audio;
+  const done = () => {
+    clearInterval(ttsMeter);
+    orb.tts = 0;
+    if (currentAudio === audio) currentAudio = null;
+    if (next) next();
+    else if (!busy) status("");
+  };
   const ctx = audioReady();
   if (ctx && ttsAnalyser) {
     try {
@@ -1140,13 +1256,15 @@ function speakAloud(text) {
         for (const value of ttsWave) peak = Math.max(peak, Math.abs(value - 128));
         orb.tts = Math.min(1, (peak / 128) * 2.6);
       }, 45);
-      audio.addEventListener("ended", () => {
-        clearInterval(ttsMeter); orb.tts = 0; status("");
-      });
-      audio.addEventListener("error", () => { clearInterval(ttsMeter); orb.tts = 0; });
+      audio.addEventListener("ended", done);
+      audio.addEventListener("error", done);
     } catch (err) { /* metering is a luxury */ }
   }
-  audio.play().catch(() => toast("No speech engine on the server.", true));
+  audio.play().catch(() => {
+    if (currentAudio === audio) currentAudio = null;
+    if (next) next();
+    else toast("No speech engine on the server.", true);
+  });
 }
 
 /* =======================================================================
@@ -1155,6 +1273,7 @@ function speakAloud(text) {
    ===================================================================== */
 let recorder = null, chunks = [], recording = false, micCtx = null, micMeter = null;
 let recordStarted = 0, ringTimer = null;
+let recognition = null, liveFinal = "", sttNode = null;
 const MAX_SECONDS = 30;
 const RING = 2 * Math.PI * 19;
 const ringCircle = $("micRing").querySelector("circle");
@@ -1171,6 +1290,7 @@ async function startRecording() {
   catch (err) { toast("Microphone refused: " + err.message, true); return; }
 
   dropHint();
+  stopSpeech();                       // barge-in: he yields the floor
   chunks = [];
   const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"]
     .find((type) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) || "";
@@ -1183,13 +1303,43 @@ async function startRecording() {
   $("mic").classList.add("recording");
   status("listening", true);
   spawnShock("in");                       // sound arriving: the ring collapses
-  line("me", "…");
+  sttNode = line("me", "…");
+  liveFinal = "";
+  startLiveStt();
   listenTo(stream);
   ringTimer = setInterval(() => {
     const fraction = Math.min(1, (performance.now() - recordStarted) / 1000 / MAX_SECONDS);
     ringCircle.style.strokeDashoffset = RING * (1 - fraction);
     if (fraction >= 1) stopRecording();
   }, 100);
+}
+
+/** Live partial transcription in browsers that ship the Web Speech API, so
+    words appear while you speak. Where it is missing (or refused) the old
+    round-trip through the server's Whisper remains the fallback. */
+function startLiveStt() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  try {
+    recognition = new SR();
+    recognition.lang = navigator.language || "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.onresult = (event) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) liveFinal += result[0].transcript + " ";
+        else interim += result[0].transcript;
+      }
+      if (sttNode && sttNode.isConnected) {
+        sttNode.textContent = (liveFinal + interim).trim() || "…";
+        sttNode.style.opacity = 1;
+      }
+    };
+    recognition.onerror = () => { recognition = null; };
+    recognition.start();
+  } catch (err) { recognition = null; }
 }
 
 function listenTo(stream) {
@@ -1249,6 +1399,21 @@ function stopRecording() {
   if (!recording) return;
   recording = false;
   clearInterval(ringTimer);
+  if (recognition) {
+    /* the browser already heard it: use its transcript, skip the round-trip */
+    const rec = recognition;
+    recognition = null;
+    chunks = [];
+    rec.onend = () => {
+      const text = liveFinal.trim();
+      sttNode = null;
+      if (text) send(text);
+    };
+    try { rec.stop(); } catch (err) { /* already stopped */ }
+    try { recorder.stop(); } catch (err) { /* already stopped */ }
+    return;
+  }
+  sttNode = null;
   try { recorder.stop(); } catch (err) { /* already stopped */ }
 }
 
@@ -1272,8 +1437,12 @@ const QUICK = [
   { label: "How much disk space is left?", hint: "storage", kind: "quick" },
   { label: "What have you done that needed permission?", hint: "audit", kind: "quick" },
   { label: "Read replies aloud", hint: "toggle speech", kind: "speech" },
+  { label: "Remember this", hint: "store a durable memory", kind: "remember" },
+  { label: "Show my memories", hint: "what he keeps, and forget", kind: "memory" },
+  { label: "High contrast", hint: "easier on the eyes", kind: "contrast" },
   { label: "Show status panel", hint: "ctrl /", kind: "panel" },
 ];
+let pendingRemember = false;
 let options = [], cursor = 0, toolCache = null;
 
 function score(text, query) {
@@ -1339,14 +1508,25 @@ async function paletteOptions(query) {
 }
 
 async function openPalette() {
+  noteFocus();
   $("palette").classList.add("show");
   const input = $("paletteInput");
   input.value = "";
   input.focus();
   await drawPalette("");
 }
+let lastFocus = null;
+function noteFocus() { lastFocus = document.activeElement; }
 function closeSheets() {
+  const wasOpen = ["palette", "panel", "history", "keys"]
+    .some((id) => $(id).classList.contains("show"));
   for (const id of ["palette", "panel", "history", "keys"]) $(id).classList.remove("show");
+  /* hand focus back to whatever opened the sheet, so keyboard users do not
+     get dropped on the body */
+  if (wasOpen && lastFocus && lastFocus.isConnected) {
+    try { lastFocus.focus(); } catch (err) { /* gone */ }
+  }
+  lastFocus = null;
 }
 async function drawPalette(query) {
   options = await paletteOptions(query);
@@ -1368,6 +1548,9 @@ function paintPalette() {
     const node = document.createElement("button");
     node.className = "opt" + (index === cursor ? " sel" : "");
     node.type = "button";
+    node.id = "opt-" + index;
+    node.setAttribute("role", "option");
+    node.setAttribute("aria-selected", index === cursor ? "true" : "false");
     const badge = document.createElement("span");
     badge.className = "badge";
     badge.textContent = option.danger ? "tool ⚠" : (option.kind === "quick" ? "quick" : option.kind);
@@ -1399,6 +1582,8 @@ function paintPalette() {
   });
   const active = list.children[cursor];
   if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest" });
+  const chosen = list.querySelector("#opt-" + cursor);
+  if (chosen) $("paletteInput").setAttribute("aria-activedescendant", chosen.id);
 }
 function runOption(index) {
   const option = options[index];
@@ -1406,6 +1591,15 @@ function runOption(index) {
   if (!option) return;
   if (option.kind === "speech") { toggleSpeech(); return; }
   if (option.kind === "panel") { togglePanel(true); return; }
+  if (option.kind === "memory") { togglePanel(true, "memory"); return; }
+  if (option.kind === "contrast") { toggleContrast(); return; }
+  if (option.kind === "remember") {
+    /* the type line becomes the memory slot: whatever you type is stored */
+    pendingRemember = true;
+    showTyped(true);
+    $("input").placeholder = "remember: …";
+    return;
+  }
   rememberRecent(option.label);
   send(option.label);
 }
@@ -1414,18 +1608,63 @@ function runOption(index) {
    Panel: status, tools, audit.
    ===================================================================== */
 let panelTimer = null;
-function togglePanel(force) {
+function selectTab(name) {
+  document.querySelectorAll(".tabs button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.tab === name));
+  document.querySelectorAll(".pane").forEach((p) =>
+    p.classList.toggle("on", p.id === "pane-" + name));
+}
+function togglePanel(force, tab) {
   const show = force === undefined ? !$("panel").classList.contains("show") : force;
+  if (show) noteFocus();
   closeSheets();
   $("panel").classList.toggle("show", show);
   if (panelTimer) { clearInterval(panelTimer); panelTimer = null; }
   if (show) {
-    loadStatus(); loadTools(); loadAudit();
+    selectTab(tab || "status");
+    loadStatus(); loadMemory(); loadTools(); loadAudit();
     /* the panel is a window, not a snapshot: it refreshes while open */
     panelTimer = setInterval(() => {
-      if ($("panel").classList.contains("show")) { loadStatus(); loadAudit(); }
+      if ($("panel").classList.contains("show")) { loadStatus(); loadMemory(); loadAudit(); }
       else { clearInterval(panelTimer); panelTimer = null; }
     }, 5000);
+  }
+}
+
+/** What JARVIS remembers, with a forget button per memory: an assistant you
+    cannot audit is an assistant you stop telling things. */
+async function loadMemory() {
+  const list = $("memoryList"), summary = $("memorySummary");
+  try {
+    const data = await fetch("/api/memory" + auth).then((r) => r.json());
+    summary.innerHTML = kv("summary", data.summary || "(none)");
+    list.innerHTML = "";
+    const facts = data.facts || [];
+    if (!facts.length) {
+      list.innerHTML = kv("memories", "nothing durable stored yet");
+      return;
+    }
+    for (const fact of facts) {
+      const row = document.createElement("div");
+      row.className = "auditrow";
+      row.innerHTML = "<span class='ask'></span><span style='flex:1'></span><button title='Forget'></button>";
+      row.children[0].textContent = fact.category || "fact";
+      row.children[1].textContent = fact.content || "";
+      const button = row.children[2];
+      button.textContent = "forget";
+      button.style.color = "var(--faint)";
+      button.addEventListener("click", async () => {
+        const response = await fetch("/api/forget" + auth, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword: fact.content }),
+        }).then((r) => r.json()).catch(() => ({}));
+        toast(response.removed ? "Forgotten." : "Nothing removed.");
+        loadMemory();
+      });
+      list.appendChild(row);
+    }
+  } catch (err) {
+    list.innerHTML = kv("memory", "unavailable");
   }
 }
 
@@ -1523,6 +1762,7 @@ async function loadAudit() {
    ===================================================================== */
 function toggleHistory(force) {
   const show = force === undefined ? !$("history").classList.contains("show") : force;
+  if (show) noteFocus();
   closeSheets();
   $("history").classList.toggle("show", show);
   if (!show) return;
@@ -1548,6 +1788,18 @@ function paintSpeech() {
   const button = $("setSpeech");
   button.textContent = settings.speech ? "on" : "off";
   button.classList.toggle("on", settings.speech);
+}
+function paintContrast() {
+  const button = $("setContrast");
+  if (!button) return;
+  button.textContent = settings.contrast ? "on" : "off";
+  button.classList.toggle("on", settings.contrast);
+  document.body.classList.toggle("hc", settings.contrast);
+}
+function toggleContrast() {
+  settings.contrast = !settings.contrast;
+  localStorage.setItem("jarvis.contrast", settings.contrast ? "1" : "0");
+  paintContrast();
 }
 function toggleSpeech() {
   settings.speech = !settings.speech;
@@ -1598,10 +1850,24 @@ for (const name of ["pointerup", "pointercancel"]) {
 }
 
 $("typeBtn").addEventListener("click", () => showTyped(!$("typed").classList.contains("show")));
-$("typed").addEventListener("submit", (event) => {
+$("typed").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const text = $("input").value.trim();
+  if (pendingRemember) {
+    pendingRemember = false;
+    $("input").placeholder = "say something…";
+    $("input").value = "";
+    if (!text) return;
+    const ok = await fetch("/api/remember" + auth, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, category: "note" }),
+    }).then((r) => r.json()).then((d) => d.ok).catch(() => false);
+    toast(ok ? "Remembered." : "He could not store that.", !ok);
+    line("sys", "• remembered: " + text);
+    return;
+  }
   if (busy) cancelTurn();
-  else send($("input").value);
+  else send(text);
 });
 $("readout").addEventListener("click", openPalette);
 $("mic").addEventListener("pointerdown", (event) => {
@@ -1626,15 +1892,16 @@ $("keys").addEventListener("click", (event) => { if (event.target === $("keys"))
 $("toolSearch").addEventListener("input", drawTools);
 $("auditRefresh").addEventListener("click", loadAudit);
 $("setSpeech").addEventListener("click", toggleSpeech);
+$("setContrast").addEventListener("click", toggleContrast);
 $("setClear").addEventListener("click", () => {
-  transcript = []; logEl.innerHTML = ""; endStream(); toast("Transcript cleared.");
+  transcript = []; logEl.innerHTML = ""; endStream();
+  try { sessionStorage.removeItem("jarvis.transcript"); } catch (err) { /* private mode */ }
+  toast("Transcript cleared.");
 });
+$("exportMd").addEventListener("click", () => exportSession("md"));
+$("exportJson").addEventListener("click", () => exportSession("json"));
 for (const tab of document.querySelectorAll(".tabs button")) {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b === tab));
-    document.querySelectorAll(".pane").forEach((p) =>
-      p.classList.toggle("on", p.id === "pane-" + tab.dataset.tab));
-  });
+  tab.addEventListener("click", () => selectTab(tab.dataset.tab));
 }
 
 addEventListener("keydown", (event) => {
@@ -1645,6 +1912,22 @@ addEventListener("keydown", (event) => {
     if (recording) cancelRecording();
     else if (busy && !sheetOpen && !typing) cancelTurn();
     closeSheets(); showTyped(false);
+    return;
+  }
+  /* keep Tab inside an open sheet instead of wandering into the room */
+  if (event.key === "Tab" && sheetOpen) {
+    const sheet = ["palette", "panel", "history", "keys"]
+      .map((id) => $(id)).find((el) => el.classList.contains("show"));
+    const focusables = [...sheet.querySelectorAll("button, input")]
+      .filter((el) => !el.disabled && el.offsetParent !== null);
+    if (focusables.length) {
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first.focus();
+      }
+    }
     return;
   }
   if (typing || sheetOpen) return;
@@ -1660,7 +1943,7 @@ addEventListener("keydown", (event) => {
   } else if (event.key === "s" || event.key === "S") {
     event.preventDefault(); toggleSpeech();
   } else if (event.key === "?") {
-    event.preventDefault(); closeSheets(); $("keys").classList.add("show");
+    event.preventDefault(); noteFocus(); closeSheets(); $("keys").classList.add("show");
   } else if (event.key === "/" && (event.ctrlKey || event.metaKey)) {
     event.preventDefault(); togglePanel();
   }
@@ -1672,11 +1955,18 @@ addEventListener("keyup", (event) => {
 /* =======================================================================
    Boot.
    ===================================================================== */
+/* pick the session back up after a reload: the history sheet remembers */
+try {
+  const saved = JSON.parse(sessionStorage.getItem("jarvis.transcript") || "[]");
+  if (Array.isArray(saved) && saved.length) transcript = saved;
+} catch (err) { /* corrupted or private mode */ }
+
 resize();
 buildSphere(Math.max(30, Math.min(52, Math.round(Math.min(width, height) / 16))));
 requestAnimationFrame(draw);
 connect();
 paintSpeech();
+paintContrast();
 status("offline");
 /** The greeting types itself out, like everything else JARVIS says. */
 let greetTimer = null;

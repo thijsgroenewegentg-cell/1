@@ -465,6 +465,59 @@ class WebInterface:
                 entries = []
             return JSONResponse({"entries": entries})
 
+        @app.get("/api/memory")
+        async def memory_list(
+            token: str = Query(default=""),
+            keyword: str = Query(default=""),
+            limit: int = Query(default=60),
+        ) -> Any:
+            """List what JARVIS remembers, for the memory pane."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            memory = getattr(self.brain, "memory", None)
+            if memory is None:
+                return JSONResponse({"facts": [], "summary": ""})
+            facts = await memory.search_facts(keyword, max(1, min(200, int(limit))))
+            return JSONResponse(
+                {
+                    "facts": facts,
+                    "summary": getattr(memory, "conversation_summary", "") or "",
+                }
+            )
+
+        @app.post("/api/remember")
+        async def remember(request: Request, token: str = Query(default="")) -> Any:
+            """Store a durable memory on request ("remember this")."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                payload: Dict[str, Any] = await request.json()
+            except Exception:
+                payload = {}
+            text = str(payload.get("text", "")).strip()
+            if not text:
+                raise HTTPException(status_code=400, detail="missing 'text'")
+            memory = getattr(self.brain, "memory", None)
+            ok = bool(memory is not None and await memory.remember(
+                text, category=str(payload.get("category", "note")), source="web"))
+            return JSONResponse({"ok": ok})
+
+        @app.post("/api/forget")
+        async def forget(request: Request, token: str = Query(default="")) -> Any:
+            """Delete memories matching a keyword."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                payload: Dict[str, Any] = await request.json()
+            except Exception:
+                payload = {}
+            keyword = str(payload.get("keyword", "")).strip()
+            if not keyword:
+                raise HTTPException(status_code=400, detail="missing 'keyword'")
+            memory = getattr(self.brain, "memory", None)
+            removed = int(await memory.forget(keyword)) if memory is not None else 0
+            return JSONResponse({"removed": removed})
+
         @app.get("/api/tts")
         async def tts(text: str = Query(...), token: str = Query(default="")) -> Any:
             """Render text to speech and return an audio file."""
