@@ -9,6 +9,7 @@ the ``rich`` library is not installed.
 from __future__ import annotations
 
 import asyncio
+import difflib
 import re
 from datetime import datetime
 from typing import Any, List, Optional
@@ -71,6 +72,14 @@ HELP_ROWS: List[tuple[str, str]] = [
     ("config", "Show the active configuration"),
     ("exit / quit", "Shut JARVIS down"),
 ]
+
+
+#: Every slash command the interface answers to, for typo suggestions.
+KNOWN_COMMANDS = {
+    "clear", "commands", "config", "exit", "forget", "help", "language",
+    "languages", "memory", "mute", "quit", "recall", "remember", "status",
+    "tools", "undo", "unmute", "voice", "web",
+}
 
 
 class CLI:
@@ -352,6 +361,15 @@ class CLI:
 
         if command.split(" ")[0] == "web":
             await self.start_web(argument)
+            return True
+
+        # A mistyped slash command must not be forwarded to the model as if it
+        # were something the user said out loud.
+        if text.strip().startswith("/"):
+            verb = command.split(" ")[0]
+            suggestion = difflib.get_close_matches(verb, sorted(KNOWN_COMMANDS), n=1)
+            hint = f" Did you mean /{suggestion[0]}?" if suggestion else ""
+            self.error(f"No such command: /{verb}.{hint} Type /help for the list.")
             return True
 
         return False

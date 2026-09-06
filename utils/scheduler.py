@@ -20,7 +20,7 @@ import asyncio
 import contextlib
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
 from utils.logger import get_logger
 
@@ -98,6 +98,8 @@ class Scheduler:
         self._ap: Any = None
         self._jobs: Dict[str, _FallbackJob] = {}
         self._started = False
+        #: Fallback-engine coroutines created before an event loop existed.
+        self._deferred: List[Tuple[str, Any]] = []
 
     @property
     def engine(self) -> str:
@@ -131,12 +133,16 @@ class Scheduler:
                 self._ap = None
                 self._use_ap = False
         self._started = True
+        self._flush_deferred()
         logger.debug("Scheduler started with the %s engine.", self.engine)
         return self.engine
 
     async def shutdown(self) -> None:
         """Stop every job and release the engine."""
         self._started = False
+        for _, coro in self._deferred:
+            coro.close()  # never awaited, so close it rather than leak a warning
+        self._deferred.clear()
         if self._ap is not None:
             with contextlib.suppress(Exception):
                 self._ap.shutdown(wait=False)
@@ -176,7 +182,7 @@ class Scheduler:
             return info
         job = _FallbackJob(info=info, func=func, seconds=seconds)
         self._jobs[job_id] = job
-        job.task = self._spawn(self._run_interval(job))
+        job.task = self._spawn(job_id, self._run_interval(job))
         return info
 
     def at(self, when: datetime, func: JobFunc, job_id: str = "",
@@ -204,7 +210,7 @@ class Scheduler:
             return info
         job = _FallbackJob(info=info, func=func, at=when)
         self._jobs[job_id] = job
-        job.task = self._spawn(self._run_once(job))
+        job.task = self._spawn(job_id, self._run_once(job))
         return info
 
     def cron(self, func: JobFunc, job_id: str = "", name: str = "", hour: int = 0,
@@ -240,7 +246,7 @@ class Scheduler:
             return info
         job = _FallbackJob(info=info, func=func, cron=spec)
         self._jobs[job_id] = job
-        job.task = self._spawn(self._run_cron(job))
+        job.task = self._spawn(job_id, self._run_cron(job))
         return info
 
     def from_rule(self, rule: Any, func: JobFunc, job_id: str = "",
@@ -347,9 +353,42 @@ class Scheduler:
         return job.info if job else None
 
     # ------------------------------------------------------ internal engine
-    def _spawn(self, coro: Any) -> "asyncio.Task[None]":
-        """Create a task, tolerating being called before the loop exists."""
+    def _spawn(self, job_id: str, coro: Any) -> Optional["asyncio.Task[None]"]:
+        """Start a fallback-engine coroutine, or hold it until a loop exists.
+
+        Jobs are often registered during construction, before anything is
+        awaited. Creating the task then raises "no running event loop", which
+        used to lose the job silently.
+
+        Args:
+            job_id: The job the coroutine belongs to.
+            coro: The coroutine to run.
+
+        Returns:
+            The task, or ``None`` when it had to be deferred.
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._deferred.append((job_id, coro))
+            return None
+        self._flush_deferred()
         return asyncio.ensure_future(coro)
+
+    def _flush_deferred(self) -> None:
+        """Start any coroutines that were waiting for an event loop."""
+        if not self._deferred:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        pending, self._deferred = self._deferred, []
+        for job_id, coro in pending:
+            task = asyncio.ensure_future(coro)
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job.task = task
 
     def _wrap(self, func: JobFunc, info: JobInfo, once: bool = False) -> Callable[[], Any]:
         """Wrap a job so failures are logged and run counts stay accurate."""

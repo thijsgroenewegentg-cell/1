@@ -29,7 +29,7 @@ import time
 import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, ClassVar, Dict, List, Optional, Set
+from typing import Any, Awaitable, Callable, ClassVar, Dict, List, Optional, Set, Tuple
 
 from utils.helpers import (
     IS_MACOS,
@@ -1075,15 +1075,46 @@ class WakeWordDetector:
 
         return bool(await run_blocking(_listen))
 
-    async def _wait_whisper(self, stop_event: asyncio.Event) -> bool:
-        """Keyless wake word: transcribe short bursts and look for the word."""
+    def wake_variants(self) -> Set[str]:
+        """Spellings that should count as the wake word being heard.
+
+        Whisper mishears "Jarvis" constantly — "jarvas", "charvis", "harvis" —
+        and a wake word that only fires on a perfect transcription feels
+        broken, so the usual mishearings are accepted too.
+
+        Returns:
+            Lower-case variants, including the configured word itself.
+        """
         variants = {self.wake_word}
         if self.wake_word == "jarvis":
-            # Whisper frequently mishears the name; accept the usual variants.
             variants |= {
                 "jarvis", "jarvas", "jervis", "jarvus", "javis", "yarvis", "charvis",
                 "jarvez", "harvis", "darvis", "jarv",
             }
+        return {variant for variant in variants if variant}
+
+    def match_wake_word(self, text: str) -> Optional[Tuple[str, str]]:
+        """Look for the wake word in a transcription.
+
+        Args:
+            text: Whatever the recogniser produced.
+
+        Returns:
+            ``(variant heard, the rest of the sentence)`` — people say
+            "Jarvis, what time is it" in one breath, so the tail is kept as a
+            pending command — or ``None`` when the wake word is absent.
+        """
+        lowered = (text or "").lower()
+        normalised = "".join(char for char in lowered if char.isalnum() or char.isspace())
+        for variant in sorted(self.wake_variants(), key=len, reverse=True):
+            if variant in normalised:
+                # Split on the variant actually heard, not the configured
+                # spelling, or a misheard "jarvas" ends up inside the command.
+                return variant, normalised.split(variant, 1)[-1].strip()
+        return None
+
+    async def _wait_whisper(self, stop_event: asyncio.Event) -> bool:
+        """Keyless wake word: transcribe short bursts and look for the word."""
         while not stop_event.is_set():
             clip = await run_blocking(
                 self.microphone.record_until_silence, 4.0, 3.0
@@ -1097,17 +1128,9 @@ class WakeWordDetector:
             if not text:
                 continue
             logger.debug("Wake candidate: %r", text)
-            normalised = "".join(char for char in text if char.isalnum() or char.isspace())
-            heard = next(
-                (variant for variant in sorted(variants, key=len, reverse=True)
-                 if variant and variant in normalised),
-                "",
-            )
-            if heard:
-                # Some people say "Jarvis, do X" in one breath — keep the tail.
-                # Split on the variant actually heard, not on the configured
-                # spelling, or a misheard "jarvas" ends up inside the command.
-                self.pending_command = normalised.split(heard, 1)[-1].strip()
+            match = self.match_wake_word(text)
+            if match is not None:
+                self.pending_command = match[1]
                 return True
         return False
 
