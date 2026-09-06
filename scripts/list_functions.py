@@ -17,10 +17,11 @@ import pathlib
 from typing import Dict, List, Optional, Tuple, Union
 
 #: Directories that are never part of the public source tree.
-SKIP = {".venv", "node_modules", "__pycache__", ".git", "plugins", "build", "dist"}
+#: ``pending`` holds plugins awaiting review — unvetted code, not documentation.
+SKIP = {".venv", "node_modules", "__pycache__", ".git", "pending", "build", "dist"}
 
 #: The order sections appear in, after the two entry points.
-FOLDERS = ["core", "interfaces", "modules", "utils", "tests"]
+FOLDERS = ["core", "interfaces", "modules", "plugins", "utils", "tests"]
 
 FunctionNode = Union[ast.FunctionDef, ast.AsyncFunctionDef]
 FUNCTION_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef)

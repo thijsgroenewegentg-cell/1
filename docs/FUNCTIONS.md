@@ -11,35 +11,61 @@ and marked with `·`; methods the intent router can call are marked
 
 - [`main.py`](#mainpy) — 18
 - [`install.py`](#installpy) — 47
-- [`core/brain.py`](#corebrainpy) — 60
-- [`core/config.py`](#coreconfigpy) — 20
-- [`core/memory.py`](#corememorypy) — 62
+- [`core/brain.py`](#corebrainpy) — 55
+- [`core/config.py`](#coreconfigpy) — 25
+- [`core/event_bus.py`](#coreevent_buspy) — 13
+- [`core/intent_router.py`](#coreintent_routerpy) — 5
+- [`core/memory.py`](#corememorypy) — 66
+- [`core/personality.py`](#corepersonalitypy) — 5
+- [`core/planner.py`](#coreplannerpy) — 5
 - [`interfaces/cli.py`](#interfacesclipy) — 31
-- [`interfaces/voice.py`](#interfacesvoicepy) — 71
+- [`interfaces/voice.py`](#interfacesvoicepy) — 73
 - [`interfaces/web.py`](#interfaceswebpy) — 26
-- [`modules/base.py`](#modulesbasepy) — 29
+- [`modules/base.py`](#modulesbasepy) — 31
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
 - [`modules/communications.py`](#modulescommunicationspy) — 24
-- [`modules/file_manager.py`](#modulesfile_managerpy) — 31
+- [`modules/file_manager.py`](#modulesfile_managerpy) — 32
 - [`modules/knowledge.py`](#modulesknowledgepy) — 19
 - [`modules/models.py`](#modulesmodelspy) — 17
-- [`modules/productivity.py`](#modulesproductivitypy) — 71
+- [`modules/productivity.py`](#modulesproductivitypy) — 72
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
-- [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 20
-- [`modules/system_control.py`](#modulessystem_controlpy) — 22
+- [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 22
+- [`modules/system_control.py`](#modulessystem_controlpy) — 23
 - [`modules/vision.py`](#modulesvisionpy) — 15
-- [`modules/web_search.py`](#modulesweb_searchpy) — 18
+- [`modules/web_search.py`](#modulesweb_searchpy) — 19
+- [`plugins/plugin_loader.py`](#pluginsplugin_loaderpy) — 12
 - [`utils/backup.py`](#utilsbackuppy) — 11
 - [`utils/cache.py`](#utilscachepy) — 12
 - [`utils/doctor.py`](#utilsdoctorpy) — 23
 - [`utils/documents.py`](#utilsdocumentspy) — 8
-- [`utils/helpers.py`](#utilshelperspy) — 31
+- [`utils/helpers.py`](#utilshelperspy) — 33
 - [`utils/language.py`](#utilslanguagepy) — 8
 - [`utils/logger.py`](#utilsloggerpy) — 3
+- [`utils/scheduler.py`](#utilsschedulerpy) — 26
 - [`utils/security.py`](#utilssecuritypy) — 14
 - [`tests/mock_ollama.py`](#testsmock_ollamapy) — 10
+- [`tests/test_brain.py`](#teststest_brainpy) — 22
+- [`tests/test_cli.py`](#teststest_clipy) — 14
+- [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 13
+- [`tests/test_communications.py`](#teststest_communicationspy) — 8
+- [`tests/test_config.py`](#teststest_configpy) — 15
+- [`tests/test_event_bus.py`](#teststest_event_buspy) — 22
+- [`tests/test_file_manager.py`](#teststest_file_managerpy) — 16
+- [`tests/test_knowledge.py`](#teststest_knowledgepy) — 11
+- [`tests/test_memory.py`](#teststest_memorypy) — 18
+- [`tests/test_models.py`](#teststest_modelspy) — 7
+- [`tests/test_plugins.py`](#teststest_pluginspy) — 18
+- [`tests/test_productivity.py`](#teststest_productivitypy) — 21
+- [`tests/test_self_improve.py`](#teststest_self_improvepy) — 14
+- [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 10
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
+- [`tests/test_system_control.py`](#teststest_system_controlpy) — 12
 - [`tests/test_units.py`](#teststest_unitspy) — 96
+- [`tests/test_utils.py`](#teststest_utilspy) — 29
+- [`tests/test_vision.py`](#teststest_visionpy) — 8
+- [`tests/test_voice.py`](#teststest_voicepy) — 20
+- [`tests/test_web.py`](#teststest_webpy) — 9
+- [`tests/test_web_search.py`](#teststest_web_searchpy) — 10
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 
 ## `main.py`
@@ -129,7 +155,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*60 functions*
+*55 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
@@ -157,10 +183,6 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def expired(self) -> bool` *property* — True once the offer is too old to still make sense.
 
-### `class Intent` — Classification result for one user utterance.
-
-- `def is_conversation(self) -> bool` *property* — True when no module work is required.
-
 ### `class Brain` — JARVIS's cognition: persona, routing, tool use and memory integration.
 
 - `def __init__(self, config: Config) -> None` — Build the brain and everything it owns.
@@ -173,13 +195,16 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _safe_shutdown(module: BaseModule) -> None` *staticmethod* — Shut a module down without letting errors escape.
 - `async def reload_module(self, name: str) -> Tuple[bool, str]` — Re-import a module or plugin and swap in a fresh instance.
 - `async def shutdown(self) -> None` — Persist memory and tear down modules and the HTTP client.
-- `def system_prompt(self, memory_context: str = '') -> str` — Build the JARVIS system prompt.
+- `def system_prompt(self, memory_context: str = '') -> str` — Build the JARVIS system prompt (see :mod:`core.personality`).
+- `async def classify(self, text: str) -> Intent` — Decide which module should handle ``text`` (:mod:`core.intent_router`).
+- `async def _react(self, text: str, intent: Intent, memory_context: str, on_token: Optional[TokenCallback] = None) -> str` — Run the ReAct loop (see :mod:`core.planner`).
+- `def _finalize(text: str) -> str` *staticmethod* — Strip stray formatting artefacts from a model answer.
+- `def _humorous_failure(self, error: str) -> str` — Report an error gracefully, with a little personality.
+- `def _offline_reply(self, text: str) -> str` — Canned reply when no LLM is reachable.
+- `def _keyword_intent(self, text: str) -> Intent` — Score the utterance against the keyword table.
 - `async def _generate(self, messages: List[Dict[str, str]], on_token: Optional[TokenCallback] = None, temperature: Optional[float] = None, max_tokens: Optional[int] = None) -> str` — Generate a reply, streaming tokens when a callback is supplied.
 - `def cancel(self) -> None` — Abort the in-flight response (used for voice barge-in and Ctrl+C).
 - `def busy(self) -> bool` *property* — True while a turn is being processed.
-- `async def classify(self, text: str) -> Intent` — Determine which module (if any) should handle ``text``.
-- `def _closest_module(self, name: str) -> Optional[str]` — Fuzzy-match a hallucinated category onto a loaded module.
-- `def _keyword_intent(self, text: str) -> Intent` — Score the utterance against :data:`INTENT_KEYWORDS`.
 - `def tool_registry(self, primary: Optional[str] = None) -> str` — Render the tool catalog for the ReAct prompt.
 - `def _tool_spec(self, reference: str) -> Optional[Any]` — Look up the :class:`~modules.base.ToolSpec` behind a reference.
 - `async def _injection_gate(self, reference: str, params: Dict[str, Any]) -> Optional[str]` — Refuse or re-confirm dangerous work driven by untrusted content.
@@ -192,27 +217,25 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _status(self, message: str) -> None` — Emit a spoken/printed progress update if a hook is installed.
 - `async def _handle_memory_intent(self, text: str, memory_context: str) -> str` — Store, recall or forget memories based on natural phrasing.
 - `async def _converse(self, text: str, memory_context: str, on_token: Optional[TokenCallback] = None) -> str` — Plain conversational reply with persona and history.
-- `async def _react(self, text: str, intent: Intent, memory_context: str, on_token: Optional[TokenCallback] = None) -> str` — Run the Reason → Act → Observe loop, then compose the answer.
-- `def _react_prompt(self, text: str, catalog: str, transcript: List[str], step: int, memory_context: str) -> str` — Build the prompt for one ReAct iteration.
-- `async def _status_for_tool(self, reference: str, step: int) -> None` — Give the user a spoken heads-up for slower tools.
-- `def _is_terminal(reference: str, result: ModuleResult) -> bool` *staticmethod* — Heuristic: does this tool result already satisfy the request?
 - `async def _compose_answer(self, text: str, observations: List[Tuple[str, ModuleResult]], memory_context: str, on_token: Optional[TokenCallback] = None) -> str` — Turn raw tool observations into a JARVIS-flavoured reply.
 - `def _capture_followup(self, observations: List[Tuple[str, ModuleResult]]) -> None` — Remember any action a tool offered to perform on confirmation.
-- `def _finalize(text: str) -> str` *staticmethod* — Strip stray formatting artefacts from a model answer.
-- `def _humorous_failure(self, error: str) -> str` — Report an error gracefully, with a little personality.
-- `def _offline_reply(self, text: str) -> str` — Canned reply when no LLM is reachable.
 - `async def greeting(self) -> str` — Compose the start-up greeting.
 - `async def status_report(self) -> Dict[str, Any]` — Collect a full status snapshot for the CLI ``status`` command.
 - `def speakable(self, text: str) -> str` — Strip markdown so the TTS engine reads clean prose.
 
 ## `core/config.py`
 
-*20 functions*
+*25 functions*
 
 > YAML configuration with sane defaults, dot-path access and hot reload.
 
+- `def _normalise_aliases(data: Dict[str, Any]) -> Dict[str, Any]` — Rewrite alias keys onto their canonical names.
+- `def _dig(data: Any, parts: List[str]) -> Any` — Read a nested key, returning :data:`_ABSENT` when it is not there.
+- `def _plant(data: Dict[str, Any], parts: List[str], value: Any) -> None` — Write a nested key, creating the intermediate dictionaries.
+- `def _drop(data: Dict[str, Any], parts: List[str]) -> None` — Delete a nested key if it is there, pruning nothing else.
 - `def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]` — Recursively merge ``override`` into a copy of ``base``.
 - `def _coerce(value: str) -> Any` — Convert an environment string into bool/int/float when possible.
+- `def _underscore_variants(name: str) -> List[str]` — Every way an underscored env-var name could map onto dotted keys.
 - `def load_config(path: str | Path = 'config.yaml') -> Config` — Convenience wrapper around :meth:`Config.load`.
 
 ### `class Config` — Loads, validates and exposes JARVIS settings.
@@ -239,9 +262,51 @@ and marked with `·`; methods the intent router can call are marked
 
 *(no methods)*
 
+## `core/event_bus.py`
+
+*13 functions*
+
+> A tiny async pub/sub so modules can talk without importing each other.
+
+### `class Event` — Something that happened, with whatever context came with it.
+
+- `def get(self, key: str, default: Any = None) -> Any` — Read one field of the payload.
+
+### `class EventBus` — In-process publish/subscribe with a short replayable history.
+
+- `def __init__(self, history: int = 200) -> None` — Create a bus.
+- `def subscribe(self, name: str, handler: Handler) -> Callable[[], None]` — Register a handler for an event name (or :data:`WILDCARD`).
+  · `def unsubscribe() -> None` — Remove the handler registered above.
+- `def unsubscribe(self, name: str, handler: Handler) -> bool` — Remove one handler.
+- `def subscriber_count(self, name: Optional[str] = None) -> int` — Count handlers for one event, or for all of them.
+- `async def publish(self, name: str, source: str = '', **data: Any) -> Event` — Deliver an event to every matching handler and wait for them.
+- `def emit(self, name: str, source: str = '', **data: Any) -> Optional[Event]` — Fire and forget: publish without awaiting the handlers.
+- `async def wait_for(self, name: str, timeout: Optional[float] = None) -> Optional[Event]` — Block until an event with this name is published.
+  · `def catch(event: Event) -> None` — Complete the future with the first matching event.
+- `def recent(self, name: str = '', limit: int = 20) -> List[Event]` — Return the most recent events, newest last.
+- `def clear(self) -> None` — Forget the history (handlers stay subscribed).
+- `async def close(self) -> None` — Wait for any fire-and-forget deliveries still in flight.
+
+## `core/intent_router.py`
+
+*5 functions*
+
+> LLM-based intent classification: which module should handle this?
+
+### `class Intent` — Classification result for one user utterance.
+
+- `def is_conversation(self) -> bool` *property* — True when no module work is required.
+
+### `class IntentRouter` — Decides which module handles an utterance.
+
+- `def __init__(self, brain: 'Brain') -> None` — Attach the router to a brain.
+- `async def classify(self, text: str) -> Intent` — Determine which module (if any) should handle ``text``.
+- `def _keyword_intent(self, text: str) -> Intent` — Score the utterance against :data:`INTENT_KEYWORDS`.
+- `def _closest_module(self, name: str) -> Optional[str]` — Fuzzy-match a hallucinated category onto a loaded module.
+
 ## `core/memory.py`
 
-*62 functions*
+*66 functions*
 
 > Dual memory system for JARVIS.
 
@@ -258,9 +323,13 @@ and marked with `·`; methods the intent router can call are marked
 
 ### `class OllamaEmbedder` — Embedding function backed by Ollama, with an offline fallback.
 
-- `def __init__(self, host: str = 'http://localhost:11434', model: str = 'nomic-embed-text') -> None` — Configure the embedder.
+- `def __init__(self, host: str = 'http://localhost:11434', model: str = 'nomic-embed-text', local_model: str = '') -> None` — Configure the embedder.
 - `def name() -> str` *staticmethod* — Identifier required by newer ChromaDB versions.
+- `def supported_spaces() -> List[str]` *staticmethod* — Distance metrics this embedder's vectors work with (ChromaDB API).
+- `def default_space() -> str` *staticmethod* — The distance metric ChromaDB should use by default.
+- `def is_legacy() -> bool` *staticmethod* — Tell ChromaDB this embedder speaks its modern configuration API.
 - `def embed_one(self, text: str) -> List[float]` — Embed a single string, falling back to hashing on any failure.
+- `def _embed_locally(self, text: str) -> Optional[List[float]]` — Embed with sentence-transformers, or return ``None`` if unavailable.
 - `def __call__(self, input: Sequence[str]) -> List[List[float]]` — Embed a batch of documents (ChromaDB entry point).
 - `def embed_documents(self, input: Sequence[str]) -> List[List[float]]` — Embed stored documents.
 - `def embed_query(self, input: Sequence[str]) -> List[List[float]]` — Embed a search query.
@@ -329,6 +398,34 @@ and marked with `·`; methods the intent router can call are marked
 - `async def wipe_all(self) -> bool` — Destroy every stored memory. Irreversible.
   · `def _wipe() -> bool`
 
+## `core/personality.py`
+
+*5 functions*
+
+> The JARVIS persona: how he addresses you, and how he behaves when things break.
+
+### `class Personality` — Builds the system prompt and the in-character error reports.
+
+- `def __init__(self, brain: 'Brain') -> None` — Attach the persona to a brain.
+- `def system_prompt(self, memory_context: str = '') -> str` — Build the JARVIS system prompt.
+- `def finalize(text: str) -> str` *staticmethod* — Strip stray formatting artefacts from a model answer.
+- `def humorous_failure(self, error: str) -> str` — Report an error gracefully, with a little personality.
+- `def offline_reply(self, text: str) -> str` — Canned reply when no LLM is reachable.
+
+## `core/planner.py`
+
+*5 functions*
+
+> The ReAct loop: Reason, Act, Observe, repeat — then answer.
+
+### `class Planner` — Multi-step task execution against one module's toolset.
+
+- `def __init__(self, brain: 'Brain') -> None` — Attach the planner to a brain.
+- `async def run(self, text: str, intent: Intent, memory_context: str, on_token: Optional[TokenCallback] = None) -> str` — Run the Reason → Act → Observe loop, then compose the answer.
+- `def _react_prompt(self, text: str, catalog: str, transcript: List[str], step: int, memory_context: str) -> str` — Build the prompt for one ReAct iteration.
+- `async def _status_for_tool(self, reference: str, step: int) -> None` — Give the user a spoken heads-up for slower tools.
+- `def _is_terminal(reference: str, result: ModuleResult) -> bool` *staticmethod* — Heuristic: does this tool result already satisfy the request?
+
 ## `interfaces/cli.py`
 
 *31 functions*
@@ -370,7 +467,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/voice.py`
 
-*71 functions*
+*73 functions*
 
 > Complete local voice pipeline for JARVIS.
 
@@ -440,6 +537,8 @@ and marked with `·`; methods the intent router can call are marked
 - `async def wait(self, stop_event: asyncio.Event) -> bool` — Block until the wake word is heard.
 - `async def _wait_porcupine(self, stop_event: asyncio.Event) -> bool` — Stream microphone frames into Porcupine until it triggers.
   · `def _listen() -> bool`
+- `def wake_variants(self) -> Set[str]` — Spellings that should count as the wake word being heard.
+- `def match_wake_word(self, text: str) -> Optional[Tuple[str, str]]` — Look for the wake word in a transcription.
 - `async def _wait_whisper(self, stop_event: asyncio.Event) -> bool` — Keyless wake word: transcribe short bursts and look for the word.
 - `def close(self) -> None` — Release the wake-word engine handles.
 
@@ -503,11 +602,13 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/base.py`
 
-*29 functions*
+*31 functions*
 
 > Shared plumbing for every JARVIS capability module.
 
 - `def strip_command_prefix(command: str) -> str` — Remove polite filler from the front of a spoken command.
+- `def _coerce_value(kind: str, value: Any) -> Any` — Coerce one supplied value to the type the tool declared.
+- `def _closest_param(supplied: str, candidates: List[str]) -> Optional[str]` — Map an invented parameter name onto a real, still-empty one.
 - `def tool(name: Optional[str] = None, description: str = '', params: Optional[Dict[str, Dict[str, Any]]] = None, dangerous: bool = False, untrusted: bool = False, keywords: Optional[List[str]] = None, examples: Optional[List[str]] = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]` — Decorator marking a method as an LLM-callable tool.
   · `def decorator(func: Callable[..., Any]) -> Callable[..., Any]`
 
@@ -609,7 +710,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/file_manager.py`
 
-*31 functions*
+*32 functions*
 
 > Smart file operations: search, organise, summarise documents and analyse CSVs.
 
@@ -632,7 +733,8 @@ and marked with `·`; methods the intent router can call are marked
 - `async def find_duplicates(self, path: str = '~/Downloads', limit: int = 10) -> ModuleResult` **@tool** — Group files that share identical content.
   · `def _scan() -> List[List[str]]`
 - `def _extract_document(self, path: Path, limit: int = 60000) -> str` — Extract plain text from PDF, DOCX, PPTX, HTML or any text-ish file.
-- `async def summarize_document(self, path: str, question: str = '') -> ModuleResult` **@tool** — Extract a document's text and summarise it with the local LLM.
+- `async def summarize_document(self, path: str = '', question: str = '') -> ModuleResult` **@tool** — Extract a document's text and summarise it with the local LLM.
+- `async def _summarise_text(self, text: str, question: str = '', label: str = 'the document', path: str = '') -> ModuleResult` — Summarise already-extracted text, or answer a question about it.
 - `async def analyze_csv(self, path: str, question: str = '') -> ModuleResult` **@tool** — Describe a CSV file, optionally answering a question about it.
   · `def _analyze() -> Dict[str, Any]`
 - `async def read_file(self, path: str, max_chars: int = 4000) -> ModuleResult` **@tool** — Return the contents of a text file.
@@ -703,7 +805,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/productivity.py`
 
-*71 functions*
+*72 functions*
 
 > Todos, reminders, timers, notes and the daily briefing — all SQLite backed.
 
@@ -734,7 +836,8 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _flush_deferred(self) -> None` — Deliver anything held back during quiet hours.
 - `async def _announce(self, message: str) -> None` — Speak/print a notification and raise a desktop toast.
 - `async def _desktop_notify(title: str, message: str) -> None` *staticmethod* — Best-effort native desktop notification.
-- `async def _scheduler_loop(self) -> None` — Poll for due reminders, scheduled jobs and held announcements.
+- `async def _tick(self) -> None` — One scheduler pass: fire due reminders and jobs, flush held speech.
+- `async def _scheduler_loop(self) -> None` — Poll in a plain loop — used only if the Scheduler cannot start.
 - `def _pop_due_jobs(self) -> List[Dict[str, Any]]` — Return scheduled jobs that are due, and reschedule them.
 - `async def _run_job(self, job: Dict[str, Any]) -> None` — Execute one scheduled job and announce the outcome.
 - `async def _perform(self, action: str, params: Dict[str, Any], description: str) -> str` — Carry out one scheduled action and return what to say about it.
@@ -774,7 +877,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def start_timer(self, duration: str, label: str = '') -> ModuleResult` **@tool** — Start an asynchronous countdown that announces when it finishes.
   · `async def _run() -> None`
 - `async def list_timers(self) -> ModuleResult` **@tool** — Show every active timer.
-- `async def cancel_timer(self, timer: str) -> ModuleResult` **@tool** — Cancel one or all timers.
+- `async def cancel_timer(self, timer: str = '') -> ModuleResult` **@tool** — Cancel one or all timers.
 - `async def stopwatch(self, action: str = 'start', name: str = 'default') -> ModuleResult` **@tool** — Start/stop/lap a named stopwatch.
 - `async def add_note(self, content: str, title: str = '', tags: str = '') -> ModuleResult` **@tool** — Persist a note.
   · `def _insert() -> int`
@@ -850,7 +953,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/smart_assistant.py`
 
-*20 functions*
+*22 functions*
 
 > General intelligence.
 
@@ -869,9 +972,11 @@ and marked with `·`; methods the intent router can call are marked
 - `async def calculate(self, expression: str) -> ModuleResult` **@tool** — Do arithmetic safely, falling back to the LLM for word problems.
 - `def _normalise_expression(text: str) -> str` *staticmethod* — Turn spoken maths into Python syntax.
 - `async def convert(self, value: float, from_unit: str, to_unit: str) -> ModuleResult` **@tool** — Convert a quantity between two units.
+- `def _convert_with_pint(value: float, source: str, target: str) -> Optional[float]` *staticmethod* — Convert with the pint library when it is installed.
 - `def _convert_temperature(value: float, source: str, target: str) -> Optional[float]` *staticmethod* — Convert between Celsius, Fahrenheit and Kelvin.
 - `async def _convert_currency(self, amount: float, source: str, target: str) -> Optional[ModuleResult]` — Convert currency using a free, key-less exchange rate API.
-- `async def translate(self, text: str, target_language: str) -> ModuleResult` **@tool** — Translate text using the local LLM.
+- `async def translate(self, text: str, target_language: str) -> ModuleResult` **@tool** — Translate text with the local LLM, or MyMemory when it is offline.
+- `async def _translate_via_mymemory(self, text: str, target: str) -> Optional[str]` — Translate through the free MyMemory API (no key, ~1000 words/day).
 - `async def summarize(self, text: str, style: str = 'bullets') -> ModuleResult` **@tool** — Condense text into bullets, a paragraph or a one-liner.
 - `async def write_creative(self, brief: str, form: str = 'short piece', tone: str = 'engaging') -> ModuleResult` **@tool** — Produce creative writing to a brief.
 - `async def brainstorm(self, topic: str, count: int = 7) -> ModuleResult` **@tool** — Generate a numbered list of ideas.
@@ -880,7 +985,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/system_control.py`
 
-*22 functions*
+*23 functions*
 
 > Control the host computer: apps, screenshots, stats, volume, input, shell.
 
@@ -903,6 +1008,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def type_text(self, text: str, interval: float = 0.01) -> ModuleResult` **@tool** — Type ``text`` into the focused window.
 - `async def press_keys(self, keys: str) -> ModuleResult` **@tool** — Press a key combination.
 - `async def click(self, x: int, y: int, button: str = 'left', clicks: int = 1) -> ModuleResult` **@tool** — Click at an absolute screen position.
+- `async def mouse(self, action: str = 'position', x: int = -1, y: int = -1, amount: int = 0, duration: float = 0.2) -> ModuleResult` **@tool** — Drive the mouse, or ask it where it is.
 - `async def clipboard(self, action: str = 'get', text: str = '') -> ModuleResult` **@tool** — Get or set clipboard contents.
 - `async def run_shell(self, command: str, cwd: str = '') -> ModuleResult` **@tool** — Execute a shell command after a risk assessment.
 - `async def system_info(self) -> ModuleResult` **@tool** — Return static machine information.
@@ -935,7 +1041,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/web_search.py`
 
-*18 functions*
+*19 functions*
 
 > Internet research with zero API keys.
 
@@ -953,12 +1059,35 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _fetch_text(self, url: str) -> str` — Download a page and return its readable text.
 - `def _html_to_text(self, markup: str) -> str` — Strip a page down to readable prose.
 - `async def read_page(self, url: str, question: str = '') -> ModuleResult` **@tool** — Scrape ``url`` and summarise it (optionally answering ``question``).
-- `async def weather(self, location: str = '') -> ModuleResult` **@tool** — Fetch weather from wttr.in (free, no key required).
+- `async def _locate_by_ip(self) -> str` **@tool** — Guess the user's city from their IP address, for free.
+- `async def weather(self, location: str = '') -> ModuleResult` — Fetch weather from wttr.in (free, no key required).
 - `async def news(self, topic: str = '', limit: int = 8) -> ModuleResult` **@tool** — Aggregate headlines from the configured RSS feeds.
 - `def _parse_feed(self, xml_text: str, source_url: str) -> List[Dict[str, str]]` — Parse an RSS/Atom document into simple dicts.
 - `async def wikipedia(self, topic: str, sentences: int = 5) -> ModuleResult` **@tool** — Fetch a Wikipedia extract via the open REST API.
 - `async def find_place(self, query: str) -> ModuleResult` **@tool** — Geocode a place name with the free Nominatim API.
 - `async def latest_on(self, topic: str) -> ModuleResult` **@tool** — Combine news and web search for a 'what's new' briefing.
+
+## `plugins/plugin_loader.py`
+
+*12 functions*
+
+> Discovering, vetting, loading and unloading plugin skills.
+
+- `def discover(directory: Path, pending: bool = False) -> List[Path]` — List candidate plugin files in a directory.
+- `def vet_source(source: str) -> Tuple[List[str], str, List[str]]` — Statically check plugin source before anyone imports it.
+- `def inspect_plugin(path: Path, pending: bool = False) -> PluginInfo` — Read and vet one plugin file without importing it.
+- `def survey(directory: Path) -> List[PluginInfo]` — Inspect every installed and pending plugin.
+- `def load(path: Path, config: Any, llm: Any = None, security: Any = None, enforce: bool = True) -> Optional[BaseModule]` — Import a plugin file and instantiate the module it defines.
+- `def unload(name: str) -> bool` — Drop a plugin's imported module from ``sys.modules``.
+- `def approve(directory: Path, name: str) -> Tuple[bool, str]` — Move a plugin out of the review queue so it can be loaded.
+- `def reject(directory: Path, name: str, keep_source: bool = False) -> Tuple[bool, str]` — Delete a plugin from the review queue.
+- `def remove(directory: Path, name: str) -> Tuple[bool, str]` — Delete an installed plugin and forget its import.
+- `def summary(directory: Path) -> Dict[str, Any]` — Counts for the status screens.
+
+### `class PluginInfo` — What is known about one plugin file.
+
+- `def safe(self) -> bool` *property* — True when static vetting found nothing to complain about.
+- `def describe(self) -> str` — One line for a listing.
 
 ## `utils/backup.py`
 
@@ -1042,7 +1171,7 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def is_supported(path: str | Path) -> bool` — Return True when :func:`extract_text` can handle this file type.
 - `def extract_text(path: str | Path, limit: int = 400000) -> str` — Extract plain text from a document.
-- `def _extract_pdf(path: Path, limit: int) -> str` — Pull text out of a PDF with pypdf.
+- `def _extract_pdf(path: Path, limit: int) -> str` — Pull text out of a PDF, preferring PyMuPDF and falling back to pypdf.
 - `def _extract_docx(path: Path, limit: int) -> str` — Pull text (including tables) out of a DOCX with python-docx.
 - `def _extract_pptx(path: Path, limit: int) -> str` — Pull slide text out of a PPTX (zip + XML, no extra dependency).
 - `def chunk_text(text: str, chunk_size: int = 1200, overlap: int = 150) -> List[Tuple[int, str]]` — Split text into overlapping chunks on paragraph/sentence boundaries.
@@ -1051,7 +1180,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `utils/helpers.py`
 
-*31 functions*
+*33 functions*
 
 > Small, dependency-light helpers shared across the whole JARVIS codebase.
 
@@ -1078,6 +1207,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def friendly_time(dt: Optional[datetime] = None) -> str` — Human friendly clock string, e.g. ``Friday 05 September, 14:32``.
 - `def friendly_when(dt: datetime, reference: Optional[datetime] = None) -> str` — Describe a moment the way a person would say it out loud.
 - `def parse_duration(text: str) -> Optional[int]` — Parse ``"10 minutes"``, ``"1h30m"``, ``"90s"`` into seconds.
+- `def _parse_weekday(text: str, reference: datetime) -> Optional[datetime]` — Resolve "friday at 6pm" or "next monday" without any dependencies.
+- `def _parse_when_with_dateparser(text: str, reference: Optional[datetime] = None) -> Optional[datetime]` — Last-resort time parsing via the optional ``dateparser`` package.
 - `def parse_when(text: str, reference: Optional[datetime] = None) -> Optional[datetime]` — Parse a loose time expression into an absolute ``datetime``.
 - `def ensure_dir(path: str | Path) -> Path` — Create ``path`` (and parents) if missing and return it as a ``Path``.
 - `def expand_path(path: str | Path) -> Path` — Expand ``~``, environment variables and resolve to an absolute path.
@@ -1117,6 +1248,49 @@ and marked with `·`; methods the intent router can call are marked
 ### `class _ColorFormatter` — Minimal ANSI colour formatter used when rich is unavailable.
 
 - `def format(self, record: logging.LogRecord) -> str`
+
+## `utils/scheduler.py`
+
+*26 functions*
+
+> Scheduling that prefers APScheduler and works fine without it.
+
+- `def _now_like(moment: datetime) -> datetime` — Return "now" with the same awareness as ``moment``.
+- `async def run_later(seconds: float, func: JobFunc) -> None` — Await ``seconds`` and then run ``func`` once, swallowing its errors.
+- `def humanise_next(info: Optional[JobInfo]) -> str` — Describe when a job fires next, in words.
+
+### `class JobInfo` — What the scheduler knows about one job.
+
+- `def describe(self) -> str` — One line suitable for a status table.
+
+### `class _FallbackJob` — A job the built-in engine runs itself.
+
+*(no methods)*
+
+### `class Scheduler` — Run callables later, repeatedly, or on a cron-like rule.
+
+- `def __init__(self, timezone: str = '', prefer_apscheduler: bool = True) -> None` — Create a scheduler (nothing runs until :meth:`start`).
+- `def engine(self) -> str` *property* — ``"apscheduler"`` or ``"builtin"``.
+- `def running(self) -> bool` *property* — True once :meth:`start` has been called and not shut down.
+- `def start(self) -> str` — Start the engine.
+- `async def shutdown(self) -> None` — Stop every job and release the engine.
+- `def every(self, seconds: float, func: JobFunc, job_id: str = '', name: str = '') -> JobInfo` — Run ``func`` every ``seconds`` seconds.
+- `def at(self, when: datetime, func: JobFunc, job_id: str = '', name: str = '') -> JobInfo` — Run ``func`` once, at a specific moment.
+- `def cron(self, func: JobFunc, job_id: str = '', name: str = '', hour: int = 0, minute: int = 0, day_of_week: str = '') -> JobInfo` — Run ``func`` on a daily/weekly clock rule.
+- `def from_rule(self, rule: Any, func: JobFunc, job_id: str = '', name: str = '') -> JobInfo` — Schedule from a :class:`modules.productivity.ScheduleRule`.
+- `def remove(self, job_id: str) -> bool` — Cancel and forget one job.
+- `def pause(self, job_id: str) -> bool` — Suspend a job without forgetting it.
+- `def resume(self, job_id: str) -> bool` — Un-pause a job.
+- `def jobs(self) -> List[JobInfo]` — Every known job, newest last.
+- `def job(self, job_id: str) -> Optional[JobInfo]` — Look up one job's state.
+- `def _spawn(self, job_id: str, coro: Any) -> Optional['asyncio.Task[None]']` — Start a fallback-engine coroutine, or hold it until a loop exists.
+- `def _flush_deferred(self) -> None` — Start any coroutines that were waiting for an event loop.
+- `def _wrap(self, func: JobFunc, info: JobInfo, once: bool = False) -> Callable[[], Any]` — Wrap a job so failures are logged and run counts stay accurate.
+  · `async def runner() -> None` — Execute one firing of the job.
+- `async def _run_interval(self, job: _FallbackJob) -> None` — Fallback engine: fire every ``job.seconds`` seconds.
+- `async def _run_once(self, job: _FallbackJob) -> None` — Fallback engine: fire once at ``job.at``.
+- `async def _run_cron(self, job: _FallbackJob) -> None` — Fallback engine: fire on the next matching clock time, forever.
+- `def _next_cron(now: datetime, spec: Dict[str, Any]) -> datetime` *staticmethod* — Compute the next firing time for a simple cron spec.
 
 ## `utils/security.py`
 
@@ -1172,6 +1346,313 @@ and marked with `·`; methods the intent router can call are marked
 - `def do_DELETE(self) -> None` — Serve ``/api/delete``.
 - `def do_POST(self) -> None` — Serve ``/api/chat``, ``/api/embeddings``, ``/api/pull`` and ``/api/show``.
 
+## `tests/test_brain.py`
+
+*22 functions*
+
+> Unit tests for core/brain.py and the pieces it delegates to.
+
+- `def brain(config)` — An initialised Brain with every module loaded and no LLM.
+- `def test_the_brain_owns_its_collaborators(brain)`
+- `def test_the_expected_modules_are_loaded(brain)`
+- `def test_a_disabled_module_is_not_loaded(config)`
+- `def test_the_ten_reference_utterances_route_correctly(brain, utterance, module)`
+- `def test_classification_reports_how_it_decided(brain)`
+- `def test_every_keyword_table_names_a_real_module(brain)`
+- `def test_an_empty_utterance_is_answered_not_routed(brain)`
+- `def test_dispatch_runs_a_tool_by_qualified_name(brain)`
+- `def test_dispatch_finds_a_bare_tool_name(brain)`
+- `def test_dispatch_of_an_unknown_tool_fails_without_raising(brain)`
+- `def test_dispatch_with_no_tool_named_is_refused(brain)`
+- `def test_the_system_prompt_carries_the_persona(brain)`
+- `def test_the_system_prompt_includes_memory_context(brain)`
+- `def test_error_reports_stay_in_character(brain)`
+- `def test_the_offline_reply_explains_what_is_missing(brain)`
+- `def test_finalize_strips_model_scaffolding()`
+- `def test_a_turn_produces_a_reply_and_is_counted(brain)`
+- `def test_a_turn_publishes_its_lifecycle_events(brain)`
+- `def test_the_exchange_is_remembered(brain)`
+- `def test_the_planner_has_a_step_budget()`
+- `def test_an_intent_is_a_plain_data_object()`
+
+## `tests/test_cli.py`
+
+*14 functions*
+
+> Unit tests for interfaces/cli.py.
+
+- `def cli(config)` — A CLI wired to an initialised, LLM-less brain.
+- `def test_informational_commands_are_consumed(cli, command)`
+- `def test_commands_work_with_and_without_the_slash(cli)`
+- `def test_ordinary_speech_is_not_treated_as_a_command(cli)`
+- `def test_an_empty_line_is_not_a_command(cli)`
+- `def test_quitting_stops_the_loop(cli)`
+- `def test_every_farewell_stops_the_loop(cli, word)`
+- `def test_muting_and_unmuting_toggles_spoken_replies(cli)`
+- `def test_a_known_language_is_accepted(cli)`
+- `def test_an_unknown_language_is_rejected_without_changing_anything(cli)`
+- `def test_facts_can_be_remembered_from_the_command_line(cli)`
+- `def test_recall_works_even_with_an_empty_memory(cli)`
+- `def test_rendering_helpers_never_raise(cli)`
+- `def test_an_unknown_slash_command_is_reported_not_ignored(cli)`
+
+## `tests/test_code_assistant.py`
+
+*13 functions*
+
+> Unit tests for modules/code_assistant.py.
+
+- `def coder(config)` — A CodeAssistant writing into the temporary workspace.
+- `def test_offline_router_recognises_coding_requests(coder, phrase, expected)`
+- `def test_running_honest_code_returns_its_output(coder)`
+- `def test_a_syntax_error_is_reported_not_raised(coder)`
+- `def test_an_exception_inside_the_snippet_is_captured(coder)`
+- `def test_dangerous_code_is_refused_before_it_runs(coder)`
+- `def test_an_endless_loop_is_killed_by_the_timeout(coder)`
+- `def test_empty_code_is_refused(coder)`
+- `def test_saving_code_writes_a_file(coder, tmp_path)`
+- `def test_saved_code_can_be_read_back(coder)`
+- `def test_reading_a_file_that_is_not_there_fails_politely(coder)`
+- `def test_environment_info_lists_the_interpreter(coder)`
+- `def test_writing_code_without_a_model_says_so(coder)`
+
+## `tests/test_communications.py`
+
+*8 functions*
+
+> Unit tests for modules/communications.py — e-mail and calendar.
+
+- `def comms(config)` — A Communications module with no mailbox configured.
+- `def test_offline_router_recognises_comms_requests(comms, phrase, expected)`
+- `def test_status_reports_that_nothing_is_configured(comms)`
+- `def test_checking_mail_without_an_account_explains_how_to_set_it_up(comms)`
+- `def test_sending_mail_without_an_account_is_refused(comms)`
+- `def test_the_calendar_is_readable_even_when_empty(comms)`
+- `def test_an_event_can_be_added_locally(comms)`
+- `def test_email_contents_are_untrusted(comms)`
+
+## `tests/test_config.py`
+
+*15 functions*
+
+> Unit tests for core/config.py.
+
+- `def test_dotted_keys_are_read_and_written(tmp_path)`
+- `def test_a_missing_key_returns_the_default(tmp_path)`
+- `def test_defaults_are_merged_under_user_settings(tmp_path)`
+- `def test_a_section_comes_back_as_a_dict(tmp_path)`
+- `def test_settings_survive_a_save_and_load(tmp_path)`
+- `def test_loading_a_missing_file_writes_the_defaults(tmp_path)`
+- `def test_a_corrupt_file_falls_back_to_defaults(tmp_path)`
+- `def test_relative_paths_resolve_against_the_config_file(tmp_path)`
+- `def test_directories_are_created_on_demand(tmp_path)`
+- `def test_environment_variables_override_the_file(tmp_path, monkeypatch)`
+- `def test_alias_keys_drive_the_real_setting(tmp_path, alias, canonical, value)`
+- `def test_the_canonical_key_wins_when_both_are_present(tmp_path)`
+- `def test_quiet_hours_can_be_written_as_a_block(tmp_path)`
+- `def test_disabled_quiet_hours_become_an_empty_window(tmp_path)`
+- `def test_every_alias_points_at_a_plausible_key()`
+
+## `tests/test_event_bus.py`
+
+*22 functions*
+
+> Unit tests for core/event_bus.py.
+
+- `def test_a_subscriber_receives_the_event_it_asked_for()`
+- `def test_a_subscriber_is_not_bothered_by_other_events()`
+- `def test_a_wildcard_subscriber_receives_everything()`
+- `def test_async_handlers_are_awaited()`
+  · `async def handler(event: Event) -> None`
+- `def test_a_handler_that_raises_cannot_break_the_publisher()`
+  · `def explode(event: Event) -> None`
+- `def test_unsubscribing_stops_delivery()`
+- `def test_unsubscribing_something_that_was_never_subscribed_is_false()`
+- `def test_subscriber_counts_are_reported()`
+- `def test_recent_history_is_kept_for_replay()`
+- `def test_history_can_be_cleared()`
+- `def test_emit_delivers_without_being_awaited()`
+  · `async def scenario() -> list`
+- `def test_wait_for_returns_the_matching_event()`
+  · `async def scenario() -> Event`
+- `def test_wait_for_gives_up_at_the_timeout()`
+  · `async def scenario() -> object`
+- `def test_closing_the_bus_drops_every_subscriber()`
+  · `async def scenario() -> int`
+- `def test_events_carry_a_source_and_a_timestamp()`
+- `def test_the_standard_event_names_are_namespaced(name)`
+
+## `tests/test_file_manager.py`
+
+*16 functions*
+
+> Unit tests for modules/file_manager.py.
+
+- `def tree(tmp_path)` — A little file tree: documents, images, duplicates and a CSV.
+- `def files(config)` — A FileManager wired to the temporary config.
+- `def test_offline_router_recognises_file_requests(files, phrase, expected)`
+- `def test_finding_files_by_extension(files, tree)`
+- `def test_finding_nothing_is_reported_as_success_with_a_clear_message(files, tree)`
+- `def test_searching_inside_files(files, tree)`
+- `def test_duplicates_are_found_by_content_not_name(files, tree)`
+- `def test_largest_files_are_ranked(files, tree)`
+- `def test_a_csv_is_analysed_with_column_statistics(files, tree)`
+- `def test_analysing_a_missing_csv_fails_politely(files, tree)`
+- `def test_organising_sorts_files_into_category_folders(files, tree)`
+- `def test_organising_can_be_previewed_without_moving_anything(files, tree)`
+- `def test_a_move_can_be_undone(files, tree)`
+- `def test_reading_a_text_file_returns_its_contents(files, tree)`
+- `def test_document_contents_are_marked_untrusted(files)`
+- `def test_folder_stats_counts_the_tree(files, tree)`
+
+## `tests/test_knowledge.py`
+
+*11 functions*
+
+> Unit tests for modules/knowledge.py — the RAG document index.
+
+- `def library(tmp_path)` — A folder of documents worth indexing.
+- `def knowledge(config, library)` — A Knowledge module pointed at the temporary library.
+- `def test_offline_router_recognises_knowledge_requests(knowledge, phrase, expected)`
+- `def test_indexing_reports_how_many_documents_it_read(knowledge, library)`
+- `def test_indexing_an_empty_folder_is_not_an_error(knowledge, tmp_path)`
+- `def test_indexing_a_missing_folder_fails_politely(knowledge, tmp_path)`
+- `def test_searching_finds_the_relevant_document(knowledge, library)`
+- `def test_searching_an_empty_index_says_so(knowledge)`
+- `def test_status_reports_the_index_size(knowledge, library)`
+- `def test_documents_can_be_forgotten(knowledge, library)`
+- `def test_indexed_text_is_treated_as_untrusted(knowledge)`
+
+## `tests/test_memory.py`
+
+*18 functions*
+
+> Unit tests for core/memory.py.
+
+- `def test_the_window_keeps_only_the_configured_number_of_exchanges()`
+- `def test_messages_alternate_user_and_assistant()`
+- `def test_the_default_window_is_twenty_exchanges()`
+- `def test_an_empty_window_produces_no_messages()`
+- `def test_hash_embeddings_are_deterministic_and_the_right_size()`
+- `def test_different_text_embeds_differently()`
+- `def test_the_embedder_falls_back_when_ollama_is_missing()`
+- `def test_the_embedder_handles_empty_input()`
+- `def test_the_embedder_satisfies_the_chromadb_protocol()`
+- `def memory(config)` — An initialised Memory writing into the temporary directory.
+- `def test_memory_starts_with_a_working_backend(memory)`
+- `def test_an_exchange_is_stored_and_recalled(memory)`
+- `def test_remembering_a_fact_makes_it_retrievable(memory)`
+- `def test_recall_of_something_never_stored_returns_a_list(memory)`
+- `def test_recall_with_an_empty_query_returns_nothing(memory)`
+- `def test_memory_survives_a_save_and_reload(config)`
+- `def test_stats_report_the_backend_and_counts(memory)`
+- `def test_clearing_short_term_memory_leaves_the_long_term_alone(memory)`
+
+## `tests/test_models.py`
+
+*7 functions*
+
+> Unit tests for modules/models.py — managing the local Ollama models.
+
+- `def models(config)` — A Models module talking to a dead Ollama.
+- `def test_offline_router_recognises_model_requests(models, phrase, expected)`
+- `def test_listing_models_without_ollama_explains_itself(models)`
+- `def test_a_recommendation_needs_no_server(models)`
+- `def test_every_purpose_has_a_recommendation(models, purpose)`
+- `def test_switching_to_a_model_that_is_not_installed_is_refused(models)`
+- `def test_asking_about_no_model_in_particular_is_handled(models)`
+
+## `tests/test_plugins.py`
+
+*18 functions*
+
+> Unit tests for plugins/plugin_loader.py.
+
+- `def plugin_dir(tmp_path)` — A plugins directory with one good and one hostile candidate pending.
+- `def test_a_well_behaved_plugin_passes_vetting()`
+- `def test_dangerous_constructs_are_reported(source, fragment)`
+- `def test_a_plugin_that_does_not_parse_is_rejected()`
+- `def test_a_file_with_no_module_is_rejected()`
+- `def test_pending_plugins_are_discovered(plugin_dir)`
+- `def test_nothing_is_installed_before_approval(plugin_dir)`
+- `def test_a_survey_separates_the_clean_from_the_suspicious(plugin_dir)`
+- `def test_the_summary_counts_what_is_waiting(plugin_dir)`
+- `def test_a_clean_plugin_can_be_approved(plugin_dir)`
+- `def test_a_hostile_plugin_cannot_be_approved(plugin_dir)`
+- `def test_approving_something_that_is_not_there_fails(plugin_dir)`
+- `def test_a_rejected_plugin_is_deleted(plugin_dir)`
+- `def test_an_approved_plugin_loads_and_exposes_its_tools(plugin_dir, config)`
+- `def test_a_hostile_plugin_is_never_imported(plugin_dir, config)`
+- `def test_loading_a_broken_file_returns_none(plugin_dir, config)`
+- `def test_unloading_forgets_the_import(plugin_dir, config)`
+- `def test_removing_an_installed_plugin_deletes_it(plugin_dir, config)`
+
+## `tests/test_productivity.py`
+
+*21 functions*
+
+> Unit tests for modules/productivity.py.
+
+- `def productivity(config)` — A Productivity module with a fresh database.
+- `def test_offline_router_handles_the_common_requests(productivity, phrase, expected)`
+- `def test_a_todo_survives_being_listed_and_completed(productivity)`
+- `def test_completing_a_todo_that_does_not_exist_fails_politely(productivity)`
+- `def test_todos_can_carry_a_priority(productivity)`
+- `def test_a_reminder_is_stored_with_a_future_time(productivity)`
+- `def test_a_reminder_without_a_time_is_refused(productivity)`
+- `def test_a_cancelled_reminder_stops_being_listed(productivity)`
+- `def test_notes_can_be_written_and_found_again(productivity)`
+- `def test_searching_for_a_note_that_is_not_there_says_so(productivity)`
+- `def test_a_timer_starts_and_can_be_cancelled(productivity)`
+  · `async def scenario() -> tuple`
+- `def test_a_timer_needs_a_parsable_duration(productivity)`
+- `def test_schedule_phrases_parse_into_rules(phrase, kind)`
+- `def test_a_daily_rule_always_points_at_the_future()`
+- `def test_an_interval_rule_repeats_at_its_interval()`
+- `def test_nonsense_schedules_are_rejected()`
+- `def test_quiet_hours_parse(text, expected)`
+- `def test_quiet_hours_rejects_rubbish(text)`
+- `def test_the_scheduler_is_running_after_setup(productivity)`
+- `def test_a_tick_with_nothing_due_is_harmless(productivity)`
+
+## `tests/test_self_improve.py`
+
+*14 functions*
+
+> Unit tests for modules/self_improve.py — JARVIS editing his own source.
+
+- `def self_improve(config)` — A SelfImprove module that reads the real project tree.
+- `def test_offline_router_recognises_self_requests(self_improve, phrase, expected)`
+- `def test_the_code_map_lists_the_real_modules(self_improve)`
+- `def test_reading_its_own_source_works(self_improve)`
+- `def test_a_line_range_can_be_requested(self_improve)`
+- `def test_reading_outside_the_project_is_refused(self_improve)`
+- `def test_the_plugin_list_is_readable(self_improve)`
+- `def test_reviewing_when_nothing_is_queued_says_so(self_improve)`
+- `def test_approving_a_plugin_that_is_not_queued_fails(self_improve)`
+- `def test_the_change_history_is_readable_when_empty(self_improve)`
+- `def test_status_reports_what_it_is_allowed_to_do(self_improve)`
+- `def test_editing_is_refused_when_the_config_forbids_it(config)`
+- `def test_installing_a_package_is_refused_when_forbidden(config)`
+- `def test_repository_readmes_are_untrusted(self_improve)`
+
+## `tests/test_smart_assistant.py`
+
+*10 functions*
+
+> Unit tests for modules/smart_assistant.py.
+
+- `def smart(config)` — A SmartAssistant with no reachable LLM.
+- `def test_offline_router_picks_the_right_tool(smart, phrase, expected)`
+- `def test_arithmetic_is_evaluated_locally(smart, expression, answer)`
+- `def test_percentages_of_a_number_work(smart)`
+- `def test_the_calculator_refuses_to_execute_code(smart)`
+- `def test_unit_conversion_uses_the_built_in_tables(smart, value, source, target, fragment)`
+- `def test_a_nonsense_conversion_fails_without_an_llm(smart)`
+- `def test_the_language_table_covers_the_common_requests()`
+- `def test_answering_without_a_model_explains_itself(smart)`
+- `def test_translating_an_empty_string_is_refused(smart)`
+
 ## `tests/test_smoke.py`
 
 *26 functions*
@@ -1203,6 +1684,25 @@ and marked with `·`; methods the intent router can call are marked
 - `async def test_self_improvement(root: Path, host: str) -> None` — GitHub integration, plugin generation and self-editing.
 - `async def main() -> int` — Run the whole suite and report.
 - `def test_everything() -> None` — Pytest entry point.
+
+## `tests/test_system_control.py`
+
+*12 functions*
+
+> Unit tests for modules/system_control.py.
+
+- `def system(config)` — A SystemControl bound to a throwaway config.
+- `def test_every_tool_is_registered(system)`
+- `def test_offline_router_recognises_common_phrasings(system, phrase, expected)`
+- `def test_current_time_answers_without_any_services(system)`
+- `def test_system_stats_reports_cpu_and_memory(system)`
+- `def test_disk_free_returns_a_size(system)`
+- `def test_mouse_reports_a_clear_reason_when_there_is_no_desktop(system)`
+- `def test_mouse_rejects_an_unknown_verb(system)`
+- `def test_run_shell_executes_a_harmless_command(system)`
+- `def test_run_shell_refuses_a_catastrophic_command(system)`
+- `def test_open_app_with_no_name_fails_politely(system)`
+- `def test_unknown_tool_never_raises(system)`
 
 ## `tests/test_units.py`
 
@@ -1315,6 +1815,117 @@ and marked with `·`; methods the intent router can call are marked
 - `def __init__(self, config: object) -> None`
 - `def cancel(self) -> None`
 
+## `tests/test_utils.py`
+
+*29 functions*
+
+> Unit tests for the utils package: scheduler, logger, security and cache.
+
+- `def test_an_interval_job_fires_repeatedly(prefer_apscheduler)`
+  · `async def scenario() -> list`
+- `def test_a_one_shot_job_fires_once(prefer_apscheduler)`
+  · `async def scenario() -> list`
+- `def test_an_async_job_is_awaited(prefer_apscheduler)`
+  · `async def scenario() -> list`
+    · `async def job() -> None`
+- `def test_a_failing_job_does_not_stop_the_others()`
+  · `async def scenario() -> list`
+    · `def explode() -> None`
+- `def test_jobs_can_be_paused_resumed_and_removed()`
+  · `async def scenario() -> tuple`
+- `def test_a_cron_job_reports_its_next_run()`
+- `def test_a_schedule_rule_can_drive_the_scheduler()`
+- `def test_the_engine_name_is_reported()`
+- `def test_next_run_is_described_in_words()`
+- `def test_run_later_swallows_its_errors()`
+  · `async def scenario() -> None`
+- `def test_catastrophic_commands_are_blocked(command)`
+- `def test_harmless_commands_are_allowed(command)`
+- `def test_a_configured_blacklist_is_matched_literally()`
+- `def test_prompt_injection_in_scraped_text_is_spotted()`
+- `def test_ordinary_prose_is_not_flagged()`
+- `def test_untrusted_text_is_fenced_before_the_model_sees_it()`
+- `def test_the_cache_stores_and_expires(tmp_path)`
+- `def test_cache_keys_are_stable()`
+- `def test_a_logger_is_namespaced_under_jarvis()`
+- `def test_setting_up_logging_twice_is_harmless(tmp_path)`
+- `def test_logging_to_a_file_actually_writes_it(tmp_path)`
+
+## `tests/test_vision.py`
+
+*8 functions*
+
+> Unit tests for modules/vision.py — screenshots and image understanding.
+
+- `def vision(config)` — A Vision module with no vision model available.
+- `def test_offline_router_recognises_vision_requests(vision, phrase, expected)`
+- `def test_a_bare_this_image_means_the_screen(vision)`
+- `def test_status_explains_what_is_missing(vision)`
+- `def test_describing_a_missing_image_fails_politely(vision, tmp_path)`
+- `def test_describing_the_screen_without_a_display_does_not_crash(vision)`
+- `def test_comparing_two_missing_images_fails_politely(vision, tmp_path)`
+- `def test_image_descriptions_are_untrusted(vision)`
+
+## `tests/test_voice.py`
+
+*20 functions*
+
+> Unit tests for interfaces/voice.py.
+
+- `def detector(config)` — A wake-word detector with dummy audio plumbing.
+- `def test_the_configured_wake_word_is_accepted(detector)`
+- `def test_common_mishearings_still_wake_him(detector, heard)`
+- `def test_unrelated_speech_does_not_wake_him(detector)`
+- `def test_a_command_said_in_the_same_breath_is_kept(detector)`
+- `def test_the_wake_word_alone_leaves_no_pending_command(detector)`
+- `def test_punctuation_and_case_are_ignored(detector)`
+- `def test_a_custom_wake_word_replaces_the_variants(config)`
+- `def test_the_streaming_speaker_waits_for_a_sentence(config)`
+- `def test_the_streaming_speaker_emits_at_a_sentence_boundary(config)`
+- `def test_code_blocks_are_not_read_aloud_mid_fence(config)`
+- `def test_the_speaker_reports_what_it_actually_said(config)`
+- `def test_cancelling_the_speaker_is_safe(config)`
+- `def test_tts_cache_paths_are_stable_and_filesystem_safe(config)`
+- `def test_speaking_without_an_audio_stack_returns_false_instead_of_raising(config)`
+- `def test_listing_voices_never_raises(config)`
+- `def test_a_microphone_reports_failure_rather_than_crashing(config)`
+- `def test_recording_without_a_device_returns_nothing(config)`
+- `def test_the_voice_interface_assembles_from_config(config)`
+- `def test_the_voice_interface_reports_what_is_missing(config)`
+
+## `tests/test_web.py`
+
+*9 functions*
+
+> Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
+
+- `def web(config)` — A WebInterface bound to a brain, without serving anything.
+- `def test_the_module_is_importable_under_both_names()`
+- `def test_local_addresses_include_something_usable()`
+- `def test_the_icon_is_a_valid_png(size)`
+- `def test_the_icon_is_deterministic()`
+- `def test_the_interface_reports_the_url_to_open(web)`
+- `def test_an_access_token_is_generated(web)`
+- `def test_the_app_exposes_the_expected_routes(web)`
+- `def test_binding_to_all_interfaces_is_the_default(config)`
+
+## `tests/test_web_search.py`
+
+*10 functions*
+
+> Unit tests for modules/web_search.py.
+
+- `def web(config)` — A WebSearch module pointed at nothing in particular.
+- `def test_offline_router_recognises_search_intents(web, phrase, expected)`
+- `def test_the_weather_router_extracts_the_place(web)`
+- `def test_the_search_router_strips_the_command_words(web)`
+- `def test_an_empty_search_is_refused(web)`
+- `def test_html_is_reduced_to_readable_text(web)`
+- `def test_unreachable_services_produce_an_explanation_not_a_crash(web)`
+- `def test_a_url_is_required_to_read_a_page(web)`
+- `def test_scraped_pages_are_marked_untrusted(web)`
+- `def test_search_results_are_marked_untrusted(web)`
+
 ## `scripts/list_functions.py`
 
 *8 functions*
@@ -1332,5 +1943,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**920 functions across 32 files.**
+**1299 functions across 58 files.**
 

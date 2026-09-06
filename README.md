@@ -251,7 +251,7 @@ python main.py --restore ~/jarvis.zip          # put it back (never overwrites)
 python main.py --restore ~/jarvis.zip --force  # overwrite, after a safety copy
 python main.py --uninstall         # shows what it will delete, then asks
 
-pytest                             # 124 fast unit tests
+pytest                             # 493 fast unit tests
 python tests/test_smoke.py         # full offline test suite (no model needed)
 ```
 
@@ -336,12 +336,12 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
                                             ┌───────────────────┐
    long-term memory (ChromaDB) ────────────►│   core/brain.py   │
    short-term window (last 20 turns) ──────►│                   │
-                                            │  1. classify      │
-                                            │  2. ReAct loop:   │
-                                            │     reason ─►act  │
-                                            │        ▲     │    │
-                                            │        └observe   │
-                                            │  3. compose reply │
+                                            │ 1. intent_router  │
+                                            │ 2. planner:       │
+                                            │    reason ─► act  │
+                                            │       ▲      │    │
+                                            │       └ observe   │
+                                            │ 3. personality    │
                                             └─────────┬─────────┘
                                                       │ tool calls
         ┌───────────────┬───────────────┬─────────────┼─────────────┬──────────────┐
@@ -351,13 +351,18 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
                                      edge-tts ──► speaker (interruptible)
 ```
 
-1. **Intent classification** — the LLM picks one module using a structured JSON
-   prompt; a keyword router provides a prior and a fallback.
-2. **ReAct** — up to 4 iterations of `{"thought", "action", "params", "answer"}`
-   JSON. Each action dispatches to a real tool; the observation feeds the next
-   step.
-3. **Composition** — the observations are turned into a short, spoken-friendly
-   reply in JARVIS's voice.
+1. **Intent classification** (`core/intent_router.py`) — the LLM picks one
+   module using a structured JSON prompt; a keyword table provides a prior and
+   a fallback, and a confident keyword match can overrule the model.
+2. **ReAct** (`core/planner.py`) — up to 4 iterations of
+   `{"thought", "action", "params", "answer"}` JSON. Each action dispatches to a
+   real tool; the observation feeds the next step.
+3. **Composition** (`core/personality.py`) — the observations are turned into a
+   short, spoken-friendly reply in JARVIS's voice.
+
+Every stage publishes to `core/event_bus.py` (`turn.started`, `turn.intent`,
+`tool.called`, `turn.finished`, `error.raised`), which is how the web UI and
+the voice interface follow along without the brain knowing they exist.
 4. **Memory** — every turn is written to SQLite; durable facts are mined in the
    background and embedded into ChromaDB for future recall.
 
@@ -374,15 +379,20 @@ jarvis/
 ├── requirements.txt
 ├── setup.sh                 one-click installer + self-test
 ├── core/
-│   ├── brain.py             Ollama client, intent router, ReAct loop, persona
+│   ├── brain.py             Ollama client, module registry, dispatch, turns
+│   ├── intent_router.py     keyword prior + LLM classifier → which module
+│   ├── planner.py           the Reason → Act → Observe loop
+│   ├── personality.py       system prompt, tone, in-character error replies
+│   ├── event_bus.py         async pub/sub other components subscribe to
 │   ├── memory.py            short-term window + ChromaDB long-term memory
-│   └── config.py            YAML config with defaults and env overrides
+│   └── config.py            YAML config with defaults, aliases, env overrides
 ├── pyproject.toml           optional packaging → a global `jarvis` command
 ├── interfaces/
 │   ├── voice.py             wake word (porcupine/openWakeWord/whisper), VAD,
 │   │                        faster-whisper STT, edge-tts, streaming speech, barge-in
 │   ├── cli.py               rich terminal UI with live streaming replies
-│   └── web.py               FastAPI + WebSocket phone/LAN chat interface
+│   ├── web.py               FastAPI + WebSocket phone/LAN chat interface
+│   └── web_ui.py            the layout's name for the web interface
 ├── modules/
 │   ├── base.py              tool decorator, dispatch, offline routing
 │   ├── system_control.py    apps, stats, volume, input, shell
@@ -400,6 +410,7 @@ jarvis/
 │   ├── logger.py            coloured console + rotating file logs
 │   ├── helpers.py           shared utilities
 │   ├── security.py          risk assessment + confirmation gate
+│   ├── scheduler.py         cron/interval jobs (APScheduler or a built-in loop)
 │   ├── cache.py             SQLite TTL cache for web lookups
 │   ├── language.py          21 languages: Whisper model, TTS voice, prompt rule
 │   ├── doctor.py            the --doctor installation diagnosis
@@ -411,11 +422,15 @@ jarvis/
 │   ├── install_service_linux.sh          systemd user service
 │   ├── install_service_macos.sh          LaunchAgent
 │   └── install_service_windows.ps1       scheduled task at logon
-├── docs/FUNCTIONS.md        index of all 920 functions (scripts/list_functions.py)
+├── docs/FUNCTIONS.md        index of every function (scripts/list_functions.py)
 ├── .github/ci.yml           ruff + mypy + tests CI (move to .github/workflows/)
-├── plugins/                 skills JARVIS writes for itself (loaded at start-up)
+├── plugins/
+│   ├── plugin_loader.py     discovery, static vetting, approval, load/unload
+│   ├── pending/             plugins waiting for you to read and approve them
+│   └── *.py                 skills JARVIS writes for itself (loaded at start-up)
 ├── tests/
-│   ├── test_units.py        124 fast pytest unit tests (no Ollama, no network)
+│   ├── conftest.py          offline Config fixture + the run() helper
+│   ├── test_<module>.py     one suite per module — 493 fast unit tests in total
 │   ├── test_smoke.py        282-check end-to-end suite
 │   └── mock_ollama.py       scripted LLM server (streaming + vision) for testing
 └── data/                    SQLite DB, ChromaDB, notes, code, screenshots, TTS cache
@@ -463,6 +478,10 @@ voice:
 productivity:
   catch_up_on_start: true    # report anything that came due while JARVIS was off
   scheduler_interval: 15     # seconds between checks for due reminders and jobs
+  use_apscheduler: true      # false forces the built-in asyncio scheduler
+
+memory:
+  local_embedding_model: ""  # e.g. "all-MiniLM-L6-v2" to embed without Ollama
 
 knowledge:
   paths: ["~/Documents"]     # folders to index
@@ -519,7 +538,16 @@ security:
 ```
 
 Any setting can be overridden by an environment variable:
-`JARVIS_LLM__MODEL=mistral python main.py`.
+`JARVIS_LLM__MODEL=mistral python main.py`. The single-underscore spelling
+(`JARVIS_LLM_MODEL`) works too — it is resolved against the settings that
+actually exist rather than inventing a new key.
+
+**Alternative spellings are accepted.** If you write `llm.base_url`,
+`voice.stt_model`, `voice.tts_voice`, `paths.data_dir`,
+`security.confirm_destructive`, `self_improve.can_modify_code`, a top-level
+`language:`, or `quiet_hours:` as an `enabled/start/end` block, JARVIS maps
+each onto its real key on load. Where both spellings appear, the canonical one
+wins. The full table is `KEY_ALIASES` in `core/config.py`.
 
 ### Choosing a model
 
@@ -1092,7 +1120,7 @@ Extras mirror the optional dependencies: `pip install -e ".[voice]"`,
 ## Continuous integration
 
 `.github/ci.yml` (move it to `.github/workflows/ci.yml` to switch it on) runs
-**ruff**, **mypy**, the 124 pytest unit tests and the 282-check offline smoke
+**ruff**, **mypy**, the 493 pytest unit tests and the 282-check offline smoke
 suite on Linux, macOS and Windows (Python 3.9–3.12), measures coverage over both
 suites, and builds a wheel. No models are downloaded — `tests/mock_ollama.py`
 scripts the LLM, including token streaming and vision responses.
@@ -1103,7 +1131,8 @@ Locally:
 pip install -e ".[dev]"
 ruff check .        # lint
 mypy                # type-check core, utils, modules, interfaces
-pytest              # fast unit tests
+pytest              # 493 fast unit tests, one suite per module
+pytest tests/test_productivity.py -q    # or just the module you touched
 python tests/test_smoke.py   # the full sweep
 
 coverage run tests/test_smoke.py && coverage run -m pytest -q
