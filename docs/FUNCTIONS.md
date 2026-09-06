@@ -31,7 +31,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/productivity.py`](#modulesproductivitypy) — 72
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
 - [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 24
-- [`modules/system_control.py`](#modulessystem_controlpy) — 23
+- [`modules/system_control.py`](#modulessystem_controlpy) — 24
 - [`modules/vision.py`](#modulesvisionpy) — 15
 - [`modules/web_search.py`](#modulesweb_searchpy) — 20
 - [`plugins/plugin_loader.py`](#pluginsplugin_loaderpy) — 12
@@ -43,12 +43,12 @@ and marked with `·`; methods the intent router can call are marked
 - [`utils/language.py`](#utilslanguagepy) — 8
 - [`utils/logger.py`](#utilsloggerpy) — 3
 - [`utils/scheduler.py`](#utilsschedulerpy) — 26
-- [`utils/security.py`](#utilssecuritypy) — 14
+- [`utils/security.py`](#utilssecuritypy) — 16
 - [`tests/fake_blender.py`](#testsfake_blenderpy) — 22
 - [`tests/mock_ollama.py`](#testsmock_ollamapy) — 10
 - [`tests/test_blender.py`](#teststest_blenderpy) — 43
 - [`tests/test_brain.py`](#teststest_brainpy) — 30
-- [`tests/test_cli.py`](#teststest_clipy) — 14
+- [`tests/test_cli.py`](#teststest_clipy) — 15
 - [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 15
 - [`tests/test_communications.py`](#teststest_communicationspy) — 8
 - [`tests/test_config.py`](#teststest_configpy) — 21
@@ -63,9 +63,9 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_self_improve.py`](#teststest_self_improvepy) — 18
 - [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 16
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
-- [`tests/test_system_control.py`](#teststest_system_controlpy) — 12
+- [`tests/test_system_control.py`](#teststest_system_controlpy) — 15
 - [`tests/test_units.py`](#teststest_unitspy) — 96
-- [`tests/test_utils.py`](#teststest_utilspy) — 37
+- [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
 - [`tests/test_web.py`](#teststest_webpy) — 12
@@ -1039,7 +1039,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/system_control.py`
 
-*23 functions*
+*24 functions*
 
 > Control the host computer: apps, screenshots, stats, volume, input, shell.
 
@@ -1065,6 +1065,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def mouse(self, action: str = 'position', x: int = -1, y: int = -1, amount: int = 0, duration: float = 0.2) -> ModuleResult` **@tool** — Drive the mouse, or ask it where it is.
 - `async def clipboard(self, action: str = 'get', text: str = '') -> ModuleResult` **@tool** — Get or set clipboard contents.
 - `async def run_shell(self, command: str, cwd: str = '') -> ModuleResult` **@tool** — Execute a shell command after a risk assessment.
+- `async def security_log(self, limit: int = 12, outcome: str = '') -> ModuleResult` **@tool** — Report the security guard's recent decisions.
 - `async def system_info(self) -> ModuleResult` **@tool** — Return static machine information.
 - `async def sleep_computer(self) -> ModuleResult` **@tool** — Suspend the machine.
 - `async def disk_free(self, path: str = '~') -> ModuleResult` **@tool** — Report free space for the volume containing ``path``.
@@ -1354,7 +1355,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `utils/security.py`
 
-*14 functions*
+*16 functions*
 
 > Safety layer for anything that can damage the machine.
 
@@ -1380,7 +1381,9 @@ and marked with `·`; methods the intent router can call are marked
 - `def _is_within(child: Path, parent: Path) -> bool` *staticmethod* — Return True when ``child`` is inside ``parent``.
 - `async def confirm(self, prompt: str) -> bool` — Ask the user to approve an action.
 - `async def authorize(self, command: str, description: str = '') -> RiskAssessment` — Assess ``command`` and, if needed, obtain user confirmation.
-- `def recent_audit(self, limit: int = 10) -> List[Dict[str, str]]` — Return the most recent risk assessments for transparency.
+- `def record(self, action: str, outcome: str, reason: str = '', source: str = '') -> Dict[str, str]` — Note a decision the guard made, for the user to review later.
+- `def _append_to_disk(self, entry: Dict[str, str]) -> None` — Append one entry to the audit file, if one is configured.
+- `def recent_audit(self, limit: int = 10, outcome: str = '') -> List[Dict[str, str]]` — Return recent decisions, newest last.
 
 ### `class InjectionReport` — The outcome of scanning untrusted text for prompt-injection attempts.
 
@@ -1535,7 +1538,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_cli.py`
 
-*14 functions*
+*15 functions*
 
 > Unit tests for interfaces/cli.py.
 
@@ -1553,6 +1556,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_recall_works_even_with_an_empty_memory(cli)`
 - `def test_rendering_helpers_never_raise(cli)`
 - `def test_an_unknown_slash_command_is_reported_not_ignored(cli)`
+- `def test_the_audit_command_is_consumed(cli)`
 
 ## `tests/test_code_assistant.py`
 
@@ -1901,7 +1905,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_system_control.py`
 
-*12 functions*
+*15 functions*
 
 > Unit tests for modules/system_control.py.
 
@@ -1917,6 +1921,9 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_run_shell_refuses_a_catastrophic_command(system)`
 - `def test_open_app_with_no_name_fails_politely(system)`
 - `def test_unknown_tool_never_raises(system)`
+- `def test_the_audit_trail_is_reportable(system)`
+- `def test_an_empty_trail_reads_calmly(config)`
+- `def test_the_audit_filter_is_validated(system)`
 
 ## `tests/test_units.py`
 
@@ -2031,7 +2038,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_utils.py`
 
-*37 functions*
+*46 functions*
 
 > Unit tests for the utils package: scheduler, logger, security and cache.
 
@@ -2072,6 +2079,15 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_missing_packages_are_one_command_not_several(tmp_path)`
 - `def test_code_that_reaches_outside_needs_confirmation(code)`
 - `def test_ordinary_code_runs_without_nagging(code)`
+- `def test_the_guard_records_what_it_decided(tmp_path)` — The trail existed and nothing ever read it; now it is answerable.
+- `def test_a_declined_confirmation_is_recorded(tmp_path)`
+  · `async def refuse(prompt: str) -> bool`
+- `def test_an_approval_is_recorded(tmp_path)`
+  · `async def approve(prompt: str) -> bool`
+- `def test_the_trail_survives_a_restart(tmp_path)`
+- `def test_the_trail_can_be_filtered(tmp_path)`
+- `def test_the_in_memory_trail_is_capped(tmp_path)`
+- `def test_an_unwritable_audit_path_does_not_break_the_action(tmp_path)`
 
 ## `tests/test_vision.py`
 
@@ -2192,5 +2208,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1493 functions across 63 files.**
+**1509 functions across 63 files.**
 

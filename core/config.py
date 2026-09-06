@@ -212,6 +212,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "shell_timeout": 60,
         "sandbox_memory_mb": 1024,
         "sandbox_timeout": 20,
+        "audit_log": "data/audit.log",   # blank keeps the trail in memory only
+        "audit_limit": 500,
         "blocked_patterns": [],
         "allowed_roots": [],
     },

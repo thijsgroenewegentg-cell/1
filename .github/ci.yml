@@ -1,8 +1,14 @@
-# /.github/ci.yml  →  copy to .github/workflows/ci.yml to activate
+# /.github/ci.yml  →  run "bash scripts/enable_ci.sh" to activate it
+#
+# GitHub only runs workflows under .github/workflows/, and it rejects pushes
+# from an app without the `workflows` permission — hence this staging spot and
+# the one-line script that moves it.
+#
 # Continuous integration: ruff, mypy, the pytest unit suite and the offline
 # smoke suite on Linux, macOS and Windows, plus a combined coverage run.
 # Everything here is free GitHub-hosted CI — no model downloads, no secrets,
-# no paid services.
+# no paid services. Nothing in it needs Ollama: tests/mock_ollama.py stands in
+# for the model, so a run takes minutes rather than gigabytes.
 
 name: CI
 

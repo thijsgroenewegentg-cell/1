@@ -92,3 +92,22 @@ def test_open_app_with_no_name_fails_politely(system):
 def test_unknown_tool_never_raises(system):
     result = run(system.call_tool("teleport", {}))
     assert not result.success
+
+
+def test_the_audit_trail_is_reportable(system):
+    run(system.call_tool("run_shell", {"command": "echo audited"}))
+    result = run(system.call_tool("security_log", {"limit": 5}))
+    assert result.success
+    assert "echo audited" in result.output or "decision" in result.output
+
+
+def test_an_empty_trail_reads_calmly(config):
+    module = SystemControl(config)
+    result = run(module.call_tool("security_log", {}))
+    assert result.success
+
+
+def test_the_audit_filter_is_validated(system):
+    result = run(system.call_tool("security_log", {"outcome": "sideways"}))
+    assert not result.success
+    assert "blocked" in result.error

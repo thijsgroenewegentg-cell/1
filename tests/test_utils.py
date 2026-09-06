@@ -343,3 +343,74 @@ def test_code_that_reaches_outside_needs_confirmation(code):
 )
 def test_ordinary_code_runs_without_nagging(code):
     assert not SecurityGuard().assess_code(code).needs_confirmation, code
+
+
+# --------------------------------------------------------------- audit trail
+def test_the_guard_records_what_it_decided(tmp_path):
+    """The trail existed and nothing ever read it; now it is answerable."""
+    guard = SecurityGuard.from_config({
+        "audit_log": str(tmp_path / "audit.log"), "confirm_dangerous": False,
+    })
+    run(guard.authorize("ls -la"))
+    run(guard.authorize("rm -rf /"))
+
+    entries = guard.recent_audit(10)
+    outcomes = [entry["outcome"] for entry in entries]
+    assert "allowed" in outcomes and "blocked" in outcomes
+    assert all(entry["at"] and entry["action"] for entry in entries)
+
+
+def test_a_declined_confirmation_is_recorded(tmp_path):
+    guard = SecurityGuard.from_config({"audit_log": str(tmp_path / "audit.log")})
+
+    async def refuse(prompt: str) -> bool:
+        return False
+
+    guard.set_confirm_hook(refuse)
+    run(guard.authorize("sudo apt update"))
+    assert guard.recent_audit(1)[0]["outcome"] == "declined"
+
+
+def test_an_approval_is_recorded(tmp_path):
+    guard = SecurityGuard.from_config({"audit_log": str(tmp_path / "audit.log")})
+
+    async def approve(prompt: str) -> bool:
+        return True
+
+    guard.set_confirm_hook(approve)
+    run(guard.authorize("sudo apt update"))
+    assert guard.recent_audit(1)[0]["outcome"] == "confirmed"
+
+
+def test_the_trail_survives_a_restart(tmp_path):
+    path = tmp_path / "audit.log"
+    first = SecurityGuard.from_config({"audit_log": str(path), "confirm_dangerous": False})
+    run(first.authorize("echo one"))
+
+    second = SecurityGuard.from_config({"audit_log": str(path)})
+    assert any("echo one" in entry["action"] for entry in second.recent_audit(10))
+
+
+def test_the_trail_can_be_filtered(tmp_path):
+    guard = SecurityGuard.from_config({
+        "audit_log": str(tmp_path / "audit.log"), "confirm_dangerous": False,
+    })
+    run(guard.authorize("echo fine"))
+    run(guard.authorize("mkfs.ext4 /dev/sda"))
+    assert all(entry["outcome"] == "blocked"
+               for entry in guard.recent_audit(10, outcome="blocked"))
+
+
+def test_the_in_memory_trail_is_capped(tmp_path):
+    guard = SecurityGuard.from_config({"audit_limit": 5})
+    for number in range(20):
+        guard.record(f"action {number}", "allowed")
+    assert len(guard.audit_log) == 5
+
+
+def test_an_unwritable_audit_path_does_not_break_the_action(tmp_path):
+    blocked = tmp_path / "file"
+    blocked.write_text("not a directory")
+    guard = SecurityGuard.from_config({"audit_log": str(blocked / "audit.log")})
+    guard.record("something", "allowed")   # must not raise
+    assert guard.audit_log

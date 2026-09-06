@@ -9,8 +9,11 @@ action is dangerous — asks the user to confirm out loud or in the terminal.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence
@@ -157,6 +160,10 @@ class SecurityGuard:
     allow_shell: bool = True
     extra_blocked: Sequence[str] = field(default_factory=list)
     allowed_roots: Sequence[str] = field(default_factory=list)
+    #: Where the audit trail is appended, one JSON object per line. Empty
+    #: keeps it in memory only, which loses it at shutdown.
+    audit_path: str = ""
+    audit_limit: int = 500
     _confirm_hook: Optional[ConfirmHook] = field(default=None, repr=False)
     audit_log: List[Dict[str, str]] = field(default_factory=list, repr=False)
 
@@ -176,6 +183,8 @@ class SecurityGuard:
                 + [re.escape(str(item)) for item in section.get("shell_blacklist", []) or []]
             ),
             allowed_roots=list(section.get("allowed_roots", []) or []),
+            audit_path=str(section.get("audit_log", "") or ""),
+            audit_limit=int(section.get("audit_limit", 500) or 500),
         )
 
     def set_confirm_hook(self, hook: Optional[ConfirmHook]) -> None:
@@ -299,20 +308,29 @@ class SecurityGuard:
         Falls back to a terminal ``input()`` when no hook is registered, and
         denies by default in a non-interactive environment.
         """
+        headline = prompt.strip().splitlines()[0] if prompt.strip() else "an action"
         if self._confirm_hook is not None:
             try:
-                return bool(await self._confirm_hook(prompt))
+                approved = bool(await self._confirm_hook(prompt))
             except Exception as exc:  # pragma: no cover - UI failure
                 logger.warning("Confirmation hook failed (%s); denying.", exc)
+                self.record(headline, "declined", "confirmation hook failed", "confirm")
                 return False
+            self.record(headline, "confirmed" if approved else "declined",
+                        "you were asked", "confirm")
+            return approved
         try:
             loop = asyncio.get_running_loop()
             answer = await loop.run_in_executor(
                 None, lambda: input(f"\n[confirm] {prompt} [y/N]: ")
             )
-            return answer.strip().lower() in {"y", "yes", "yeah", "do it", "confirm"}
+            approved = answer.strip().lower() in {"y", "yes", "yeah", "do it", "confirm"}
         except Exception:
+            self.record(headline, "declined", "nobody was there to ask", "confirm")
             return False
+        self.record(headline, "confirmed" if approved else "declined",
+                    "you were asked", "confirm")
+        return approved
 
     async def authorize(self, command: str, description: str = "") -> RiskAssessment:
         """Assess ``command`` and, if needed, obtain user confirmation.
@@ -322,13 +340,12 @@ class SecurityGuard:
             or the user declined.
         """
         assessment = self.assess(command)
-        self.audit_log.append(
-            {"command": command, "level": assessment.level.value, "reason": assessment.reason}
-        )
-
         if assessment.blocked:
             logger.warning("Blocked command: %s (%s)", command, assessment.reason)
+            self.record(command, "blocked", assessment.reason, "shell")
             return assessment
+        if not assessment.needs_confirmation:
+            self.record(command, "allowed", assessment.reason, "shell")
 
         if assessment.needs_confirmation and self.confirm_dangerous:
             label = description or command
@@ -341,9 +358,83 @@ class SecurityGuard:
                 return RiskAssessment(RiskLevel.BLOCKED, "User declined", assessment.matched)
         return assessment
 
-    def recent_audit(self, limit: int = 10) -> List[Dict[str, str]]:
-        """Return the most recent risk assessments for transparency."""
-        return self.audit_log[-limit:]
+    # -- audit trail --------------------------------------------------------
+    def record(self, action: str, outcome: str, reason: str = "",
+               source: str = "") -> Dict[str, str]:
+        """Note a decision the guard made, for the user to review later.
+
+        Everything that needed permission, was refused, or was allowed through
+        a risk gate lands here — shell commands, dangerous tools, writes
+        outside the allowed roots and code that reaches beyond the sandbox.
+        An assistant with shell access should be able to answer "what have you
+        done that needed my say-so?", and it could not before.
+
+        Args:
+            action: What was attempted.
+            outcome: ``allowed``, ``confirmed``, ``declined`` or ``blocked``.
+            reason: Why the guard graded it that way.
+            source: The tool or subsystem that asked.
+
+        Returns:
+            The recorded entry.
+        """
+        entry = {
+            "at": datetime.now().isoformat(timespec="seconds"),
+            "action": action[:300],
+            "outcome": outcome,
+            "reason": reason[:200],
+            "source": source[:80],
+        }
+        self.audit_log.append(entry)
+        if len(self.audit_log) > self.audit_limit:
+            del self.audit_log[: len(self.audit_log) - self.audit_limit]
+        self._append_to_disk(entry)
+        return entry
+
+    def _append_to_disk(self, entry: Dict[str, str]) -> None:
+        """Append one entry to the audit file, if one is configured.
+
+        Args:
+            entry: The record to write.
+        """
+        if not self.audit_path:
+            return
+        try:
+            path = Path(self.audit_path).expanduser()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception as error:  # the trail must never break the action
+            logger.debug("Could not write the audit entry: %s", error)
+
+    def recent_audit(self, limit: int = 10, outcome: str = "") -> List[Dict[str, str]]:
+        """Return recent decisions, newest last.
+
+        Reads the file when there is one, so the history survives a restart.
+
+        Args:
+            limit: How many entries to return.
+            outcome: Only entries with this outcome, when given.
+
+        Returns:
+            The matching entries.
+        """
+        entries: List[Dict[str, str]] = []
+        if self.audit_path:
+            try:
+                path = Path(self.audit_path).expanduser()
+                if path.is_file():
+                    lines = path.read_text(encoding="utf-8").splitlines()
+                    for line in lines[-(limit * 5 or 50):]:
+                        with contextlib.suppress(Exception):
+                            entries.append(json.loads(line))
+            except Exception as error:
+                logger.debug("Could not read the audit file: %s", error)
+        if not entries:
+            entries = list(self.audit_log)
+        if outcome:
+            entries = [item for item in entries if item.get("outcome") == outcome]
+        return entries[-limit:]
 
 
 # ---------------------------------------------------------------------------

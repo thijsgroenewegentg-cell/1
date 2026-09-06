@@ -280,6 +280,7 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 | `status` | LLM / memory / modules / voice health |
 | `tools` | every tool JARVIS can call |
 | `memory` | memory statistics |
+| `audit` | what JARVIS did that needed permission |
 | `remember <text>` | store a fact forever |
 | `recall <query>` | semantic search of memory |
 | `forget <text>` | delete matching memories |
@@ -1155,7 +1156,8 @@ Extras mirror the optional dependencies: `pip install -e ".[voice]"`,
 
 ## Continuous integration
 
-`.github/ci.yml` (move it to `.github/workflows/ci.yml` to switch it on) runs
+`.github/ci.yml` — switch it on with `bash scripts/enable_ci.sh`, which moves
+it to `.github/workflows/` for you — runs
 **ruff**, **mypy**, the 493 pytest unit tests and the 282-check offline smoke
 suite on Linux, macOS and Windows (Python 3.9–3.12), measures coverage over both
 suites, and builds a wheel. No models are downloaded — `tests/mock_ollama.py`

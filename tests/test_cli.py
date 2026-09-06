@@ -100,3 +100,8 @@ def test_rendering_helpers_never_raise(cli):
 def test_an_unknown_slash_command_is_reported_not_ignored(cli):
     # Better a "no such command" than silently sending "/frobnicate" to the LLM.
     assert run(cli.handle_command("/frobnicate")) is True
+
+
+def test_the_audit_command_is_consumed(cli):
+    assert run(cli.handle_command("/audit")) is True
+    assert run(cli.handle_command("/audit blocked")) is True

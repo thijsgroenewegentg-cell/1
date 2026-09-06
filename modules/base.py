@@ -431,6 +431,7 @@ class BaseModule:
             return None
         assessment = self.security.is_path_allowed(path, write=write)
         if assessment.blocked:
+            self.security.record(f"{what} {path}", "blocked", assessment.reason, self.name)
             return ModuleResult.fail(f"Refused: {assessment.reason}")
         if assessment.needs_confirmation and getattr(
             self.security, "confirm_dangerous", True

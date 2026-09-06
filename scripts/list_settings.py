@@ -260,6 +260,11 @@ DESCRIPTIONS: Dict[str, str] = {
     "security.shell_timeout": "Seconds a shell command may run.",
     "security.sandbox_memory_mb": "Memory ceiling for sandboxed code (POSIX).",
     "security.sandbox_timeout": "Seconds sandboxed code may run.",
+    "security.audit_log": (
+        "Where the trail of permitted, refused and confirmed actions is kept. "
+        "Blank keeps it in memory only, so it is lost at shutdown."
+    ),
+    "security.audit_limit": "How many audit entries to hold in memory.",
     "security.blocked_patterns": "Extra regular expressions to refuse outright.",
     "security.shell_blacklist": "Extra commands to refuse, matched as literal text.",
     "security.allowed_roots": "Folders JARVIS may write in. Elsewhere it asks first.",

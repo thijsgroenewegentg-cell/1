@@ -856,6 +856,80 @@ class SystemControl(BaseModule):
         )
 
     @tool(
+        description=(
+            "Show what JARVIS has done that needed permission: commands refused, "
+            "actions you confirmed, and writes that were declined."
+        ),
+        params={
+            "limit": {"type": "integer", "description": "How many entries", "default": 12},
+            "outcome": {
+                "type": "string",
+                "description": "Filter: allowed, confirmed, declined or blocked",
+                "default": "",
+            },
+        },
+        keywords=["audit log", "what needed permission", "what did you refuse",
+                  "security log", "what have you been allowed to do",
+                  "what did i approve"],
+        examples=["what have you done that needed permission?"],
+    )
+    async def security_log(self, limit: int = 12, outcome: str = "") -> ModuleResult:
+        """Report the security guard's recent decisions.
+
+        The guard has always recorded these; nothing ever showed them, which
+        is an odd gap in an assistant that can run shell commands and rewrite
+        its own source.
+
+        Args:
+            limit: How many entries to show, newest last.
+            outcome: Restrict to ``allowed``, ``confirmed``, ``declined`` or
+                ``blocked``.
+
+        Returns:
+            A :class:`ModuleResult` listing the decisions.
+        """
+        if self.security is None:
+            return ModuleResult.fail("There's no security guard attached, sir.")
+        wanted = outcome.strip().lower()
+        if wanted and wanted not in {"allowed", "confirmed", "declined", "blocked"}:
+            return ModuleResult.fail(
+                "Filter by allowed, confirmed, declined or blocked, sir."
+            )
+        try:
+            entries = self.security.recent_audit(max(1, int(limit)), outcome=wanted)
+        except Exception as exc:
+            return ModuleResult.fail(f"Could not read the audit trail: {exc}")
+
+        if not entries:
+            return ModuleResult(
+                success=True,
+                output="Nothing has needed permission" + (f" ({wanted})" if wanted else "")
+                       + " — a quiet conscience, sir.",
+                data={"entries": []},
+            )
+
+        symbols = {"blocked": "refused", "declined": "you said no",
+                   "confirmed": "you approved", "allowed": "allowed"}
+        lines = []
+        for entry in entries:
+            when = str(entry.get("at", ""))[5:16].replace("T", " ")
+            verdict = symbols.get(str(entry.get("outcome", "")), entry.get("outcome", "?"))
+            source = f" [{entry['source']}]" if entry.get("source") else ""
+            lines.append(f"  {when}  {verdict:12} {truncate(str(entry.get('action', '')), 66)}"
+                         f"{source}")
+        counts: Dict[str, int] = {}
+        for entry in entries:
+            key = str(entry.get("outcome", "?"))
+            counts[key] = counts.get(key, 0) + 1
+        tally = ", ".join(f"{count} {name}" for name, count in sorted(counts.items()))
+        return ModuleResult(
+            success=True,
+            output=f"Last {len(entries)} decision(s) — {tally}:\n" + "\n".join(lines),
+            speak=f"{len(entries)} decisions on record: {tally}.",
+            data={"entries": entries},
+        )
+
+    @tool(
         description="Show information about the operating system and hardware.",
         params={},
         keywords=["what os", "which system", "machine info", "specs"],

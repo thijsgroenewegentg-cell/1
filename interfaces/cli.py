@@ -64,6 +64,7 @@ HELP_ROWS: List[tuple[str, str]] = [
     ("selftest", "Run the smoke suite against the current code"),
     ("changes", "Show JARVIS's own change history"),
     ("undo", "Roll back JARVIS's last self-modification"),
+    ("audit", "What JARVIS did that needed permission"),
     ("stream on|off", "Toggle live token-by-token replies"),
     ("mute / unmute", "Toggle spoken replies in text mode"),
     ("doctor", "Diagnose a broken installation and print the fixes"),
@@ -78,7 +79,7 @@ HELP_ROWS: List[tuple[str, str]] = [
 KNOWN_COMMANDS = {
     "clear", "commands", "config", "exit", "forget", "help", "language",
     "languages", "memory", "mute", "quit", "recall", "remember", "status",
-    "tools", "undo", "unmute", "voice", "web",
+    "audit", "tools", "undo", "unmute", "voice", "web",
 }
 
 
@@ -353,6 +354,13 @@ class CLI:
 
         if command in {"changes", "changelog"}:
             await self._run_module("self_improve", "change_history", {})
+            return True
+
+        if command == "audit" or command.startswith("audit "):
+            await self._run_module(
+                "system_control", "security_log",
+                {"limit": 20, "outcome": argument.strip().lower()},
+            )
             return True
 
         if command == "undo":
