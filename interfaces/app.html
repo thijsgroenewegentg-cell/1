@@ -50,7 +50,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 input { font: inherit; }
 
 /* ------------------------------------------------------------- the sphere */
-#field { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#field { position: fixed; inset: 0; width: 100%; height: 100%; display: block;
+         cursor: grab; }
+body.dragging #field { cursor: grabbing; }
 
 /* shockwave rings, spawned on send / reply / notices */
 .shock {
@@ -212,6 +214,7 @@ input { font: inherit; }
 .opt.sel { background: #0a0e15; border-left-color: var(--accent); }
 .opt.sel .label { color: var(--ink); }
 .opt.sel .badge { color: var(--accent); border-color: var(--line-warm); }
+.opt mark { background: none; color: var(--accent); }
 
 .tabs { display: flex; gap: 18px; margin-bottom: 12px; }
 .tabs button { font: 9.5px/1 var(--mono); letter-spacing: .24em; text-transform: uppercase;
@@ -271,6 +274,10 @@ input { font: inherit; }
   .line.ai { font-size: 13.5px; }
   #readout { min-width: 74px; }
   .line.ai .acts { display: none !important; }
+  /* sheets become bottom sheets on a phone */
+  .sheet { align-items: flex-end; }
+  .box { width: 100%; max-height: 82vh; border-radius: 16px 16px 0 0;
+         border-bottom: 0; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (prefers-reduced-motion: reduce) {
   body, .toast, .box, .cursor, .shock { animation: none !important; transition: none !important; }
@@ -354,6 +361,7 @@ input { font: inherit; }
     <h2>keys</h2>
     <div class="keysgrid">
       <kbd>space</kbd><span>hold to talk</span>
+      <kbd>drag</kbd><span>spin the sphere; a plain click pulses it</span>
       <kbd>T</kbd><span>type instead</span>
       <kbd>K</kbd><span>command palette — every tool, and whatever you type becomes the first option</span>
       <kbd>↵</kbd><span>run the highlighted option (your typed question, by default)</span>
@@ -400,11 +408,17 @@ let streamNode = null;                   // the .line.ai node tokens land in
    leaves the faintest trail behind a moving lattice.
    ===================================================================== */
 const canvas = $("field"), ctx = canvas.getContext("2d", { alpha: false });
+const BINS = 24;
 const orb = {
   energy: 0, kick: 0, mic: 0, tts: 0, spin: 0, time: 0,
   mood: "idle", rings: 46, quality: 1,
   px: 0, py: 0, tx: 0, ty: 0,            // pointer parallax, smoothed
+  spec: new Float32Array(BINS),          // spherical spectrum, mic or voice
+  specOn: 0,                             // how much the spectrum drives shape
+  vel: 0,                                // drag inertia
 };
+let sparks = [];                         // per-dot thinking glints
+const drag = { on: false, x: 0, moved: 0 };
 const MOODS = {
   idle:   { bright: 1.00, spin: 0.10, floor: 0.05 },
   listen: { bright: 1.15, spin: 0.16, floor: 0.22 },
@@ -448,9 +462,12 @@ function buildSphere(rings) {
         z: Math.sin(theta) * Math.sin(phi),
         c: roll < 0.62 ? 0 : (roll < 0.86 ? 1 : 2),
         w: hash(j, i) * 6.2832,
+        u: i / rings,                    // latitude 0..1, for the spectrum bands
+        d: hash(i + 7, j + 3) * 0.6,     // boot assembly delay, seconds
       });
     }
   }
+  sparks = new Array(dots.length).fill(0);
 }
 
 function resize() {
@@ -510,9 +527,19 @@ function draw(now) {
   const idle = mood.floor + Math.sin(t * 0.7) * 0.03;
   const target = Math.max(idle, orb.mic, orb.tts, orb.kick);
   orb.energy += (target - orb.energy) * (target > orb.energy ? 0.35 : 0.08);
-  orb.spin += dt * (mood.spin + orb.energy * 0.55) * (reduced ? 0.15 : 1);
+  if (!drag.on) { orb.spin += orb.vel; orb.vel *= 0.94; }
+  /* the boot spin: the lattice arrives turning fast, then settles */
+  orb.spin += dt * (mood.spin + orb.energy * 0.55 + Math.max(0, 1.6 - t) * 1.1)
+            * (reduced ? 0.15 : 1);
   orb.px += (orb.tx - orb.px) * 0.04;
   orb.py += (orb.ty - orb.py) * 0.04;
+  /* how strongly the frequency bands own the shape right now */
+  const specTarget = Math.max(orb.mic > 0.04 ? orb.mic : 0, orb.tts > 0.04 ? orb.tts : 0);
+  orb.specOn += (Math.min(1, specTarget * 2.2) - orb.specOn) * 0.12;
+  /* thinking glints: a few random dots flare and cool again */
+  if (orb.mood === "think" && !reduced) {
+    for (let k = 0; k < 3; k++) sparks[(Math.random() * dots.length) | 0] = 1;
+  }
 
   const e = orb.energy;
   const amp = (0.035 + e * 0.30) * (reduced ? 0.4 : 1);
@@ -547,15 +574,26 @@ function draw(now) {
               + Math.sin(z2 * 2.7 + t * 1.2);
     noise /= 3;
     const ripple = e > 0.18 ? Math.sin(p.y * 4.5 - t * 3.4 + p.w) * 0.35 : 0;
-    const r = (1 + noise * amp + ripple * amp) * breathe;
+    /* the voice as geography: each latitude band rides one frequency bin,
+       so speech and listening carve rings into the sphere */
+    const band = orb.spec[(p.u * (BINS - 1)) | 0] || 0;
+    const windowLat = Math.sin(Math.PI * p.u);
+    /* boot assembly: every dot falls in from far out, on its own schedule */
+    const q = Math.max(0, Math.min(1, (t - p.d) / 1.1));
+    const ease = 1 - Math.pow(1 - q, 3);
+    const intro = 1 + (1 - ease) * (1.8 + (p.w / 6.2832) * 1.4);
+    const r = ((1 + noise * amp + ripple * amp) * breathe
+              + (band - 0.22) * 0.5 * windowLat * orb.specOn) * intro;
     const X = x1 * r, Y = y2 * r, Z = z2 * r;
     const persp = 3.0 / (3.0 - Z);
     const depth = Math.max(0, Math.min(1, (Z + 1.25) / 2.5));
+    const spark = sparks[n] *= 0.88;
     buckets[p.c].push(
       cx + X * radius * persp,
       cy + Y * radius * persp,
-      base * (0.8 + 1.2 * depth),
-      Math.pow(depth, 1.1) * bright * (0.86 + 0.14 * Math.sin(t * 2 + p.w * 7))
+      base * (0.8 + 1.2 * depth) + spark * 1.4,
+      Math.min(1, Math.pow(depth, 1.1) * bright * (0.86 + 0.14 * Math.sin(t * 2 + p.w * 7))
+             + spark * 0.9) * ease
     );
   }
 
@@ -585,6 +623,16 @@ function draw(now) {
   requestAnimationFrame(draw);
 }
 
+/** Fold an analyser spectrum into BINS bands, low frequencies first. */
+function feedSpectrum(spectrum) {
+  for (let b = 0; b < BINS; b++) {
+    const at = Math.min(spectrum.length - 1,
+      Math.floor(Math.pow(b / BINS, 1.6) * spectrum.length * 0.85));
+    const value = (spectrum[at] || 0) / 255;
+    orb.spec[b] += (value - orb.spec[b]) * 0.5;
+  }
+}
+
 function mood(name) {
   orb.mood = name;
   document.body.dataset.mood = name;
@@ -606,7 +654,7 @@ function pulse(strength) {
 const stateEl = $("state"), readoutEl = $("readout");
 let stateTimer = null;
 
-function status(text) {
+function status(text, sticky) {
   clearTimeout(stateTimer);
   const base = socket && socket.readyState === 1 ? "idle" : "offline";
   const value = (text || base).toLowerCase();
@@ -618,7 +666,8 @@ function status(text) {
   else if (value.startsWith("speak")) mood("speak");
   else if (value === "offline") mood("lost");
   else mood("idle");
-  if (text) stateTimer = setTimeout(() => status(""), 2600);
+  /* listening and speaking last as long as they last; the rest expire */
+  if (text && !sticky) stateTimer = setTimeout(() => status(""), 2600);
 }
 
 function tickClock() {
@@ -833,6 +882,7 @@ function send(text) {
   if (!text || busy) return;
   if (!socket || socket.readyState !== 1) { toast("Not connected yet.", true); return; }
   dropHint();
+  if (greetTimer) { clearInterval(greetTimer); greetTimer = null; endStream(); }
   remember("me", text);
   line("me", text);
   endStream();
@@ -871,9 +921,12 @@ function speakAloud(text) {
       const source = ctx.createMediaElementSource(audio);
       source.connect(ttsAnalyser);
       clearInterval(ttsMeter);
-      status("speaking");
+      status("speaking", true);
+      const spectrum = new Uint8Array(ttsAnalyser.frequencyBinCount);
       ttsMeter = setInterval(() => {
         ttsAnalyser.getByteTimeDomainData(ttsWave);
+        ttsAnalyser.getByteFrequencyData(spectrum);
+        feedSpectrum(spectrum);
         let peak = 0;
         for (const value of ttsWave) peak = Math.max(peak, Math.abs(value - 128));
         orb.tts = Math.min(1, (peak / 128) * 2.6);
@@ -919,7 +972,7 @@ async function startRecording() {
   recording = true;
   recordStarted = performance.now();
   $("mic").classList.add("recording");
-  status("listening");
+  status("listening", true);
   line("me", "…");
   listenTo(stream);
   ringTimer = setInterval(() => {
@@ -937,8 +990,11 @@ function listenTo(stream) {
     analyser.smoothingTimeConstant = 0.72;
     micCtx.createMediaStreamSource(stream).connect(analyser);
     const wave = new Uint8Array(analyser.fftSize);
+    const spectrum = new Uint8Array(analyser.frequencyBinCount);
     micMeter = setInterval(() => {
       analyser.getByteTimeDomainData(wave);
+      analyser.getByteFrequencyData(spectrum);
+      feedSpectrum(spectrum);
       let peak = 0;
       for (const value of wave) peak = Math.max(peak, Math.abs(value - 128));
       orb.mic = Math.min(1, (peak / 128) * 3.2);
@@ -1087,7 +1143,17 @@ function paintPalette() {
     body.className = "body";
     const label = document.createElement("span");
     label.className = "label";
-    label.textContent = (recents.includes(option.label) ? "↺ " : "") + option.label;
+    const raw = (recents.includes(option.label) ? "↺ " : "") + option.label;
+    const query = $("paletteInput").value.trim();
+    const at = query ? raw.toLowerCase().indexOf(query.toLowerCase()) : -1;
+    if (at >= 0) {
+      /* light up the part you typed, so ranking is legible */
+      label.innerHTML = escapeHtml(raw.slice(0, at)) + "<mark>" +
+        escapeHtml(raw.slice(at, at + query.length)) + "</mark>" +
+        escapeHtml(raw.slice(at + query.length));
+    } else {
+      label.textContent = raw;
+    }
     const hint = document.createElement("span");
     hint.className = "hint";
     hint.textContent = option.hint || "";
@@ -1260,6 +1326,29 @@ function showTyped(show) {
   else $("input").blur();
 }
 
+/* drag the sphere to spin it; a click without a move just pulses it */
+canvas.addEventListener("pointerdown", (event) => {
+  drag.on = true; drag.x = event.clientX; drag.moved = 0;
+  document.body.classList.add("dragging");
+  try { canvas.setPointerCapture(event.pointerId); } catch (err) { /* older browsers */ }
+});
+canvas.addEventListener("pointermove", (event) => {
+  if (!drag.on) return;
+  const dx = event.clientX - drag.x;
+  drag.x = event.clientX;
+  drag.moved += Math.abs(dx);
+  orb.spin += dx * 0.004;
+  orb.vel = dx * 0.0022;
+});
+for (const name of ["pointerup", "pointercancel"]) {
+  canvas.addEventListener(name, () => {
+    if (!drag.on) return;
+    drag.on = false;
+    document.body.classList.remove("dragging");
+    if (drag.moved < 4) pulse(0.5);
+  });
+}
+
 $("typeBtn").addEventListener("click", () => showTyped(!$("typed").classList.contains("show")));
 $("typed").addEventListener("submit", (event) => { event.preventDefault(); send($("input").value); });
 $("readout").addEventListener("click", openPalette);
@@ -1336,11 +1425,28 @@ requestAnimationFrame(draw);
 connect();
 paintSpeech();
 status("offline");
+/** The greeting types itself out, like everything else JARVIS says. */
+let greetTimer = null;
+function typeOut(text) {
+  remember("ai", text);
+  streamNode = line("ai", "");
+  let i = 0;
+  greetTimer = setInterval(() => {
+    i = Math.min(text.length, i + 2);
+    streamText(text.slice(0, i), true);
+    if (i % 14 === 0) orb.kick = Math.min(1, orb.kick + 0.08);
+    if (i >= text.length) {
+      clearInterval(greetTimer);
+      greetTimer = null;
+      finishReply(text);
+      pulse(0.8);
+    }
+  }, 24);
+}
+
 fetch("/api/status" + auth)
   .then((r) => r.json())
-  .then((data) => {
-    if (data.greeting) { line("ai", data.greeting); remember("ai", data.greeting); pulse(0.8); }
-  })
+  .then((data) => { if (data.greeting) typeOut(data.greeting); })
   .catch(() => {});
 setTimeout(() => document.body.classList.add("ready"), 60);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
