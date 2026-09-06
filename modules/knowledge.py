@@ -10,13 +10,14 @@ local.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import os
 import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, Iterator, List, Optional, Tuple
 
 from core.memory import ChromaStore, JsonVectorStore, MemoryHit, OllamaEmbedder
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
@@ -78,12 +79,26 @@ class Knowledge(BaseModule):
         self._init_db()
 
     # ------------------------------------------------------------------ infra
-    def _connect(self) -> sqlite3.Connection:
-        """Open the shared SQLite database."""
+    @contextlib.contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Open a SQLite connection and guarantee it is closed again.
+
+        ``with sqlite3.connect(...) as connection`` commits the transaction
+        but leaves the connection *open* — a long-running assistant leaked a
+        file descriptor per database write and would eventually hit the
+        process limit, at which point nothing could open a file at all.
+
+        Yields:
+            A connection with ``sqlite3.Row`` rows.
+        """
         ensure_dir(self.db_path.parent)
         connection = sqlite3.connect(str(self.db_path), timeout=30)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _init_db(self) -> None:
         """Create the table tracking which files have been indexed."""

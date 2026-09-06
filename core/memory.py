@@ -16,6 +16,7 @@ dependency.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import math
@@ -26,7 +27,7 @@ from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Deque, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Deque, Dict, Iterable, Iterator, List, Optional, Sequence
 
 from utils.helpers import ensure_dir, run_blocking, truncate
 from utils.logger import get_logger
@@ -542,13 +543,27 @@ class Memory:
         self._init_sqlite()
 
     # -- setup --------------------------------------------------------------
-    def _connect(self) -> sqlite3.Connection:
-        """Open a SQLite connection with sensible defaults."""
+    @contextlib.contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Open a SQLite connection and guarantee it is closed again.
+
+        ``with sqlite3.connect(...) as connection`` commits the transaction
+        but leaves the connection *open* — a long-running assistant leaked a
+        file descriptor per database write and would eventually hit the
+        process limit, at which point nothing could open a file at all.
+
+        Yields:
+            A connection with ``sqlite3.Row`` rows in WAL mode.
+        """
         ensure_dir(self.db_path.parent)
         connection = sqlite3.connect(str(self.db_path), timeout=30)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _init_sqlite(self) -> None:
         """Create the conversation/fact tables if they do not exist."""

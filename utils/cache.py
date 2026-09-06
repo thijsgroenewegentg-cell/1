@@ -8,12 +8,13 @@ serialised, so anything the modules return can be cached.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from utils.helpers import ensure_dir, run_blocking
 from utils.logger import get_logger
@@ -45,11 +46,25 @@ class Cache:
         ensure_dir(self.path.parent)
         self._init()
 
-    def _connect(self) -> sqlite3.Connection:
-        """Open a SQLite connection."""
+    @contextlib.contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Open a SQLite connection and guarantee it is closed again.
+
+        ``with sqlite3.connect(...) as connection`` commits the transaction
+        but leaves the connection *open* — a long-running assistant leaked a
+        file descriptor per database write and would eventually hit the
+        process limit, at which point nothing could open a file at all.
+
+        Yields:
+            A connection with ``sqlite3.Row`` rows.
+        """
         connection = sqlite3.connect(str(self.path), timeout=15)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _init(self) -> None:
         """Create the cache table."""

@@ -236,3 +236,31 @@ def test_binary_files_are_recognised(tmp_path):
     assert not looks_binary(text_file)
     assert looks_binary(blob)
     assert not looks_binary(tmp_path / "missing.txt")
+
+
+def test_database_connections_do_not_leak(tmp_path):
+    """`with sqlite3.connect(...)` commits but does not close.
+
+    Every database write leaked a file descriptor, so a long-running
+    assistant would eventually be unable to open anything at all.
+    """
+    import os
+
+    from tests.conftest import build_config
+
+    if not os.path.isdir("/proc/self/fd"):  # pragma: no cover - non-Linux
+        pytest.skip("needs /proc to count descriptors")
+
+    from modules.productivity import Productivity
+
+    config = build_config(tmp_path)
+    module = Productivity(config)
+    run(module.setup())
+    try:
+        before = len(os.listdir("/proc/self/fd"))
+        for number in range(120):
+            run(module.call_tool("add_todo", {"task": f"item {number}"}))
+        after = len(os.listdir("/proc/self/fd"))
+        assert after - before < 10, f"leaked {after - before} descriptors"
+    finally:
+        run(module.shutdown())

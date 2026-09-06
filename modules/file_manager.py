@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import hashlib
 import json
@@ -13,7 +14,7 @@ import sqlite3
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Iterable, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.documents import extract_text
@@ -95,12 +96,26 @@ class FileManager(BaseModule):
             self.log.warning("Could not prepare the file journal: %s", exc)
 
     # -------------------------------------------------------------- journal
-    def _journal(self) -> sqlite3.Connection:
-        """Open the SQLite connection holding the move journal."""
+    @contextlib.contextmanager
+    def _journal(self) -> Iterator[sqlite3.Connection]:
+        """Open a SQLite connection and guarantee it is closed again.
+
+        ``with sqlite3.connect(...) as connection`` commits the transaction
+        but leaves the connection *open* — a long-running assistant leaked a
+        file descriptor per database write and would eventually hit the
+        process limit, at which point nothing could open a file at all.
+
+        Yields:
+            A connection with ``sqlite3.Row`` rows in WAL mode.
+        """
         connection = sqlite3.connect(str(self.db_path), timeout=30)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _record_moves(self, kind: str, description: str,
                       moves: List[Tuple[str, str]]) -> int:
