@@ -286,6 +286,19 @@ def check_storage(report: Report, root: Path, config: Any) -> None:
         )
         return
 
+    # Every other configured folder matters too: logs, backups, screenshots
+    # and the knowledge base each break something different when missing.
+    broken: List[Path] = list(getattr(config, "unwritable_paths", lambda: [])())
+    if broken:
+        report.add(
+            "Configured folders", FAIL,
+            "could not be created: " + ", ".join(str(path) for path in broken),
+            "Check the paths section of config.yaml, and the permissions on those "
+            "directories.",
+        )
+    else:
+        report.add("Configured folders", OK, "all present and writable")
+
     try:
         usage = shutil.disk_usage(str(data_dir))
         free = usage.free

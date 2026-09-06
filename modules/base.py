@@ -561,8 +561,12 @@ class BaseModule:
         """
         cleaned: Dict[str, Any] = {}
         for key, meta in spec.params.items():
-            if key in params and params[key] is not None:
-                cleaned[key] = _coerce_value(meta.get("type", "string"), params[key], key)
+            supplied = params.get(key)
+            blank = isinstance(supplied, str) and not supplied.strip()
+            if key in params and supplied is not None and not (blank and "default" in meta):
+                # A blank string for an optional number means "not supplied",
+                # not "refuse the whole call".
+                cleaned[key] = _coerce_value(meta.get("type", "string"), supplied, key)
             elif "default" in meta:
                 cleaned[key] = meta["default"]
             elif meta.get("required"):

@@ -234,3 +234,10 @@ def test_a_genuinely_offline_model_still_explains_itself(brain):
 def test_a_stale_stop_does_not_kill_the_next_turn(brain):
     brain.cancel()
     assert run(brain.process("what time is it")).strip() != "Stopped."
+
+
+def test_a_blank_optional_number_falls_back_to_its_default(brain):
+    # An LLM passing "" for an optional numeric argument should not make the
+    # whole call fail — that is what the default is for.
+    result = run(brain.dispatch("productivity.list_todos", {"limit": ""}))
+    assert result.success
