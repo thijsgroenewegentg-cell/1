@@ -12,7 +12,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`main.py`](#mainpy) — 19
 - [`install.py`](#installpy) — 54
 - [`core/brain.py`](#corebrainpy) — 55
-- [`core/config.py`](#coreconfigpy) — 26
+- [`core/config.py`](#coreconfigpy) — 28
 - [`core/event_bus.py`](#coreevent_buspy) — 13
 - [`core/intent_router.py`](#coreintent_routerpy) — 5
 - [`core/memory.py`](#corememorypy) — 66
@@ -51,7 +51,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_cli.py`](#teststest_clipy) — 15
 - [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 15
 - [`tests/test_communications.py`](#teststest_communicationspy) — 8
-- [`tests/test_config.py`](#teststest_configpy) — 21
+- [`tests/test_config.py`](#teststest_configpy) — 27
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
 - [`tests/test_install.py`](#teststest_installpy) — 13
@@ -238,7 +238,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/config.py`
 
-*26 functions*
+*28 functions*
 
 > YAML configuration with sane defaults, dot-path access and hot reload.
 
@@ -246,6 +246,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def _dig(data: Any, parts: List[str]) -> Any` — Read a nested key, returning :data:`_ABSENT` when it is not there.
 - `def _plant(data: Dict[str, Any], parts: List[str], value: Any) -> None` — Write a nested key, creating the intermediate dictionaries.
 - `def _drop(data: Dict[str, Any], parts: List[str]) -> None` — Delete a nested key if it is there, pruning nothing else.
+- `def _format_scalar(value: Any) -> Optional[str]` — Render a scalar the way YAML expects, or ``None`` if it is not scalar.
+- `def _rewrite_yaml(text: str, data: Dict[str, Any]) -> Optional[str]` — Update the values in a YAML document without disturbing anything else.
 - `def _deep_merge(base: Dict[str, Any], override: Dict[str, Any], path: str = '') -> Dict[str, Any]` — Recursively merge ``override`` into a copy of ``base``.
 - `def _coerce(value: str) -> Any` — Convert an environment string into bool/int/float when possible.
 - `def _underscore_variants(name: str) -> List[str]` — Every way an underscored env-var name could map onto dotted keys.
@@ -1597,7 +1599,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_config.py`
 
-*21 functions*
+*27 functions*
 
 > Unit tests for core/config.py.
 
@@ -1622,6 +1624,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_every_setting_is_read_by_something()` — A setting that nothing reads is a promise the assistant cannot keep.
   · `def walk(node: dict, prefix: str = '') -> Iterator[str]`
 - `def test_every_setting_is_documented()` — A knob nobody can explain is a knob nobody can use.
+- `def test_saving_keeps_the_comments(tmp_path)` — A save used to dump the parsed data, deleting every comment.
+- `def test_only_the_changed_line_is_rewritten(tmp_path)`
+- `def test_a_setting_the_user_added_themselves_is_left_alone(tmp_path)`
+- `def test_lists_are_not_mangled(tmp_path)`
+- `def test_a_brand_new_file_gets_a_header(tmp_path)`
+- `def test_values_survive_a_save_and_reload(tmp_path)`
 
 ## `tests/test_event_bus.py`
 
@@ -2208,5 +2216,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1509 functions across 63 files.**
+**1517 functions across 63 files.**
 

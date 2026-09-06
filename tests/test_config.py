@@ -216,3 +216,99 @@ def test_every_setting_is_documented():
         capture_output=True, text=True, cwd=str(PROJECT_ROOT),
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ------------------------------------------------- saving must not vandalise
+def test_saving_keeps_the_comments(tmp_path):
+    """A save used to dump the parsed data, deleting every comment.
+
+    The config file is the main interface to 185 settings; losing its
+    explanations the first time JARVIS changes something is unacceptable.
+    """
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "# JARVIS configuration\n"
+        "user:\n"
+        '  name: "Thijs"            # what JARVIS calls you\n'
+        "  title: sir               # or ma'am, or blank\n"
+        "\n"
+        "llm:\n"
+        "  model: llama3.2          # the model that answers\n"
+        "  temperature: 0.7\n"
+    )
+    config = Config.load(path)
+    config.set("llm.temperature", 0.4)
+    assert config.save()
+
+    text = path.read_text()
+    assert "# JARVIS configuration" in text
+    assert "what JARVIS calls you" in text
+    assert "the model that answers" in text
+    assert "temperature: 0.4" in text
+
+
+def test_only_the_changed_line_is_rewritten(tmp_path):
+    path = tmp_path / "config.yaml"
+    original = (
+        "user:\n"
+        '  name: "Thijs"            # aligned comment\n'
+        "  title: sir\n"
+        "llm:\n"
+        "  temperature: 0.7\n"
+    )
+    path.write_text(original)
+    config = Config.load(path)
+    config.set("llm.temperature", 0.55)
+    config.save()
+
+    changed = [
+        (before, after)
+        for before, after in zip(original.splitlines(), path.read_text().splitlines())
+        if before != after
+    ]
+    assert len(changed) == 1
+    assert changed[0][1].strip() == "temperature: 0.55"
+
+
+def test_a_setting_the_user_added_themselves_is_left_alone(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("user:\n  name: Thijs\n  favourite_biscuit: hobnob  # mine, not yours\n")
+    config = Config.load(path)
+    config.set("user.name", "Sir")
+    config.save()
+    text = path.read_text()
+    assert "favourite_biscuit: hobnob" in text
+    assert "mine, not yours" in text
+
+
+def test_lists_are_not_mangled(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("llm:\n  fallback_models:\n    - mistral\n    - phi3\n  model: llama3.2\n")
+    config = Config.load(path)
+    config.set("llm.model", "mistral")
+    config.save()
+    text = path.read_text()
+    assert "- mistral" in text and "- phi3" in text
+    assert "model: mistral" in text
+
+
+def test_a_brand_new_file_gets_a_header(tmp_path):
+    path = tmp_path / "fresh.yaml"
+    Config.load(path)
+    assert path.exists()
+    assert path.read_text().lstrip().startswith("#")
+
+
+def test_values_survive_a_save_and_reload(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("voice:\n  enabled: true\n  wake_word: jarvis\nweb_ui:\n  port: 8765\n")
+    config = Config.load(path)
+    config.set("voice.enabled", False)
+    config.set("voice.wake_word", "computer")
+    config.set("web_ui.port", 9000)
+    config.save()
+
+    reloaded = Config.load(path)
+    assert reloaded.get("voice.enabled") is False
+    assert reloaded.get("voice.wake_word") == "computer"
+    assert reloaded.get("web_ui.port") == 9000

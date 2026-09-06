@@ -6,7 +6,7 @@ from __future__ import annotations
 import copy
 import os
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from utils.logger import get_logger
 
@@ -383,6 +383,122 @@ def _drop(data: Dict[str, Any], parts: List[str]) -> None:
         node.pop(parts[-1], None)
 
 
+#: Written at the top of a config file JARVIS creates from scratch.
+_CONFIG_HEADER = """# =============================================================================
+# /config.yaml
+# JARVIS configuration. Every key is optional: delete one and the built-in
+# default in core/config.py applies. Every setting is listed, with what it
+# does, in docs/CONFIGURATION.md.
+# =============================================================================
+
+"""
+
+
+def _format_scalar(value: Any) -> Optional[str]:
+    """Render a scalar the way YAML expects, or ``None`` if it is not scalar.
+
+    Args:
+        value: The value to render.
+
+    Returns:
+        The text to write after ``key:``, or ``None`` for lists and dicts,
+        which the line editor leaves alone.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if value is None:
+        return "''"
+    if isinstance(value, str):
+        if value == "":
+            return "''"
+        risky = value[0] in "&*!|>%@`{[\"'" or value.strip() != value
+        if risky or any(token in value for token in (": ", " #")):
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
+        return value
+    return None
+
+
+def _rewrite_yaml(text: str, data: Dict[str, Any]) -> Optional[str]:
+    """Update the values in a YAML document without disturbing anything else.
+
+    Walks the file line by line, tracking the current section from the
+    indentation, and rewrites only the scalars whose value has changed.
+    Comments, ordering, spacing and unknown keys are left exactly as they are.
+
+    Args:
+        text: The current file contents.
+        data: The settings to write.
+
+    Returns:
+        The updated text, or ``None`` when the file cannot be edited safely
+        (in which case the caller falls back to a full dump).
+    """
+    lines = text.splitlines(keepends=True)
+    output: List[str] = []
+    stack: List[Tuple[int, str]] = []   # (indent, key) for each open section
+    seen: Set[str] = set()
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("- "):
+            output.append(line)
+            continue
+        if ":" not in stripped:
+            output.append(line)
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        key = stripped.split(":", 1)[0].strip().strip("'\"")
+        remainder = stripped.split(":", 1)[1]
+        comment = ""
+        body = remainder
+        if " #" in remainder:
+            body, _, trailing = remainder.partition(" #")
+            comment = f"  #{trailing}"
+
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        dotted = ".".join([name for _, name in stack] + [key])
+
+        if not body.strip():          # a section header, e.g. "voice:"
+            stack.append((indent, key))
+            output.append(line)
+            continue
+
+        seen.add(dotted)
+        node: Any = data
+        for part in dotted.split("."):
+            if not isinstance(node, dict) or part not in node:
+                node = _ABSENT
+                break
+            node = node[part]
+        if node is _ABSENT:
+            output.append(line)
+            continue
+
+        rendered = _format_scalar(node)
+        if rendered is None:          # a list or a nested mapping: leave it
+            output.append(line)
+            continue
+
+        # Only touch a line whose value actually changed. Rewriting every
+        # line would strip the author's quoting and comment alignment for no
+        # reason, turning a one-setting change into a whole-file diff.
+        try:
+            existing = yaml.safe_load(body) if yaml is not None else object()
+        except Exception:
+            existing = object()
+        if existing == node and type(existing) is type(node):
+            output.append(line)
+            continue
+        output.append(f"{' ' * indent}{key}: {rendered}{comment}\n")
+
+    return "".join(output)
+
+
 def _deep_merge(
     base: Dict[str, Any], override: Dict[str, Any], path: str = ""
 ) -> Dict[str, Any]:
@@ -513,6 +629,12 @@ class Config:
     def save(self) -> bool:
         """Write the current settings back to ``self.path``.
 
+        Existing files are edited in place, line by line, so comments, blank
+        lines, ordering and anything the user wrote themselves all survive.
+        Dumping the parsed data instead — which is what this used to do —
+        quietly deleted every explanatory comment in the file the first time
+        JARVIS changed a setting.
+
         Returns:
             True on success.
         """
@@ -520,8 +642,15 @@ class Config:
             return False
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            if self.path.exists():
+                text = self.path.read_text(encoding="utf-8")
+                updated = _rewrite_yaml(text, self._data)
+                if updated is not None:
+                    self.path.write_text(updated, encoding="utf-8")
+                    return True
             self.path.write_text(
-                yaml.safe_dump(self._data, sort_keys=False, allow_unicode=True),
+                _CONFIG_HEADER
+                + yaml.safe_dump(self._data, sort_keys=False, allow_unicode=True),
                 encoding="utf-8",
             )
             return True
