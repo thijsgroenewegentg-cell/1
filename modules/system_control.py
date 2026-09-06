@@ -157,9 +157,16 @@ class SystemControl(BaseModule):
         if "lock" in lowered and any(w in lowered for w in ("screen", "computer", "machine", "pc")):
             return "lock_screen", {}
 
+        # Disk questions get the dedicated tool, which reports every mount —
+        # "disk space" used to be swallowed by the general stats summary.
+        if any(phrase in lowered for phrase in
+               ("disk space", "free space", "disk usage", "storage left", "how full",
+                "space left", "space is left", "room on")):
+            return "disk_free", {}
+
         if any(phrase in lowered for phrase in
                ("system stats", "cpu", "ram", "memory usage", "battery", "how is my computer",
-                "resource usage", "uptime", "disk space")):
+                "resource usage", "uptime")):
             return "system_stats", {}
 
         volume = re.search(r"\bvolume\b.*?(\d{1,3})|\bset\s+volume\s+to\s+(\d{1,3})", lowered)

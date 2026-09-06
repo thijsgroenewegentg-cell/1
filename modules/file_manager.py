@@ -221,10 +221,17 @@ class FileManager(BaseModule):
             path = re.search(r"([\w./~-]+\.(?:pdf|docx?|txt|md|csv|epub))", text, re.IGNORECASE)
             if path:
                 return "summarize_document", {"path": path.group(1)}
+            # "summarise this document" with no filename: the tool knows to ask
+            # which one, or to reuse the document already in hand.
+            if any(word in lowered for word in
+                   ("document", "file", "pdf", "this doc", "the doc", "paper")):
+                return "summarize_document", {"path": ""}
 
         csv_path = re.search(r"([\w./~-]+\.csv)", text, re.IGNORECASE)
         if csv_path:
             return "analyze_csv", {"path": csv_path.group(1)}
+        if "csv" in lowered or "spreadsheet" in lowered:
+            return "analyze_csv", {"path": ""}
 
         if any(phrase in lowered for phrase in ("duplicate", "duplicates", "same file twice")):
             return "find_duplicates", {"path": location}
@@ -666,8 +673,24 @@ class FileManager(BaseModule):
         keywords=["summarize this document", "summarise the pdf", "what's in this file",
                   "read this document", "tldr of the file"],
     )
-    async def summarize_document(self, path: str, question: str = "") -> ModuleResult:
-        """Extract a document's text and summarise it with the local LLM."""
+    async def summarize_document(self, path: str = "", question: str = "") -> ModuleResult:
+        """Extract a document's text and summarise it with the local LLM.
+
+        Args:
+            path: The document. Empty means "the one we were just discussing";
+                if there is none, JARVIS asks which file to open.
+            question: Optional question to answer from the document instead of
+                a general summary.
+
+        Returns:
+            A :class:`ModuleResult` with the summary.
+        """
+        if not str(path or "").strip():
+            if self.last_document.strip():
+                return await self._summarise_text(self.last_document, question)
+            return ModuleResult.fail(
+                "Which document, sir? Give me a path and I'll read it."
+            )
         target = resolve_user_path(path)
         if not target.exists() or not target.is_file():
             return ModuleResult.fail(f"No file at {target}.")
@@ -679,13 +702,30 @@ class FileManager(BaseModule):
                 "(it may be a scanned image or an unsupported format)."
             )
         self.last_document = text
+        return await self._summarise_text(text, question, target.name, str(target))
 
+    async def _summarise_text(
+        self, text: str, question: str = "", label: str = "the document",
+        path: str = "",
+    ) -> ModuleResult:
+        """Summarise already-extracted text, or answer a question about it.
+
+        Args:
+            text: The document's text.
+            question: Optional question to answer instead of summarising.
+            label: What to call the document in the reply.
+            path: Where it came from, for the result data.
+
+        Returns:
+            A :class:`ModuleResult`; without a model it returns the opening
+            of the document rather than nothing at all.
+        """
+        words = len(text.split())
         if self.llm is None or not getattr(self.llm, "available", False):
             return ModuleResult(
                 success=True,
-                output=f"{target.name} — {len(text.split())} words. First part:\n"
-                f"{truncate(text, 1500)}",
-                data={"path": str(target), "words": len(text.split())},
+                output=f"{label} — {words} words. First part:\n{truncate(text, 1500)}",
+                data={"path": path, "words": words},
             )
 
         instruction = (
@@ -694,14 +734,14 @@ class FileManager(BaseModule):
             else "Summarise the document in 5 sentences, then list up to 5 key points."
         )
         summary = await self.llm.complete(
-            f"DOCUMENT: {target.name}\n\n{truncate(text, 12000)}\n\n{instruction}",
+            f"DOCUMENT: {label}\n\n{truncate(text, 12000)}\n\n{instruction}",
             temperature=0.3,
             max_tokens=650,
         )
         return ModuleResult(
             success=True,
             output=summary.strip() or truncate(text, 1500),
-            data={"path": str(target), "words": len(text.split())},
+            data={"path": path, "words": words},
         )
 
     @tool(

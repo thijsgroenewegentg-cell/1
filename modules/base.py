@@ -14,10 +14,11 @@ a decorated method.
 from __future__ import annotations
 
 import asyncio
+import difflib
 import inspect
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, ClassVar, Dict, List, Optional
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
 
 from utils.helpers import extract_json, similar, truncate
 from utils.logger import get_logger
@@ -114,6 +115,77 @@ class ToolSpec:
                 ],
             },
         }
+
+
+#: Names callers reach for that mean the same thing as a real parameter.
+PARAM_SYNONYMS: Dict[str, Tuple[str, ...]] = {
+    "path": ("filename", "file", "filepath", "file_path", "target", "document",
+             "directory", "folder", "dir", "location"),
+    "content": ("text", "body", "note", "message"),
+    "text": ("content", "body", "input", "string"),
+    "query": ("search", "term", "keywords", "q", "topic"),
+    "question": ("query", "prompt", "ask"),
+    "code": ("source", "snippet", "script", "program"),
+    "description": ("prompt", "request", "spec", "task"),
+    "url": ("link", "address", "site", "website"),
+    "command": ("cmd", "shell", "line"),
+    "name": ("app", "application", "title", "label"),
+    "when": ("time", "at", "datetime", "date"),
+    "duration": ("length", "for", "seconds", "minutes"),
+    "location": ("place", "city", "where"),
+    "directory": ("folder", "dir", "root"),
+    "expression": ("equation", "formula", "math", "sum"),
+}
+
+
+def _coerce_value(kind: str, value: Any) -> Any:
+    """Coerce one supplied value to the type the tool declared.
+
+    Args:
+        kind: The declared JSON-ish type.
+        value: The raw value.
+
+    Returns:
+        The coerced value, or the original when coercion is impossible.
+    """
+    original = value
+    try:
+        if kind == "integer":
+            return int(float(str(value)))
+        if kind == "number":
+            return float(str(value))
+        if kind == "boolean":
+            if isinstance(value, str):
+                return value.strip().lower() in {"true", "yes", "1", "on"}
+            return bool(value)
+        if kind == "array" and isinstance(value, str):
+            parsed = extract_json(value)
+            return parsed if isinstance(parsed, list) else [value]
+        if kind == "string" and not isinstance(value, str):
+            return str(value)
+    except Exception:
+        return original
+    return value
+
+
+def _closest_param(supplied: str, candidates: List[str]) -> Optional[str]:
+    """Map an invented parameter name onto a real, still-empty one.
+
+    Args:
+        supplied: The name the caller used.
+        candidates: Parameter names that have not been filled in yet.
+
+    Returns:
+        The matching parameter, or ``None`` when nothing is close enough.
+    """
+    if not candidates:
+        return None
+    lowered = supplied.strip().lower()
+    for real in candidates:
+        if lowered in PARAM_SYNONYMS.get(real, ()):
+            return real
+    matches = difflib.get_close_matches(lowered, candidates, n=1, cutoff=0.82)
+    return matches[0] if matches else None
 
 
 def tool(
@@ -420,34 +492,46 @@ class BaseModule:
 
     @staticmethod
     def _coerce_params(spec: ToolSpec, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Filter unknown keys, apply defaults and coerce simple types."""
+        """Filter unknown keys, apply defaults and coerce simple types.
+
+        A parameter name the model invented — ``filename`` for ``path``,
+        ``text`` for ``content`` — is rescued rather than dropped: dropping it
+        silently produced calls like "read the file at ''", which then failed
+        with a baffling error about the home directory.
+
+        Args:
+            spec: The tool's declared parameters.
+            params: Whatever the caller supplied.
+
+        Returns:
+            Keyword arguments safe to splat into the tool.
+        """
         cleaned: Dict[str, Any] = {}
         for key, meta in spec.params.items():
             if key in params and params[key] is not None:
-                value = params[key]
-                kind = meta.get("type", "string")
-                try:
-                    if kind == "integer":
-                        value = int(float(str(value)))
-                    elif kind == "number":
-                        value = float(str(value))
-                    elif kind == "boolean":
-                        if isinstance(value, str):
-                            value = value.strip().lower() in {"true", "yes", "1", "on"}
-                        else:
-                            value = bool(value)
-                    elif kind == "array" and isinstance(value, str):
-                        parsed = extract_json(value)
-                        value = parsed if isinstance(parsed, list) else [value]
-                    elif kind == "string" and not isinstance(value, str):
-                        value = str(value)
-                except Exception:
-                    value = params[key]
-                cleaned[key] = value
+                cleaned[key] = _coerce_value(meta.get("type", "string"), params[key])
             elif "default" in meta:
                 cleaned[key] = meta["default"]
             elif meta.get("required"):
                 cleaned[key] = "" if meta.get("type", "string") == "string" else None
+
+        unknown = {
+            key: value for key, value in params.items()
+            if key not in spec.params and value not in (None, "")
+        }
+        if unknown:
+            # A slot counts as available when the caller did not name it,
+            # even if it has a default — "directory" must be able to fill a
+            # ``path`` parameter that defaults to the home folder.
+            empty = [key for key in spec.params if key not in params]
+            for key, value in unknown.items():
+                slot = _closest_param(key, empty)
+                if slot is None:
+                    continue
+                cleaned[slot] = _coerce_value(
+                    spec.params[slot].get("type", "string"), value
+                )
+                empty.remove(slot)
         return cleaned
 
     async def execute(self, command: str, args: Optional[Dict[str, Any]] = None) -> ModuleResult:

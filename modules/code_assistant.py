@@ -485,7 +485,16 @@ class CodeAssistant(BaseModule):
     )
     async def read_code(self, path: str, max_lines: int = 200) -> ModuleResult:
         """Load a source file into context (and remember it for follow-ups)."""
+        if not str(path or "").strip():
+            return ModuleResult.fail("Which file should I read, sir?")
+
         target = resolve_user_path(path)
+        if not target.exists() and not Path(path).expanduser().is_absolute():
+            # save_code puts bare filenames in the code workspace, so reading
+            # one back by name has to look there too.
+            candidate = self.code_dir / Path(path).name
+            if candidate.is_file():
+                target = candidate
         if not target.exists() or not target.is_file():
             return ModuleResult.fail(f"No file at {target}.")
         content = read_text_file(target, 200_000)

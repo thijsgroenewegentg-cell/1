@@ -1721,9 +1721,30 @@ class Productivity(BaseModule):
         params={"timer": {"type": "string", "description": "Timer id or label", "required": True}},
         keywords=["cancel timer", "stop timer", "kill the timer"],
     )
-    async def cancel_timer(self, timer: str) -> ModuleResult:
-        """Cancel one or all timers."""
+    async def cancel_timer(self, timer: str = "") -> ModuleResult:
+        """Cancel one or all timers.
+
+        Args:
+            timer: The timer id or label. Left empty it cancels the only
+                running timer, because "cancel the timer" is how people
+                actually say it; with several running it asks which one.
+
+        Returns:
+            A :class:`ModuleResult` naming what was cancelled.
+        """
         needle = str(timer or "").strip().lower()
+        if not needle:
+            if not self.timers:
+                return ModuleResult.fail("There are no timers running, sir.")
+            if len(self.timers) == 1:
+                timer_id, entry = next(iter(self.timers.items()))
+                entry["task"].cancel()
+                self.timers.pop(timer_id, None)
+                return ModuleResult.ok(f"Cancelled timer '{entry['label']}'.")
+            labels = ", ".join(entry["label"] for entry in self.timers.values())
+            return ModuleResult.fail(
+                f"You have {len(self.timers)} timers running ({labels}). Which one?"
+            )
         if needle in {"all", "everything", "*"}:
             count = len(self.timers)
             for entry in list(self.timers.values()):
