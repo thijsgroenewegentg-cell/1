@@ -96,6 +96,7 @@ python3 install.py --yes          # every default, straight through
 python3 install.py --minimal      # text only, ~120 MB
 python3 install.py --standard     # everything except the microphone stack
 python3 install.py --full         # + voice, wake word, Whisper  (the default)
+python3 install.py --everything   # the lot: audio libraries, all models, every capability
 python3 install.py --no-ollama    # skip the LLM engine for now
 python3 install.py --repair       # reinstall packages into an existing install
 python3 install.py --help         # all the flags
