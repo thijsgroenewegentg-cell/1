@@ -63,6 +63,35 @@ button:focus-visible, input:focus-visible {
   outline: 1px solid var(--accent); outline-offset: 3px; border-radius: 6px;
 }
 
+/* ---------------------------------------------------------- the wordmark */
+/* Once per load, the name arrives out of a blur and dissolves into the room. */
+#wordmark {
+  position: fixed; inset: 0; z-index: 5; display: grid; place-items: center;
+  pointer-events: none; opacity: 0;
+  font: 200 clamp(26px, 7vw, 84px)/1 var(--mono);
+  letter-spacing: .62em; text-indent: .62em; text-transform: uppercase;
+  color: rgba(231, 235, 243, .92);
+  text-shadow: 0 0 44px rgba(110, 168, 255, .38);
+  animation: mark 2.8s cubic-bezier(.3, .6, .3, 1) forwards;
+}
+@keyframes mark {
+  0%   { opacity: 0;  filter: blur(16px); letter-spacing: .95em; }
+  32%  { opacity: .92; filter: blur(0); }
+  68%  { opacity: .85; }
+  100% { opacity: 0;  filter: blur(8px); letter-spacing: .68em; }
+}
+
+/* a finished reply gets one slow pass of light across it */
+.line.ai { position: relative; }
+.line.ai.sweep::after {
+  content: ""; position: absolute; inset: -4px -8px; pointer-events: none;
+  background: linear-gradient(100deg, transparent 24%, rgba(170, 205, 255, .16) 50%,
+              transparent 76%);
+  transform: translateX(-110%);
+  animation: sweep 1.15s ease-out .08s forwards;
+}
+@keyframes sweep { to { transform: translateX(110%); } }
+
 /* ---------------------------------------------------------- liquid glass */
 /* One material for every surface: a saturated blur of the room behind it,
    a cool-to-warm gradient body, a refractive rim (gradient border via mask),
@@ -387,6 +416,8 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
     animation: none !important; transition: none !important;
   }
   .shock { display: none; }
+  #wordmark { display: none; }
+  .line.ai.sweep::after { display: none; }
   .glass::after { display: none; }
   .line.ai .w { animation: none; opacity: 1; }
 }
@@ -394,6 +425,7 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
 </head>
 <body data-mood="idle">
 <canvas id="field"></canvas>
+<div id="wordmark" aria-hidden="true">__TITLE__</div>
 
 <div id="log" aria-live="polite"></div>
 <div id="hint">hold <b>space</b> to speak · <b>K</b> every tool · <b>T</b> type</div>
@@ -538,8 +570,11 @@ const orb = {
   spec: new Float32Array(BINS),          // spherical spectrum, mic or voice
   specOn: 0,                             // how much the spectrum drives shape
   vel: 0,                                // drag inertia
+  inhale: 0,                             // anticipation squash, -1.4..1
+  shake: 0, flash: 0, warp: 0,           // one-frame cinema, decaying
 };
 let sparks = [];                         // per-dot thinking glints
+let frontPts = [];                       // projected near-side dots, for arcs
 const drag = { on: false, x: 0, moved: 0 };
 const MOODS = {
   idle:   { bright: 1.00, spin: 0.10, floor: 0.05, glow: [63, 109, 255] },
@@ -691,6 +726,11 @@ function draw(now) {
   if (orb.mood === "think" && !reduced) {
     for (let k = 0; k < 3; k++) sparks[(Math.random() * dots.length) | 0] = 1;
   }
+  orb.inhale *= 0.92;
+  orb.shake *= 0.86;
+  orb.flash *= 0.80;
+  orb.warp *= 0.90;
+  frontPts.length = 0;
 
   const e = orb.energy;
   const amp = (0.035 + e * 0.30) * (reduced ? 0.4 : 1);
@@ -708,6 +748,11 @@ function draw(now) {
   ctx.globalAlpha = 1;
   ctx.fillStyle = reduced ? "#000" : "rgba(0,0,0,0.34)";
   ctx.fillRect(0, 0, width, height);
+  ctx.save();
+  if (orb.shake > 0.02 && !reduced) {
+    /* the room flinches, once, on the big moments */
+    ctx.translate((Math.random() - 0.5) * orb.shake * 6, (Math.random() - 0.5) * orb.shake * 6);
+  }
 
   /* cinematic drift: the camera never quite holds still */
   const cxNow = cx + Math.sin(t * 0.05) * 10;
@@ -715,23 +760,36 @@ function draw(now) {
   /* aurora: the room itself takes the mood's colour, faintly */
   const glow = mood.glow;
   const aura = ctx.createRadialGradient(cxNow, cyNow, radius * 0.2, cxNow, cyNow, radius * 2.3);
-  aura.addColorStop(0, `rgba(${glow[0]},${glow[1]},${glow[2]},${0.05 + e * 0.10})`);
+  aura.addColorStop(0, `rgba(${glow[0]},${glow[1]},${glow[2]},${0.07 + e * 0.14})`);
   aura.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = aura;
   ctx.fillRect(0, 0, width, height);
-  /* a few cold stars, far behind the lattice, breathing out of phase */
-  ctx.fillStyle = "rgb(159,180,255)";
+  /* a few cold stars, far behind the lattice — and on send they streak
+     away from the centre for half a second, like a jump to lightspeed */
+  ctx.strokeStyle = ctx.fillStyle = "rgb(159,180,255)";
+  ctx.lineWidth = 1;
   for (let i = 0; i < stars.length; i++) {
     const s = stars[i];
-    ctx.globalAlpha = s.a * (0.7 + 0.3 * Math.sin(t * 0.8 + s.w));
-    ctx.fillRect(s.x, s.y, 1, 1);
+    ctx.globalAlpha = Math.min(1, s.a * (0.7 + 0.3 * Math.sin(t * 0.8 + s.w)) + orb.warp * 0.25);
+    if (orb.warp > 0.03 && !reduced) {
+      const dx = s.x - cx, dy = s.y - cy;
+      const len = Math.hypot(dx, dy) || 1;
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(s.x + (dx / len) * orb.warp * 34, s.y + (dy / len) * orb.warp * 34);
+      ctx.stroke();
+    } else {
+      ctx.fillRect(s.x, s.y, 1, 1);
+    }
   }
   ctx.globalAlpha = 1;
   /* ignition: the sphere arrives small, overshoots, then settles */
   const iq = Math.min(1, t / 1.5);
   const c1 = 1.70158, c3 = c1 + 1;
   const back = 1 + c3 * Math.pow(iq - 1, 3) + c1 * Math.pow(iq - 1, 2);
-  const scaleNow = 0.72 + 0.28 * back;
+  /* anticipation: he inhales (shrinks) when a question lands, exhales
+     (overshoots) when the answer arrives — squash and stretch, like animation */
+  const scaleNow = (0.72 + 0.28 * back) * (1 - orb.inhale * 0.05);
 
   for (const b of buckets) b.length = 0;
 
@@ -763,9 +821,12 @@ function draw(now) {
     const persp = 3.0 / (3.0 - Z);
     const depth = Math.max(0, Math.min(1, (Z + 1.25) / 2.5));
     const spark = sparks[n] *= 0.88;
+    const sx = cxNow + X * radius * scaleNow * persp;
+    const sy = cyNow + Y * radius * scaleNow * persp;
+    if (depth > 0.62 && frontPts.length < 960) frontPts.push(sx, sy);
     buckets[p.c * 2 + (depth < 0.45 ? 1 : 0)].push(
-      cxNow + X * radius * scaleNow * persp,
-      cyNow + Y * radius * scaleNow * persp,
+      sx,
+      sy,
       base * (0.8 + 1.2 * depth) + spark * 1.4,
       Math.min(1, Math.pow(depth, 1.1) * bright * (0.86 + 0.14 * Math.sin(t * 2 + p.w * 7))
              + spark * 0.9) * ease
@@ -793,6 +854,22 @@ function draw(now) {
       ctx.fill();
     }
   }
+  /* synapses: while thinking, near-side dots arc to one another like
+     thoughts crossing the lattice */
+  if (orb.mood === "think" && !reduced && frontPts.length > 8) {
+    ctx.lineWidth = 0.6;
+    for (let k = 0; k < 6; k++) {
+      const a = ((Math.random() * (frontPts.length / 2)) | 0) * 2;
+      const b = ((Math.random() * (frontPts.length / 2)) | 0) * 2;
+      const dx = frontPts[a] - frontPts[b], dy = frontPts[a + 1] - frontPts[b + 1];
+      if (dx * dx + dy * dy > radius * radius * 0.25) continue;
+      ctx.strokeStyle = `rgba(${glow[0]},${glow[1]},${glow[2]},${0.08 + Math.random() * 0.14})`;
+      ctx.beginPath();
+      ctx.moveTo(frontPts[a], frontPts[a + 1]);
+      ctx.lineTo(frontPts[b], frontPts[b + 1]);
+      ctx.stroke();
+    }
+  }
   ctx.globalAlpha = 1;
   /* voice rings: while hearing or speaking, the sound stands just outside
      the lattice as one or two concentric halos, sized by the live level */
@@ -809,6 +886,12 @@ function draw(now) {
       ctx.arc(cxNow, cyNow, radius * scaleNow * (1.05 + orb.tts * 0.06), 0, 6.2832);
       ctx.stroke();
     }
+  }
+  ctx.restore();
+  /* one faint frame of light on the big moments, then the room settles */
+  if (orb.flash > 0.02 && !reduced) {
+    ctx.fillStyle = `rgba(210,225,255,${orb.flash * 0.05})`;
+    ctx.fillRect(0, 0, width, height);
   }
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, width, height);
@@ -842,7 +925,11 @@ function pulse(strength) {
   if (reduced) return;
   if ((strength || 0) >= 0.6) spawnShock();
   /* a big moment throws a second, lagged ring: a double ripple */
-  if ((strength || 0) >= 0.8) spawnShock("", 140);
+  if ((strength || 0) >= 0.8) {
+    spawnShock("", 140);
+    orb.shake = 1;
+    orb.flash = 1;
+  }
 }
 
 /* =======================================================================
@@ -969,6 +1056,7 @@ function finishReply(text) {
   node.innerHTML = rich(text);
   if (text.length > 160 || text.includes("```")) node.classList.add("wide");
   stagger(node);
+  if (!reduced) node.classList.add("sweep");
   const acts = document.createElement("div");
   acts.className = "acts";
   const copy = document.createElement("button");
@@ -1084,6 +1172,7 @@ function handle(data) {
     replyText = data.text || replyText;
     finishReply(replyText || "…");
     remember("ai", replyText);
+    orb.inhale = -1.4;   // exhale: the answer lands and the sphere swells
     pulse(0.9);
     setBusy(false);
     turns += 1;
@@ -1132,6 +1221,8 @@ function setBusy(value) {
   if (value) {
     stopSpeech();
     spokenUpTo = 0; inFence = false;
+    orb.inhale = 1;      // the sphere draws breath around the question
+    orb.warp = 1;        // and the stars streak once, like a jump
     status("thinking"); streamNode = null; replyText = ""; turnStarted = performance.now();
   }
   else status("");
@@ -1992,6 +2083,9 @@ fetch("/api/status" + auth)
   .then((data) => { if (data.greeting) typeOut(data.greeting); })
   .catch(() => {});
 setTimeout(() => document.body.classList.add("ready"), 60);
+/* the wordmark dissolves into the room and leaves no node behind */
+const mark = $("wordmark");
+if (mark) mark.addEventListener("animationend", () => mark.remove());
 /* warm the tool catalogue while nobody is looking, so the first K is instant */
 setTimeout(() => {
   if (toolCache) return;
