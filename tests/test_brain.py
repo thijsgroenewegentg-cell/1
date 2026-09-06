@@ -1,0 +1,167 @@
+# /tests/test_brain.py
+"""Unit tests for core/brain.py and the pieces it delegates to.
+
+The brain is built with no reachable LLM, so what is under test is the
+keyword router, the module registry, the dispatcher, the personality layer
+and the event bus — everything that has to keep working when Ollama is not
+running.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from core.brain import Brain
+from core.intent_router import INTENT_KEYWORDS, Intent, IntentRouter
+from core.personality import Personality
+from core.planner import MAX_REACT_STEPS, Planner
+from tests.conftest import run
+
+
+@pytest.fixture
+def brain(config):
+    """An initialised Brain with every module loaded and no LLM."""
+    instance = Brain(config)
+    run(instance.initialize())
+    yield instance
+    run(instance.shutdown())
+
+
+# ------------------------------------------------------------------ assembly
+def test_the_brain_owns_its_collaborators(brain):
+    assert isinstance(brain.router, IntentRouter)
+    assert isinstance(brain.planner, Planner)
+    assert isinstance(brain.persona, Personality)
+    assert brain.events is not None
+
+
+def test_the_expected_modules_are_loaded(brain):
+    for name in ("system_control", "web_search", "productivity",
+                 "code_assistant", "file_manager", "smart_assistant"):
+        assert name in brain.modules, f"{name} should be loaded"
+
+
+def test_a_disabled_module_is_not_loaded(config):
+    config.set("modules.web_search", False)
+    instance = Brain(config)
+    run(instance.initialize())
+    try:
+        assert "web_search" not in instance.modules
+    finally:
+        run(instance.shutdown())
+
+
+# ------------------------------------------------------------------- routing
+@pytest.mark.parametrize(
+    ("utterance", "module"),
+    [
+        ("open chrome", "system_control"),
+        ("search for quantum computing", "web_search"),
+        ("remind me to call mom at 5pm", "productivity"),
+        ("write a python script", "code_assistant"),
+        ("find all PDFs on my desktop", "file_manager"),
+        ("what is the meaning of life", "smart_assistant"),
+        ("what time is it", "system_control"),
+        ("set a timer for 10 minutes", "productivity"),
+        ("summarize this document", "file_manager"),
+        ("how's the weather", "web_search"),
+    ],
+)
+def test_the_ten_reference_utterances_route_correctly(brain, utterance, module):
+    # These are the examples the specification calls out by name.
+    intent = run(brain.classify(utterance))
+    assert intent.module == module, f"{utterance!r} went to {intent.module}"
+
+
+def test_classification_reports_how_it_decided(brain):
+    intent = run(brain.classify("open chrome"))
+    assert intent.method in {"keyword", "llm", "fallback"}
+    assert 0.0 <= intent.confidence <= 1.0
+
+
+def test_every_keyword_table_names_a_real_module(brain):
+    for module in INTENT_KEYWORDS:
+        assert module in brain.modules or module in {"memory", "conversation"}
+
+
+def test_an_empty_utterance_is_answered_not_routed(brain):
+    assert run(brain.process("")).strip()
+
+
+# ---------------------------------------------------------------- dispatching
+def test_dispatch_runs_a_tool_by_qualified_name(brain):
+    result = run(brain.dispatch("system_control.current_time", {}))
+    assert result.success
+
+
+def test_dispatch_finds_a_bare_tool_name(brain):
+    result = run(brain.dispatch("current_time", {}))
+    assert result.success
+
+
+def test_dispatch_of_an_unknown_tool_fails_without_raising(brain):
+    result = run(brain.dispatch("nonsense.nothing", {}))
+    assert not result.success
+    assert "no such tool" in result.error.lower() or result.error
+
+
+def test_dispatch_with_no_tool_named_is_refused(brain):
+    assert not run(brain.dispatch("", {})).success
+
+
+# ---------------------------------------------------------------- personality
+def test_the_system_prompt_carries_the_persona(brain):
+    prompt = brain.system_prompt()
+    assert "JARVIS" in prompt
+    assert "sir" in prompt.lower()
+
+
+def test_the_system_prompt_includes_memory_context(brain):
+    prompt = brain.system_prompt("The user's cat is called Widget.")
+    assert "Widget" in prompt
+
+
+def test_error_reports_stay_in_character(brain):
+    reply = brain._humorous_failure("connection refused")
+    assert reply.strip()
+    assert "connection refused" in reply
+
+
+def test_the_offline_reply_explains_what_is_missing(brain):
+    reply = brain._offline_reply("what is the meaning of life")
+    assert "ollama" in reply.lower() or "model" in reply.lower()
+
+
+def test_finalize_strips_model_scaffolding():
+    assert "Final Answer:" not in Brain._finalize("Final Answer: All done, sir.")
+
+
+# ---------------------------------------------------------------------- turns
+def test_a_turn_produces_a_reply_and_is_counted(brain):
+    before = brain.turn_count
+    reply = run(brain.process("what time is it"))
+    assert reply.strip()
+    assert brain.turn_count == before + 1
+
+
+def test_a_turn_publishes_its_lifecycle_events(brain):
+    seen = []
+    brain.events.subscribe("*", lambda event: seen.append(event.name))
+    run(brain.process("what time is it"))
+    assert "turn.started" in seen
+    assert "turn.finished" in seen
+
+
+def test_the_exchange_is_remembered(brain):
+    run(brain.process("what time is it"))
+    assert brain.memory.short_term.messages()
+
+
+def test_the_planner_has_a_step_budget():
+    assert 1 <= MAX_REACT_STEPS <= 10
+
+
+def test_an_intent_is_a_plain_data_object():
+    intent = Intent(module="web_search", confidence=0.9, method="keyword")
+    assert intent.module == "web_search"
+    assert 0 <= intent.confidence <= 1

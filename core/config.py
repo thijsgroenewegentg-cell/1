@@ -307,23 +307,24 @@ def _normalise_aliases(data: Dict[str, Any]) -> Dict[str, Any]:
         if alias == canonical or alias == "quiet_hours":
             continue
         value = _dig(result, alias.split("."))
-        if value is _MISSING:
+        if value is _ABSENT:
             continue
         _drop(result, alias.split("."))
-        if _dig(result, canonical.split(".")) is _MISSING:
+        if _dig(result, canonical.split(".")) is _ABSENT:
             _plant(result, canonical.split("."), value)
     return result
 
 
-_MISSING = object()
+_ABSENT = object()
+"""Sentinel for "this key was not present at all"."""
 
 
 def _dig(data: Any, parts: List[str]) -> Any:
-    """Read a nested key, returning the sentinel when it is absent."""
+    """Read a nested key, returning :data:`_ABSENT` when it is not there."""
     node = data
     for part in parts:
         if not isinstance(node, dict) or part not in node:
-            return _MISSING
+            return _ABSENT
         node = node[part]
     return node
 
@@ -561,7 +562,35 @@ class Config:
             dotted = env_key[len(_ENV_PREFIX) :].lower().replace("__", ".")
             if not dotted:
                 continue
+            # JARVIS_LLM__MODEL is the documented form, but JARVIS_LLM_MODEL is
+            # what people type. Resolve the single-underscore spelling against
+            # the keys that actually exist rather than inventing a new one.
+            if "." not in dotted and "_" in dotted and dotted not in self:
+                for candidate in _underscore_variants(dotted):
+                    if candidate in self:
+                        dotted = candidate
+                        break
             self.set(dotted, _coerce(raw_value))
+
+
+def _underscore_variants(name: str) -> List[str]:
+    """Every way an underscored env-var name could map onto dotted keys.
+
+    ``llm_model`` yields ``llm.model``; ``voice_tts_voice`` yields
+    ``voice.tts_voice`` and ``voice.tts.voice``, longest prefix first.
+
+    Args:
+        name: The lower-cased name with underscores.
+
+    Returns:
+        Candidate dotted keys, most specific first.
+    """
+    parts = name.split("_")
+    variants: List[str] = []
+    for split in range(1, len(parts)):
+        variants.append(".".join(parts[:split]) + "." + "_".join(parts[split:]))
+    variants.append(".".join(parts))
+    return variants
 
 
 class _Missing:

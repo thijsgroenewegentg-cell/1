@@ -146,6 +146,25 @@ class OllamaEmbedder:
         """Identifier required by newer ChromaDB versions."""
         return "jarvis-ollama-embedder"
 
+    @staticmethod
+    def supported_spaces() -> List[str]:
+        """Distance metrics this embedder's vectors work with (ChromaDB API)."""
+        return ["cosine", "l2", "ip"]
+
+    @staticmethod
+    def default_space() -> str:
+        """The distance metric ChromaDB should use by default."""
+        return "cosine"
+
+    @staticmethod
+    def is_legacy() -> bool:
+        """Tell ChromaDB this embedder speaks its modern configuration API.
+
+        Without it, every single write logs a DeprecationWarning about a
+        "legacy embedding function config".
+        """
+        return False
+
     def embed_one(self, text: str) -> List[float]:
         """Embed a single string, falling back to hashing on any failure."""
         text = (text or "").strip()
