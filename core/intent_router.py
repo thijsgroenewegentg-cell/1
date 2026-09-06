@@ -84,7 +84,8 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "my documents", "my notes folder", "in my files", "according to my",
         "what does my", "search my documents", "index my", "knowledge base",
         "my pdfs say", "from my documents", "ask my documents", "in the contract",
-        "in the paper", "reindex",
+        "in the paper", "reindex", "index ", "index the", "index /", "index ~",
+        "knowledge base", "add to the index",
     ],
     "vision": [
         "what's on my screen", "whats on my screen", "look at my screen", "see my screen",
@@ -106,6 +107,7 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
     ],
     "self_improve": [
         "plugin", "plugins", "your plugins", "your tools",
+        "code map", "your code", "your own code", "your source",
         "search github", "on github", "find a repo", "find a library", "integrate that",
         "add a new skill", "install a plugin", "list your plugins", "your own code",
         "your source code", "modify yourself", "improve yourself", "rewrite your",

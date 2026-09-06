@@ -155,6 +155,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "look_ahead_days": 7,
     },
     "self_improve": {
+        "root": "",  # blank = the directory JARVIS is installed in
         "enabled": True,
         "allow_code_edit": True,
         "allow_plugin_install": True,

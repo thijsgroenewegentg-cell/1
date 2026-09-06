@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import hashlib
 import os
+import re
 import sqlite3
 import time
 from datetime import datetime
@@ -159,11 +160,15 @@ class Knowledge(BaseModule):
         if "forget" in lowered or "unindex" in lowered or "remove from knowledge" in lowered:
             return "forget_documents", {"path": text}
         if any(word in lowered for word in ("index", "reindex", "re-index", "scan my")):
-            target = ""
-            for candidate in ("documents", "downloads", "desktop", "notes"):
-                if candidate in lowered:
-                    target = candidate
-                    break
+            # An explicit path wins: "index /srv/papers" used to be read as
+            # "index everything configured", which is a very different job.
+            explicit = re.search(r"(~?/[^\s\"']+|[A-Za-z]:\\[^\s\"']+)", text)
+            target = explicit.group(1).rstrip(".,") if explicit else ""
+            if not target:
+                for candidate in ("documents", "downloads", "desktop", "notes"):
+                    if candidate in lowered:
+                        target = candidate
+                        break
             return "index_documents", {"path": target}
         if any(word in lowered for word in ("search", "find", "which document", "where did")):
             return "search_documents", {"query": text}

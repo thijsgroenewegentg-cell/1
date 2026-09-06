@@ -1039,6 +1039,9 @@ async def test_self_improvement(root: Path, host: str) -> None:
     config.set("self_improve.git_commit", False)
     config.set("self_improve.run_tests_after_edit", False)
     config.set("self_improve.test_command", "tests/quick_check.py")
+    # The module finds its own source from __file__; this scratch tree is a
+    # stand-in for a project, so say where it is.
+    config.set("self_improve.root", str(home))
 
     # A miniature copy of "my own" source tree to read and rewrite.
     (home / "modules").mkdir(parents=True, exist_ok=True)

@@ -133,7 +133,18 @@ class SelfImprove(BaseModule):
         self.token_env: str = str(section.get("github_token_env", "GITHUB_TOKEN"))
         self.keep_backups: int = int(section.get("keep_backups", 40))
 
-        self.root: Path = Path(getattr(config, "root", Path.cwd()))
+        # The source tree is where *this file* lives, not where config.yaml
+        # happens to sit: following config.root broke self-inspection entirely
+        # for anyone keeping their settings elsewhere
+        # (--config ~/.config/jarvis/config.yaml), because JARVIS went looking
+        # for its own code beside the settings file and found none.
+        # ``self_improve.root`` overrides it for unusual installs and tests.
+        configured = str(config.get("self_improve.root", "") or "")
+        self.root: Path = (
+            Path(configured).expanduser().resolve()
+            if configured
+            else Path(__file__).resolve().parent.parent
+        )
         self.plugins_dir: Path = config.resolve(section.get("plugins_dir", "plugins"))
         self.repos_dir: Path = config.resolve(section.get("repos_dir", "data/repos"))
         self.backup_dir: Path = config.resolve(section.get("backup_dir", "data/backups"))

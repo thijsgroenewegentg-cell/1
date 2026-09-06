@@ -135,3 +135,18 @@ def test_a_sound_rewrite_passes_the_syntax_gate(self_improve):
     path = PROJECT_ROOT / "utils" / "helpers.py"
     original = path.read_text()
     assert not self_improve._validate_edit(original, original + "\n# a harmless comment\n", path)
+
+
+def test_the_source_tree_is_found_regardless_of_where_the_config_lives(tmp_path):
+    """Following config.root broke self-inspection for anyone using --config.
+
+    JARVIS went looking for its own code beside the settings file, found
+    none, and answered "I can't find my own source — is the project moved?".
+    """
+    from tests.conftest import build_config
+
+    module = SelfImprove(build_config(tmp_path))
+    assert module.root == PROJECT_ROOT
+    result = run(module.call_tool("code_map", {}))
+    assert result.success
+    assert "brain" in result.output.lower()

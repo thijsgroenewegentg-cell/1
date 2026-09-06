@@ -117,3 +117,17 @@ def test_an_empty_file_is_reported_not_hidden(knowledge, tmp_path):
     result = run(knowledge.call_tool("index_documents", {"path": str(folder)}))
     assert result.success
     assert "no readable text" in result.output
+
+
+def test_an_explicit_path_survives_the_router(knowledge, tmp_path):
+    # "index /srv/papers" used to be read as "index everything configured",
+    # which is a very different job.
+    tool, params = knowledge.offline_router(f"index {tmp_path}")
+    assert tool == "index_documents"
+    assert params["path"] == str(tmp_path)
+
+
+def test_a_named_folder_still_works(knowledge):
+    tool, params = knowledge.offline_router("index my documents")
+    assert tool == "index_documents"
+    assert params["path"] == "documents"
