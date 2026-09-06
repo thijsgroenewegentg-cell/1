@@ -113,6 +113,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "smart_assistant": True,
         "knowledge": True,
         "vision": True,
+        "blender": True,
         "communications": True,
         "models": True,
         "self_improve": True,
@@ -134,6 +135,17 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "fallback_models": ["llava:7b", "bakllava", "moondream", "llama3.2-vision"],
         "max_tokens": 400,
         "temperature": 0.2,
+    },
+    "blender": {
+        "executable": "",            # blank = look on PATH and the usual places
+        "output_dir": "data/renders",
+        "engine": "",                # blank = whatever the .blend specifies
+        "samples": 0,                # 0 = leave the scene's own sample count
+        "timeout": 300,              # seconds for a script
+        "render_timeout": 1800,      # seconds for a render
+        "memory_mb": 0,              # 0 = no ceiling; renders are memory-hungry
+        "allow_scripts": True,
+        "allow_bpy_module": True,    # accept "pip install bpy" as a runtime
     },
     "email": {
         "enabled": False,

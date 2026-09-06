@@ -1,128 +1,96 @@
-# =============================================================================
-# /config.yaml
-# JARVIS master configuration. Everything is tunable from this one file.
-# Any key you delete simply falls back to the built-in default in
-# core/config.py, so it is safe to trim this file down.
-# =============================================================================
-
 user:
-  name: "Thijs"            # How JARVIS addresses you
-  title: "sir"             # "sir" / "ma'am" / "boss" / "" to disable
-  location: "auto"         # City name for weather, or "auto" for IP lookup
-  units: "metric"          # metric | imperial
-
+  name: Thijs
+  title: sir
+  location: auto
+  units: metric
 assistant:
-  name: "JARVIS"
-  language: "en"                          # en, nl, de, fr, es, it, pt, pl, sv, …
-                                          #   picks the Whisper model, the TTS
-                                          #   voice and the reply language
-  personality: "witty"     # witty | professional | minimal
-  sarcasm: 0.35            # 0.0 (dry) .. 1.0 (insufferable)
+  name: JARVIS
+  language: en
+  personality: witty
+  sarcasm: 0.35
   greet_on_start: true
-  proactive: true          # offer follow-up suggestions when useful
-
+  proactive: true
 llm:
-  provider: "ollama"
-  host: "http://localhost:11434"
-  model: "llama3.2"                       # primary brain
-  fallback_models:                        # tried in order if primary missing
-    - "mistral"
-    - "llama3"
-    - "llama3.1"
-    - "phi3"
-    - "qwen2.5"
+  provider: ollama
+  host: http://localhost:11434
+  model: llama3.2
+  fallback_models:
+  - mistral
+  - llama3
+  - llama3.1
+  - phi3
+  - qwen2.5
   temperature: 0.7
   top_p: 0.9
   num_ctx: 4096
   max_tokens: 700
   timeout: 180
-  keep_alive: "10m"
-  stream: true                            # stream tokens (faster perceived replies)
-  retries: 2                              # extra attempts when Ollama hiccups
-  retry_backoff: 0.75                     # seconds; doubles on each further try
-  warm_up: true                           # load the model at start-up, not mid-question
-  # A smaller/faster model can be used for intent classification & tool picking
-  router_model: ""                        # "" = reuse main model
-
+  keep_alive: 10m
+  stream: true
+  retries: 2
+  retry_backoff: 0.75
+  warm_up: true
+  router_model: ''
 memory:
   enabled: true
-  short_term_limit: 20                    # exchanges kept in RAM
+  short_term_limit: 20
   long_term: true
-  path: "data/chroma"
-  collection: "jarvis_memory"
-  embedding_model: "nomic-embed-text"     # pulled by setup.sh (free, local)
+  path: data/chroma
+  collection: jarvis_memory
+  embedding_model: nomic-embed-text
   top_k: 4
-  min_relevance: 0.20
+  min_relevance: 0.2
   autosave: true
-  auto_extract_facts: true                # let the LLM mine facts worth keeping
-  summarize: true                         # compress old turns into a running summary
-  summary_trigger: 12                     # exchanges before compressing
-  context_char_budget: 9000               # rough prompt budget for history
-
+  auto_extract_facts: true
+  summarize: true
+  summary_trigger: 12
+  context_char_budget: 9000
 database:
-  path: "data/jarvis.db"
-
+  path: data/jarvis.db
 productivity:
-  catch_up_on_start: true    # report reminders/jobs that came due while JARVIS was off
-  scheduler_interval: 15     # seconds between checks for due reminders and schedules
-  quiet_hours: ""            # e.g. "22:30-07:00" — hold proactive announcements until morning
-
+  catch_up_on_start: true
+  scheduler_interval: 15
+  quiet_hours: ''
 voice:
   enabled: true
-  wake_word: "jarvis"
-  # porcupine  -> needs a FREE access key from console.picovoice.ai
-  # whisper    -> no key at all, uses faster-whisper to hear the wake word
-  # auto       -> porcupine if a key is present, otherwise whisper
-  engine: "auto"
-  porcupine_access_key: ""
-  porcupine_keyword: "jarvis"
+  wake_word: jarvis
+  engine: auto
+  porcupine_access_key: ''
+  porcupine_keyword: jarvis
   sensitivity: 0.6
-  interrupt: true                          # stop talking when you talk
+  interrupt: true
   chime: true
-  stream_speech: true                      # speak each sentence as it is generated
-  conversation_mode: true                  # keep listening after a reply, no wake word
-  conversation_timeout: 20                 # seconds to stay awake for follow-ups
-
-  openwakeword:                            # fully local, no account at all
-    model: "hey_jarvis"                    # or alexa, hey_mycroft, hey_rhasspy
+  stream_speech: true
+  conversation_mode: true
+  conversation_timeout: 20
+  openwakeword:
+    model: hey_jarvis
     threshold: 0.5
-    inference_framework: "onnx"
-
+    inference_framework: onnx
   stt:
-    model: "base.en"                       # tiny.en | base.en | small.en | medium
-                                           #   the .en models are English-only; a
-                                           #   non-English assistant.language drops
-                                           #   the suffix automatically
-    device: "auto"                         # auto | cpu | cuda
-    compute_type: "auto"                   # auto | int8 | float16
-    language: "auto"                       # auto = follow assistant.language
+    model: base.en
+    device: auto
+    compute_type: auto
+    language: auto
     beam_size: 1
     vad_filter: true
-
   tts:
-    # auto  -> Piper if a local voice model is installed, else edge-tts
-    # piper -> fully offline neural speech (nothing leaves the machine)
-    # edge  -> Microsoft's free online voices (nicer prosody, needs internet)
-    engine: "auto"
-    piper_voice: ""                        # name or path of a .onnx voice in data/piper
-    piper_speed: 1.0                       # >1 faster, <1 slower
-    voice: ""                              # blank = the best free voice for your
-                                           #   language (en-GB-RyanNeural for English,
-                                           #   nl-NL-MaartenNeural for Dutch, …)
-    rate: "+8%"
-    volume: "+0%"
-    pitch: "+0Hz"
+    engine: auto
+    piper_voice: ''
+    piper_speed: 1.0
+    voice: ''
+    rate: +8%
+    volume: +0%
+    pitch: +0Hz
     cache: true
-
   vad:
     sample_rate: 16000
     frame_ms: 30
-    energy_threshold: 0.014                # raise if it triggers on room noise
-    silence_ms: 900                        # end-of-speech pause
+    energy_threshold: 0.014
+    silence_ms: 900
     min_speech_ms: 250
     max_command_seconds: 15
     listen_timeout: 8
-
 modules:
   system_control: true
   web_search: true
@@ -130,17 +98,16 @@ modules:
   code_assistant: true
   file_manager: true
   smart_assistant: true
-  knowledge: true          # RAG over your own documents
-  vision: true             # look at the screen / images (needs a vision model)
-  communications: true     # email (IMAP) + calendar (.ics)
-  models: true             # list/pull/switch the local Ollama models from chat
-  self_improve: true       # search GitHub, add plugins, edit his own code
-
+  knowledge: true
+  vision: true
+  communications: true
+  models: true
+  self_improve: true
 knowledge:
-  paths:                   # folders indexed for "ask my documents"
-    - "~/Documents"
-  store_path: "data/knowledge"
-  collection: "jarvis_documents"
+  paths:
+  - ~/Documents
+  store_path: data/knowledge
+  collection: jarvis_documents
   chunk_size: 1200
   chunk_overlap: 150
   max_file_mb: 25
@@ -148,105 +115,98 @@ knowledge:
   top_k: 5
   min_relevance: 0.05
   auto_index_on_start: false
-
 vision:
-  model: "llava"           # ollama pull llava   (or moondream, llama3.2-vision)
-  fallback_models: ["llava:7b", "bakllava", "moondream", "llama3.2-vision"]
+  model: llava
+  fallback_models:
+  - llava:7b
+  - bakllava
+  - moondream
+  - llama3.2-vision
   max_tokens: 400
   temperature: 0.2
-
 email:
-  enabled: false           # set true and fill in the details below
-  imap_host: ""            # e.g. imap.gmail.com
+  enabled: false
+  imap_host: ''
   imap_port: 993
-  smtp_host: ""            # e.g. smtp.gmail.com
+  smtp_host: ''
   smtp_port: 587
-  user: ""
-  password_env: "JARVIS_EMAIL_PASSWORD"   # password read from this env var, never stored
-  mailbox: "INBOX"
+  user: ''
+  password_env: JARVIS_EMAIL_PASSWORD
+  mailbox: INBOX
   fetch_limit: 10
   allow_send: false
-
 calendar:
   enabled: true
-  files: []                # local .ics files
-  urls: []                 # secret .ics URLs (Google/Outlook "private address")
-  local_file: "data/jarvis.ics"
+  files: []
+  urls: []
+  local_file: data/jarvis.ics
   look_ahead_days: 7
-
-# Self-improvement: JARVIS can search GitHub, wrap repositories as new skills,
-# and rewrite his own source. Every change is backed up, syntax-checked, run
-# through the test suite and committed to git — and reverted if anything fails.
 self_improve:
   enabled: true
-  allow_code_edit: true      # let him modify files in this project
-  allow_plugin_install: true # let him clone repos and generate adapters
-  review_plugins: true       # generated plugins wait in plugins/pending until you approve
-  allow_pip_install: false   # let him install packages into the venv (off by default)
-  run_tests_after_edit: true # keep an edit only if tests/test_smoke.py still passes
-  test_command: "tests/test_smoke.py"
+  allow_code_edit: true
+  allow_plugin_install: true
+  review_plugins: true
+  allow_pip_install: false
+  run_tests_after_edit: true
+  test_command: tests/test_smoke.py
   test_timeout: 900
-  git_commit: true           # commit each accepted change (never pushes)
-  auto_reload: true          # hot-reload edited modules without restarting
-  plugins_dir: "plugins"     # generated skill adapters live here
-  repos_dir: "data/repos"    # cloned repositories
-  backup_dir: "data/backups"
+  git_commit: true
+  auto_reload: true
+  plugins_dir: plugins
+  repos_dir: data/repos
+  backup_dir: data/backups
   keep_backups: 40
   max_file_bytes: 400000
   max_search_results: 8
-  github_token_env: "GITHUB_TOKEN"   # optional; raises the free API rate limit
-  protected:                 # files he is never allowed to rewrite
-    - "utils/security.py"
-    - "modules/self_improve.py"
-    - "config.yaml"
-
+  github_token_env: GITHUB_TOKEN
+  protected:
+  - utils/security.py
+  - modules/self_improve.py
+  - config.yaml
 web_ui:
-  enabled: false           # phone/browser access on your LAN
-  host: "0.0.0.0"
+  enabled: false
+  host: 0.0.0.0
   port: 8765
-  token: ""                # shared secret; blank = one is generated for you
-  require_token: true      # false = deliberately open (only on a trusted LAN)
+  token: ''
+  require_token: true
   rate_limit_per_minute: 40
   allow_tts: true
-  max_audio_mb: 25         # largest hold-to-talk recording accepted
-  title: "JARVIS"
-
+  max_audio_mb: 25
+  title: JARVIS
 security:
   confirm_dangerous: true
   allow_shell: true
   shell_timeout: 60
   sandbox_timeout: 20
-  # Extra regexes to always block, on top of the built-in blacklist
   blocked_patterns: []
-  # Restrict file operations to these roots ([] = home directory only)
   allowed_roots: []
-
 web:
   max_results: 5
   timeout: 20
   scrape_chars: 6000
-  user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+  user_agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)
+    Chrome/125.0 Safari/537.36
   news_feeds:
-    - "http://feeds.bbci.co.uk/news/world/rss.xml"
-    - "https://feeds.arstechnica.com/arstechnica/index"
-    - "https://hnrss.org/frontpage"
-  cache_ttl: 900           # seconds to cache search/weather/news results
-  cache_path: "data/cache.db"
-
+  - http://feeds.bbci.co.uk/news/world/rss.xml
+  - https://feeds.arstechnica.com/arstechnica/index
+  - https://hnrss.org/frontpage
+  cache_ttl: 900
+  cache_path: data/cache.db
 paths:
-  data: "data"
-  logs: "logs"
-  notes: "data/notes"
-  code: "data/code"
-  screenshots: "data/screenshots"
-  downloads: "data/downloads"
-  tts_cache: "data/tts"
-  knowledge: "data/knowledge"
-
+  data: data
+  logs: logs
+  notes: data/notes
+  code: data/code
+  screenshots: data/screenshots
+  downloads: data/downloads
+  tts_cache: data/tts
+  knowledge: data/knowledge
 logging:
-  level: "INFO"            # DEBUG | INFO | WARNING | ERROR
-  file: "logs/jarvis.log"
+  level: INFO
+  file: logs/jarvis.log
   max_bytes: 2000000
   backups: 3
   color: true
   quiet_libraries: true
+blender:
+  executable: ''

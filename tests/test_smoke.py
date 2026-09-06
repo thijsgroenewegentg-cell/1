@@ -508,7 +508,7 @@ async def test_degraded(root: Path) -> None:
     brain = Brain(config)
     await brain.initialize()
 
-    check("modules loaded", len(brain.modules) == 11, f"got {len(brain.modules)}")
+    check("modules loaded", len(brain.modules) == 12, f"got {len(brain.modules)}")
     check("llm reports offline", brain.llm.available is False)
 
     cases = [

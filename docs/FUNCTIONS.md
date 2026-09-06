@@ -22,6 +22,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`interfaces/voice.py`](#interfacesvoicepy) — 73
 - [`interfaces/web.py`](#interfaceswebpy) — 26
 - [`modules/base.py`](#modulesbasepy) — 32
+- [`modules/blender.py`](#modulesblenderpy) — 23
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
 - [`modules/communications.py`](#modulescommunicationspy) — 24
 - [`modules/file_manager.py`](#modulesfile_managerpy) — 32
@@ -43,12 +44,14 @@ and marked with `·`; methods the intent router can call are marked
 - [`utils/logger.py`](#utilsloggerpy) — 3
 - [`utils/scheduler.py`](#utilsschedulerpy) — 26
 - [`utils/security.py`](#utilssecuritypy) — 14
+- [`tests/fake_blender.py`](#testsfake_blenderpy) — 22
 - [`tests/mock_ollama.py`](#testsmock_ollamapy) — 10
+- [`tests/test_blender.py`](#teststest_blenderpy) — 39
 - [`tests/test_brain.py`](#teststest_brainpy) — 30
 - [`tests/test_cli.py`](#teststest_clipy) — 14
 - [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 15
 - [`tests/test_communications.py`](#teststest_communicationspy) — 8
-- [`tests/test_config.py`](#teststest_configpy) — 18
+- [`tests/test_config.py`](#teststest_configpy) — 20
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
 - [`tests/test_knowledge.py`](#teststest_knowledgepy) — 15
@@ -652,6 +655,38 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _llm_pick(self, command: str, hints: Optional[Dict[str, Any]] = None) -> Optional[tuple[str, Dict[str, Any]]]` — Ask the LLM to select a tool and fill in its parameters.
 - `def _keyword_pick(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]` — Offline fallback: score tools by keyword and description overlap.
 - `def _default_params(self, tool_name: str, command: str) -> Dict[str, Any]` — Fill obvious free-text parameters from the raw command.
+
+## `modules/blender.py`
+
+*23 functions*
+
+> Drive Blender from its command line: render, script, inspect and export.
+
+### `class Blender` — 3D work: render scenes, run Blender Python, inspect and export models.
+
+- `def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None` — Read the Blender settings and prepare the output directory.
+- `def find_runtime(self, refresh: bool = False) -> Optional[Tuple[str, str]]` — Locate Blender, preferring the application over the Python module.
+- `def _bpy_importable() -> bool` *staticmethod* — Check whether ``import bpy`` works in this interpreter.
+- `def _missing(self) -> ModuleResult` — The standard "Blender isn't here" answer, with how to fix it.
+- `def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]` — Rule-based routing with parameter extraction (used without an LLM).
+- `def _first_path(text: str, suffixes: Tuple[str, ...]) -> str` *staticmethod* — Pull the first path with one of ``suffixes`` out of a sentence.
+- `async def _run(self, args: List[str], timeout: float, script: str = '') -> Tuple[int, str, str]` — Run Blender with ``args``, or the equivalent through ``bpy``.
+- `async def _run_script(self, source: str, blend_file: str = '', timeout: float = 0.0) -> Tuple[int, str, str]` — Execute Blender Python, optionally against an existing .blend.
+- `def _extract_json(output: str) -> Optional[Dict[str, Any]]` *staticmethod* — Pull the JSON block our scripts print out of Blender's chatter.
+- `def _blender_error(stdout: str, stderr: str) -> str` *staticmethod* — Summarise why Blender failed, in one line where possible.
+- `async def blender_status(self) -> ModuleResult` **@tool** — Check for Blender and report what was found.
+- `async def render(self, blend_file: str = '', frame: int = 0, animation: bool = False, output: str = '', engine: str = '', format: str = 'png', resolution_percent: int = 0, samples: int = 0) -> ModuleResult` **@tool** — Render stills or an animation from a .blend file.
+- `def _outputs_since(prefix: Path, since: float) -> List[Path]` *staticmethod* — Find the frames a render just wrote.
+- `async def _render_via_bpy(self, target: Path, frame: int, animation: bool, output: str, engine: str, image_format: str, resolution_percent: int, samples: int) -> ModuleResult` — Render through the bpy module, which has no command line.
+- `async def scene_info(self, blend_file: str) -> ModuleResult` **@tool** — Open a .blend headlessly and summarise its contents.
+- `async def run_script(self, script: str, blend_file: str = '', save_as: str = '') -> ModuleResult` **@tool** — Execute Blender Python and report what it printed.
+- `async def _resolve_script(self, script: str) -> str` — Accept either Python source or a path to a ``.py`` file.
+- `def _script_output(stdout: str) -> str` *staticmethod* — Strip Blender's own start-up chatter from a script's output.
+- `async def make_scene(self, description: str, save_as: str = '', preview: bool = True) -> ModuleResult` **@tool** — Have the LLM write a bpy script, run it, and save the result.
+- `def _slug(text: str) -> str` *staticmethod* — Turn a description into a short, safe file stem.
+- `async def export_model(self, blend_file: str = '', format: str = 'glb', output: str = '', selected_only: bool = False) -> ModuleResult` **@tool** — Convert a .blend into an interchange format.
+- `async def open_blender(self, blend_file: str = '') -> ModuleResult` **@tool** — Launch the Blender application, optionally on a file.
+- `async def list_renders(self, limit: int = 15) -> ModuleResult` **@tool** — Show the most recent files in the render directory.
 
 ## `modules/code_assistant.py`
 
@@ -1337,6 +1372,47 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def summary(self) -> str` — One-line, user-facing description of what was spotted.
 
+## `tests/fake_blender.py`
+
+*22 functions*
+
+> A stand-in for the Blender executable, so the CLI integration can be tested.
+
+- `def write_frame(prefix: str, frame: int, suffix: str) -> Path` — Write one rendered frame where Blender would put it.
+- `def run_script(source: str, bpy: FakeBpy) -> int` — Execute a script the way Blender's ``-P`` does.
+- `def main(argv: List[str]) -> int` — Parse Blender's command line and act on it.
+
+### `class FakeObject` — One object in the fake scene.
+
+- `def __init__(self, name: str, kind: str = 'MESH', location: Optional[List[float]] = None) -> None` — Store the handful of attributes the inspection script reads.
+
+### `class FakeCollection` — A list that also supports ``.new()``/``.remove()`` like bpy collections.
+
+- `def new(self, name: str = 'Thing', *args: Any, **kwargs: Any) -> Any` — Append a named entry and return it.
+- `def remove(self, item: Any) -> None` — Drop an entry if it is present.
+
+### `class FakeScene` — Enough of ``bpy.types.Scene`` for the scripts JARVIS writes.
+
+- `def __init__(self) -> None` — Start from Blender's own defaults.
+- `def frame_set(self, frame: int) -> None` — Move the playhead.
+
+### `class FakeBpy` — The subset of ``bpy`` the assistant's scripts touch.
+
+- `def __init__(self) -> None` — Build an empty document with one scene.
+- `def _build_ops(self) -> Any` — Assemble the ``bpy.ops.*`` namespaces used by the module.
+  · `def open_mainfile(filepath: str = '', **_: Any) -> Dict[str, str]` — Load a fake .blend (a JSON document) into this session.
+  · `def save_as_mainfile(filepath: str = '', **_: Any) -> Dict[str, str]` — Write the session out as a fake .blend.
+  · `def render(animation: bool = False, write_still: bool = False, **_: Any) -> Dict[str, str]` — Write the image files a render would produce.
+  · `def read_factory_settings(use_empty: bool = False, **_: Any) -> Dict[str, str]` — Reset the session, optionally to a completely empty document.
+  · `def add_primitive(kind: str) -> Any` — Return a ``primitive_*_add`` operator that adds a mesh.
+    · `def operator(**kwargs: Any) -> Dict[str, str]` — Add one primitive at the requested location.
+  · `def add_object(kind: str) -> Any` — Return an ``object_add``-style operator for cameras and lights.
+    · `def operator(**kwargs: Any) -> Dict[str, str]` — Add one camera or light.
+  · `def exporter(default_suffix: str) -> Any` — Return an export operator that writes a small placeholder file.
+    · `def operator(filepath: str = '', **_: Any) -> Dict[str, str]` — Write the exported file.
+  · `def select_all(action: str = 'SELECT', **_: Any) -> Dict[str, str]` — Select or deselect everything.
+  · `def delete(**_: Any) -> Dict[str, str]` — Delete the selection.
+
 ## `tests/mock_ollama.py`
 
 *10 functions*
@@ -1356,6 +1432,51 @@ and marked with `·`; methods the intent router can call are marked
 - `def _send_ndjson(self, events: List[Dict[str, Any]]) -> None` — Send a list of events as newline-delimited JSON.
 - `def do_DELETE(self) -> None` — Serve ``/api/delete``.
 - `def do_POST(self) -> None` — Serve ``/api/chat``, ``/api/embeddings``, ``/api/pull`` and ``/api/show``.
+
+## `tests/test_blender.py`
+
+*39 functions*
+
+> Unit tests for modules/blender.py.
+
+- `def blender(config, tmp_path)` — A Blender module pointed at the stand-in executable.
+- `def scene(tmp_path)` — A .blend file the stand-in understands: three objects, three frames.
+- `def test_the_configured_executable_is_used(blender)`
+- `def test_a_missing_blender_is_reported_helpfully(config, tmp_path)`
+- `def test_status_reports_the_version(blender)`
+- `def test_offline_router_recognises_blender_work(blender, phrase, expected)`
+- `def test_the_router_extracts_the_frame_number(blender)`
+- `def test_the_router_notices_an_animation(blender)`
+- `def test_a_single_frame_is_rendered(blender, scene)`
+- `def test_rendering_the_same_frame_twice_still_reports_it(blender, scene)`
+- `def test_an_animation_renders_every_frame(blender, scene)`
+- `def test_the_output_path_is_honoured(blender, scene, tmp_path)`
+- `def test_the_format_is_honoured(blender, scene)`
+- `def test_rendering_without_a_file_asks_which_one(blender)`
+- `def test_rendering_a_missing_file_fails_politely(blender, tmp_path)`
+- `def test_a_scene_with_no_camera_is_explained(blender, tmp_path)`
+- `def test_a_blend_file_is_summarised(blender, scene)`
+- `def test_inspecting_a_missing_file_fails_politely(blender, tmp_path)`
+- `def test_scene_contents_are_treated_as_untrusted(blender)`
+- `def test_a_script_runs_and_its_output_comes_back(blender, scene)`
+- `def test_blender_chatter_is_stripped_from_script_output(blender, scene)`
+- `def test_a_failing_script_reports_the_error(blender)`
+- `def test_a_script_can_save_the_result(blender, scene, tmp_path)`
+- `def test_scripting_can_be_switched_off(config, tmp_path)`
+- `def test_an_empty_script_is_refused(blender)`
+- `def test_fenced_code_is_unwrapped(blender)`
+- `def test_a_model_exports(blender, scene, fmt)`
+- `def test_an_unknown_export_format_is_refused(blender, scene)`
+- `def test_export_remembers_the_last_file(blender, scene)`
+- `def test_renders_are_listed_newest_first(blender, scene)`
+- `def test_listing_with_nothing_rendered_is_calm(blender)`
+- `def test_the_engine_aliases_are_blender_identifiers()`
+- `def test_every_exporter_names_an_operator()`
+- `def test_the_common_formats_are_offered()`
+- `def test_asking_about_renders_is_not_a_request_to_render(blender)`
+- `def test_a_scene_is_built_from_a_description(blender, tmp_path, monkeypatch)` — make_scene: the model writes bpy, JARVIS runs it and saves the result.
+- `def test_building_a_scene_without_a_model_says_so(blender)`
+- `def test_a_description_becomes_a_sensible_filename(blender)`
 
 ## `tests/test_brain.py`
 
@@ -1454,7 +1575,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_config.py`
 
-*18 functions*
+*20 functions*
 
 > Unit tests for core/config.py.
 
@@ -1476,6 +1597,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_malformed_section_keeps_the_defaults(tmp_path)`
 - `def test_an_empty_value_keeps_the_default(tmp_path)`
 - `def test_quiet_hours_can_be_a_plain_string(tmp_path)`
+- `def test_every_setting_is_read_by_something()` — A setting that nothing reads is a promise the assistant cannot keep.
+  · `def walk(node: dict, prefix: str = '') -> 'Iterator[str]'`
 
 ## `tests/test_event_bus.py`
 
@@ -2001,5 +2124,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1353 functions across 58 files.**
+**1439 functions across 61 files.**
 

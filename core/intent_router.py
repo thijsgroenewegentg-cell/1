@@ -94,6 +94,12 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "what do you see", "on my screen", "on the screen", "read the text on",
         "screen say", "screen shows",
     ],
+    "blender": [
+        "blender", ".blend", "render the", "render frame", "3d scene", "3d model",
+        "bpy", "glb", "gltf", "obj file", "fbx", "mesh", "geometry nodes",
+        "keyframe", "viewport", "cycles", "eevee", "uv map", "rig ",
+        "rendered", "renders", "render folder",
+    ],
     "communications": [
         "my email", "my inbox", "unread mail", "any new mail", "check mail",
         "send an email", "reply to", "my calendar", "my schedule", "my meetings",
@@ -159,6 +165,10 @@ DECISIVE_PHRASES: Dict[str, Tuple[str, ...]] = {
         "what's the weather", "what is the weather", "how's the weather",
         "how is the weather", "the weather in", "weather forecast",
         "latest news", "in the news", "look it up online",
+    ),
+    "blender": (
+        "in blender", "with blender", "blender file", ".blend", "render frame",
+        "render the animation", "3d scene", "3d model", "export to glb",
     ),
     "file_manager": (
         "find all pdf", "find every pdf", "organize my", "organise my",

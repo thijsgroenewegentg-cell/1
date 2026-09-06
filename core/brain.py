@@ -610,6 +610,7 @@ class Brain:
             "smart_assistant": ("modules.smart_assistant", "SmartAssistant"),
             "knowledge": ("modules.knowledge", "Knowledge"),
             "vision": ("modules.vision", "Vision"),
+            "blender": ("modules.blender", "Blender"),
             "communications": ("modules.communications", "Communications"),
             "models": ("modules.models", "Models"),
             "self_improve": ("modules.self_improve", "SelfImprove"),

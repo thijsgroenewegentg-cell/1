@@ -43,6 +43,7 @@ Eleven capability modules, 120 callable tools:
 
 * **system_control** — open/close apps, screenshots, CPU/RAM/disk/battery, volume, lock screen, clipboard, keyboard & mouse automation, shell commands (guarded), time/date
 * **web_search** — DuckDuckGo search, page scraping + summarising, weather, news, Wikipedia, geocoding
+* **blender** — drives Blender's command line: render a frame or a whole animation, run bpy scripts headlessly, build a scene from a description, report what is inside a `.blend`, and export to glTF/OBJ/FBX/STL/USD. Works with the Blender application or with `pip install bpy`
 * **productivity** — todos, reminders with real notifications, timers, stopwatch, notes, daily briefing, and a **recurring scheduler** ("every weekday at 8am, give me my daily briefing") that also catches up on anything that came due while the machine was off
 * **code_assistant** — write, explain, debug, refactor, test, save and *run* code in a sandbox
 * **file_manager** — find files by name/content, organise folders, summarise PDF/DOCX/TXT, analyse CSVs, find duplicates, disk usage
@@ -403,6 +404,7 @@ jarvis/
 │   ├── smart_assistant.py   Q&A + RAG, maths, conversions, translation, writing
 │   ├── knowledge.py         private document knowledge base (index + cited answers)
 │   ├── vision.py            screen and image understanding via llava
+│   ├── blender.py           render, script, inspect and export 3D via Blender's CLI
 │   ├── communications.py    IMAP/SMTP email and .ics calendars
 │   ├── models.py            list / switch / pull / remove Ollama models
 │   └── self_improve.py      GitHub search, repo integration, self-editing, rollback
@@ -489,6 +491,15 @@ knowledge:
 
 vision:
   model: "llava"             # ollama pull llava
+
+blender:
+  executable: ""             # blank = look on PATH and the usual install paths
+  output_dir: "data/renders"
+  engine: ""                 # "cycles", "eevee" or blank for the file's own
+  samples: 0                 # 0 = leave the scene's sample count alone
+  render_timeout: 1800       # a heavy frame can take a while
+  allow_scripts: true        # let JARVIS run bpy scripts
+  allow_bpy_module: true     # accept "pip install bpy" when the app is absent
 
 web_ui:
   enabled: false
