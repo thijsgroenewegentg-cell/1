@@ -251,7 +251,7 @@ python main.py --restore ~/jarvis.zip          # put it back (never overwrites)
 python main.py --restore ~/jarvis.zip --force  # overwrite, after a safety copy
 python main.py --uninstall         # shows what it will delete, then asks
 
-pytest                             # 113 fast unit tests
+pytest                             # 124 fast unit tests
 python tests/test_smoke.py         # full offline test suite (no model needed)
 ```
 
@@ -413,7 +413,7 @@ jarvis/
 ├── .github/ci.yml           ruff + mypy + tests CI (move to .github/workflows/)
 ├── plugins/                 skills JARVIS writes for itself (loaded at start-up)
 ├── tests/
-│   ├── test_units.py        113 fast pytest unit tests (no Ollama, no network)
+│   ├── test_units.py        124 fast pytest unit tests (no Ollama, no network)
 │   ├── test_smoke.py        282-check end-to-end suite
 │   └── mock_ollama.py       scripted LLM server (streaming + vision) for testing
 └── data/                    SQLite DB, ChromaDB, notes, code, screenshots, TTS cache
@@ -1090,7 +1090,7 @@ Extras mirror the optional dependencies: `pip install -e ".[voice]"`,
 ## Continuous integration
 
 `.github/ci.yml` (move it to `.github/workflows/ci.yml` to switch it on) runs
-**ruff**, **mypy**, the 113 pytest unit tests and the 282-check offline smoke
+**ruff**, **mypy**, the 124 pytest unit tests and the 282-check offline smoke
 suite on Linux, macOS and Windows (Python 3.9–3.12), measures coverage over both
 suites, and builds a wheel. No models are downloaded — `tests/mock_ollama.py`
 scripts the LLM, including token streaming and vision responses.

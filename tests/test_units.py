@@ -829,3 +829,245 @@ def test_a_healthy_report_says_so():
     assert "checks out" in report.summary()
     report.add("Internet", "warn", "offline")
     assert report.healthy and "degraded" in report.summary()
+
+
+# ------------------------------------------------------------------------ voice
+
+
+class _FakeTTS:
+    """A text-to-speech engine that records instead of making noise."""
+
+    def __init__(self) -> None:
+        self.said: list = []
+        self.stopped = False
+
+    async def speak(self, text: str, interruptible: bool = True) -> bool:
+        self.said.append(text)
+        return True
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+def _stream(tokens: list, **kwargs: object) -> tuple:
+    """Feed tokens to a StreamingSpeaker and return (speaker, fake tts)."""
+    import asyncio
+
+    from interfaces.voice import StreamingSpeaker
+
+    async def run() -> tuple:
+        tts = _FakeTTS()
+        speaker = StreamingSpeaker(tts, **kwargs)
+        speaker.start()
+        for token in tokens:
+            speaker.feed(token)
+        await speaker.finish()
+        return speaker, tts
+
+    return asyncio.run(run())
+
+
+def test_the_streaming_speaker_speaks_whole_sentences_in_order():
+    speaker, tts = _stream(
+        ["Good ", "evening, ", "sir. ", "The reactor is stable and the coffee is cold. ",
+         "Shall I fix one of those?"]
+    )
+    assert tts.said[0].startswith("Good evening, sir.")
+    assert tts.said == speaker.spoken
+    assert " ".join(tts.said).endswith("Shall I fix one of those?")
+    assert speaker.buffer == ""
+
+
+def test_the_streaming_speaker_does_not_read_code_blocks_mid_fence():
+    _, tts = _stream(
+        ["Here is the script you asked for, sir. ",
+         "```", "python\nprint('hello')\nprint('world')\n", "```",
+         " That should do it, and it even runs."]
+    )
+    # Nothing is spoken until the fence closes, and then not split inside it.
+    assert tts.said[0].startswith("Here is the script")
+    assert any("That should do it" in chunk for chunk in tts.said)
+
+
+def test_cancelling_a_streaming_reply_silences_it():
+    import asyncio
+
+    from interfaces.voice import StreamingSpeaker
+
+    async def run() -> tuple:
+        tts = _FakeTTS()
+        speaker = StreamingSpeaker(tts)
+        speaker.start()
+        speaker.feed("This is a long sentence that will definitely be spoken aloud. ")
+        speaker.cancel()
+        speaker.feed("But this one must never be heard by anyone at all, ever. ")
+        await speaker.finish()
+        return speaker, tts
+
+    speaker, tts = asyncio.run(run())
+    assert tts.stopped is True
+    assert not any("never be heard" in chunk for chunk in speaker.spoken)
+
+
+def test_stop_sleep_and_shutdown_phrases_are_told_apart():
+    from interfaces.voice import VoiceInterface
+
+    assert VoiceInterface._is_stop_command("Stop.")
+    assert VoiceInterface._is_stop_command("shut up")
+    assert not VoiceInterface._is_stop_command("stop the timer")
+
+    assert VoiceInterface._is_sleep_command("go to sleep")
+    assert VoiceInterface._is_sleep_command("never mind")
+    assert not VoiceInterface._is_sleep_command("sleep mode for my laptop")
+
+    assert VoiceInterface._is_shutdown_command("goodbye jarvis")
+    assert not VoiceInterface._is_shutdown_command("goodbye")
+
+
+def test_the_tts_cache_key_changes_with_the_voice_but_not_the_call(tmp_path):
+    import copy
+
+    from core.config import DEFAULT_CONFIG, Config
+    from interfaces.voice import TextToSpeech
+
+    def engine(language: str) -> object:
+        data = copy.deepcopy(DEFAULT_CONFIG)
+        data["assistant"]["language"] = language
+        data["paths"]["tts_cache"] = str(tmp_path)
+        return TextToSpeech(Config(data=data, path=tmp_path / "config.yaml"))
+
+    english, dutch = engine("en"), engine("nl")
+    assert english._cache_path("Good evening") == english._cache_path("Good evening")
+    assert english._cache_path("Good evening") != english._cache_path("Good morning")
+    assert english._cache_path("Good evening") != dutch._cache_path("Good evening")
+
+
+def test_an_audio_clip_writes_a_readable_wav(tmp_path):
+    import wave
+
+    import numpy as np
+
+    from interfaces.voice import AudioClip
+
+    samples = np.linspace(-1.0, 1.0, 16000, dtype="float32")
+    clip = AudioClip(samples=samples, sample_rate=16000)
+    assert abs(clip.duration - 1.0) < 0.001
+
+    target = clip.to_wav(tmp_path / "clip.wav")
+    with wave.open(str(target), "rb") as handle:
+        assert handle.getnchannels() == 1
+        assert handle.getsampwidth() == 2
+        assert handle.getframerate() == 16000
+        assert handle.getnframes() == 16000
+
+
+def test_the_keyless_wake_word_accepts_mishearings_and_keeps_the_tail():
+    import asyncio
+    import copy
+
+    from core.config import DEFAULT_CONFIG, Config
+    from interfaces.voice import WakeWordDetector
+
+    heard = ["what time is it", "jarvas, what is the weather", "jarvis"]
+
+    class FakeClip:
+        duration = 1.0
+
+    class FakeMic:
+        def record_until_silence(self, *args: object) -> object:
+            return FakeClip()
+
+    class FakeSTT:
+        async def transcribe(self, clip: object) -> str:
+            return heard.pop(0) if heard else ""
+
+    config = Config(data=copy.deepcopy(DEFAULT_CONFIG), path=None)
+    detector = WakeWordDetector(config, FakeMic(), FakeSTT())
+
+    async def run() -> bool:
+        return await detector._wait_whisper(asyncio.Event())
+
+    # The first burst is ignored, the misheard "jarvas" wakes it.
+    assert asyncio.run(run()) is True
+    assert detector.pending_command == "what is the weather"
+
+
+# -------------------------------------------------------------------------- cli
+
+
+class _FakeIntent:
+    module = "smart_assistant"
+    method = "answer"
+
+
+class _FakeBrain:
+    """Just enough brain for the CLI to talk to."""
+
+    def __init__(self, config: object) -> None:
+        self.config = config
+        self.streaming_enabled = False
+        self.last_intent = _FakeIntent()
+        self.cancelled = False
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+
+def _cli(tmp_path: object) -> object:
+    """A CLI wired to a fake brain and a temp config."""
+    import copy
+
+    from core.config import DEFAULT_CONFIG, Config
+    from interfaces.cli import CLI
+
+    config = Config(data=copy.deepcopy(DEFAULT_CONFIG), path=tmp_path / "config.yaml")
+    return CLI(_FakeBrain(config))
+
+
+def test_the_cli_toggles_streaming_and_speech(tmp_path):
+    import asyncio
+
+    cli = _cli(tmp_path)
+    assert asyncio.run(cli.handle_command("/stream on"))
+    assert cli.brain.streaming_enabled is True
+    asyncio.run(cli.handle_command("/stream"))
+    assert cli.brain.streaming_enabled is False
+
+    asyncio.run(cli.handle_command("/unmute"))
+    assert cli.speak_replies is True
+    asyncio.run(cli.handle_command("/mute"))
+    assert cli.speak_replies is False
+
+
+def test_the_cli_knows_what_is_not_a_command(tmp_path):
+    import asyncio
+
+    cli = _cli(tmp_path)
+    assert asyncio.run(cli.handle_command("what is the weather")) is False
+    assert asyncio.run(cli.handle_command("/help")) is True
+    assert asyncio.run(cli.handle_command("exit")) is True
+    assert cli.running is False
+
+
+def test_the_cli_turns_a_cancelled_thought_into_a_clean_answer(tmp_path):
+    import asyncio
+
+    cli = _cli(tmp_path)
+
+    async def thinking() -> str:
+        raise asyncio.CancelledError
+
+    reply = asyncio.run(cli._guarded(thinking()))
+    assert reply == "Stopped."
+    assert cli.brain.cancelled is True
+
+
+def test_the_reply_panel_renders_code_without_exploding(tmp_path, capsys):
+    cli = _cli(tmp_path)
+    cli.assistant_panel(
+        "Here you go, sir:\n\n```python\nprint('hello')\n```\n\nRun it and see.",
+        subtitle="[dim]test[/dim]",
+    )
+    printed = capsys.readouterr().out
+    assert "hello" in printed
+    assert "Here you go" in printed

@@ -1098,9 +1098,16 @@ class WakeWordDetector:
                 continue
             logger.debug("Wake candidate: %r", text)
             normalised = "".join(char for char in text if char.isalnum() or char.isspace())
-            if any(variant and variant in normalised for variant in variants):
+            heard = next(
+                (variant for variant in sorted(variants, key=len, reverse=True)
+                 if variant and variant in normalised),
+                "",
+            )
+            if heard:
                 # Some people say "Jarvis, do X" in one breath — keep the tail.
-                self.pending_command = normalised.split(self.wake_word, 1)[-1].strip()
+                # Split on the variant actually heard, not on the configured
+                # spelling, or a misheard "jarvas" ends up inside the command.
+                self.pending_command = normalised.split(heard, 1)[-1].strip()
                 return True
         return False
 

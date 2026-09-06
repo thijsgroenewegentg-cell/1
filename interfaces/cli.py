@@ -679,7 +679,8 @@ class CLI:
             self.warn("Cancelled.")
             try:
                 return await task
-            except Exception:
+            except BaseException:
+                # A second Ctrl+C must end the turn, not the process.
                 return "Stopped."
         except asyncio.CancelledError:
             self.brain.cancel()
