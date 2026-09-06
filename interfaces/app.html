@@ -33,9 +33,14 @@
   --cyan: #37c8e8;
   --bad: #f87171;
   --good: #34d399;
+  --accent: var(--blue);          /* follows the mood, see body[data-mood] */
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+body[data-mood="listen"] { --accent: var(--cyan); }
+body[data-mood="think"]  { --accent: var(--violet); }
+body[data-mood="speak"]  { --accent: #6ea8ff; }
+body[data-mood="lost"]   { --accent: #3a4150; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; margin: 0; overflow: hidden; background: var(--black); }
 body { color: var(--ink); font: 14px/1.55 var(--sans); -webkit-font-smoothing: antialiased;
@@ -47,23 +52,53 @@ input { font: inherit; }
 /* ------------------------------------------------------------- the sphere */
 #field { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
+/* shockwave rings, spawned on send / reply / notices */
+.shock {
+  position: fixed; left: 50%; top: 45%; z-index: 2; pointer-events: none;
+  border: 1px solid var(--accent); border-radius: 50%;
+  width: 72vmin; height: 72vmin; opacity: 0;
+  animation: shock 1s cubic-bezier(.2, .6, .3, 1) forwards;
+}
+@keyframes shock {
+  from { opacity: .45; transform: translate(-50%, -50%) scale(.15); }
+  to   { opacity: 0;   transform: translate(-50%, -50%) scale(1); }
+}
+
 /* ---------------------------------------------------------- the transcript */
 /* A short, centred column of type floating under the sphere. Old lines sink
    and fade instead of scrolling, so the room stays quiet. */
 #log {
   position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: 108px; width: min(600px, calc(100vw - 44px));
-  display: flex; flex-direction: column; gap: 7px; align-items: center;
+  bottom: 108px; width: min(620px, calc(100vw - 44px));
+  max-height: 42vh; overflow: hidden;
+  display: flex; flex-direction: column; gap: 9px; align-items: center;
   text-align: center; pointer-events: none; z-index: 4;
 }
-.line { max-width: 100%; transition: opacity .5s ease; overflow-wrap: anywhere; }
+.line { max-width: 100%; transition: opacity .5s ease; overflow-wrap: anywhere;
+        position: relative; }
 .line.me { color: var(--dim); font: 11.5px/1.5 var(--mono); letter-spacing: .04em; }
 .line.me::before { content: "› "; color: var(--faint); }
 .line.ai { color: var(--ink); font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+.line.ai code { font: 12px/1.4 var(--mono); color: #9fb6e8; }
+.line.ai pre {
+  text-align: left; white-space: pre; overflow-x: auto; margin: 7px 0;
+  background: #07090d; border: 1px solid var(--line); border-radius: 9px;
+  padding: 9px 11px; font: 11px/1.55 var(--mono); color: #aeb6c4;
+}
+.line.ai b { color: #fff; font-weight: 600; }
+/* hover actions on a finished reply: copy it, or hear it again */
+.line.ai .acts {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: -15px;
+  display: none; gap: 14px; pointer-events: auto;
+  font: 8.5px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase;
+}
+.line.ai:hover .acts { display: flex; }
+.line.ai .acts button { color: var(--faint); }
+.line.ai .acts button:hover { color: var(--accent); }
 .line.tool { color: var(--faint); font: 10.5px/1.5 var(--mono); letter-spacing: .06em; }
 .line.sys { color: var(--blue-deep); font: 10.5px/1.5 var(--mono); letter-spacing: .14em;
             text-transform: uppercase; }
-.cursor { color: var(--blue); animation: blink 1s steps(1) infinite; }
+.cursor { color: var(--accent); animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
 /* first-run hint, fades on its own */
@@ -92,22 +127,24 @@ input { font: inherit; }
 .dot-btn:active { transform: scale(.92); }
 .dot-btn .glyph { width: 13px; height: 13px; fill: none; stroke: currentColor;
                   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.dot-btn.recording { color: #dfe7ff; border-color: var(--blue); }
+.dot-btn.recording { color: #dfe7ff; border-color: var(--accent);
+                     box-shadow: 0 0 18px rgba(55, 200, 232, .25); }
 .dot-btn.busy { color: var(--blue-deep); animation: spin 1.1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 #micRing { position: absolute; inset: -4px; width: 42px; height: 42px; transform: rotate(-90deg);
            pointer-events: none; }
-#micRing circle { fill: none; stroke: var(--blue); stroke-width: 1.4; opacity: .9; }
+#micRing circle { fill: none; stroke: var(--accent); stroke-width: 1.4; opacity: .9; }
 
 #readout {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   font: 9px/1 var(--mono); letter-spacing: .26em; text-transform: uppercase;
-  color: var(--blue); min-width: 86px; padding: 4px 2px;
+  color: var(--accent); min-width: 86px; padding: 4px 2px;
+  transition: color .4s ease; text-shadow: 0 0 14px rgba(63, 109, 255, .35);
 }
-#readout #clock { color: var(--blue-deep); letter-spacing: .2em; }
+#readout #clock { color: var(--blue-deep); letter-spacing: .2em; text-shadow: none; }
 #readout #state { max-width: 46vw; overflow: hidden; text-overflow: ellipsis;
                   white-space: nowrap; }
-#readout.offline { color: var(--faint); }
+#readout.offline { color: var(--faint); text-shadow: none; }
 #readout.offline #clock { color: #232833; }
 
 /* -------------------------------------------------------------- type line */
@@ -122,11 +159,11 @@ input { font: inherit; }
 #typed.show { display: flex; opacity: 1; transform: translateX(-50%) translateY(0); }
 #typed input {
   flex: 1; background: none; border: 0; outline: none; color: var(--ink);
-  font: 13.5px/1.4 var(--mono); letter-spacing: .02em; caret-color: var(--blue);
+  font: 13.5px/1.4 var(--mono); letter-spacing: .02em; caret-color: var(--accent);
 }
 #typed input::placeholder { color: var(--faint); }
 #typed button { color: var(--blue-deep); font: 13px var(--mono); padding: 2px 6px; }
-#typed button:hover { color: var(--blue); }
+#typed button:hover { color: var(--accent); }
 
 /* ----------------------------------------------------------------- sheets */
 /* Palette, panel, history and keys share one quiet full-screen sheet. */
@@ -137,7 +174,7 @@ input { font: inherit; }
 }
 .sheet.show { display: flex; }
 .box {
-  width: min(640px, calc(100vw - 32px)); max-height: min(68vh, 620px);
+  width: min(660px, calc(100vw - 32px)); max-height: min(70vh, 640px);
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
   padding: 16px 18px; box-shadow: 0 30px 90px rgba(0, 0, 0, .8);
@@ -147,27 +184,39 @@ input { font: inherit; }
 .box h2 {
   margin: 0 0 12px; font: 9px/1 var(--mono); letter-spacing: .3em;
   text-transform: uppercase; color: var(--faint); font-weight: 400;
+  display: flex; justify-content: space-between; gap: 12px;
 }
+.box h2 span { color: #232833; letter-spacing: .2em; }
 .box .scroll { overflow-y: auto; overscroll-behavior: contain; }
 .box input.search {
   width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line);
   outline: none; color: var(--ink); font: 13.5px/1.4 var(--mono);
-  caret-color: var(--blue); padding: 2px 2px 9px; margin-bottom: 10px;
+  caret-color: var(--accent); padding: 2px 2px 9px; margin-bottom: 10px;
 }
 .box input.search::placeholder { color: var(--faint); }
 
-.opt { display: flex; justify-content: space-between; gap: 14px; align-items: baseline;
-       padding: 7px 10px; border-left: 2px solid transparent; border-radius: 4px; }
-.opt .label { font-size: 13px; color: #c6cdd9; }
-.opt .hint { font: 10px/1.4 var(--mono); letter-spacing: .08em; color: var(--faint);
-             white-space: nowrap; }
-.opt.sel { background: #0a0e15; border-left-color: var(--blue); }
+.opt {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 7px 10px; border-left: 2px solid transparent; border-radius: 4px;
+}
+.opt .badge {
+  flex: none; font: 8px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase;
+  color: var(--faint); border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 7px; min-width: 44px; text-align: center;
+}
+.opt .body { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.opt .label { font-size: 13px; color: #c6cdd9; overflow: hidden; text-overflow: ellipsis;
+              white-space: nowrap; }
+.opt .hint { font: 10px/1.4 var(--mono); letter-spacing: .06em; color: var(--faint);
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opt.sel { background: #0a0e15; border-left-color: var(--accent); }
 .opt.sel .label { color: var(--ink); }
+.opt.sel .badge { color: var(--accent); border-color: var(--line-warm); }
 
 .tabs { display: flex; gap: 18px; margin-bottom: 12px; }
 .tabs button { font: 9.5px/1 var(--mono); letter-spacing: .24em; text-transform: uppercase;
                color: var(--faint); padding: 4px 0; }
-.tabs button.on { color: var(--blue); }
+.tabs button.on { color: var(--accent); }
 .pane { display: none; } .pane.on { display: block; }
 
 .kv { display: flex; justify-content: space-between; gap: 12px; padding: 5px 2px;
@@ -194,7 +243,7 @@ input { font: inherit; }
 .switch button { border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px;
                  font: 10px var(--mono); letter-spacing: .14em; color: var(--faint);
                  text-transform: uppercase; }
-.switch button.on { color: var(--blue); border-color: var(--blue-deep); }
+.switch button.on { color: var(--accent); border-color: var(--blue-deep); }
 
 .hist { display: flex; flex-direction: column; gap: 9px; padding: 2px; }
 .hist .me { color: var(--dim); font: 11px/1.5 var(--mono); }
@@ -204,13 +253,13 @@ input { font: inherit; }
 .keysgrid { display: grid; grid-template-columns: auto 1fr; gap: 9px 20px;
             font: 12px/1.4 var(--mono); color: var(--dim); align-items: center; }
 .keysgrid kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px;
-                color: var(--blue); font: 11px var(--mono); justify-self: start; }
+                color: var(--accent); font: 11px var(--mono); justify-self: start; }
 
 /* ---------------------------------------------------------------- toasts */
 #toasts { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 40;
           display: flex; flex-direction: column; gap: 7px; align-items: center; }
 .toast {
-  background: #06080c; border: 1px solid var(--line); border-left: 2px solid var(--blue);
+  background: #06080c; border: 1px solid var(--line); border-left: 2px solid var(--accent);
   border-radius: 8px; padding: 8px 14px; color: #b9c1cf;
   font: 11px/1.5 var(--mono); letter-spacing: .04em; animation: rise .18s ease-out;
   max-width: min(480px, 90vw);
@@ -221,17 +270,19 @@ input { font: inherit; }
   #log { bottom: 98px; }
   .line.ai { font-size: 13.5px; }
   #readout { min-width: 74px; }
+  .line.ai .acts { display: none !important; }
 }
 @media (prefers-reduced-motion: reduce) {
-  body, .toast, .box, .cursor { animation: none !important; transition: none !important; }
+  body, .toast, .box, .cursor, .shock { animation: none !important; transition: none !important; }
+  .shock { display: none; }
 }
 </style>
 </head>
-<body>
+<body data-mood="idle">
 <canvas id="field"></canvas>
 
 <div id="log" aria-live="polite"></div>
-<div id="hint">hold <b>space</b> to speak · <b>K</b> for everything</div>
+<div id="hint">hold <b>space</b> to speak · <b>K</b> every tool · <b>T</b> type</div>
 
 <div id="hud">
   <button class="dot-btn" id="mic" title="Hold to talk (space)" aria-label="Hold to talk">
@@ -260,8 +311,8 @@ input { font: inherit; }
 
 <div class="sheet" id="palette" role="dialog" aria-label="Command palette">
   <div class="box">
-    <h2>everything __TITLE__ can do</h2>
-    <input class="search" id="paletteInput" placeholder="ask anything · enter asks, ctrl+↵ runs the highlighted tool"
+    <h2>everything __TITLE__ can do <span id="toolCount"></span></h2>
+    <input class="search" id="paletteInput" placeholder="ask, or search every tool…"
            autocomplete="off" aria-label="Command palette">
     <div class="scroll" id="paletteList"></div>
   </div>
@@ -304,12 +355,14 @@ input { font: inherit; }
     <div class="keysgrid">
       <kbd>space</kbd><span>hold to talk</span>
       <kbd>T</kbd><span>type instead</span>
-      <kbd>K</kbd><span>command palette — every tool and quick ask</span>
+      <kbd>K</kbd><span>command palette — every tool, and whatever you type becomes the first option</span>
+      <kbd>↵</kbd><span>run the highlighted option (your typed question, by default)</span>
+      <kbd>↑ ↓</kbd><span>move through the palette</span>
       <kbd>Ctrl /</kbd><span>status, tools, audit</span>
       <kbd>H</kbd><span>this session's transcript</span>
       <kbd>S</kbd><span>read replies aloud</span>
       <kbd>?</kbd><span>this list</span>
-      <kbd>esc</kbd><span>close whatever is open</span>
+      <kbd>esc</kbd><span>cancel recording, close whatever is open</span>
     </div>
   </div>
 </div>
@@ -326,8 +379,12 @@ const token = new URLSearchParams(location.search).get("token") || "";
 const auth = token ? "?token=" + encodeURIComponent(token) : "";
 const settings = { speech: localStorage.getItem("jarvis.speech") === "1" };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const recents = (() => {
+  try { return JSON.parse(localStorage.getItem("jarvis.recent") || "[]"); }
+  catch (err) { return []; }
+})();
 
-let socket = null, retry = 0, busy = false, replyText = "", turns = 0;
+let socket = null, retry = 0, busy = false, replyText = "", turns = 0, turnStarted = 0;
 let transcript = [];                     // {who, text} for the history sheet
 let streamNode = null;                   // the .line.ai node tokens land in
 
@@ -339,12 +396,14 @@ let streamNode = null;                   // the .line.ai node tokens land in
    mild perspective so the far side dims instead of vanishing. Every visual
    reaction — listening, thinking, speaking — is just `energy` feeding the
    displacement amplitude and the spin, so the object always matches what
-   the assistant is actually doing.
+   the assistant is actually doing. Frames fade instead of clearing, which
+   leaves the faintest trail behind a moving lattice.
    ===================================================================== */
 const canvas = $("field"), ctx = canvas.getContext("2d", { alpha: false });
 const orb = {
   energy: 0, kick: 0, mic: 0, tts: 0, spin: 0, time: 0,
   mood: "idle", rings: 46, quality: 1,
+  px: 0, py: 0, tx: 0, ty: 0,            // pointer parallax, smoothed
 };
 const MOODS = {
   idle:   { bright: 1.00, spin: 0.10, floor: 0.05 },
@@ -363,6 +422,7 @@ const PALETTE = [
 let dots = [];
 const buckets = PALETTE.map(() => []);   // reused per frame, no allocation
 let width = 0, height = 0, dpr = 1, radius = 0, cx = 0, cy = 0;
+let vignette = null;
 let frameTimes = [], lastFrame = performance.now(), fps = 60;
 
 function hash(a, b) {
@@ -402,8 +462,18 @@ function resize() {
   radius = Math.min(width, height) * 0.36;
   cx = width / 2;
   cy = height * 0.45;
+  /* cached radial vignette: the lattice floats in a room, not on a sticker */
+  vignette = ctx.createRadialGradient(cx, cy, radius * 0.7, cx, cy, Math.max(width, height) * 0.72);
+  vignette.addColorStop(0, "rgba(0,0,0,0)");
+  vignette.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, width, height);
 }
 addEventListener("resize", resize);
+addEventListener("pointermove", (event) => {
+  orb.tx = (event.clientX / width - 0.5) * 2;
+  orb.ty = (event.clientY / height - 0.5) * 2;
+});
 
 function measure(now) {
   const dt = now - lastFrame;
@@ -441,11 +511,13 @@ function draw(now) {
   const target = Math.max(idle, orb.mic, orb.tts, orb.kick);
   orb.energy += (target - orb.energy) * (target > orb.energy ? 0.35 : 0.08);
   orb.spin += dt * (mood.spin + orb.energy * 0.55) * (reduced ? 0.15 : 1);
+  orb.px += (orb.tx - orb.px) * 0.04;
+  orb.py += (orb.ty - orb.py) * 0.04;
 
   const e = orb.energy;
   const amp = (0.035 + e * 0.30) * (reduced ? 0.4 : 1);
-  const rotY = orb.spin;
-  const rotX = 0.42 + Math.sin(t * 0.11) * 0.14;
+  const rotY = orb.spin + orb.px * 0.22;
+  const rotX = 0.42 + Math.sin(t * 0.11) * 0.14 + orb.py * 0.16;
   const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
   const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
   const breathe = 1 + Math.sin(t * 0.6) * 0.012 + e * 0.05;
@@ -454,7 +526,9 @@ function draw(now) {
   /* at rest the cool dots carry the lattice; heat pulls it back to white */
   const gain = [0.72 + e * 0.9, 1.06 - e * 0.25, 1.0 - e * 0.2];
 
-  ctx.fillStyle = "#000";
+  /* fade, not clear: yesterday's lattice ghosts for a frame or two */
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = reduced ? "#000" : "rgba(0,0,0,0.34)";
   ctx.fillRect(0, 0, width, height);
 
   for (const b of buckets) b.length = 0;
@@ -491,18 +565,40 @@ function draw(now) {
     const list = buckets[c];
     for (let i = 0; i < list.length; i += 4) {
       const a = Math.max(0.08, Math.min(1, list[i + 3] * gain[c]));
+      const size = list[i + 2];
+      /* near dots get a soft halo, so the front of the sphere glows a little */
+      if (size > 1.35) {
+        ctx.globalAlpha = a * 0.16;
+        ctx.beginPath();
+        ctx.arc(list[i], list[i + 1], size * 2.6, 0, 6.2832);
+        ctx.fill();
+      }
       ctx.globalAlpha = a;
       ctx.beginPath();
-      ctx.arc(list[i], list[i + 1], list[i + 2], 0, 6.2832);
+      ctx.arc(list[i], list[i + 1], size, 0, 6.2832);
       ctx.fill();
     }
   }
   ctx.globalAlpha = 1;
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, width, height);
   requestAnimationFrame(draw);
 }
 
-function mood(name) { orb.mood = name; }
-function pulse(strength) { orb.kick = Math.min(1, Math.max(orb.kick, strength || 0.5)); }
+function mood(name) {
+  orb.mood = name;
+  document.body.dataset.mood = name;
+}
+function pulse(strength) {
+  orb.kick = Math.min(1, Math.max(orb.kick, strength || 0.5));
+  if ((strength || 0) >= 0.6 && !reduced) {
+    const ring = document.createElement("div");
+    ring.className = "shock";
+    document.body.appendChild(ring);
+    ring.addEventListener("animationend", () => ring.remove());
+    setTimeout(() => ring.remove(), 1600);
+  }
+}
 
 /* =======================================================================
    Readout, transcript, toasts.
@@ -529,12 +625,30 @@ function tickClock() {
   const now = new Date();
   $("clock").textContent =
     String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+  /* while a turn is in flight the readout counts it out in seconds */
+  if (busy) {
+    const secs = Math.round((performance.now() - turnStarted) / 1000);
+    const current = stateEl.textContent;
+    if (current.startsWith("thinking") || current.startsWith("working") || current.startsWith("routing")) {
+      stateEl.textContent = current.replace(/ \d+s$/, "") + " " + secs + "s";
+    }
+  }
 }
 setInterval(tickClock, 1000); tickClock();
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (ch) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
+/* markdown-lite: code fences, inline code, bold — enough for assistant replies
+   without shipping a parser */
+function rich(text) {
+  let out = escapeHtml(text);
+  out = out.replace(/```(?:\w*)\n?([\s\S]*?)```/g, (m, code) => "<pre>" + code.replace(/^\n|\n$/g, "") + "</pre>");
+  out = out.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  out = out.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+  return out;
 }
 
 const logEl = $("log");
@@ -557,7 +671,7 @@ function line(who, text) {
   return node;
 }
 
-/** Start (or reuse) the streaming reply line; returns the text node. */
+/** Start (or reuse) the streaming reply line. */
 function beginStream() {
   if (streamNode && streamNode.isConnected) return streamNode;
   streamNode = line("ai", "");
@@ -584,6 +698,27 @@ function trimLogKeep(node) {
   for (let i = 0; i < kids.length; i++) {
     kids[i].style.opacity = kids[i] === node ? 1 : (FADE[kids.length - 1 - i] ?? 0.04);
   }
+}
+/** Finish a reply: typeset it, and offer copy / speak on hover. */
+function finishReply(text) {
+  const node = beginStream();
+  node.innerHTML = rich(text);
+  const acts = document.createElement("div");
+  acts.className = "acts";
+  const copy = document.createElement("button");
+  copy.textContent = "copy";
+  copy.addEventListener("click", () => {
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+      .then(() => toast("Copied."))
+      .catch(() => toast("Clipboard refused.", true));
+  });
+  const speak = document.createElement("button");
+  speak.textContent = "speak";
+  speak.addEventListener("click", () => speakAloud(text));
+  acts.append(copy, speak);
+  node.appendChild(acts);
+  endStream();
+  trimLogKeep(node);
 }
 function endStream() { streamNode = null; }
 
@@ -626,7 +761,11 @@ setTimeout(dropHint, 11000);
 function connect() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   socket = new WebSocket(scheme + "://" + location.host + "/ws" + auth);
-  socket.onopen = () => { retry = 0; status(""); pulse(0.6); };
+  socket.onopen = () => {
+    const wasDown = retry > 0;
+    retry = 0; status(""); pulse(0.6);
+    if (wasDown) toast("Back online.");
+  };
   socket.onclose = () => {
     status("offline");
     retry = Math.min(retry + 1, 6);
@@ -648,8 +787,7 @@ function handle(data) {
     mood("speak");
   } else if (data.type === "reply") {
     replyText = data.text || replyText;
-    streamText(replyText || "…", false);
-    endStream();
+    finishReply(replyText || "…");
     remember("ai", replyText);
     pulse(0.9);
     setBusy(false);
@@ -686,7 +824,7 @@ function handle(data) {
 
 function setBusy(value) {
   busy = value;
-  if (value) { status("thinking"); streamNode = null; replyText = ""; }
+  if (value) { status("thinking"); streamNode = null; replyText = ""; turnStarted = performance.now(); }
   else status("");
 }
 
@@ -700,6 +838,7 @@ function send(text) {
   endStream();
   socket.send(JSON.stringify({ text }));
   setBusy(true);
+  pulse(0.65);
   $("input").value = "";
 }
 
@@ -847,16 +986,25 @@ function stopRecording() {
   try { recorder.stop(); } catch (err) { /* already stopped */ }
 }
 
+/** Esc while recording: throw the audio away instead of transcribing it. */
+function cancelRecording() {
+  if (!recording) return;
+  chunks = [];
+  stopRecording();
+  toast("Recording discarded.");
+}
+
 /* =======================================================================
-   Command palette: quick asks plus every tool the brain advertises.
+   Command palette: whatever you type is always the first option, then quick
+   asks and every tool the brain advertises, ranked by match and recency.
    ===================================================================== */
 const QUICK = [
-  { label: "What time is it?", hint: "clock" },
-  { label: "Give me my daily briefing", hint: "todos · weather · news" },
-  { label: "What's on my todo list?", hint: "productivity" },
-  { label: "System stats", hint: "cpu · ram · battery" },
-  { label: "How much disk space is left?", hint: "storage" },
-  { label: "What have you done that needed permission?", hint: "audit" },
+  { label: "What time is it?", hint: "the clock", kind: "quick" },
+  { label: "Give me my daily briefing", hint: "todos · weather · news", kind: "quick" },
+  { label: "What's on my todo list?", hint: "productivity", kind: "quick" },
+  { label: "System stats", hint: "cpu · ram · battery", kind: "quick" },
+  { label: "How much disk space is left?", hint: "storage", kind: "quick" },
+  { label: "What have you done that needed permission?", hint: "audit", kind: "quick" },
   { label: "Read replies aloud", hint: "toggle speech", kind: "speech" },
   { label: "Show status panel", hint: "ctrl /", kind: "panel" },
 ];
@@ -871,27 +1019,42 @@ function score(text, query) {
   return i === query.length ? 0.6 : 0;
 }
 
+function rememberRecent(label) {
+  const next = [label, ...recents.filter((item) => item !== label)].slice(0, 12);
+  recents.length = 0;
+  recents.push(...next);
+  try { localStorage.setItem("jarvis.recent", JSON.stringify(next)); } catch (err) { /* private mode */ }
+}
+
 async function paletteOptions(query) {
-  const pool = QUICK.map((q) => ({ ...q, kind: q.kind || "ask" }));
+  const pool = QUICK.map((q) => ({ ...q }));
   if (!toolCache) {
     try {
       toolCache = (await fetch("/api/tools" + auth).then((r) => r.json())).tools || [];
+      $("toolCount").textContent = toolCache.length + " tools";
     } catch (err) { toolCache = []; }
   }
   for (const tool of toolCache) {
     pool.push({
       label: tool.example || tool.description || tool.name,
       hint: tool.module + "." + tool.name,
-      kind: "ask",
+      kind: "tool",
       danger: tool.dangerous,
     });
   }
   const ranked = pool
-    .map((option) => ({ option, s: Math.max(score(option.label, query), score(option.hint, query) * 0.9) }))
+    .map((option) => ({
+      option,
+      s: Math.max(score(option.label, query), score(option.hint, query) * 0.9)
+         + (recents.includes(option.label) ? 0.8 : 0),
+    }))
     .filter((row) => row.s > 0)
     .sort((a, b) => b.s - a.s)
     .slice(0, 40)
     .map((row) => row.option);
+  /* the old behaviour people miss: type anything, and the first option is
+     asking exactly that */
+  if (query.trim()) ranked.unshift({ label: query.trim(), hint: "ask this exactly", kind: "ask" });
   return ranked;
 }
 
@@ -914,14 +1077,30 @@ function paintPalette() {
   const list = $("paletteList");
   list.innerHTML = "";
   options.forEach((option, index) => {
-    const node = document.createElement("div");
+    const node = document.createElement("button");
     node.className = "opt" + (index === cursor ? " sel" : "");
-    node.innerHTML = "<span class='label'></span><span class='hint'></span>";
-    node.firstChild.textContent = option.label;
-    node.lastChild.textContent = option.hint + (option.danger ? " ⚠" : "");
+    node.type = "button";
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = option.danger ? "tool ⚠" : (option.kind === "quick" ? "quick" : option.kind);
+    const body = document.createElement("span");
+    body.className = "body";
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = (recents.includes(option.label) ? "↺ " : "") + option.label;
+    const hint = document.createElement("span");
+    hint.className = "hint";
+    hint.textContent = option.hint || "";
+    body.append(label, hint);
+    node.append(badge, body);
     node.addEventListener("click", () => runOption(index));
+    node.addEventListener("mousemove", () => {
+      if (cursor !== index) { cursor = index; paintPalette(); }
+    });
     list.appendChild(node);
   });
+  const active = list.children[cursor];
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest" });
 }
 function runOption(index) {
   const option = options[index];
@@ -929,6 +1108,7 @@ function runOption(index) {
   if (!option) return;
   if (option.kind === "speech") { toggleSpeech(); return; }
   if (option.kind === "panel") { togglePanel(true); return; }
+  rememberRecent(option.label);
   send(option.label);
 }
 
@@ -980,6 +1160,7 @@ async function loadTools() {
   if (!toolCache) {
     try {
       toolCache = (await fetch("/api/tools" + auth).then((r) => r.json())).tools || [];
+      $("toolCount").textContent = toolCache.length + " tools";
     } catch (err) { toolCache = []; }
   }
   drawTools();
@@ -998,6 +1179,7 @@ function drawTools() {
     node.lastChild.textContent = tool.description || "";
     node.addEventListener("click", () => {
       closeSheets();
+      rememberRecent(tool.example || tool.description || tool.name);
       send(tool.example || tool.description || tool.name);
     });
     list.appendChild(node);
@@ -1087,20 +1269,14 @@ $("mic").addEventListener("pointerdown", (event) => {
   try { $("mic").setPointerCapture(event.pointerId); } catch (err) { /* older browsers */ }
   startRecording();
 });
-for (const name of ["pointerup", "pointerleave", "pointercancel"]) {
+for (const name of ["pointerup", "pointercancel"]) {
   $("mic").addEventListener(name, (event) => { event.preventDefault(); stopRecording(); });
 }
 $("paletteInput").addEventListener("input", (event) => drawPalette(event.target.value));
 $("paletteInput").addEventListener("keydown", (event) => {
   if (event.key === "ArrowDown") { cursor = Math.min(options.length - 1, cursor + 1); paintPalette(); event.preventDefault(); }
   else if (event.key === "ArrowUp") { cursor = Math.max(0, cursor - 1); paintPalette(); event.preventDefault(); }
-  else if (event.key === "Enter") {
-    event.preventDefault();
-    const raw = $("paletteInput").value.trim();
-    /* enter asks whatever you typed; ctrl+enter runs the highlighted tool */
-    if (raw && !(event.ctrlKey || event.metaKey)) { send(raw); closeSheets(); }
-    else runOption(cursor);
-  }
+  else if (event.key === "Enter") { event.preventDefault(); runOption(cursor); }
 });
 $("palette").addEventListener("click", (event) => { if (event.target === $("palette")) closeSheets(); });
 $("panel").addEventListener("click", (event) => { if (event.target === $("panel")) closeSheets(); });
@@ -1124,7 +1300,11 @@ addEventListener("keydown", (event) => {
   const typing = /^(INPUT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName);
   const sheetOpen = ["palette", "panel", "history", "keys"]
     .some((id) => $(id).classList.contains("show"));
-  if (event.key === "Escape") { closeSheets(); showTyped(false); return; }
+  if (event.key === "Escape") {
+    if (recording) cancelRecording();
+    closeSheets(); showTyped(false);
+    return;
+  }
   if (typing || sheetOpen) return;
   if (event.code === "Space" && !event.repeat) {
     event.preventDefault();
