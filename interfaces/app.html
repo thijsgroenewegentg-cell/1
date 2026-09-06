@@ -49,6 +49,38 @@ body.ready { opacity: 1; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 input { font: inherit; }
 
+/* ---------------------------------------------------------- liquid glass */
+/* One material for every surface: a saturated blur of the room behind it,
+   a cool-to-warm gradient body, a refractive rim (gradient border via mask),
+   an inner top light, and a specular sheen that follows the pointer through
+   CSS custom properties. Surfaces that are not glass stay black. */
+.glass {
+  position: relative;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .075),
+              rgba(255, 255, 255, .02) 45%, rgba(255, 255, 255, .05));
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .55),
+              inset 0 1px 0 rgba(255, 255, 255, .10),
+              inset 0 -1px 0 rgba(255, 255, 255, .03);
+}
+.glass::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+  background: linear-gradient(140deg, rgba(255, 255, 255, .38), rgba(255, 255, 255, .04) 28%,
+              rgba(94, 140, 255, .22) 62%, rgba(255, 255, 255, .28));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.glass::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(140px 70px at var(--sx, 50%) var(--sy, -20%),
+              rgba(255, 255, 255, .16), rgba(255, 255, 255, 0) 70%);
+  mix-blend-mode: screen; opacity: .8;
+}
+
 /* ------------------------------------------------------------- the sphere */
 #field { position: fixed; inset: 0; width: 100%; height: 100%; display: block;
          cursor: grab; }
@@ -65,6 +97,13 @@ body.dragging #field { cursor: grabbing; }
   from { opacity: .45; transform: translate(-50%, -50%) scale(.15); }
   to   { opacity: 0;   transform: translate(-50%, -50%) scale(1); }
 }
+/* the listening ring collapses inward instead: sound arriving, not leaving */
+.shock.in { animation-name: shockIn; animation-duration: .8s; }
+@keyframes shockIn {
+  from { opacity: 0;  transform: translate(-50%, -50%) scale(1); }
+  30%  { opacity: .4; }
+  to   { opacity: 0;  transform: translate(-50%, -50%) scale(.12); }
+}
 
 /* ---------------------------------------------------------- the transcript */
 /* A short, centred column of type floating under the sphere. Old lines sink
@@ -80,7 +119,8 @@ body.dragging #field { cursor: grabbing; }
         position: relative; }
 .line.me { color: var(--dim); font: 11.5px/1.5 var(--mono); letter-spacing: .04em; }
 .line.me::before { content: "› "; color: var(--faint); }
-.line.ai { color: var(--ink); font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+.line.ai { color: var(--ink); font-size: 15.5px; line-height: 1.62; white-space: pre-wrap;
+           letter-spacing: .01em; text-shadow: 0 0 26px rgba(110, 168, 255, .22); }
 .line.ai code { font: 12px/1.4 var(--mono); color: #9fb6e8; }
 .line.ai pre {
   text-align: left; white-space: pre; overflow-x: auto; margin: 7px 0;
@@ -119,14 +159,26 @@ body.dragging #field { cursor: grabbing; }
   position: fixed; left: 50%; transform: translateX(-50%);
   bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 6;
   display: flex; align-items: center; gap: 16px;
+  padding: 9px 16px; border-radius: 999px;
+  animation: float 7s ease-in-out infinite;
+}
+@keyframes float {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-4px); }
 }
 .dot-btn {
-  position: relative; width: 34px; height: 34px; border-radius: 50%;
-  background: #07090d; border: 1px solid var(--line);
-  display: grid; place-items: center; color: #6d7688;
-  transition: border-color .25s ease, color .25s ease, transform .12s ease;
+  position: relative; width: 36px; height: 36px; border-radius: 50%;
+  background: radial-gradient(120% 120% at 32% 22%, rgba(255, 255, 255, .17),
+              rgba(255, 255, 255, .03) 46%, rgba(0, 0, 0, .38));
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, .10);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 6px 18px rgba(0, 0, 0, .45);
+  display: grid; place-items: center; color: #8b93a5;
+  transition: border-color .25s ease, color .25s ease,
+              transform .35s cubic-bezier(.34, 1.8, .5, 1);
 }
-.dot-btn:active { transform: scale(.92); }
+.dot-btn:active { transform: scale(.88); }
 .dot-btn .glyph { width: 13px; height: 13px; fill: none; stroke: currentColor;
                   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .dot-btn.recording { color: #dfe7ff; border-color: var(--accent);
@@ -151,14 +203,16 @@ body.dragging #field { cursor: grabbing; }
 
 /* -------------------------------------------------------------- type line */
 #typed {
-  position: fixed; left: 50%; transform: translateX(-50%) translateY(8px);
-  bottom: calc(66px + env(safe-area-inset-bottom, 0px)); z-index: 6;
+  position: fixed; left: 50%; transform: translateX(-50%) translateY(10px) scale(.98);
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px)); z-index: 6;
   width: min(520px, calc(100vw - 44px));
   display: none; align-items: center; gap: 10px;
-  border-bottom: 1px solid var(--line-warm); padding: 2px 2px 7px;
-  opacity: 0; transition: opacity .25s ease, transform .25s ease;
+  padding: 11px 18px; border-radius: 999px;
+  opacity: 0;
+  transition: opacity .3s ease, transform .45s cubic-bezier(.22, 1.4, .4, 1);
 }
-#typed.show { display: flex; opacity: 1; transform: translateX(-50%) translateY(0); }
+#typed.show { display: flex; opacity: 1;
+              transform: translateX(-50%) translateY(0) scale(1); }
 #typed input {
   flex: 1; background: none; border: 0; outline: none; color: var(--ink);
   font: 13.5px/1.4 var(--mono); letter-spacing: .02em; caret-color: var(--accent);
@@ -178,11 +232,12 @@ body.dragging #field { cursor: grabbing; }
 .box {
   width: min(660px, calc(100vw - 32px)); max-height: min(70vh, 640px);
   display: flex; flex-direction: column;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  padding: 16px 18px; box-shadow: 0 30px 90px rgba(0, 0, 0, .8);
-  animation: rise .18s ease-out;
+  border: 0; border-radius: 18px;
+  padding: 16px 18px;
+  animation: rise .34s cubic-bezier(.2, 1.3, .4, 1);
 }
-@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+@keyframes rise { from { opacity: 0; transform: translateY(16px) scale(.97);
+                         filter: blur(6px); } }
 .box h2 {
   margin: 0 0 12px; font: 9px/1 var(--mono); letter-spacing: .3em;
   text-transform: uppercase; color: var(--faint); font-weight: 400;
@@ -262,9 +317,10 @@ body.dragging #field { cursor: grabbing; }
 #toasts { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 40;
           display: flex; flex-direction: column; gap: 7px; align-items: center; }
 .toast {
-  background: #06080c; border: 1px solid var(--line); border-left: 2px solid var(--accent);
-  border-radius: 8px; padding: 8px 14px; color: #b9c1cf;
-  font: 11px/1.5 var(--mono); letter-spacing: .04em; animation: rise .18s ease-out;
+  border-left: 2px solid var(--accent);
+  border-radius: 999px; padding: 9px 18px; color: #c6cdd9;
+  font: 11px/1.5 var(--mono); letter-spacing: .04em;
+  animation: rise .34s cubic-bezier(.2, 1.3, .4, 1);
   max-width: min(480px, 90vw);
 }
 .toast.bad { border-left-color: var(--bad); }
@@ -280,8 +336,9 @@ body.dragging #field { cursor: grabbing; }
          border-bottom: 0; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (prefers-reduced-motion: reduce) {
-  body, .toast, .box, .cursor, .shock { animation: none !important; transition: none !important; }
+  body, .toast, .box, .cursor, .shock, #hud { animation: none !important; transition: none !important; }
   .shock { display: none; }
+  .glass::after { display: none; }
 }
 </style>
 </head>
@@ -291,7 +348,7 @@ body.dragging #field { cursor: grabbing; }
 <div id="log" aria-live="polite"></div>
 <div id="hint">hold <b>space</b> to speak · <b>K</b> every tool · <b>T</b> type</div>
 
-<div id="hud">
+<div id="hud" class="glass">
   <button class="dot-btn" id="mic" title="Hold to talk (space)" aria-label="Hold to talk">
     <svg id="micRing" viewBox="0 0 42 42" aria-hidden="true"><circle cx="21" cy="21" r="19"></circle></svg>
     <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true">
@@ -311,13 +368,13 @@ body.dragging #field { cursor: grabbing; }
   </button>
 </div>
 
-<form id="typed" autocomplete="off">
+<form id="typed" class="glass" autocomplete="off">
   <input id="input" placeholder="say something…" aria-label="Message">
   <button type="submit" title="Send" aria-label="Send">↵</button>
 </form>
 
 <div class="sheet" id="palette" role="dialog" aria-label="Command palette">
-  <div class="box">
+  <div class="box glass">
     <h2>everything __TITLE__ can do <span id="toolCount"></span></h2>
     <input class="search" id="paletteInput" placeholder="ask, or search every tool…"
            autocomplete="off" aria-label="Command palette">
@@ -326,7 +383,7 @@ body.dragging #field { cursor: grabbing; }
 </div>
 
 <div class="sheet" id="panel" role="dialog" aria-label="Status, tools and audit">
-  <div class="box">
+  <div class="box glass">
     <div class="tabs">
       <button data-tab="status" class="on">status</button>
       <button data-tab="tools">tools</button>
@@ -350,14 +407,14 @@ body.dragging #field { cursor: grabbing; }
 </div>
 
 <div class="sheet" id="history" role="dialog" aria-label="Conversation history">
-  <div class="box">
+  <div class="box glass">
     <h2>this session</h2>
     <div class="scroll hist" id="historyList"></div>
   </div>
 </div>
 
 <div class="sheet" id="keys" role="dialog" aria-label="Keyboard shortcuts">
-  <div class="box">
+  <div class="box glass">
     <h2>keys</h2>
     <div class="keysgrid">
       <kbd>space</kbd><span>hold to talk</span>
@@ -420,11 +477,11 @@ const orb = {
 let sparks = [];                         // per-dot thinking glints
 const drag = { on: false, x: 0, moved: 0 };
 const MOODS = {
-  idle:   { bright: 1.00, spin: 0.10, floor: 0.05 },
-  listen: { bright: 1.15, spin: 0.16, floor: 0.22 },
-  think:  { bright: 1.05, spin: 0.34, floor: 0.30 },
-  speak:  { bright: 1.20, spin: 0.20, floor: 0.26 },
-  lost:   { bright: 0.40, spin: 0.03, floor: 0.02 },
+  idle:   { bright: 1.00, spin: 0.10, floor: 0.05, glow: [63, 109, 255] },
+  listen: { bright: 1.15, spin: 0.16, floor: 0.22, glow: [55, 200, 232] },
+  think:  { bright: 1.05, spin: 0.34, floor: 0.30, glow: [138, 92, 255] },
+  speak:  { bright: 1.20, spin: 0.20, floor: 0.26, glow: [110, 168, 255] },
+  lost:   { bright: 0.40, spin: 0.03, floor: 0.02, glow: [40, 44, 54] },
 };
 /* Three dot colours, as in the reference: pale white, blue and violet. At rest
    the cool dots dominate; when the sphere gets hot the white ones take over. */
@@ -490,6 +547,25 @@ addEventListener("resize", resize);
 addEventListener("pointermove", (event) => {
   orb.tx = (event.clientX / width - 0.5) * 2;
   orb.ty = (event.clientY / height - 0.5) * 2;
+});
+
+/* the specular sheen on every glass surface tracks the pointer, one
+   rAF-throttled pass over the handful of surfaces that exist */
+let sheenQueued = false;
+addEventListener("pointermove", (event) => {
+  if (sheenQueued) return;
+  sheenQueued = true;
+  requestAnimationFrame(() => {
+    sheenQueued = false;
+    for (const el of document.querySelectorAll(".glass")) {
+      const rect = el.getBoundingClientRect();
+      if (!rect.width) continue;
+      el.style.setProperty("--sx",
+        (((event.clientX - rect.left) / rect.width) * 100).toFixed(1) + "%");
+      el.style.setProperty("--sy",
+        (((event.clientY - rect.top) / rect.height) * 100).toFixed(1) + "%");
+    }
+  });
 });
 
 function measure(now) {
@@ -558,6 +634,22 @@ function draw(now) {
   ctx.fillStyle = reduced ? "#000" : "rgba(0,0,0,0.34)";
   ctx.fillRect(0, 0, width, height);
 
+  /* cinematic drift: the camera never quite holds still */
+  const cxNow = cx + Math.sin(t * 0.05) * 10;
+  const cyNow = cy + Math.cos(t * 0.041) * 7;
+  /* aurora: the room itself takes the mood's colour, faintly */
+  const glow = mood.glow;
+  const aura = ctx.createRadialGradient(cxNow, cyNow, radius * 0.2, cxNow, cyNow, radius * 2.3);
+  aura.addColorStop(0, `rgba(${glow[0]},${glow[1]},${glow[2]},${0.05 + e * 0.10})`);
+  aura.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = aura;
+  ctx.fillRect(0, 0, width, height);
+  /* ignition: the sphere arrives small, overshoots, then settles */
+  const iq = Math.min(1, t / 1.5);
+  const c1 = 1.70158, c3 = c1 + 1;
+  const back = 1 + c3 * Math.pow(iq - 1, 3) + c1 * Math.pow(iq - 1, 2);
+  const scaleNow = 0.72 + 0.28 * back;
+
   for (const b of buckets) b.length = 0;
 
   for (let n = 0; n < dots.length; n++) {
@@ -589,8 +681,8 @@ function draw(now) {
     const depth = Math.max(0, Math.min(1, (Z + 1.25) / 2.5));
     const spark = sparks[n] *= 0.88;
     buckets[p.c].push(
-      cx + X * radius * persp,
-      cy + Y * radius * persp,
+      cxNow + X * radius * scaleNow * persp,
+      cyNow + Y * radius * scaleNow * persp,
       base * (0.8 + 1.2 * depth) + spark * 1.4,
       Math.min(1, Math.pow(depth, 1.1) * bright * (0.86 + 0.14 * Math.sin(t * 2 + p.w * 7))
              + spark * 0.9) * ease
@@ -637,15 +729,20 @@ function mood(name) {
   orb.mood = name;
   document.body.dataset.mood = name;
 }
+function spawnShock(extraClass, delay) {
+  const ring = document.createElement("div");
+  ring.className = "shock" + (extraClass ? " " + extraClass : "");
+  if (delay) ring.style.animationDelay = delay + "ms";
+  document.body.appendChild(ring);
+  ring.addEventListener("animationend", () => ring.remove());
+  setTimeout(() => ring.remove(), 2200);
+}
 function pulse(strength) {
   orb.kick = Math.min(1, Math.max(orb.kick, strength || 0.5));
-  if ((strength || 0) >= 0.6 && !reduced) {
-    const ring = document.createElement("div");
-    ring.className = "shock";
-    document.body.appendChild(ring);
-    ring.addEventListener("animationend", () => ring.remove());
-    setTimeout(() => ring.remove(), 1600);
-  }
+  if (reduced) return;
+  if ((strength || 0) >= 0.6) spawnShock();
+  /* a big moment throws a second, lagged ring: a double ripple */
+  if ((strength || 0) >= 0.8) spawnShock("", 140);
 }
 
 /* =======================================================================
@@ -775,7 +872,7 @@ function remember(who, text) { transcript.push({ who, text }); }
 
 function toast(text, bad) {
   const node = document.createElement("div");
-  node.className = "toast" + (bad ? " bad" : "");
+  node.className = "toast glass" + (bad ? " bad" : "");
   node.textContent = text;
   $("toasts").appendChild(node);
   setTimeout(() => node.remove(), 4200);
@@ -973,6 +1070,7 @@ async function startRecording() {
   recordStarted = performance.now();
   $("mic").classList.add("recording");
   status("listening", true);
+  spawnShock("in");                       // sound arriving: the ring collapses
   line("me", "…");
   listenTo(stream);
   ringTimer = setInterval(() => {
