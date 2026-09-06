@@ -242,6 +242,7 @@ python main.py --web               # phone/browser interface on your LAN
 python main.py --web --port 9000 --with-cli   # web + terminal in one process
 python main.py --say "what's my CPU doing"   # one-shot, then exit
 python main.py --test              # component self-test
+python main.py --doctor            # diagnose a broken install and print the fixes
 python main.py --debug             # verbose logging
 
 python main.py --backup            # zip up everything JARVIS knows
@@ -250,7 +251,7 @@ python main.py --restore ~/jarvis.zip          # put it back (never overwrites)
 python main.py --restore ~/jarvis.zip --force  # overwrite, after a safety copy
 python main.py --uninstall         # shows what it will delete, then asks
 
-pytest                             # 110 fast unit tests
+pytest                             # 113 fast unit tests
 python tests/test_smoke.py         # full offline test suite (no model needed)
 ```
 
@@ -273,6 +274,7 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 | `plugins` | list the skills JARVIS has written for itself |
 | `changes` / `undo` | its own change history, and roll back the last one |
 | `selftest` | run the 282-check smoke suite against the current code |
+| `doctor` | check the whole installation and print the fixes |
 | `language [code]` | show or change the language JARVIS speaks (`language nl`) |
 | `languages` | the 21 languages with a free voice |
 | `mute` / `unmute` | speak replies in text mode |
@@ -400,6 +402,7 @@ jarvis/
 │   ├── security.py          risk assessment + confirmation gate
 │   ├── cache.py             SQLite TTL cache for web lookups
 │   ├── language.py          21 languages: Whisper model, TTS voice, prompt rule
+│   ├── doctor.py            the --doctor installation diagnosis
 │   ├── backup.py            backup / restore / uninstall
 │   └── documents.py         shared PDF/DOCX/PPTX/HTML text extraction + chunking
 ├── scripts/
@@ -410,7 +413,7 @@ jarvis/
 ├── .github/ci.yml           ruff + mypy + tests CI (move to .github/workflows/)
 ├── plugins/                 skills JARVIS writes for itself (loaded at start-up)
 ├── tests/
-│   ├── test_units.py        110 fast pytest unit tests (no Ollama, no network)
+│   ├── test_units.py        113 fast pytest unit tests (no Ollama, no network)
 │   ├── test_smoke.py        282-check end-to-end suite
 │   └── mock_ollama.py       scripted LLM server (streaming + vision) for testing
 └── data/                    SQLite DB, ChromaDB, notes, code, screenshots, TTS cache
@@ -893,6 +896,35 @@ Each script installs a login-time service running `python main.py --web`
 
 ## Troubleshooting
 
+**Start here**
+
+```bash
+python main.py --doctor
+```
+
+The doctor checks the interpreter and virtualenv, every required and optional
+package, the config file, Ollama and whether your model is actually pulled,
+free RAM against the size of that model, the data directory, disk space and
+database integrity, the temp directory, the microphone, an audio player, the
+wake-word engine, internet reachability and the web-UI port. Each line it is
+unhappy about comes with the exact command that fixes it:
+
+```
+✓ Python              3.11.9 on Darwin arm64
+✗ Ollama              not answering at http://localhost:11434 (ConnectError)
+                      → ollama serve
+✗ Chat model          'llama3.2' is not installed
+                      → ollama pull llama3.2
+! Audio playback      no player found, so speech will be silent
+                      → sudo apt install ffmpeg   (macOS: brew install ffmpeg)
+
+2 problem(s) will stop me working, plus 1 minor complaint(s).
+```
+
+It never imports the brain, so it still works when JARVIS itself will not
+start, and it exits `1` when something is broken — handy in a script. From
+inside a session, `/doctor` does the same thing as a table.
+
 **The installer says Python was not found (Windows)**
 Reinstall Python from [python.org](https://www.python.org/downloads/windows/)
 and tick *"Add python.exe to PATH"* on the first screen, then double-click
@@ -1058,7 +1090,7 @@ Extras mirror the optional dependencies: `pip install -e ".[voice]"`,
 ## Continuous integration
 
 `.github/ci.yml` (move it to `.github/workflows/ci.yml` to switch it on) runs
-**ruff**, **mypy**, the 110 pytest unit tests and the 282-check offline smoke
+**ruff**, **mypy**, the 113 pytest unit tests and the 282-check offline smoke
 suite on Linux, macOS and Windows (Python 3.9–3.12), measures coverage over both
 suites, and builds a wheel. No models are downloaded — `tests/mock_ollama.py`
 scripts the LLM, including token streaming and vision responses.

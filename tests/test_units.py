@@ -768,3 +768,64 @@ def test_the_cli_can_switch_language_at_runtime(tmp_path):
     # A language we have no voice for must not quietly reset us to English.
     asyncio.run(cli.handle_command("/language klingon"))
     assert config.get("assistant.language") == "nl"
+
+
+# ----------------------------------------------------------------------- doctor
+
+
+def test_the_doctor_diagnoses_a_broken_installation_without_crashing(tmp_path):
+    import asyncio
+    import copy
+
+    from core.config import DEFAULT_CONFIG, Config
+    from utils.doctor import FAIL, diagnose, render
+
+    data = copy.deepcopy(DEFAULT_CONFIG)
+    data["llm"]["host"] = "http://127.0.0.1:59999"   # nothing is listening there
+    data["assistant"]["language"] = "klingon"
+    data["voice"]["enabled"] = False
+    config = Config(data=data, path=tmp_path / "config.yaml")
+
+    report = asyncio.run(diagnose(config, root=tmp_path))
+
+    assert not report.healthy
+    names = {finding.name: finding for finding in report.findings}
+    assert names["Ollama"].state == FAIL
+    assert "ollama" in names["Ollama"].fix.lower()
+    assert names["Language"].state == FAIL
+    # Every failure must come with something the user can actually do.
+    assert all(finding.fix for finding in report.findings if finding.state == FAIL)
+    assert "Python" in names and names["Python"].state != FAIL
+
+    text = render(report, use_colour=False)
+    assert "✗" in text and "problem(s)" in text
+    payload = report.as_dict()
+    assert payload["failures"] >= 2 and payload["healthy"] is False
+
+
+def test_the_doctor_skips_audio_checks_when_voice_is_off(tmp_path):
+    import asyncio
+    import copy
+
+    from core.config import DEFAULT_CONFIG, Config
+    from utils.doctor import diagnose
+
+    data = copy.deepcopy(DEFAULT_CONFIG)
+    data["voice"]["enabled"] = False
+    data["llm"]["host"] = "http://127.0.0.1:59999"
+    report = asyncio.run(diagnose(Config(data=data, path=None), root=tmp_path))
+
+    names = [finding.name for finding in report.findings]
+    assert "Microphone" not in names
+    assert "Voice" in names
+
+
+def test_a_healthy_report_says_so():
+    from utils.doctor import OK, Report
+
+    report = Report()
+    report.add("Python", OK, "3.11")
+    assert report.healthy
+    assert "checks out" in report.summary()
+    report.add("Internet", "warn", "offline")
+    assert report.healthy and "degraded" in report.summary()

@@ -25,6 +25,7 @@ try:
     from rich.console import Console, Group
     from rich.live import Live
     from rich.markdown import Markdown
+    from rich.markup import escape
     from rich.panel import Panel
     from rich.syntax import Syntax
     from rich.table import Table
@@ -64,6 +65,7 @@ HELP_ROWS: List[tuple[str, str]] = [
     ("undo", "Roll back JARVIS's last self-modification"),
     ("stream on|off", "Toggle live token-by-token replies"),
     ("mute / unmute", "Toggle spoken replies in text mode"),
+    ("doctor", "Diagnose a broken installation and print the fixes"),
     ("language [code]", "Show or change the language JARVIS speaks"),
     ("languages", "List the languages with a free voice"),
     ("config", "Show the active configuration"),
@@ -292,6 +294,10 @@ class CLI:
             self.show_config()
             return True
 
+        if command in {"doctor", "diagnose"}:
+            await self.show_doctor()
+            return True
+
         if command == "language" or command.startswith("language "):
             await self.switch_language(argument)
             return True
@@ -401,6 +407,30 @@ class CLI:
         else:
             for name, description in HELP_ROWS:
                 print(f"  {name:<20} {description}")
+
+    async def show_doctor(self) -> None:
+        """Run the installation diagnosis and show it as a table."""
+        from utils.doctor import FAIL, OK, diagnose, render
+
+        self.info("Examining myself. This takes a few seconds, sir.")
+        report = await diagnose(self.brain.config)
+        if self.console is None:
+            print(render(report, use_colour=False))
+            return
+
+        table = Table(title="Diagnosis", border_style="cyan", show_lines=False)
+        table.add_column("", no_wrap=True)
+        table.add_column("Check", style="bold", no_wrap=True)
+        table.add_column("Finding")
+        colours = {OK: "green", FAIL: "red"}
+        for finding in report.findings:
+            colour = colours.get(finding.state, "yellow")
+            detail = escape(finding.detail)
+            if finding.fix:
+                detail += f"\n[dim]→ {escape(finding.fix)}[/dim]"
+            table.add_row(f"[{colour}]{finding.symbol}[/]", escape(finding.name), detail)
+        self.console.print(table)
+        (self.success if report.healthy else self.error)(report.summary())
 
     def show_languages(self) -> None:
         """List every language JARVIS has a free voice for."""

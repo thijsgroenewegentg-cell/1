@@ -289,6 +289,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     mode.add_argument("--say", metavar="TEXT", help="answer one request and exit")
     mode.add_argument("--test", action="store_true", help="run a component self-test")
     mode.add_argument(
+        "--doctor", action="store_true",
+        help="diagnose a broken installation and print the fixes",
+    )
+    mode.add_argument(
         "--web", action="store_true", help="serve the phone/browser interface"
     )
     mode.add_argument(
@@ -487,6 +491,12 @@ async def async_main(args: argparse.Namespace) -> int:
 def main() -> None:
     """Synchronous wrapper used by the console entry point."""
     args = parse_args()
+    if args.doctor:
+        # Runs before anything else is imported for real: the whole point is
+        # that it works when JARVIS itself will not start.
+        from utils.doctor import main as doctor_main
+
+        raise SystemExit(asyncio.run(doctor_main(args.config)))
     maintenance = run_maintenance(args)
     if maintenance is not None:
         raise SystemExit(maintenance)
