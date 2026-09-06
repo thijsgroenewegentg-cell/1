@@ -1,15 +1,16 @@
 <!doctype html>
 <!-- /interfaces/app.html
-     The browser interface: a voice-first console built around a reactive
-     sphere. Kept as a real file rather than a Python string so it can be
-     edited and linted; web.py loads it and substitutes __TITLE__ and
-     __TOKEN_QUERY__. Everything is inline and offline — no CDN, no fonts to
-     fetch, no telemetry. -->
+     The browser interface: a black room with one object in it — a lattice
+     sphere of dots that listens, thinks and speaks. Everything else (transcript,
+     command palette, status panel) stays out of the way until asked for.
+     Kept as a real file rather than a Python string so it can be edited and
+     linted; web.py loads it and substitutes __TITLE__ and __TOKEN_QUERY__.
+     Everything is inline and offline — no CDN, no fonts to fetch, no telemetry. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#03060c">
+<meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="__TITLE__">
@@ -19,960 +20,619 @@
 <title>__TITLE__</title>
 <style>
 :root {
-  --bg: #03060c;
-  --text: #dfe9f7;
-  --dim: #8395ab;
-  --dimmer: #4a5b70;
-  --line: rgba(125, 165, 225, .15);
-  --line-warm: rgba(125, 165, 225, .3);
-  --idle: #3b56d8;
-  --listen: #22d3ee;
-  --think: #8b5cf6;
-  --speak: #38bdf8;
+  --black: #000000;
+  --panel: #05070b;
+  --line: #151a24;
+  --line-warm: #1e2634;
+  --ink: #e7ebf3;
+  --dim: #5b6474;
+  --faint: #343b49;
+  --blue: #3f6dff;
+  --blue-deep: #27408f;
+  --violet: #8a5cff;
+  --cyan: #37c8e8;
   --bad: #f87171;
   --good: #34d399;
-  --glass: rgba(8, 14, 26, .72);
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg); }
-body {
-  color: var(--text); font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased; opacity: 0; transition: opacity .7s ease;
-}
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--black); }
+body { color: var(--ink); font: 14px/1.55 var(--sans); -webkit-font-smoothing: antialiased;
+       opacity: 0; transition: opacity .9s ease; user-select: none; }
 body.ready { opacity: 1; }
-button, input { font: inherit; color: inherit; }
-button { cursor: pointer; border: 0; background: none; }
-:focus-visible { outline: 2px solid var(--listen); outline-offset: 3px; border-radius: 8px; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace; }
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-thumb { background: rgba(125, 165, 225, .18); border-radius: 8px; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+input { font: inherit; }
 
-#orb { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
-#vignette {
-  position: fixed; inset: 0; z-index: 1; pointer-events: none;
-  background: radial-gradient(circle at 50% 44%, transparent 26%, rgba(3, 6, 12, .5) 70%, #03060c 100%);
-}
+/* ------------------------------------------------------------- the sphere */
+#field { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
-/* ------------------------------------------------------------- top bar */
-#top {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 4; padding: 18px 22px;
-  padding-top: calc(18px + env(safe-area-inset-top));
-  display: flex; align-items: flex-start; gap: 18px; pointer-events: none;
+/* ---------------------------------------------------------- the transcript */
+/* A short, centred column of type floating under the sphere. Old lines sink
+   and fade instead of scrolling, so the room stays quiet. */
+#log {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: 108px; width: min(600px, calc(100vw - 44px));
+  display: flex; flex-direction: column; gap: 7px; align-items: center;
+  text-align: center; pointer-events: none; z-index: 4;
 }
-#tiles { display: grid; grid-template-columns: repeat(4, 14px); gap: 6px; pointer-events: auto; }
-.tile {
-  width: 14px; height: 14px; border-radius: 4px; background: rgba(125, 165, 225, .1);
-  border: 1px solid var(--line); transition: background .3s, box-shadow .3s, transform .3s, border-color .3s;
-}
-.tile.lit {
-  background: var(--listen); border-color: var(--listen); transform: scale(1.2);
-  box-shadow: 0 0 16px rgba(34, 211, 238, .85);
-}
-.tile.off { opacity: .28; }
-#brand {
-  margin: 0 auto; text-align: center; font-size: 11px; letter-spacing: .42em;
-  text-transform: uppercase; color: var(--dimmer); display: flex; align-items: center; gap: 9px;
-}
-#brand b { color: var(--text); font-weight: 500; letter-spacing: .42em; }
-#link { width: 6px; height: 6px; border-radius: 50%; background: var(--bad); transition: background .3s; }
-#link.on { background: var(--good); box-shadow: 0 0 10px rgba(52, 211, 153, .8); }
-#topRight { display: flex; gap: 8px; pointer-events: auto; }
-.ghost {
-  width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line);
-  color: var(--dimmer); display: grid; place-items: center; transition: all .18s;
-  background: rgba(8, 14, 26, .5);
-}
-.ghost:hover { color: var(--listen); border-color: var(--line-warm); }
-.ghost svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7;
-             stroke-linecap: round; stroke-linejoin: round; }
-#tileLabel {
-  position: fixed; top: 62px; left: 22px; z-index: 4; font-size: 10px; letter-spacing: .18em;
-  text-transform: uppercase; color: var(--dimmer); height: 13px; pointer-events: none;
-  transition: opacity .3s; opacity: 0;
-}
-#tileLabel.show { opacity: 1; }
-
-/* ------------------------------------------------------------- caption */
-#stage {
-  position: fixed; inset: 0; z-index: 2; display: flex; flex-direction: column;
-  align-items: center; justify-content: flex-end; padding: 0 24px 208px; pointer-events: none;
-}
-#state {
-  font-size: 10.5px; letter-spacing: .4em; text-transform: uppercase; color: var(--listen);
-  height: 15px; opacity: 0; transition: opacity .3s;
-}
-#state.show { opacity: 1; }
-#caption {
-  max-width: 700px; text-align: center; font-size: 21px; line-height: 1.5; margin-top: 16px;
-  text-shadow: 0 2px 34px rgba(3, 6, 12, .96); pointer-events: auto;
-  max-height: 32vh; overflow-y: auto; scrollbar-width: none;
-}
-#caption::-webkit-scrollbar { display: none; }
-#caption.dim { color: var(--dim); font-size: 16.5px; }
-#caption .cursor { color: var(--speak); animation: blink 1.05s steps(1) infinite; }
+.line { max-width: 100%; transition: opacity .5s ease; overflow-wrap: anywhere; }
+.line.me { color: var(--dim); font: 11.5px/1.5 var(--mono); letter-spacing: .04em; }
+.line.me::before { content: "› "; color: var(--faint); }
+.line.ai { color: var(--ink); font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+.line.tool { color: var(--faint); font: 10.5px/1.5 var(--mono); letter-spacing: .06em; }
+.line.sys { color: var(--blue-deep); font: 10.5px/1.5 var(--mono); letter-spacing: .14em;
+            text-transform: uppercase; }
+.cursor { color: var(--blue); animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
-#caption code { font-family: ui-monospace, monospace; font-size: 88%;
-                background: rgba(125, 165, 225, .13); padding: 1px 6px; border-radius: 6px; }
-#caption pre {
-  text-align: left; font-size: 12.5px; background: rgba(6, 12, 22, .9); border: 1px solid var(--line);
-  border-radius: 12px; padding: 12px 14px; overflow-x: auto; position: relative;
-}
-#caption .copy {
-  position: absolute; top: 6px; right: 8px; font-size: 10px; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--dimmer);
-}
-#caption .copy:hover { color: var(--listen); }
 
-/* -------------------------------------------------------------- cards */
-#cards {
-  display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; justify-content: center;
-  pointer-events: auto; max-width: 760px;
+/* first-run hint, fades on its own */
+#hint {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 82px; z-index: 3;
+  color: var(--faint); font: 9.5px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase;
+  white-space: nowrap; transition: opacity 1.2s ease; pointer-events: none;
 }
-.card {
-  border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
-  background: rgba(8, 14, 26, .82); backdrop-filter: blur(14px); text-align: left;
-  min-width: 190px; max-width: 340px; animation: rise .28s ease-out;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, .5);
+#hint b { color: var(--blue-deep); font-weight: 400; }
+#hint.gone { opacity: 0; }
+
+/* --------------------------------------------------------------- bottom hud */
+/* Two round controls flanking a two-line readout, exactly as much chrome as
+   the room gets. */
+#hud {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 6;
+  display: flex; align-items: center; gap: 16px;
+}
+.dot-btn {
+  position: relative; width: 34px; height: 34px; border-radius: 50%;
+  background: #07090d; border: 1px solid var(--line);
+  display: grid; place-items: center; color: #6d7688;
+  transition: border-color .25s ease, color .25s ease, transform .12s ease;
+}
+.dot-btn:active { transform: scale(.92); }
+.dot-btn .glyph { width: 13px; height: 13px; fill: none; stroke: currentColor;
+                  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.dot-btn.recording { color: #dfe7ff; border-color: var(--blue); }
+.dot-btn.busy { color: var(--blue-deep); animation: spin 1.1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#micRing { position: absolute; inset: -4px; width: 42px; height: 42px; transform: rotate(-90deg);
+           pointer-events: none; }
+#micRing circle { fill: none; stroke: var(--blue); stroke-width: 1.4; opacity: .9; }
+
+#readout {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  font: 9px/1 var(--mono); letter-spacing: .26em; text-transform: uppercase;
+  color: var(--blue); min-width: 86px; padding: 4px 2px;
+}
+#readout #clock { color: var(--blue-deep); letter-spacing: .2em; }
+#readout #state { max-width: 46vw; overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; }
+#readout.offline { color: var(--faint); }
+#readout.offline #clock { color: #232833; }
+
+/* -------------------------------------------------------------- type line */
+#typed {
+  position: fixed; left: 50%; transform: translateX(-50%) translateY(8px);
+  bottom: calc(66px + env(safe-area-inset-bottom, 0px)); z-index: 6;
+  width: min(520px, calc(100vw - 44px));
+  display: none; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--line-warm); padding: 2px 2px 7px;
+  opacity: 0; transition: opacity .25s ease, transform .25s ease;
+}
+#typed.show { display: flex; opacity: 1; transform: translateX(-50%) translateY(0); }
+#typed input {
+  flex: 1; background: none; border: 0; outline: none; color: var(--ink);
+  font: 13.5px/1.4 var(--mono); letter-spacing: .02em; caret-color: var(--blue);
+}
+#typed input::placeholder { color: var(--faint); }
+#typed button { color: var(--blue-deep); font: 13px var(--mono); padding: 2px 6px; }
+#typed button:hover { color: var(--blue); }
+
+/* ----------------------------------------------------------------- sheets */
+/* Palette, panel, history and keys share one quiet full-screen sheet. */
+.sheet {
+  position: fixed; inset: 0; z-index: 30; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .78); backdrop-filter: blur(12px);
+}
+.sheet.show { display: flex; }
+.box {
+  width: min(640px, calc(100vw - 32px)); max-height: min(68vh, 620px);
+  display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 16px 18px; box-shadow: 0 30px 90px rgba(0, 0, 0, .8);
+  animation: rise .18s ease-out;
 }
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
-.card h4 {
-  margin: 0 0 8px; font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase;
-  color: var(--dimmer); font-weight: 500;
+.box h2 {
+  margin: 0 0 12px; font: 9px/1 var(--mono); letter-spacing: .3em;
+  text-transform: uppercase; color: var(--faint); font-weight: 400;
 }
-.card ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
-.card li { font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
-.card li .mark { color: var(--listen); flex: none; }
-.card li .muted { color: var(--dimmer); font-size: 11.5px; }
-.card .big { font-size: 27px; font-weight: 500; letter-spacing: -.01em; }
-.card .kv { display: flex; justify-content: space-between; gap: 14px; font-size: 12.5px; padding: 2px 0; }
-.card .kv span:first-child { color: var(--dimmer); }
-.gauge { margin-top: 7px; }
-.gauge .label { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--dimmer); }
-.gauge .track { height: 4px; border-radius: 4px; background: rgba(125, 165, 225, .14); margin-top: 3px; }
-.gauge .fill { height: 100%; border-radius: 4px; background: var(--listen); transition: width .5s; }
-.gauge .fill.hot { background: var(--bad); }
+.box .scroll { overflow-y: auto; overscroll-behavior: contain; }
+.box input.search {
+  width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line);
+  outline: none; color: var(--ink); font: 13.5px/1.4 var(--mono);
+  caret-color: var(--blue); padding: 2px 2px 9px; margin-bottom: 10px;
+}
+.box input.search::placeholder { color: var(--faint); }
 
-/* ------------------------------------------------------------- history */
-#history {
-  position: fixed; top: 0; left: 0; bottom: 0; width: min(420px, 94vw); z-index: 21;
-  background: rgba(6, 11, 20, .97); border-right: 1px solid var(--line); backdrop-filter: blur(22px);
-  transform: translateX(-100%); transition: transform .26s cubic-bezier(.4, 0, .2, 1);
-  display: flex; flex-direction: column;
-}
-body.history-open #history { transform: none; }
-#history header {
-  padding: 18px 18px 12px; border-bottom: 1px solid var(--line); font-size: 10px;
-  letter-spacing: .2em; text-transform: uppercase; color: var(--dimmer);
-  display: flex; justify-content: space-between;
-}
-#historyList { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
-.entry { display: flex; flex-direction: column; gap: 4px; }
-.entry .who { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--dimmer); }
-.entry .what { font-size: 13.5px; line-height: 1.55; }
-.entry.me .what { color: var(--text); }
-.entry.ai .what { color: var(--dim); }
+.opt { display: flex; justify-content: space-between; gap: 14px; align-items: baseline;
+       padding: 7px 10px; border-left: 2px solid transparent; border-radius: 4px; }
+.opt .label { font-size: 13px; color: #c6cdd9; }
+.opt .hint { font: 10px/1.4 var(--mono); letter-spacing: .08em; color: var(--faint);
+             white-space: nowrap; }
+.opt.sel { background: #0a0e15; border-left-color: var(--blue); }
+.opt.sel .label { color: var(--ink); }
 
-/* ---------------------------------------------------------- timeline */
-#rail {
-  position: fixed; top: 0; right: 0; bottom: 0; width: 300px; z-index: 3;
-  padding: 76px 22px 214px; display: flex; flex-direction: column; justify-content: flex-end;
-  gap: 7px; pointer-events: none;
-  mask-image: linear-gradient(180deg, transparent, #000 20%, #000 86%, transparent);
-}
-.line { font-size: 11.5px; line-height: 1.5; text-align: right; animation: slide .3s ease-out; }
-@keyframes slide { from { opacity: 0; transform: translateX(12px); } }
-.line.me { color: var(--text); }
-.line.ai { color: var(--dim); }
-.line.trace { color: var(--dimmer); font-family: ui-monospace, monospace; font-size: 10.5px; }
-.line.trace b { color: var(--listen); font-weight: 400; }
-.line.trace i { color: var(--dimmer); font-style: normal; opacity: .7; }
-.line.sys { color: var(--dimmer); font-style: italic; }
-.line.err { color: var(--bad); }
+.tabs { display: flex; gap: 18px; margin-bottom: 12px; }
+.tabs button { font: 9.5px/1 var(--mono); letter-spacing: .24em; text-transform: uppercase;
+               color: var(--faint); padding: 4px 0; }
+.tabs button.on { color: var(--blue); }
+.pane { display: none; } .pane.on { display: block; }
 
-/* ------------------------------------------------------------- console */
-#dock {
-  position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 5;
-  display: flex; flex-direction: column; align-items: center; gap: 13px;
-  padding-bottom: env(safe-area-inset-bottom);
-}
-.controls {
-  display: flex; align-items: center; gap: 10px; padding: 9px;
-  border: 1px solid var(--line); border-radius: 999px; background: var(--glass);
-  backdrop-filter: blur(18px); box-shadow: 0 22px 60px rgba(0, 0, 0, .65);
-}
-.round {
-  width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
-  color: var(--dim); border: 1px solid transparent; transition: all .18s;
-}
-.round:hover { color: var(--text); background: rgba(125, 165, 225, .1); }
-.round.on { color: var(--listen); border-color: rgba(34, 211, 238, .45); background: rgba(34, 211, 238, .1); }
-.round svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7;
-             stroke-linecap: round; stroke-linejoin: round; }
-#mic {
-  width: 60px; height: 60px; color: var(--text); position: relative;
-  background: radial-gradient(circle at 50% 34%, rgba(59, 86, 216, .5), rgba(8, 14, 26, .92));
-  border: 1px solid rgba(125, 165, 225, .28);
-}
-#mic svg { width: 23px; height: 23px; }
-#mic.recording {
-  color: #fff; border-color: var(--listen);
-  background: radial-gradient(circle at 50% 34%, rgba(34, 211, 238, .5), rgba(8, 14, 26, .92));
-  box-shadow: 0 0 0 5px rgba(34, 211, 238, .1), 0 0 38px rgba(34, 211, 238, .45);
-}
-#mic.busy { opacity: .45; }
-#micRing { position: absolute; inset: -4px; transform: rotate(-90deg); pointer-events: none; }
-#micRing circle { fill: none; stroke: var(--listen); stroke-width: 2; opacity: .85;
-                  stroke-linecap: round; transition: stroke-dashoffset .1s linear; }
-#typed {
-  display: none; align-items: center; gap: 8px; width: min(600px, 90vw);
-  border: 1px solid var(--line); border-radius: 16px; padding: 6px 6px 6px 16px;
-  background: var(--glass); backdrop-filter: blur(18px);
-}
-#typed.show { display: flex; }
-#typed input { flex: 1; border: 0; background: none; outline: none; padding: 9px 0; }
-#typed input::placeholder { color: var(--dimmer); }
-#typed button { color: var(--listen); padding: 0 10px; font-size: 18px; }
-.hint { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--dimmer); }
-.hint kbd {
-  font: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px;
-  color: var(--dim);
-}
-
-/* --------------------------------------------------------- the palette */
-#palette {
-  position: fixed; inset: 0; z-index: 30; display: none; align-items: flex-start;
-  justify-content: center; padding-top: 14vh; background: rgba(3, 6, 12, .72);
-  backdrop-filter: blur(6px);
-}
-#palette.show { display: flex; animation: fade .16s ease-out; }
-@keyframes fade { from { opacity: 0; } }
-.palette-box {
-  width: min(620px, 92vw); border: 1px solid var(--line-warm); border-radius: 18px;
-  background: rgba(8, 14, 26, .97); box-shadow: 0 40px 90px rgba(0, 0, 0, .7); overflow: hidden;
-}
-#paletteInput {
-  width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none;
-  padding: 17px 20px; font-size: 16px; outline: none;
-}
-#paletteInput::placeholder { color: var(--dimmer); }
-#paletteList { max-height: 46vh; overflow-y: auto; padding: 8px; }
-.option {
-  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
-  padding: 10px 12px; border-radius: 11px; transition: background .12s;
-}
-.option.on { background: rgba(34, 211, 238, .12); }
-.option .badge {
-  font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--dimmer);
-  border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; flex: none;
-}
-.option b { font-weight: 500; font-size: 14px; display: block; }
-.option span { font-size: 12px; color: var(--dimmer); display: block; }
-.palette-foot {
-  display: flex; gap: 16px; padding: 9px 18px; border-top: 1px solid var(--line);
-  font-size: 10.5px; color: var(--dimmer); letter-spacing: .1em; text-transform: uppercase;
-}
-
-/* ----------------------------------------------------------- the panel */
-#panel {
-  position: fixed; top: 0; right: 0; bottom: 0; width: min(370px, 92vw); z-index: 20;
-  background: rgba(6, 11, 20, .97); border-left: 1px solid var(--line); backdrop-filter: blur(22px);
-  transform: translateX(100%); transition: transform .26s cubic-bezier(.4, 0, .2, 1);
-  display: flex; flex-direction: column;
-}
-body.panel-open #panel { transform: none; }
-.tabs { display: flex; gap: 4px; padding: 16px 12px 0; border-bottom: 1px solid var(--line); }
-.tab { padding: 9px 13px; font-size: 12.5px; color: var(--dimmer); border-radius: 9px 9px 0 0; }
-.tab.on { color: var(--text); background: rgba(125, 165, 225, .1); }
-.panes { flex: 1; overflow-y: auto; padding: 16px; }
-.pane { display: none; flex-direction: column; gap: 9px; }
-.pane.on { display: flex; }
-.stat { display: flex; justify-content: space-between; gap: 14px; font-size: 13px; padding: 7px 0;
-        border-bottom: 1px solid var(--line); }
-.stat span:first-child { color: var(--dimmer); }
-.stat span:last-child { text-align: right; overflow-wrap: anywhere; }
-.head { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--dimmer);
-        margin-top: 10px; }
-.bar { height: 3px; border-radius: 3px; background: rgba(125, 165, 225, .14); overflow: hidden; }
-.bar i { display: block; height: 100%; background: var(--listen); transition: width .4s; }
-#toolSearch { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line);
-              background: rgba(3, 6, 12, .8); outline: none; font-size: 13px; }
-.tool { border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; text-align: left; width: 100%; }
-.tool:hover { border-color: rgba(34, 211, 238, .4); background: rgba(34, 211, 238, .06); }
-.tool b { display: block; font-size: 12.5px; font-weight: 500; }
-.tool span { font-size: 11.5px; color: var(--dimmer); }
-.audit { display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; }
-.audit div { display: flex; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 5px; }
-.audit .allowed { color: var(--good); } .audit .confirmed { color: var(--listen); }
-.audit .declined, .audit .blocked { color: var(--bad); }
-.switch { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 6px 0; }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 5px 2px;
+      border-bottom: 1px solid var(--line); font: 11.5px/1.5 var(--mono); }
+.kv span:first-child { color: var(--faint); letter-spacing: .1em; text-transform: uppercase;
+                       font-size: 10px; }
+.kv span:last-child { color: #aeb6c4; text-align: right; }
+.kv .good { color: var(--good); } .kv .bad { color: var(--bad); }
+.mods { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.mod { font: 10px/1 var(--mono); letter-spacing: .1em; color: var(--dim);
+       border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; }
+.mod b { color: var(--blue-deep); font-weight: 400; }
+.toolrow { display: flex; flex-direction: column; gap: 2px; padding: 7px 10px;
+           border-left: 2px solid transparent; border-radius: 4px; cursor: pointer; }
+.toolrow:hover { background: #0a0e15; border-left-color: var(--blue-deep); }
+.toolrow b { font: 11.5px/1.4 var(--mono); color: #b9c1cf; font-weight: 400; }
+.toolrow span { font-size: 11.5px; color: var(--faint); }
+.auditrow { display: flex; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--line);
+            font: 10.5px/1.5 var(--mono); color: var(--dim); }
+.auditrow .ok { color: var(--good); } .auditrow .no { color: var(--bad); }
+.auditrow .ask { color: var(--cyan); }
+.switch { display: flex; justify-content: space-between; align-items: center;
+          padding: 7px 2px; font: 11.5px var(--mono); color: var(--dim); }
 .switch button { border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px;
-                 font-size: 11.5px; color: var(--dimmer); }
-.switch button.on { color: var(--listen); border-color: rgba(34, 211, 238, .45); }
+                 font: 10px var(--mono); letter-spacing: .14em; color: var(--faint);
+                 text-transform: uppercase; }
+.switch button.on { color: var(--blue); border-color: var(--blue-deep); }
 
-/* ----------------------------------------------------------- overlays */
-#keys {
-  position: fixed; inset: 0; z-index: 31; display: none; align-items: center; justify-content: center;
-  background: rgba(3, 6, 12, .82); backdrop-filter: blur(8px);
-}
-#keys.show { display: flex; }
-.keys-box {
-  border: 1px solid var(--line-warm); border-radius: 18px; padding: 26px 30px;
-  background: rgba(8, 14, 26, .97); display: grid; grid-template-columns: auto auto; gap: 12px 26px;
-  font-size: 13.5px;
-}
-.keys-box h2 { grid-column: 1 / -1; margin: 0 0 6px; font-size: 11px; letter-spacing: .3em;
-               text-transform: uppercase; color: var(--dimmer); font-weight: 500; }
-.keys-box kbd {
-  font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px;
-  color: var(--listen); font-size: 12px;
-}
-#toasts { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 40;
-          display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.hist { display: flex; flex-direction: column; gap: 9px; padding: 2px; }
+.hist .me { color: var(--dim); font: 11px/1.5 var(--mono); }
+.hist .me::before { content: "› "; color: var(--faint); }
+.hist .ai { color: #cfd6e2; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; }
+
+.keysgrid { display: grid; grid-template-columns: auto 1fr; gap: 9px 20px;
+            font: 12px/1.4 var(--mono); color: var(--dim); align-items: center; }
+.keysgrid kbd { border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px;
+                color: var(--blue); font: 11px var(--mono); justify-self: start; }
+
+/* ---------------------------------------------------------------- toasts */
+#toasts { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 40;
+          display: flex; flex-direction: column; gap: 7px; align-items: center; }
 .toast {
-  background: rgba(8, 14, 26, .96); border: 1px solid var(--line); border-left: 2px solid var(--listen);
-  border-radius: 10px; padding: 9px 15px; font-size: 13px; animation: slide .2s ease-out;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, .5);
+  background: #06080c; border: 1px solid var(--line); border-left: 2px solid var(--blue);
+  border-radius: 8px; padding: 8px 14px; color: #b9c1cf;
+  font: 11px/1.5 var(--mono); letter-spacing: .04em; animation: rise .18s ease-out;
+  max-width: min(480px, 90vw);
 }
 .toast.bad { border-left-color: var(--bad); }
 
-@media (max-width: 860px) {
-  #rail { display: none; }
-  #stage { padding-bottom: 226px; }
-  #caption { font-size: 18px; }
-  #top { padding: 14px 16px; }
-  #tileLabel { top: 54px; left: 16px; }
-  #brand { font-size: 9.5px; letter-spacing: .3em; }
+@media (max-width: 560px) {
+  #log { bottom: 98px; }
+  .line.ai { font-size: 13.5px; }
+  #readout { min-width: 74px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  body, .toast, .line, #palette { animation: none !important; transition: none !important; }
+  body, .toast, .box, .cursor { animation: none !important; transition: none !important; }
 }
 </style>
 </head>
 <body>
-<canvas id="orb"></canvas>
-<div id="vignette"></div>
+<canvas id="field"></canvas>
 
-<div id="top">
-  <div id="tiles" title="Modules — each lights up when it does something"></div>
-  <div id="brand"><span id="link"></span><b>__TITLE__</b><span id="topState">connecting</span></div>
-  <div id="topRight">
-    <button class="ghost" id="historyBtn" title="Conversation history (H)" aria-label="History">
-      <svg viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>
-    </button>
-    <button class="ghost" id="keysBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
-      <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
-    </button>
-    <button class="ghost" id="panelBtn" title="Status, tools, audit (Ctrl+/)" aria-label="Open the panel">
-      <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-    </button>
-  </div>
-</div>
-<div id="tileLabel"></div>
+<div id="log" aria-live="polite"></div>
+<div id="hint">hold <b>space</b> to speak · <b>K</b> for everything</div>
 
-<div id="stage">
-  <div id="state"></div>
-  <div id="caption" class="dim" aria-live="polite">Hold <b>space</b> and speak, or press <b>K</b> for anything.</div>
-  <div id="cards"></div>
-</div>
-
-<div id="rail" aria-live="polite"></div>
-
-<div id="dock">
-  <div id="typed">
-    <input id="input" placeholder="Type instead…" autocomplete="off" aria-label="Message">
-    <button id="sendBtn" title="Send" aria-label="Send">↵</button>
-  </div>
-  <div class="controls">
-    <button class="round" id="keyboard" title="Type instead (T)" aria-label="Type instead">
-      <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
-    </button>
-    <button class="round" id="mic" title="Hold to talk (space)" aria-label="Hold to talk">
-      <svg id="micRing" viewBox="0 0 68 68"><circle cx="34" cy="34" r="32"></circle></svg>
-      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
-    </button>
-    <button class="round" id="speech" title="Read replies aloud (S)" aria-label="Read replies aloud">
-      <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8a5 5 0 0 1 0 8"/></svg>
-    </button>
-    <button class="round" id="paletteBtn" title="Everything JARVIS can do (K)" aria-label="Command palette">
-      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.5-4.5"/></svg>
-    </button>
-  </div>
-  <div class="hint"><kbd>space</kbd> speak · <kbd>K</kbd> commands · <kbd>T</kbd> type · <kbd>H</kbd> history · <kbd>?</kbd> keys</div>
+<div id="hud">
+  <button class="dot-btn" id="mic" title="Hold to talk (space)" aria-label="Hold to talk">
+    <svg id="micRing" viewBox="0 0 42 42" aria-hidden="true"><circle cx="21" cy="21" r="19"></circle></svg>
+    <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path>
+    </svg>
+  </button>
+  <button id="readout" title="Status — tap for commands" aria-label="Status, tap for commands">
+    <span id="state">boot</span>
+    <span id="clock">--:--</span>
+  </button>
+  <button class="dot-btn" id="typeBtn" title="Type instead (T)" aria-label="Type instead">
+    <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="7" width="18" height="11" rx="2"></rect>
+      <path d="M7 11h.01M11 11h.01M15 11h.01M8 14.5h8"></path>
+    </svg>
+  </button>
 </div>
 
-<div id="palette" role="dialog" aria-label="Command palette">
-  <div class="palette-box">
-    <input id="paletteInput" placeholder="Ask, or search every tool…" autocomplete="off">
-    <div id="paletteList"></div>
-    <div class="palette-foot"><span>↑↓ move</span><span>↵ run</span><span>esc close</span></div>
+<form id="typed" autocomplete="off">
+  <input id="input" placeholder="say something…" aria-label="Message">
+  <button type="submit" title="Send" aria-label="Send">↵</button>
+</form>
+
+<div class="sheet" id="palette" role="dialog" aria-label="Command palette">
+  <div class="box">
+    <h2>everything __TITLE__ can do</h2>
+    <input class="search" id="paletteInput" placeholder="ask anything · enter asks, ctrl+↵ runs the highlighted tool"
+           autocomplete="off" aria-label="Command palette">
+    <div class="scroll" id="paletteList"></div>
   </div>
 </div>
 
-<div id="keys">
-  <div class="keys-box">
-    <h2>Keyboard</h2>
-    <kbd>space</kbd><span>hold to speak</span>
-    <kbd>K</kbd><span>command palette</span>
-    <kbd>T</kbd><span>type a message</span>
-    <kbd>S</kbd><span>speech on or off</span>
-    <kbd>H</kbd><span>conversation history</span>
-    <kbd>Ctrl /</kbd><span>status, tools, audit</span>
-    <kbd>esc</kbd><span>stop, or close</span>
-    <kbd>?</kbd><span>this list</span>
-  </div>
-</div>
-
-<div id="panel" aria-label="Status, tools and audit">
-  <div class="tabs">
-    <button class="tab on" data-pane="status">Status</button>
-    <button class="tab" data-pane="tools">Tools</button>
-    <button class="tab" data-pane="audit">Audit</button>
-  </div>
-  <div class="panes">
-    <div class="pane on" id="pane-status">
-      <div class="head">Assistant</div><div id="statusList"></div>
-      <div class="head">Session</div>
-      <div class="stat"><span>Turns</span><span id="statTurns">0</span></div>
-      <div class="stat"><span>Last reply</span><span id="statLast">—</span></div>
-      <div class="stat"><span>Rendering</span><span id="statFps">—</span></div>
-      <div class="head">Settings</div>
-      <div class="switch"><span>Read replies aloud</span><button id="setSpeech">off</button></div>
-      <div class="switch"><span>Clear the transcript</span><button id="setClear">clear</button></div>
+<div class="sheet" id="panel" role="dialog" aria-label="Status, tools and audit">
+  <div class="box">
+    <div class="tabs">
+      <button data-tab="status" class="on">status</button>
+      <button data-tab="tools">tools</button>
+      <button data-tab="audit">audit</button>
     </div>
-    <div class="pane" id="pane-tools">
-      <input id="toolSearch" placeholder="Search tools…" aria-label="Search tools">
-      <div id="toolList" style="display:flex;flex-direction:column;gap:7px"></div>
+    <div class="pane on scroll" id="pane-status">
+      <div id="statusList"></div>
+      <div class="mods" id="modList"></div>
+      <div class="switch"><span>read replies aloud</span><button id="setSpeech">off</button></div>
+      <div class="switch"><span>clear the transcript</span><button id="setClear">clear</button></div>
     </div>
-    <div class="pane" id="pane-audit">
-      <div class="head">What needed permission</div>
-      <div class="audit" id="auditList"></div>
-      <button class="tool" id="auditRefresh" style="width:auto;align-self:flex-start">refresh</button>
+    <div class="pane scroll" id="pane-tools">
+      <input class="search" id="toolSearch" placeholder="search tools…" aria-label="Search tools">
+      <div id="toolList"></div>
+    </div>
+    <div class="pane scroll" id="pane-audit">
+      <div id="auditList"></div>
+      <div class="switch"><span>refresh</span><button id="auditRefresh">now</button></div>
     </div>
   </div>
 </div>
 
-<div id="history" aria-label="Conversation history">
-  <header><span>Conversation</span><span id="historyCount">0 turns</span></header>
-  <div id="historyList"></div>
+<div class="sheet" id="history" role="dialog" aria-label="Conversation history">
+  <div class="box">
+    <h2>this session</h2>
+    <div class="scroll hist" id="historyList"></div>
+  </div>
 </div>
 
-<div id="toasts" aria-live="assertive"></div>
+<div class="sheet" id="keys" role="dialog" aria-label="Keyboard shortcuts">
+  <div class="box">
+    <h2>keys</h2>
+    <div class="keysgrid">
+      <kbd>space</kbd><span>hold to talk</span>
+      <kbd>T</kbd><span>type instead</span>
+      <kbd>K</kbd><span>command palette — every tool and quick ask</span>
+      <kbd>Ctrl /</kbd><span>status, tools, audit</span>
+      <kbd>H</kbd><span>this session's transcript</span>
+      <kbd>S</kbd><span>read replies aloud</span>
+      <kbd>?</kbd><span>this list</span>
+      <kbd>esc</kbd><span>close whatever is open</span>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
 
 <script>
 "use strict";
+/* =======================================================================
+   Wiring: token, DOM handles, settings.
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
 const token = new URLSearchParams(location.search).get("token") || "";
 const auth = token ? "?token=" + encodeURIComponent(token) : "";
-const $ = (id) => document.getElementById(id);
-const rail = $("rail"), caption = $("caption"), input = $("input");
-
-let socket = null, busy = false, replyText = "", turns = 0, retry = 0;
-let captionTimer = null, turnStarted = 0;
 const settings = { speech: localStorage.getItem("jarvis.speech") === "1" };
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+let socket = null, retry = 0, busy = false, replyText = "", turns = 0;
+let transcript = [];                     // {who, text} for the history sheet
+let streamNode = null;                   // the .line.ai node tokens land in
 
 /* =======================================================================
    The sphere.
 
-   Four layers on one canvas: a drifting starfield, the shell of points, a
-   ring of spectrum bars around the equator, and orbiting arcs. Everything
-   is driven by one `orb` object so the visuals always match what the
-   assistant is actually doing. Quality adapts to the measured frame rate,
-   so a weak laptop drops points rather than frames.
+   One canvas, one lattice: rings of evenly spaced dots wrapped into a
+   sphere, rotated, displaced by layered sine noise and projected with a
+   mild perspective so the far side dims instead of vanishing. Every visual
+   reaction — listening, thinking, speaking — is just `energy` feeding the
+   displacement amplitude and the spin, so the object always matches what
+   the assistant is actually doing.
    ===================================================================== */
-const canvas = $("orb"), ctx = canvas.getContext("2d", { alpha: false });
-const BARS = 72;
-
+const canvas = $("field"), ctx = canvas.getContext("2d", { alpha: false });
 const orb = {
-  energy: 0, target: 0, hue: "idle", spin: 0, time: 0,
-  spectrum: new Float32Array(BARS), pulse: 0,
+  energy: 0, kick: 0, mic: 0, tts: 0, spin: 0, time: 0,
+  mood: "idle", rings: 46, quality: 1,
 };
-const COLOURS = {
-  idle:   [59, 86, 216],
-  listen: [34, 211, 238],
-  think:  [139, 92, 246],
-  speak:  [56, 189, 248],
-  lost:   [248, 113, 113],
+const MOODS = {
+  idle:   { bright: 1.00, spin: 0.10, floor: 0.05 },
+  listen: { bright: 1.15, spin: 0.16, floor: 0.22 },
+  think:  { bright: 1.05, spin: 0.34, floor: 0.30 },
+  speak:  { bright: 1.20, spin: 0.20, floor: 0.26 },
+  lost:   { bright: 0.40, spin: 0.03, floor: 0.02 },
 };
-let paint = COLOURS.idle.slice();
-let shell = [], stars = [], inner = [], comets = [];
-//: Points are drawn in a handful of paths grouped by brightness rather than
-//: one path each: 3,200 fillStyle changes and fills per frame was the single
-//: most expensive thing on the page.
-const BUCKETS = 9;
-const buckets = Array.from({ length: BUCKETS }, () => ({ x: [], y: [], r: [] }));
-const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
-let quality = 1;                       // scaled down if frames get expensive
+/* Three dot colours, as in the reference: pale white, blue and violet. At rest
+   the cool dots dominate; when the sphere gets hot the white ones take over. */
+const PALETTE = [
+  [214, 218, 232],
+  [86, 108, 255],
+  [138, 92, 255],
+];
+let dots = [];
+const buckets = PALETTE.map(() => []);   // reused per frame, no allocation
+let width = 0, height = 0, dpr = 1, radius = 0, cx = 0, cy = 0;
 let frameTimes = [], lastFrame = performance.now(), fps = 60;
 
-function buildShell(count) {
-  shell = [];
-  for (let i = 0; i < count; i++) {
-    const y = 1 - (i / (count - 1)) * 2;
-    const ring = Math.sqrt(Math.max(0, 1 - y * y));
-    const theta = i * Math.PI * (3 - Math.sqrt(5));
-    shell.push({ x: Math.cos(theta) * ring, y, z: Math.sin(theta) * ring });
-  }
+function hash(a, b) {
+  let h = (a * 374761393 + b * 668265263) | 0;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return ((h ^ (h >> 16)) >>> 0) / 4294967295;
 }
 
-function buildStars(count) {
-  stars = [];
-  for (let i = 0; i < count; i++) {
-    stars.push({
-      x: Math.random(), y: Math.random(),
-      size: Math.random() * 1.1 + 0.25,
-      alpha: Math.random() * 0.4 + 0.08,
-      drift: Math.random() * 0.4 + 0.1,
-    });
+function buildSphere(rings) {
+  orb.rings = rings;
+  dots = [];
+  const lon = Math.max(26, Math.round(rings * 1.42));
+  for (let i = 1; i < rings; i++) {
+    const theta = Math.PI * i / rings;
+    const count = Math.max(6, Math.round(lon * Math.sin(theta)));
+    const stagger = (i % 2) * Math.PI / count;
+    for (let j = 0; j < count; j++) {
+      const phi = 2 * Math.PI * j / count + stagger;
+      const roll = hash(i, j);
+      dots.push({
+        x: Math.sin(theta) * Math.cos(phi),
+        y: Math.cos(theta),
+        z: Math.sin(theta) * Math.sin(phi),
+        c: roll < 0.62 ? 0 : (roll < 0.86 ? 1 : 2),
+        w: hash(j, i) * 6.2832,
+      });
+    }
   }
-}
-
-function buildInner(count) {
-  inner = [];
-  for (let i = 0; i < count; i++) {
-    const y = 1 - (i / (count - 1)) * 2;
-    const ring = Math.sqrt(Math.max(0, 1 - y * y));
-    const theta = i * Math.PI * (3 - Math.sqrt(5)) * 1.7;
-    inner.push({ x: Math.cos(theta) * ring, y, z: Math.sin(theta) * ring });
-  }
-}
-
-function applyQuality() {
-  const wide = innerWidth >= 760;
-  buildShell(Math.round((wide ? 3200 : 1500) * quality));
-  buildInner(Math.round((wide ? 700 : 320) * quality));
-  buildStars(Math.round((wide ? 150 : 70) * quality));
 }
 
 function resize() {
-  const ratio = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.floor(innerWidth * ratio);
-  canvas.height = Math.floor(innerHeight * ratio);
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  width = innerWidth; height = innerHeight;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  radius = Math.min(width, height) * 0.36;
+  cx = width / 2;
+  cy = height * 0.45;
 }
-addEventListener("resize", () => { resize(); applyQuality(); });
-addEventListener("pointermove", (event) => {
-  // a little camera drift towards the pointer, so the sphere feels present
-  camera.targetX = (event.clientX / innerWidth - 0.5) * 2;
-  camera.targetY = (event.clientY / innerHeight - 0.5) * 2;
-});
-resize();
-applyQuality();
+addEventListener("resize", resize);
 
 function measure(now) {
-  const delta = now - lastFrame;
+  const dt = now - lastFrame;
   lastFrame = now;
-  frameTimes.push(delta);
-  if (frameTimes.length < 90) return;
-  const average = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
-  frameTimes = [];
-  fps = Math.round(1000 / average);
-  $("statFps").textContent = fps + " fps · " + shell.length + " points";
-  if (average > 26 && quality > 0.35) { quality *= 0.6; applyQuality(); }
-  else if (average < 13 && quality < 1) { quality = Math.min(1, quality * 1.25); applyQuality(); }
+  if (dt > 0 && dt < 500) {
+    frameTimes.push(dt);
+    if (frameTimes.length > 50) frameTimes.shift();
+    if (frameTimes.length === 50) {
+      const avg = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
+      fps = 1000 / avg;
+      /* Drop dots rather than frames on weak hardware; recover when idle. */
+      if (fps < 42 && orb.quality > 0.6) {
+        orb.quality -= 0.2;
+        buildSphere(Math.max(24, Math.round(orb.rings * 0.82)));
+        frameTimes = [];
+      } else if (fps > 57 && orb.quality < 1) {
+        orb.quality += 0.2;
+        buildSphere(Math.min(56, Math.round(orb.rings * 1.15)));
+        frameTimes = [];
+      }
+    }
+  }
+  return Math.min(0.05, dt / 1000);
 }
 
 function draw(now) {
+  const dt = measure(now);
+  orb.time += dt;
+  const t = orb.time;
+  const mood = MOODS[orb.mood] || MOODS.idle;
+
+  /* energy = loudest of microphone, playback, token stream, idle breathing */
+  orb.kick *= 0.93;
+  const idle = mood.floor + Math.sin(t * 0.7) * 0.03;
+  const target = Math.max(idle, orb.mic, orb.tts, orb.kick);
+  orb.energy += (target - orb.energy) * (target > orb.energy ? 0.35 : 0.08);
+  orb.spin += dt * (mood.spin + orb.energy * 0.55) * (reduced ? 0.15 : 1);
+
+  const e = orb.energy;
+  const amp = (0.035 + e * 0.30) * (reduced ? 0.4 : 1);
+  const rotY = orb.spin;
+  const rotX = 0.42 + Math.sin(t * 0.11) * 0.14;
+  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  const breathe = 1 + Math.sin(t * 0.6) * 0.012 + e * 0.05;
+  const bright = mood.bright * (1.05 + e * 0.25);
+  const base = Math.max(0.9, Math.min(1.8, Math.min(width, height) / 720)) * (dpr > 1 ? 1.05 : 1);
+  /* at rest the cool dots carry the lattice; heat pulls it back to white */
+  const gain = [0.72 + e * 0.9, 1.06 - e * 0.25, 1.0 - e * 0.2];
+
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, width, height);
+
+  for (const b of buckets) b.length = 0;
+
+  for (let n = 0; n < dots.length; n++) {
+    const p = dots[n];
+    /* rotate Y then X */
+    const x1 = p.x * cosY - p.z * sinY;
+    const z1 = p.x * sinY + p.z * cosY;
+    const y2 = p.y * cosX - z1 * sinX;
+    const z2 = p.y * sinX + z1 * cosX;
+    /* layered sine noise: slow continental drift plus a travelling ripple
+       while the microphone or the voice is hot */
+    let noise = Math.sin(x1 * 2.3 + t * 0.9 + p.w)
+              + Math.sin(y2 * 3.1 - t * 0.7 + p.w * 0.5)
+              + Math.sin(z2 * 2.7 + t * 1.2);
+    noise /= 3;
+    const ripple = e > 0.18 ? Math.sin(p.y * 4.5 - t * 3.4 + p.w) * 0.35 : 0;
+    const r = (1 + noise * amp + ripple * amp) * breathe;
+    const X = x1 * r, Y = y2 * r, Z = z2 * r;
+    const persp = 3.0 / (3.0 - Z);
+    const depth = Math.max(0, Math.min(1, (Z + 1.25) / 2.5));
+    buckets[p.c].push(
+      cx + X * radius * persp,
+      cy + Y * radius * persp,
+      base * (0.8 + 1.2 * depth),
+      Math.pow(depth, 1.1) * bright * (0.86 + 0.14 * Math.sin(t * 2 + p.w * 7))
+    );
+  }
+
+  for (let c = 0; c < PALETTE.length; c++) {
+    const [rr, gg, bb] = PALETTE[c];
+    ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
+    const list = buckets[c];
+    for (let i = 0; i < list.length; i += 4) {
+      const a = Math.max(0.08, Math.min(1, list[i + 3] * gain[c]));
+      ctx.globalAlpha = a;
+      ctx.beginPath();
+      ctx.arc(list[i], list[i + 1], list[i + 2], 0, 6.2832);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
   requestAnimationFrame(draw);
-  measure(now);
-
-  const width = innerWidth, height = innerHeight;
-  const centreX = width / 2;
-  const centreY = height * (width < 760 ? 0.40 : 0.44);
-  const base = Math.min(width, height) * (width < 760 ? 0.29 : 0.25);
-
-  orb.time += 0.016;
-  orb.energy += (orb.target - orb.energy) * 0.11;
-  orb.pulse *= 0.94;
-  orb.spin += 0.0015 + orb.energy * 0.006;
-
-  const wanted = COLOURS[orb.hue] || COLOURS.idle;
-  for (let i = 0; i < 3; i++) paint[i] += (wanted[i] - paint[i]) * 0.05;
-  const [red, green, blue] = paint.map(Math.round);
-  const rgb = (alpha) => `rgba(${red},${green},${blue},${alpha})`;
-
-  camera.x += (camera.targetX - camera.x) * 0.045;
-  camera.y += (camera.targetY - camera.y) * 0.045;
-  const driftX = camera.x * 16, driftY = camera.y * 10;
-
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = "#03060c";
-  ctx.fillRect(0, 0, width, height);
-  // Light adds up from here on, so overlapping points bloom instead of
-  // flattening — the single biggest difference to how solid the shell looks.
-  ctx.globalCompositeOperation = "lighter";
-
-  // -- starfield ---------------------------------------------------------
-  for (const star of stars) {
-    const y = (star.y + orb.time * 0.004 * star.drift) % 1;
-    ctx.fillStyle = `rgba(150,190,240,${star.alpha * (0.55 + Math.sin(orb.time + star.x * 30) * 0.45)})`;
-    ctx.fillRect(star.x * width, y * height, star.size, star.size);
-  }
-
-  // -- the glow behind everything ----------------------------------------
-  const glow = ctx.createRadialGradient(centreX, centreY, base * 0.1, centreX, centreY, base * 2.2);
-  glow.addColorStop(0, rgb(0.11 + orb.energy * 0.15 + orb.pulse * 0.2));
-  glow.addColorStop(1, "rgba(3,6,12,0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, width, height);
-
-  const breathe = 1 + Math.sin(orb.time * 1.1) * 0.012 + orb.energy * 0.07 + orb.pulse * 0.05;
-  const project = (point, radiusScale, spinScale) => {
-    const spinNow = orb.spin * spinScale;
-    const cosNow = Math.cos(spinNow), sinNow = Math.sin(spinNow);
-    let x = point.x * cosNow - point.z * sinNow;
-    let z = point.x * sinNow + point.z * cosNow;
-    let y = point.y * Math.cos(tilt) - z * Math.sin(tilt);
-    z = point.y * Math.sin(tilt) + z * Math.cos(tilt);
-    const depth = (z + 1) / 2;
-    const scale = 0.74 + depth * 0.44;
-    return {
-      x: centreX + driftX + x * radiusScale * scale,
-      y: centreY + driftY + y * radiusScale * scale,
-      depth, z,
-    };
-  };
-  const cosine = Math.cos(orb.spin), sine = Math.sin(orb.spin);
-  const tilt = Math.sin(orb.time * 0.22) * 0.16;
-
-  // -- orbiting arcs, behind the shell ------------------------------------
-  ctx.lineWidth = 1;
-  for (let arc = 0; arc < 3; arc++) {
-    const angle = orb.spin * (0.6 + arc * 0.35) + arc * 2.1;
-    const radiusX = base * (1.28 + arc * 0.16);
-    const radiusY = radiusX * (0.2 + arc * 0.1);
-    ctx.strokeStyle = rgb(0.05 + orb.energy * 0.09);
-    ctx.beginPath();
-    ctx.ellipse(centreX, centreY, radiusX, radiusY, angle, 0, 6.2832);
-    ctx.stroke();
-  }
-
-  // -- the inner core shell, turning the other way ------------------------
-  ctx.beginPath();
-  for (let i = 0; i < inner.length; i++) {
-    const spot = project(inner[i], base * breathe * 0.55, -0.7);
-    ctx.rect(spot.x, spot.y, 1.3, 1.3);
-  }
-  ctx.fillStyle = rgb((0.09 + orb.energy * 0.08).toFixed(3));
-  ctx.fill();
-
-  // -- the shell, gathered into brightness buckets ------------------------
-  for (let b = 0; b < BUCKETS; b++) {
-    buckets[b].x.length = 0; buckets[b].y.length = 0; buckets[b].r.length = 0;
-  }
-  let brightest = 0;
-  for (let i = 0; i < shell.length; i++) {
-    const point = shell[i];
-    const wobble = 1 + orb.energy * 0.045 * Math.sin(point.y * 6 + orb.time * 4.2 + point.x * 3);
-    const spot = project(point, base * breathe * wobble, 1);
-    const rim = (1 - Math.abs(spot.z)) ** 3;
-    const alpha = 0.05 + spot.depth * spot.depth * (0.34 + orb.energy * 0.26) + rim * 0.26;
-    const size = (0.5 + spot.depth * 1.15 + rim * 0.5) * (1 + orb.energy * 0.22);
-    const slot = Math.min(BUCKETS - 1, (alpha * BUCKETS) | 0);
-    if (slot > brightest) brightest = slot;
-    buckets[slot].x.push(spot.x);
-    buckets[slot].y.push(spot.y);
-    buckets[slot].r.push(size);
-  }
-  for (let b = 0; b <= brightest; b++) {
-    const bucket = buckets[b];
-    if (!bucket.x.length) continue;
-    ctx.fillStyle = rgb(((b + 0.5) / BUCKETS).toFixed(3));
-    ctx.beginPath();
-    for (let i = 0; i < bucket.x.length; i++) {
-      ctx.moveTo(bucket.x[i] + bucket.r[i], bucket.y[i]);
-      ctx.arc(bucket.x[i], bucket.y[i], bucket.r[i], 0, 6.2832);
-    }
-    ctx.fill();
-  }
-
-  // -- comets, thrown outward whenever something happens -------------------
-  for (let i = comets.length - 1; i >= 0; i--) {
-    const comet = comets[i];
-    comet.life -= 0.014;
-    if (comet.life <= 0) { comets.splice(i, 1); continue; }
-    comet.radius += comet.speed;
-    const angle = comet.angle + orb.time * 0.1;
-    const x = centreX + driftX + Math.cos(angle) * comet.radius;
-    const y = centreY + driftY + Math.sin(angle) * comet.radius * 0.85;
-    ctx.strokeStyle = rgb((comet.life * 0.5).toFixed(3));
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(centreX + driftX + Math.cos(angle) * (comet.radius - 22),
-               centreY + driftY + Math.sin(angle) * (comet.radius - 22) * 0.85);
-    ctx.stroke();
-  }
-
-  // -- the spectrum ring: real audio while listening, a slow idle wave else
-  // A near-circular corona, not a squashed equator: at 0.42 the top and
-  // bottom of the ring fell inside the sphere, so it read as two side-combs.
-  const ringRadius = base * (1.22 + orb.energy * 0.05);
-  const squash = 0.86;
-  for (let i = 0; i < BARS; i++) {
-    const level = orb.spectrum[i];
-    if (level < 0.02) continue;
-    const angle = (i / BARS) * 6.2832 + orb.spin * 0.4;
-    const length = base * (0.05 + level * 0.34);
-    const cosAngle = Math.cos(angle), sinAngle = Math.sin(angle);
-    ctx.strokeStyle = rgb(0.12 + level * 0.6);
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(centreX + driftX + cosAngle * ringRadius,
-               centreY + driftY + sinAngle * ringRadius * squash);
-    ctx.lineTo(centreX + driftX + cosAngle * (ringRadius + length),
-               centreY + driftY + sinAngle * (ringRadius + length) * squash);
-    ctx.stroke();
-  }
-
-  // -- the core -----------------------------------------------------------
-  const core = ctx.createRadialGradient(centreX, centreY, 0, centreX, centreY, base * 0.45);
-  core.addColorStop(0, `rgba(255,255,255,${0.03 + orb.energy * 0.12 + orb.pulse * 0.3})`);
-  core.addColorStop(0.5, rgb(0.04 + orb.energy * 0.09));
-  core.addColorStop(1, "rgba(3,6,12,0)");
-  ctx.fillStyle = core;
-  ctx.beginPath();
-  ctx.arc(centreX, centreY, base * 0.45, 0, 6.2832);
-  ctx.fill();
-
-  // idle shimmer on the ring when nothing is being heard
-  if (orb.hue !== "listen") {
-    for (let i = 0; i < BARS; i++) {
-      const wave = (Math.sin(orb.time * 1.6 + i * 0.42) + 1) / 2;
-      orb.spectrum[i] += ((0.04 + wave * 0.06 * (0.4 + orb.energy)) - orb.spectrum[i]) * 0.08;
-    }
-  }
-}
-requestAnimationFrame(draw);
-
-function mood(hue, energy) { orb.hue = hue; orb.target = energy; }
-function pulse(burst) {
-  orb.pulse = 1;
-  const count = burst ? 14 : 5;
-  for (let i = 0; i < count; i++) {
-    comets.push({
-      angle: Math.random() * 6.2832,
-      radius: 40 + Math.random() * 30,
-      speed: 1.6 + Math.random() * 2.6,
-      life: 0.7 + Math.random() * 0.5,
-    });
-  }
 }
 
-/* --------------------------------------------------------------- text */
-function escapeHtml(text) {
-  return String(text).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-}
+function mood(name) { orb.mood = name; }
+function pulse(strength) { orb.kick = Math.min(1, Math.max(orb.kick, strength || 0.5)); }
 
-function light(text) {
-  const blocks = [];
-  let out = String(text).replace(/```(?:\w*)\n?([\s\S]*?)```/g, (m, code) => {
-    blocks.push(code.trim());
-    return "\u0000B" + (blocks.length - 1) + "\u0000";
-  });
-  out = escapeHtml(out)
-    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
-    .replace(/\n/g, "<br>");
-  return out.replace(/\u0000B(\d+)\u0000/g, (m, index) =>
-    '<pre><button class="copy" type="button">copy</button>' + escapeHtml(blocks[index]) + "</pre>");
-}
-
-function say(text, options = {}) {
-  clearTimeout(captionTimer);
-  caption.classList.toggle("dim", Boolean(options.dim));
-  caption.innerHTML = light(text) + (options.cursor ? '<span class="cursor">▍</span>' : "");
-  caption.scrollTop = caption.scrollHeight;
-  if (options.fade) {
-    captionTimer = setTimeout(() => {
-      caption.classList.add("dim");
-      caption.innerHTML = "Hold <b>space</b> and speak, or press <b>K</b> for anything.";
-    }, options.fade);
-  }
-}
+/* =======================================================================
+   Readout, transcript, toasts.
+   ===================================================================== */
+const stateEl = $("state"), readoutEl = $("readout");
+let stateTimer = null;
 
 function status(text) {
-  $("state").textContent = text;
-  $("state").classList.toggle("show", Boolean(text));
+  clearTimeout(stateTimer);
+  const base = socket && socket.readyState === 1 ? "idle" : "offline";
+  const value = (text || base).toLowerCase();
+  stateEl.textContent = value;
+  readoutEl.classList.toggle("offline", value === "offline");
+  if (value.startsWith("listen")) mood("listen");
+  else if (value.startsWith("think") || value.startsWith("work")
+           || value.startsWith("rout") || value.startsWith("transcrib")) mood("think");
+  else if (value.startsWith("speak")) mood("speak");
+  else if (value === "offline") mood("lost");
+  else mood("idle");
+  if (text) stateTimer = setTimeout(() => status(""), 2600);
 }
 
-function trace(kind, html) {
-  const line = document.createElement("div");
-  line.className = "line " + kind;
-  line.innerHTML = html;
-  rail.appendChild(line);
-  while (rail.children.length > 16) rail.firstChild.remove();
+function tickClock() {
+  const now = new Date();
+  $("clock").textContent =
+    String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+}
+setInterval(tickClock, 1000); tickClock();
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (ch) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
 
-function since() {
-  return turnStarted ? ((performance.now() - turnStarted) / 1000).toFixed(2) + "s" : "";
+const logEl = $("log");
+const FADE = [1, 0.42, 0.2, 0.1, 0.05];
+
+function trimLog() {
+  while (logEl.children.length > 5) logEl.removeChild(logEl.firstChild);
+  const kids = logEl.children;
+  for (let i = 0; i < kids.length; i++) {
+    kids[i].style.opacity = FADE[kids.length - 1 - i] ?? 0.04;
+  }
 }
+
+function line(who, text) {
+  const node = document.createElement("div");
+  node.className = "line " + who;
+  node.textContent = text;
+  logEl.appendChild(node);
+  trimLog();
+  return node;
+}
+
+/** Start (or reuse) the streaming reply line; returns the text node. */
+function beginStream() {
+  if (streamNode && streamNode.isConnected) return streamNode;
+  streamNode = line("ai", "");
+  return streamNode;
+}
+function streamText(text, live) {
+  const node = beginStream();
+  node.textContent = text;
+  if (live) {
+    const cursor = document.createElement("span");
+    cursor.className = "cursor";
+    cursor.textContent = "▍";
+    node.appendChild(cursor);
+  }
+  node.style.opacity = 1;
+  trimLogKeep(node);
+}
+function trimLogKeep(node) {
+  while (logEl.children.length > 5) {
+    if (logEl.firstChild === node) break;
+    logEl.removeChild(logEl.firstChild);
+  }
+  const kids = logEl.children;
+  for (let i = 0; i < kids.length; i++) {
+    kids[i].style.opacity = kids[i] === node ? 1 : (FADE[kids.length - 1 - i] ?? 0.04);
+  }
+}
+function endStream() { streamNode = null; }
+
+function remember(who, text) { transcript.push({ who, text }); }
 
 function toast(text, bad) {
   const node = document.createElement("div");
   node.className = "toast" + (bad ? " bad" : "");
   node.textContent = text;
   $("toasts").appendChild(node);
-  setTimeout(() => node.remove(), 3800);
+  setTimeout(() => node.remove(), 4200);
 }
 
-/* ========================================================================
-   Result cards. Tools return structured data — todo rows, CPU figures, file
-   listings — and the brain now publishes it. Drawing it beats asking someone
-   to read it out of a paragraph.
-   ====================================================================== */
-function card(title, body) {
-  return '<div class="card"><h4>' + escapeHtml(title) + "</h4>" + body + "</div>";
-}
-
-function gauge(label, percent, text) {
-  const value = Math.max(0, Math.min(100, Number(percent) || 0));
-  return '<div class="gauge"><div class="label"><span>' + escapeHtml(label) +
-    "</span><span>" + escapeHtml(text || value.toFixed(0) + "%") +
-    '</span></div><div class="track"><div class="fill' + (value > 85 ? " hot" : "") +
-    '" style="width:' + value + '%"></div></div></div>';
-}
-
-/** Render a value that might be a raw byte count as something readable. */
-function human(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || Math.abs(number) < 1024) return escapeHtml(String(value));
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let size = number, unit = 0;
-  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
-  return size.toFixed(size < 10 ? 1 : 0) + " " + units[unit];
-}
-
-function list(items, mark) {
-  return "<ul>" + items.map((item) =>
-    '<li><span class="mark">' + mark + "</span><span>" + item + "</span></li>").join("") + "</ul>";
-}
-
-/** Turn one tool result into a card, or nothing when there is little to show. */
-function renderCard(tool, data) {
-  if (!data || typeof data !== "object") return "";
-  const name = String(tool || "").split(".").pop().replace(/_/g, " ");
-
-  if (Array.isArray(data.todos) && data.todos.length) {
-    return card("todo list", list(data.todos.slice(0, 7).map((todo) =>
-      escapeHtml(String(todo.task || todo)) +
-      (todo.due ? ' <span class="muted">' + escapeHtml(todo.due) + "</span>" : "")), "○"));
+/** Collapse a tool result into one quiet mono line, best effort. */
+function summarise(tool, data) {
+  if (!data || typeof data !== "object") return null;
+  const parts = [];
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === "string" && value && value.length < 60) parts.push(value);
+    else if (typeof value === "number") parts.push(key + " " + value);
+    else if (Array.isArray(value)) parts.push(key + ": " + value.length);
+    if (parts.length >= 3) break;
   }
-  if (Array.isArray(data.reminders) && data.reminders.length) {
-    return card("reminders", list(data.reminders.slice(0, 6).map((item) =>
-      escapeHtml(String(item.text || item))), "◷"));
-  }
-  if (Array.isArray(data.notes) && data.notes.length) {
-    return card("notes", list(data.notes.slice(0, 5).map((note) =>
-      escapeHtml(String(note.title || note))), "▪"));
-  }
-  if (Array.isArray(data.files) && data.files.length) {
-    return card("files", list(data.files.slice(0, 7).map((file) =>
-      escapeHtml(String(file).split("/").pop())), "▸"));
-  }
-  if (data.cpu_percent !== undefined) {
-    return card("this machine",
-      gauge("cpu", data.cpu_percent, data.cpu_percent + "% of " + (data.cpu_cores || "?") + " cores") +
-      gauge("memory", data.ram_percent, (data.ram_used || "") + " / " + (data.ram_total || "")) +
-      (data.battery_percent !== undefined && data.battery_percent !== null
-        ? gauge("battery", data.battery_percent) : ""));
-  }
-  if (data.used_percent !== undefined && data.free !== undefined) {
-    return card("storage", gauge("used", data.used_percent,
-      human(data.free) + " free of " + human(data.total || "?")));
-  }
-  if (data.result !== undefined && data.expression !== undefined) {
-    return card(escapeHtml(String(data.expression)).slice(0, 40),
-      '<div class="big">' + escapeHtml(String(data.result)) + "</div>");
-  }
-  if (Array.isArray(data.entries) && data.entries.length) {
-    return card("audit", list(data.entries.slice(0, 6).map((entry) =>
-      escapeHtml(String(entry.outcome || "")) + ' <span class="muted">' +
-      escapeHtml(String(entry.action || "").slice(0, 34)) + "</span>"), "•"));
-  }
-  if (Array.isArray(data.objects) && data.objects.length) {
-    return card("scene", list(data.objects.slice(0, 6).map((object) =>
-      escapeHtml(String(object.name || object)) + ' <span class="muted">' +
-      escapeHtml(String(object.type || "")) + "</span>"), "◆"));
-  }
-
-  // anything else worth showing: a short key/value table
-  const rows = Object.entries(data).filter(([, value]) =>
-    ["string", "number", "boolean"].includes(typeof value)).slice(0, 6);
-  if (rows.length < 2) return "";
-  return card(name, rows.map(([key, value]) =>
-    '<div class="kv"><span>' + escapeHtml(key.replace(/_/g, " ")) + "</span><span>" +
-    escapeHtml(String(value)).slice(0, 40) + "</span></div>").join(""));
+  if (!parts.length) return null;
+  return String(tool || "tool").split(".").pop() + " · " + parts.join(" · ");
 }
 
-function showCards(html) {
-  const holder = $("cards");
-  if (!html) return;
-  holder.insertAdjacentHTML("beforeend", html);
-  while (holder.children.length > 3) holder.firstChild.remove();
+/* first-run hint: fades on its own and on first interaction */
+let hintGone = false;
+function dropHint() {
+  if (hintGone) return;
+  hintGone = true;
+  $("hint").classList.add("gone");
 }
+setTimeout(dropHint, 11000);
 
-function clearCards() { $("cards").innerHTML = ""; }
-
-/* ------------------------------------------------------------- history */
-const conversation = [];
-function remember(who, what) {
-  conversation.push({ who, what });
-  if (conversation.length > 60) conversation.shift();
-  $("historyCount").textContent = conversation.filter((entry) => entry.who === "me").length + " turns";
-  const list = $("historyList");
-  const node = document.createElement("div");
-  node.className = "entry " + who;
-  node.innerHTML = '<div class="who">' + (who === "me" ? "you" : "jarvis") +
-    '</div><div class="what">' + light(what) + "</div>";
-  list.appendChild(node);
-  list.scrollTop = list.scrollHeight;
-}
-
-function toggleHistory(force) {
-  const open = force === undefined ? !document.body.classList.contains("history-open") : force;
-  document.body.classList.toggle("history-open", open);
-  $("historyBtn").classList.toggle("on", open);
-}
-
-/* ------------------------------------------------------------- modules */
-const MODULES = ["system_control", "web_search", "productivity", "code_assistant",
-                 "file_manager", "smart_assistant", "knowledge", "vision",
-                 "blender", "communications", "models", "self_improve"];
-const tiles = {};
-MODULES.forEach((name) => {
-  const tile = document.createElement("div");
-  tile.className = "tile off";
-  tile.title = name.replace(/_/g, " ");
-  $("tiles").appendChild(tile);
-  tiles[name] = tile;
-});
-
-function lightTile(name) {
-  const tile = tiles[name];
-  if (!tile) return;
-  tile.classList.add("lit");
-  const label = $("tileLabel");
-  label.textContent = name.replace(/_/g, " ");
-  label.classList.add("show");
-  setTimeout(() => tile.classList.remove("lit"), 1200);
-  setTimeout(() => label.classList.remove("show"), 2400);
-}
-
-/* -------------------------------------------------------------- socket */
+/* =======================================================================
+   Socket.
+   ===================================================================== */
 function connect() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   socket = new WebSocket(scheme + "://" + location.host + "/ws" + auth);
-  socket.onopen = () => {
-    $("link").classList.add("on"); $("topState").textContent = "online";
-    retry = 0; mood("idle", 0); pulse();
-  };
+  socket.onopen = () => { retry = 0; status(""); pulse(0.6); };
   socket.onclose = () => {
-    $("link").classList.remove("on"); $("topState").textContent = "reconnecting";
-    setBusy(false); mood("lost", 0.05);
+    status("offline");
     retry = Math.min(retry + 1, 6);
     setTimeout(connect, 400 * retry);
   };
-  socket.onerror = () => { $("topState").textContent = "link error"; };
+  socket.onerror = () => status("offline");
   socket.onmessage = (event) => {
     let data; try { data = JSON.parse(event.data); } catch (err) { return; }
     handle(data);
@@ -981,88 +641,124 @@ function connect() {
 
 function handle(data) {
   if (data.type === "token") {
-    if (!replyText) pulse();
+    if (!replyText) pulse(0.5);
     replyText += data.text;
-    say(replyText, { cursor: true });
-    mood("speak", 0.45);
+    streamText(replyText, true);
+    orb.kick = Math.min(1, orb.kick + 0.05);
+    mood("speak");
   } else if (data.type === "reply") {
     replyText = data.text || replyText;
-    say(replyText || "…", { fade: 30000 });
-    trace("ai", escapeHtml(replyText.slice(0, 160)));
+    streamText(replyText || "…", false);
+    endStream();
     remember("ai", replyText);
-    pulse(true);
+    pulse(0.9);
     setBusy(false);
-    turns += 1; $("statTurns").textContent = turns;
-    const summary = (data.intent || "answer") + " · " + (data.seconds || 0).toFixed(1) + "s";
-    $("statLast").textContent = summary;
+    turns += 1;
     if (settings.speech && replyText) speakAloud(replyText);
   } else if (data.type === "event") {
     if (data.name === "turn.intent") {
-      lightTile(data.data.module);
-      trace("trace", "<b>route</b> " + escapeHtml(data.data.module || "?") +
-        " <i>" + since() + "</i>");
       status("routing");
     } else if (data.name === "tool.called") {
       const tool = String(data.data.tool || "");
-      lightTile(tool.split(".")[0]);
-      trace("trace", "<b>tool</b> " + escapeHtml(tool.split(".").slice(1).join(".") || tool) +
-        " <i>" + since() + "</i>");
-      status("working");
-      mood("think", 0.6);
-      pulse();
+      status("working · " + (tool.split(".").slice(1).join(".") || tool));
+      pulse(0.55);
     } else if (data.name === "tool.result") {
-      showCards(renderCard(data.data.tool, data.data.data));
+      const summary = summarise(data.data.tool, data.data.data);
+      if (summary) line("tool", summary);
     } else if (data.name === "error.raised") {
-      trace("err", escapeHtml(String(data.data.error || "").slice(0, 90)));
+      line("tool", "error · " + String(data.data.error || "").slice(0, 90));
     }
   } else if (data.type === "status") {
     status(data.text);
   } else if (data.type === "notice") {
-    trace("sys", "🔔 " + escapeHtml(data.text));
-    say(data.text, { fade: 22000 });
-    pulse();
+    line("sys", "• " + data.text);
+    remember("ai", data.text);
+    pulse(0.7);
     if (settings.speech) speakAloud(data.text);
     if (window.Notification && Notification.permission === "granted") {
-      try { new Notification("JARVIS", { body: data.text }); } catch (err) { /* denied */ }
+      try { new Notification("__TITLE__", { body: data.text }); } catch (err) { /* denied */ }
     }
   } else if (data.type === "error") {
-    toast(data.text, true); trace("err", escapeHtml(data.text)); setBusy(false);
+    toast(data.text, true);
+    setBusy(false);
   }
 }
 
 function setBusy(value) {
   busy = value;
-  if (value) { mood("think", 0.5); status("thinking"); turnStarted = performance.now(); }
-  else { mood("idle", 0); status(""); }
+  if (value) { status("thinking"); streamNode = null; replyText = ""; }
+  else status("");
 }
 
 function send(text) {
   text = (text || "").trim();
   if (!text || busy) return;
   if (!socket || socket.readyState !== 1) { toast("Not connected yet.", true); return; }
-  trace("me", escapeHtml(text));
+  dropHint();
   remember("me", text);
-  say(text, { dim: true });
-  clearCards();
-  replyText = "";
+  line("me", text);
+  endStream();
   socket.send(JSON.stringify({ text }));
   setBusy(true);
-  input.value = "";
+  $("input").value = "";
+}
+
+/* =======================================================================
+   Speech out: edge-tts through /api/tts, metered so the sphere moves with
+   the voice that is actually playing.
+   ===================================================================== */
+let audioCtx = null, ttsAnalyser = null, ttsWave = null, ttsMeter = null;
+
+function audioReady() {
+  if (audioCtx) return audioCtx;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    ttsAnalyser = audioCtx.createAnalyser();
+    ttsAnalyser.fftSize = 256;
+    ttsAnalyser.smoothingTimeConstant = 0.7;
+    ttsAnalyser.connect(audioCtx.destination);
+    ttsWave = new Uint8Array(ttsAnalyser.fftSize);
+  } catch (err) { audioCtx = null; }
+  return audioCtx;
 }
 
 function speakAloud(text) {
   const audio = new Audio("/api/tts?text=" + encodeURIComponent(text.slice(0, 900)) +
     (token ? "&token=" + encodeURIComponent(token) : ""));
+  const ctx = audioReady();
+  if (ctx && ttsAnalyser) {
+    try {
+      ctx.resume().catch(() => {});
+      const source = ctx.createMediaElementSource(audio);
+      source.connect(ttsAnalyser);
+      clearInterval(ttsMeter);
+      status("speaking");
+      ttsMeter = setInterval(() => {
+        ttsAnalyser.getByteTimeDomainData(ttsWave);
+        let peak = 0;
+        for (const value of ttsWave) peak = Math.max(peak, Math.abs(value - 128));
+        orb.tts = Math.min(1, (peak / 128) * 2.6);
+      }, 45);
+      audio.addEventListener("ended", () => {
+        clearInterval(ttsMeter); orb.tts = 0; status("");
+      });
+      audio.addEventListener("error", () => { clearInterval(ttsMeter); orb.tts = 0; });
+    } catch (err) { /* metering is a luxury */ }
+  }
   audio.play().catch(() => toast("No speech engine on the server.", true));
 }
 
-/* -------------------------------------------------------- hold to talk */
-let recorder = null, chunks = [], recording = false, meter = null, context = null;
+/* =======================================================================
+   Hold to talk: MediaRecorder → /api/listen (server-side Whisper), with a
+   live level meter feeding the sphere and a progress ring on the button.
+   ===================================================================== */
+let recorder = null, chunks = [], recording = false, micCtx = null, micMeter = null;
 let recordStarted = 0, ringTimer = null;
 const MAX_SECONDS = 30;
-const RING = 2 * Math.PI * 32;
-$("micRing").querySelector("circle").style.strokeDasharray = RING;
-$("micRing").querySelector("circle").style.strokeDashoffset = RING;
+const RING = 2 * Math.PI * 19;
+const ringCircle = $("micRing").querySelector("circle");
+ringCircle.style.strokeDasharray = RING;
+ringCircle.style.strokeDashoffset = RING;
 
 async function startRecording() {
   if (recording || busy) return;
@@ -1073,6 +769,7 @@ async function startRecording() {
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
   catch (err) { toast("Microphone refused: " + err.message, true); return; }
 
+  dropHint();
   chunks = [];
   const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"]
     .find((type) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) || "";
@@ -1084,53 +781,43 @@ async function startRecording() {
   recordStarted = performance.now();
   $("mic").classList.add("recording");
   status("listening");
-  say("Listening…", { dim: true });
-  mood("listen", 0.2);
+  line("me", "…");
   listenTo(stream);
   ringTimer = setInterval(() => {
-    const elapsed = (performance.now() - recordStarted) / 1000;
-    const fraction = Math.min(1, elapsed / MAX_SECONDS);
-    $("micRing").querySelector("circle").style.strokeDashoffset = RING * (1 - fraction);
+    const fraction = Math.min(1, (performance.now() - recordStarted) / 1000 / MAX_SECONDS);
+    ringCircle.style.strokeDashoffset = RING * (1 - fraction);
     if (fraction >= 1) stopRecording();
   }, 100);
 }
 
 function listenTo(stream) {
   try {
-    context = new (window.AudioContext || window.webkitAudioContext)();
-    const analyser = context.createAnalyser();
+    micCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const analyser = micCtx.createAnalyser();
     analyser.fftSize = 256;
     analyser.smoothingTimeConstant = 0.72;
-    context.createMediaStreamSource(stream).connect(analyser);
-    const spectrum = new Uint8Array(analyser.frequencyBinCount);
+    micCtx.createMediaStreamSource(stream).connect(analyser);
     const wave = new Uint8Array(analyser.fftSize);
-    meter = setInterval(() => {
-      analyser.getByteFrequencyData(spectrum);
+    micMeter = setInterval(() => {
       analyser.getByteTimeDomainData(wave);
-      // the ring shows the real spectrum, mirrored so it reads symmetrically
-      for (let i = 0; i < BARS; i++) {
-        const half = Math.floor(BARS / 2);
-        const index = Math.floor((i < half ? i : BARS - i) / half * (spectrum.length * 0.7));
-        const value = (spectrum[Math.min(index, spectrum.length - 1)] || 0) / 255;
-        orb.spectrum[i] += (value - orb.spectrum[i]) * 0.5;
-      }
       let peak = 0;
       for (const value of wave) peak = Math.max(peak, Math.abs(value - 128));
-      mood("listen", Math.min(1, (peak / 128) * 3.2));
+      orb.mic = Math.min(1, (peak / 128) * 3.2);
     }, 45);
   } catch (err) { /* the meter is a luxury, not a requirement */ }
 }
 
 async function finishRecording(stream) {
   stream.getTracks().forEach((track) => track.stop());
-  clearInterval(meter); clearInterval(ringTimer);
-  $("micRing").querySelector("circle").style.strokeDashoffset = RING;
-  if (context) { context.close().catch(() => {}); context = null; }
+  clearInterval(micMeter); clearInterval(ringTimer);
+  ringCircle.style.strokeDashoffset = RING;
+  if (micCtx) { micCtx.close().catch(() => {}); micCtx = null; }
+  orb.mic = 0;
   $("mic").classList.remove("recording");
-  if (!chunks.length) { mood("idle", 0); status(""); return; }
+  if (logEl.lastChild && logEl.lastChild.textContent === "…") logEl.removeChild(logEl.lastChild);
+  if (!chunks.length) { status(""); return; }
   $("mic").classList.add("busy");
   status("transcribing");
-  mood("think", 0.35);
   const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
   try {
     const response = await fetch("/api/listen" + auth, {
@@ -1139,14 +826,15 @@ async function finishRecording(stream) {
     const data = await response.json();
     if (!response.ok || data.error) {
       toast(data.detail || data.error || "Transcription failed.", true);
-      mood("idle", 0); status("");
+      status("");
     } else if (!data.text) {
-      say("I heard nothing, sir.", { dim: true, fade: 4000 }); mood("idle", 0); status("");
+      line("me", "(nothing heard)");
+      status("");
     } else {
       send(data.text);
     }
   } catch (err) {
-    toast(err.message, true); mood("idle", 0); status("");
+    toast(err.message, true); status("");
   } finally {
     $("mic").classList.remove("busy");
   }
@@ -1159,258 +847,322 @@ function stopRecording() {
   try { recorder.stop(); } catch (err) { /* already stopped */ }
 }
 
-/* ------------------------------------------------------------- palette */
+/* =======================================================================
+   Command palette: quick asks plus every tool the brain advertises.
+   ===================================================================== */
 const QUICK = [
-  { label: "What time is it?", hint: "the clock", kind: "ask" },
-  { label: "Give me my daily briefing", hint: "todos, reminders, weather", kind: "ask" },
-  { label: "What's on my todo list?", hint: "productivity", kind: "ask" },
-  { label: "System stats", hint: "cpu, memory, battery", kind: "ask" },
-  { label: "How much disk space is left?", hint: "storage", kind: "ask" },
-  { label: "What have you done that needed permission?", hint: "audit", kind: "ask" },
-  { label: "Show me your own code map", hint: "self", kind: "ask" },
+  { label: "What time is it?", hint: "clock" },
+  { label: "Give me my daily briefing", hint: "todos · weather · news" },
+  { label: "What's on my todo list?", hint: "productivity" },
+  { label: "System stats", hint: "cpu · ram · battery" },
+  { label: "How much disk space is left?", hint: "storage" },
+  { label: "What have you done that needed permission?", hint: "audit" },
+  { label: "Read replies aloud", hint: "toggle speech", kind: "speech" },
+  { label: "Show status panel", hint: "ctrl /", kind: "panel" },
 ];
 let options = [], cursor = 0, toolCache = null;
 
-function openPalette() {
-  $("palette").classList.add("show");
-  $("paletteInput").value = "";
-  loadTools().then(() => drawPalette(""));
-  drawPalette("");
-  setTimeout(() => $("paletteInput").focus(), 30);
-}
-
-function closePalette() { $("palette").classList.remove("show"); }
-
 function score(text, query) {
-  text = text.toLowerCase();
+  text = text.toLowerCase(); query = query.toLowerCase().trim();
   if (!query) return 1;
-  if (text.includes(query)) return 100 - text.indexOf(query);
-  let index = 0;                                    // subsequence fallback
-  for (const character of query) {
-    index = text.indexOf(character, index);
-    if (index === -1) return 0;
-    index += 1;
-  }
-  return 1;
+  if (text.includes(query)) return 3 - text.indexOf(query) / 400;
+  let i = 0;
+  for (const ch of text) if (ch === query[i]) i += 1;
+  return i === query.length ? 0.6 : 0;
 }
 
-function drawPalette(query) {
-  query = query.trim().toLowerCase();
-  const tools = ((toolCache && toolCache.tools) || []).map((tool) => ({
-    label: tool.example || tool.name.replace(/_/g, " "),
-    hint: tool.module + " · " + (tool.description || "").slice(0, 60),
-    kind: "tool",
-  }));
-  options = [...QUICK, ...tools]
-    .map((item) => ({ item, rank: score(item.label + " " + item.hint, query) }))
-    .filter((entry) => entry.rank > 0)
-    .sort((a, b) => b.rank - a.rank)
+async function paletteOptions(query) {
+  const pool = QUICK.map((q) => ({ ...q, kind: q.kind || "ask" }));
+  if (!toolCache) {
+    try {
+      toolCache = (await fetch("/api/tools" + auth).then((r) => r.json())).tools || [];
+    } catch (err) { toolCache = []; }
+  }
+  for (const tool of toolCache) {
+    pool.push({
+      label: tool.example || tool.description || tool.name,
+      hint: tool.module + "." + tool.name,
+      kind: "ask",
+      danger: tool.dangerous,
+    });
+  }
+  const ranked = pool
+    .map((option) => ({ option, s: Math.max(score(option.label, query), score(option.hint, query) * 0.9) }))
+    .filter((row) => row.s > 0)
+    .sort((a, b) => b.s - a.s)
     .slice(0, 40)
-    .map((entry) => entry.item);
-  if (query) options.unshift({ label: query, hint: "ask this exactly", kind: "ask" });
+    .map((row) => row.option);
+  return ranked;
+}
+
+async function openPalette() {
+  $("palette").classList.add("show");
+  const input = $("paletteInput");
+  input.value = "";
+  input.focus();
+  await drawPalette("");
+}
+function closeSheets() {
+  for (const id of ["palette", "panel", "history", "keys"]) $(id).classList.remove("show");
+}
+async function drawPalette(query) {
+  options = await paletteOptions(query);
   cursor = 0;
   paintPalette();
 }
-
 function paintPalette() {
-  $("paletteList").innerHTML = options.map((item, index) =>
-    '<button class="option' + (index === cursor ? " on" : "") + '" data-index="' + index + '">' +
-    '<span class="badge">' + escapeHtml(item.kind) + "</span><span><b>" +
-    escapeHtml(item.label) + "</b><span>" + escapeHtml(item.hint) + "</span></span></button>").join("") ||
-    '<div style="padding:14px;color:var(--dimmer);font-size:13px">Nothing matches.</div>';
-  const active = $("paletteList").children[cursor];
-  if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest" });
+  const list = $("paletteList");
+  list.innerHTML = "";
+  options.forEach((option, index) => {
+    const node = document.createElement("div");
+    node.className = "opt" + (index === cursor ? " sel" : "");
+    node.innerHTML = "<span class='label'></span><span class='hint'></span>";
+    node.firstChild.textContent = option.label;
+    node.lastChild.textContent = option.hint + (option.danger ? " ⚠" : "");
+    node.addEventListener("click", () => runOption(index));
+    list.appendChild(node);
+  });
 }
-
 function runOption(index) {
-  const item = options[index];
-  if (!item) return;
-  closePalette();
-  send(item.label);
+  const option = options[index];
+  closeSheets();
+  if (!option) return;
+  if (option.kind === "speech") { toggleSpeech(); return; }
+  if (option.kind === "panel") { togglePanel(true); return; }
+  send(option.label);
 }
 
-/* ------------------------------------------------------------- panels */
+/* =======================================================================
+   Panel: status, tools, audit.
+   ===================================================================== */
 function togglePanel(force) {
-  const open = force === undefined ? !document.body.classList.contains("panel-open") : force;
-  document.body.classList.toggle("panel-open", open);
-  $("panelBtn").classList.toggle("on", open);
-  if (open) { loadStatus(); loadTools().then(drawTools); }
+  const show = force === undefined ? !$("panel").classList.contains("show") : force;
+  closeSheets();
+  $("panel").classList.toggle("show", show);
+  if (show) { loadStatus(); loadTools(); loadAudit(); }
+}
+
+function kv(key, value, cls) {
+  return "<div class='kv'><span>" + escapeHtml(key) + "</span><span class='" + (cls || "") +
+    "'>" + escapeHtml(String(value)) + "</span></div>";
 }
 
 async function loadStatus() {
+  const box = $("statusList"), mods = $("modList");
   try {
-    const data = await (await fetch("/api/status" + auth)).json();
-    const llm = data.llm || {}, memory = data.memory || {};
-    const loaded = (data.modules || []).map((entry) => (typeof entry === "string" ? entry : entry.name));
-    MODULES.forEach((name) => tiles[name].classList.toggle("off", !loaded.includes(name)));
-    const rows = [
-      ["Model", (llm.model || "not running") + (llm.available === false ? " · offline" : "")],
-      ["Host", llm.host || "—"],
-      ["Memory", (memory.backend || "—") + " · " + (memory.long_term ?? memory.entries ?? 0) + " facts"],
-      ["Modules", loaded.length + " loaded"],
-      ["Uptime", data.uptime || "—"],
-    ];
-    $("statusList").innerHTML = rows.map(([key, value]) =>
-      '<div class="stat"><span>' + escapeHtml(key) + "</span><span>" +
-      escapeHtml(String(value)) + "</span></div>").join("");
-  } catch (err) { /* the panel simply stays empty */ }
+    const data = await fetch("/api/status" + auth).then((r) => r.json());
+    const llm = data.llm || {};
+    const online = llm.online === true || llm.ok === true || llm.state === "online";
+    const memory = data.memory || {};
+    box.innerHTML =
+      kv("model", llm.model || llm.name || "—") +
+      kv("brain", online ? "online" : "offline" + (llm.last_error ? " · " + llm.last_error : ""),
+         online ? "good" : "bad") +
+      kv("memory", (memory.short_term ?? "?") + " short · " + (memory.long_term ?? "?") +
+         " long · " + (memory.backend || "?")) +
+      kv("clients", data.clients ?? 1) +
+      kv("turns", turns) +
+      kv("speech", settings.speech ? "on" : "off");
+    mods.innerHTML = "";
+    const modules = data.modules || {};
+    for (const [name, count] of Object.entries(modules)) {
+      const chip = document.createElement("span");
+      chip.className = "mod";
+      chip.innerHTML = escapeHtml(name) + " <b>" + escapeHtml(String(count)) + "</b>";
+      mods.appendChild(chip);
+    }
+  } catch (err) {
+    box.innerHTML = kv("brain", "unreachable", "bad");
+  }
 }
 
 async function loadTools() {
-  if (toolCache) return toolCache;
-  try { toolCache = await (await fetch("/api/tools" + auth)).json(); }
-  catch (err) { toolCache = { tools: [] }; }
-  return toolCache;
+  if (!toolCache) {
+    try {
+      toolCache = (await fetch("/api/tools" + auth).then((r) => r.json())).tools || [];
+    } catch (err) { toolCache = []; }
+  }
+  drawTools();
 }
-
 function drawTools() {
-  const query = $("toolSearch").value.trim().toLowerCase();
-  const all = (toolCache && toolCache.tools) || [];
-  $("toolSearch").placeholder = "Search " + all.length + " tools…";
-  const shown = all.filter((tool) => !query ||
-    (tool.name + tool.module + (tool.description || "")).toLowerCase().includes(query));
-  $("toolList").innerHTML = shown.slice(0, 60).map((tool) =>
-    '<button class="tool" data-example="' + escapeHtml(tool.example || tool.name.replace(/_/g, " ")) +
-    '"><b>' + escapeHtml(tool.module + "." + tool.name) + "</b><span>" +
-    escapeHtml(tool.description || "") + "</span></button>").join("") ||
-    '<span style="color:var(--dimmer);font-size:12px">Nothing matches.</span>';
-  $("toolList").querySelectorAll(".tool").forEach((node) =>
+  const query = $("toolSearch").value.toLowerCase().trim();
+  const list = $("toolList");
+  list.innerHTML = "";
+  const rows = toolCache.filter((tool) =>
+    !query || (tool.name + " " + tool.module + " " + tool.description).toLowerCase().includes(query));
+  for (const tool of rows.slice(0, 120)) {
+    const node = document.createElement("div");
+    node.className = "toolrow";
+    node.innerHTML = "<b></b><span></span>";
+    node.firstChild.textContent = tool.module + "." + tool.name + (tool.dangerous ? " ⚠" : "");
+    node.lastChild.textContent = tool.description || "";
     node.addEventListener("click", () => {
-      showTyped(true); input.value = node.dataset.example; input.focus(); togglePanel(false);
-    }));
+      closeSheets();
+      send(tool.example || tool.description || tool.name);
+    });
+    list.appendChild(node);
+  }
 }
 
 async function loadAudit() {
   const list = $("auditList");
-  list.innerHTML = '<span style="color:var(--dimmer)">reading…</span>';
   try {
-    const data = await (await fetch("/api/audit" + auth)).json();
-    const entries = (data.entries || []).reverse();
-    list.innerHTML = entries.length ? entries.map((entry) =>
-      '<div><span style="color:var(--dimmer)">' +
-      escapeHtml((entry.at || "").slice(5, 16).replace("T", " ")) + '</span><span class="' +
-      escapeHtml(entry.outcome || "") + '">' + escapeHtml(entry.outcome || "") +
-      "</span><span>" + escapeHtml((entry.action || "").slice(0, 58)) + "</span></div>").join("")
-      : '<span style="color:var(--dimmer)">Nothing has needed permission.</span>';
+    const data = await fetch("/api/audit" + auth).then((r) => r.json());
+    const entries = (data.entries || []).slice(-40).reverse();
+    if (!entries.length) { list.innerHTML = kv("audit", "nothing has needed permission yet"); return; }
+    list.innerHTML = "";
+    for (const entry of entries) {
+      const node = document.createElement("div");
+      node.className = "auditrow";
+      const outcome = String(entry.outcome || entry.decision || "");
+      const cls = outcome === "allowed" ? "ok" : (outcome === "confirmed" ? "ask" : "no");
+      node.innerHTML = "<span class='" + cls + "'></span><span></span><span></span>";
+      node.children[0].textContent = outcome || "?";
+      node.children[1].textContent = String(entry.action || entry.tool || "");
+      node.children[2].textContent = String(entry.at || entry.when || "");
+      node.title = String(entry.reason || "");
+      list.appendChild(node);
+    }
   } catch (err) {
-    list.innerHTML = '<span style="color:var(--dimmer)">Not available.</span>';
+    list.innerHTML = kv("audit", "unavailable");
   }
 }
 
-/* -------------------------------------------------------------- wiring */
-function showTyped(show) {
-  $("typed").classList.toggle("show", show);
-  $("keyboard").classList.toggle("on", show);
-  if (show) input.focus();
-}
-
-$("keyboard").addEventListener("click", () => showTyped(!$("typed").classList.contains("show")));
-$("sendBtn").addEventListener("click", () => send(input.value));
-$("paletteBtn").addEventListener("click", openPalette);
-$("keysBtn").addEventListener("click", () => $("keys").classList.toggle("show"));
-$("historyBtn").addEventListener("click", () => toggleHistory());
-$("keys").addEventListener("click", () => $("keys").classList.remove("show"));
-$("palette").addEventListener("click", (event) => {
-  if (event.target === $("palette")) closePalette();
-});
-$("paletteInput").addEventListener("input", (event) => drawPalette(event.target.value));
-$("paletteInput").addEventListener("keydown", (event) => {
-  if (event.key === "ArrowDown") { event.preventDefault(); cursor = Math.min(cursor + 1, options.length - 1); paintPalette(); }
-  else if (event.key === "ArrowUp") { event.preventDefault(); cursor = Math.max(cursor - 1, 0); paintPalette(); }
-  else if (event.key === "Enter") { event.preventDefault(); runOption(cursor); }
-  else if (event.key === "Escape") { closePalette(); }
-});
-$("paletteList").addEventListener("click", (event) => {
-  const option = event.target.closest(".option");
-  if (option) runOption(Number(option.dataset.index));
-});
-input.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") { event.preventDefault(); send(input.value); }
-  if (event.key === "Escape") { showTyped(false); }
-});
-caption.addEventListener("click", (event) => {
-  const copy = event.target.closest(".copy");
-  if (!copy) return;
-  navigator.clipboard?.writeText(copy.parentElement.textContent.replace(/^copy/, ""));
-  copy.textContent = "copied";
-  setTimeout(() => (copy.textContent = "copy"), 1400);
-});
-
-const mic = $("mic");
-mic.addEventListener("pointerdown", (event) => { event.preventDefault(); startRecording(); });
-["pointerup", "pointerleave", "pointercancel"].forEach((name) =>
-  mic.addEventListener(name, (event) => { event.preventDefault(); stopRecording(); }));
-
-let spaceHeld = false;
-addEventListener("keydown", (event) => {
-  const field = document.activeElement;
-  const typing = field === input || field === $("toolSearch") || field === $("paletteInput");
-
-  if (event.key === "Escape") {
-    if ($("palette").classList.contains("show")) return;    // its own handler
-    if ($("keys").classList.contains("show")) { $("keys").classList.remove("show"); return; }
-    if (socket && socket.readyState === 1) socket.send(JSON.stringify({ command: "cancel" }));
-    setBusy(false); say("Stopped.", { dim: true, fade: 3000 });
-    return;
+/* =======================================================================
+   History + speech toggle.
+   ===================================================================== */
+function toggleHistory(force) {
+  const show = force === undefined ? !$("history").classList.contains("show") : force;
+  closeSheets();
+  $("history").classList.toggle("show", show);
+  if (!show) return;
+  const list = $("historyList");
+  list.innerHTML = "";
+  if (!transcript.length) { list.innerHTML = kv("session", "nothing said yet"); return; }
+  for (const entry of transcript) {
+    const node = document.createElement("div");
+    node.className = entry.who === "me" ? "me" : "ai";
+    node.textContent = entry.text;
+    list.appendChild(node);
   }
-  if (typing) return;
-
-  if (event.code === "Space" && !spaceHeld) { event.preventDefault(); spaceHeld = true; startRecording(); }
-  else if (event.key === "?" ) { event.preventDefault(); $("keys").classList.toggle("show"); }
-  else if (event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
-  else if (event.key.toLowerCase() === "t") { event.preventDefault(); showTyped(true); }
-  else if (event.key.toLowerCase() === "s") { event.preventDefault(); toggleSpeech(); }
-  else if (event.key.toLowerCase() === "h") { event.preventDefault(); toggleHistory(); }
-  else if (event.key === "/" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); togglePanel(); }
-});
-addEventListener("keyup", (event) => {
-  if (event.code === "Space" && spaceHeld) { spaceHeld = false; stopRecording(); }
-});
-
-$("panelBtn").addEventListener("click", () => togglePanel());
-$("toolSearch").addEventListener("input", drawTools);
-$("auditRefresh").addEventListener("click", loadAudit);
-document.querySelectorAll(".tab").forEach((tab) =>
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((other) => other.classList.remove("on"));
-    document.querySelectorAll(".pane").forEach((pane) => pane.classList.remove("on"));
-    tab.classList.add("on"); $("pane-" + tab.dataset.pane).classList.add("on");
-    if (tab.dataset.pane === "audit") loadAudit();
-    if (tab.dataset.pane === "tools") loadTools().then(drawTools);
-  }));
+  list.scrollTop = list.scrollHeight;
+}
 
 function paintSpeech() {
-  $("speech").classList.toggle("on", settings.speech);
-  $("setSpeech").textContent = settings.speech ? "on" : "off";
-  $("setSpeech").classList.toggle("on", settings.speech);
+  const button = $("setSpeech");
+  button.textContent = settings.speech ? "on" : "off";
+  button.classList.toggle("on", settings.speech);
 }
 function toggleSpeech() {
   settings.speech = !settings.speech;
   localStorage.setItem("jarvis.speech", settings.speech ? "1" : "0");
   paintSpeech();
-  toast(settings.speech ? "Speaking replies aloud." : "Speech off.");
-  if (settings.speech && window.Notification && Notification.permission === "default") {
-    Notification.requestPermission().catch(() => {});
+  if (settings.speech) {
+    audioReady();
+    if (audioCtx) audioCtx.resume().catch(() => {});
+    toast("Replies will be read aloud.");
+    if (window.Notification && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  } else {
+    toast("Silent again.");
   }
 }
-$("speech").addEventListener("click", toggleSpeech);
+
+/* =======================================================================
+   Input wiring.
+   ===================================================================== */
+function showTyped(show) {
+  $("typed").classList.toggle("show", show);
+  if (show) { dropHint(); $("input").focus(); }
+  else $("input").blur();
+}
+
+$("typeBtn").addEventListener("click", () => showTyped(!$("typed").classList.contains("show")));
+$("typed").addEventListener("submit", (event) => { event.preventDefault(); send($("input").value); });
+$("readout").addEventListener("click", openPalette);
+$("mic").addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  /* capture so the hold survives the finger drifting off the button */
+  try { $("mic").setPointerCapture(event.pointerId); } catch (err) { /* older browsers */ }
+  startRecording();
+});
+for (const name of ["pointerup", "pointerleave", "pointercancel"]) {
+  $("mic").addEventListener(name, (event) => { event.preventDefault(); stopRecording(); });
+}
+$("paletteInput").addEventListener("input", (event) => drawPalette(event.target.value));
+$("paletteInput").addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown") { cursor = Math.min(options.length - 1, cursor + 1); paintPalette(); event.preventDefault(); }
+  else if (event.key === "ArrowUp") { cursor = Math.max(0, cursor - 1); paintPalette(); event.preventDefault(); }
+  else if (event.key === "Enter") {
+    event.preventDefault();
+    const raw = $("paletteInput").value.trim();
+    /* enter asks whatever you typed; ctrl+enter runs the highlighted tool */
+    if (raw && !(event.ctrlKey || event.metaKey)) { send(raw); closeSheets(); }
+    else runOption(cursor);
+  }
+});
+$("palette").addEventListener("click", (event) => { if (event.target === $("palette")) closeSheets(); });
+$("panel").addEventListener("click", (event) => { if (event.target === $("panel")) closeSheets(); });
+$("history").addEventListener("click", (event) => { if (event.target === $("history")) closeSheets(); });
+$("keys").addEventListener("click", (event) => { if (event.target === $("keys")) closeSheets(); });
+$("toolSearch").addEventListener("input", drawTools);
+$("auditRefresh").addEventListener("click", loadAudit);
 $("setSpeech").addEventListener("click", toggleSpeech);
 $("setClear").addEventListener("click", () => {
-  rail.innerHTML = ""; turns = 0; $("statTurns").textContent = "0";
-  clearCards(); conversation.length = 0; $("historyList").innerHTML = "";
-  $("historyCount").textContent = "0 turns";
-  say("Hold <b>space</b> and speak, or press <b>K</b> for anything.", { dim: true });
-  toast("Cleared.");
+  transcript = []; logEl.innerHTML = ""; endStream(); toast("Transcript cleared.");
+});
+for (const tab of document.querySelectorAll(".tabs button")) {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b === tab));
+    document.querySelectorAll(".pane").forEach((p) =>
+      p.classList.toggle("on", p.id === "pane-" + tab.dataset.tab));
+  });
+}
+
+addEventListener("keydown", (event) => {
+  const typing = /^(INPUT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName);
+  const sheetOpen = ["palette", "panel", "history", "keys"]
+    .some((id) => $(id).classList.contains("show"));
+  if (event.key === "Escape") { closeSheets(); showTyped(false); return; }
+  if (typing || sheetOpen) return;
+  if (event.code === "Space" && !event.repeat) {
+    event.preventDefault();
+    startRecording();
+  } else if (event.key === "k" || event.key === "K") {
+    event.preventDefault(); openPalette();
+  } else if (event.key === "t" || event.key === "T") {
+    event.preventDefault(); showTyped(true);
+  } else if (event.key === "h" || event.key === "H") {
+    event.preventDefault(); toggleHistory();
+  } else if (event.key === "s" || event.key === "S") {
+    event.preventDefault(); toggleSpeech();
+  } else if (event.key === "?") {
+    event.preventDefault(); closeSheets(); $("keys").classList.add("show");
+  } else if (event.key === "/" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault(); togglePanel();
+  }
+});
+addEventListener("keyup", (event) => {
+  if (event.code === "Space") stopRecording();
 });
 
-paintSpeech();
+/* =======================================================================
+   Boot.
+   ===================================================================== */
+resize();
+buildSphere(Math.max(30, Math.min(52, Math.round(Math.min(width, height) / 16))));
+requestAnimationFrame(draw);
 connect();
-loadStatus();
-setInterval(loadStatus, 30000);
-fetch("/api/status" + auth).then((response) => response.json())
-  .then((data) => { if (data.greeting) { say(data.greeting, { fade: 20000 }); pulse(); } })
+paintSpeech();
+status("offline");
+fetch("/api/status" + auth)
+  .then((r) => r.json())
+  .then((data) => {
+    if (data.greeting) { line("ai", data.greeting); remember("ai", data.greeting); pulse(0.8); }
+  })
   .catch(() => {});
-requestAnimationFrame(() => document.body.classList.add("ready"));
+setTimeout(() => document.body.classList.add("ready"), 60);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 </script>
 </body>
