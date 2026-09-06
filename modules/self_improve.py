@@ -1477,11 +1477,9 @@ Return ONLY the code in a single ```python block."""
                 "Self-editing is disabled — set self_improve.allow_code_edit: true if you "
                 "want me rewriting myself, sir."
             )
-        if self.llm is None or not getattr(self.llm, "available", False):
-            return ModuleResult.fail(
-                "I need the language model for that. Start Ollama and ask again."
-            )
-
+        # Establish *what* is being asked before complaining about the means:
+        # "start Ollama and ask again" is a misleading answer to "rewrite your
+        # own security guard", and it hides the refusal that actually matters.
         target = self._resolve_source(path)
         if target is None or not target.exists():
             return ModuleResult.fail(f"I have no file at '{path}'. Run code_map first.")
@@ -1489,6 +1487,11 @@ Return ONLY the code in a single ```python block."""
             return ModuleResult.fail(
                 f"{path} is on my protected list — I won't rewrite my own safety rails. "
                 "Edit it yourself, or change self_improve.protected in config.yaml."
+            )
+
+        if self.llm is None or not getattr(self.llm, "available", False):
+            return ModuleResult.fail(
+                "I need the language model for that. Start Ollama and ask again."
             )
         original = await run_blocking(target.read_text, "utf-8", "replace")
         if len(original.encode("utf-8")) > self.max_file_bytes:

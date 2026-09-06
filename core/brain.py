@@ -1145,7 +1145,9 @@ class Brain:
                 elapsed,
                 self.last_intent.module if self.last_intent else "?",
             )
-            if self._cancel.is_set() and not response.strip():
+            if self._cancel.is_set() and (
+                not response.strip() or response == self._offline_reply(text)
+            ):
                 response = "Stopped."
             await self.memory.add_exchange(
                 text, response, self.last_intent.module if self.last_intent else ""
@@ -1297,7 +1299,13 @@ class Brain:
         messages.extend(self.memory.context_messages())
         messages.append({"role": "user", "content": text})
         reply = await self._generate(messages, on_token=on_token)
-        return reply.strip() or self._offline_reply(text)
+        if reply.strip():
+            return reply.strip()
+        if self._cancel.is_set():
+            # Interrupting produced the empty reply. Blaming the model would
+            # send the user off to debug a server that is working perfectly.
+            return "Stopped."
+        return self._offline_reply(text)
 
 
 

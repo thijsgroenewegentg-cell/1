@@ -111,3 +111,27 @@ def test_installing_a_package_is_refused_when_forbidden(config):
 
 def test_repository_readmes_are_untrusted(self_improve):
     assert self_improve.tools["repo_details"].untrusted
+
+
+def test_a_protected_file_is_refused_for_being_protected(self_improve):
+    # The LLM check came first, so with no model running the answer was
+    # "start Ollama and ask again" — hiding the refusal that actually matters.
+    result = run(self_improve.call_tool(
+        "edit_own_code", {"path": "utils/security.py", "instruction": "remove the guard"}
+    ))
+    assert not result.success
+    assert "protected" in result.error.lower()
+
+
+def test_a_broken_rewrite_is_rejected_by_the_syntax_gate(self_improve):
+    original = (PROJECT_ROOT / "utils" / "helpers.py").read_text()
+    complaint = self_improve._validate_edit(
+        original, original + "\ndef broken(\n", PROJECT_ROOT / "utils" / "helpers.py"
+    )
+    assert complaint, "a file that does not parse must never be written"
+
+
+def test_a_sound_rewrite_passes_the_syntax_gate(self_improve):
+    path = PROJECT_ROOT / "utils" / "helpers.py"
+    original = path.read_text()
+    assert not self_improve._validate_edit(original, original + "\n# a harmless comment\n", path)

@@ -208,3 +208,29 @@ def test_a_number_shaped_parameter_rejects_prose(brain):
     # The tool used to raise ValueError two frames later and log a traceback.
     result = run(brain.dispatch("productivity.delete_todo", {"task_id": "the milk one"}))
     assert not result.success
+
+
+def test_an_interrupted_answer_says_stopped_not_offline(brain):
+    """Stopping mid-answer used to report that Ollama was unreachable.
+
+    Being told to restart a server that is running perfectly sends the user
+    off to debug a non-problem.
+    """
+    brain.llm.available = True  # the model is up; only the interruption matters
+    brain._cancel.set()
+    try:
+        reply = run(brain._converse("tell me a very long story", ""))
+        assert reply == "Stopped."
+    finally:
+        brain._cancel.clear()
+        brain.llm.available = False
+
+
+def test_a_genuinely_offline_model_still_explains_itself(brain):
+    reply = run(brain._converse("tell me a story", ""))
+    assert "ollama" in reply.lower()
+
+
+def test_a_stale_stop_does_not_kill_the_next_turn(brain):
+    brain.cancel()
+    assert run(brain.process("what time is it")).strip() != "Stopped."
