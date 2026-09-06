@@ -20,7 +20,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/planner.py`](#coreplannerpy) — 5
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 73
-- [`interfaces/web.py`](#interfaceswebpy) — 32
+- [`interfaces/web.py`](#interfaceswebpy) — 33
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 24
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
@@ -68,7 +68,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
-- [`tests/test_web.py`](#teststest_webpy) — 25
+- [`tests/test_web.py`](#teststest_webpy) — 28
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 13
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
@@ -588,7 +588,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*32 functions*
+*33 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
@@ -606,6 +606,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def _authorised(self, supplied: Optional[str]) -> bool` — Constant-time check of the shared secret.
 - `async def _tts_engine(self) -> Optional[Any]` — Lazily build a TTS engine for the ``/api/tts`` endpoint.
 - `def _build_app(self) -> Any` — Construct the FastAPI application.
+  · `def rendered_page() -> str` — Return the interface with its placeholders filled in.
   · `async def index(token: str = Query(default='')) -> Any` — Serve the chat page.
   · `async def status(token: str = Query(default='')) -> Any` — Report assistant status and a greeting.
   · `async def ask(request: Request, token: str = Query(default='')) -> Any` — Answer a single question over plain JSON (no streaming).
@@ -2171,7 +2172,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*25 functions*
+*28 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -2198,6 +2199,9 @@ and marked with `·`; methods the intent router can call are marked
   · `async def scenario() -> None`
 - `def test_uninteresting_events_are_not_relayed(web)`
   · `async def scenario() -> None`
+- `def test_the_interface_is_self_contained(web)` — No CDN, no external fonts: it has to work on a machine with no internet.
+- `def test_editing_the_interface_does_not_need_a_restart(web, tmp_path, monkeypatch)` — The page is cached against the file's timestamp, not for the process.
+- `def test_the_interface_declares_its_shortcuts(web)` — Every key the script listens for should be discoverable in the UI.
 
 ## `tests/test_web_search.py`
 
@@ -2248,5 +2252,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1551 functions across 63 files.**
+**1555 functions across 63 files.**
 

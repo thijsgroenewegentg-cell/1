@@ -9,6 +9,7 @@ token and the app assembling at all.
 from __future__ import annotations
 
 import asyncio
+import re
 
 import pytest
 
@@ -214,3 +215,42 @@ def test_uninteresting_events_are_not_relayed(web):
 
     run(scenario())
     assert not sent
+
+
+def test_the_interface_is_self_contained(web):
+    """No CDN, no external fonts: it has to work on a machine with no internet."""
+    from interfaces.web import load_page
+
+    page = load_page()
+    external = re.findall(r'(?:src|href)="(https?://[^"]+)"', page)
+    assert not external, f"the interface reaches out to {external}"
+    assert "<script>" in page and "<style>" in page
+
+
+def test_editing_the_interface_does_not_need_a_restart(web, tmp_path, monkeypatch):
+    """The page is cached against the file's timestamp, not for the process."""
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from interfaces import web as web_module
+
+    asset = tmp_path / "app.html"
+    asset.write_text("<!doctype html><title>__TITLE__</title><p>first</p>")
+    monkeypatch.setattr(web_module, "APP_FILE", asset)
+    server = web_module.WebInterface(web.brain, web.config, port=8131)
+    client = TestClient(server.app)
+
+    assert "first" in client.get("/", params={"token": server.token}).text
+    time.sleep(0.01)
+    asset.write_text("<!doctype html><title>__TITLE__</title><p>second</p>")
+    assert "second" in client.get("/", params={"token": server.token}).text
+
+
+def test_the_interface_declares_its_shortcuts(web):
+    """Every key the script listens for should be discoverable in the UI."""
+    from interfaces.web import load_page
+
+    page = load_page()
+    for key in ("space", "K", "T", "?"):
+        assert f"<kbd>{key}</kbd>" in page, key

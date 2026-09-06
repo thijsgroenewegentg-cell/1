@@ -224,6 +224,8 @@ class WebInterface:
         self.clients: int = 0
         self._sockets: Set[Any] = set()
         self._watching = False
+        self._page_cache: Optional[str] = None
+        self._page_stamp: float = 0.0
         #: Strong references to in-flight relay tasks, so they are not
         #: collected mid-send.
         self._relays: Set["asyncio.Task[None]"] = set()
@@ -345,9 +347,23 @@ class WebInterface:
             )
 
         app = FastAPI(title=f"{self.title} web interface", docs_url=None, redoc_url=None)
-        page = load_page().replace("__TITLE__", self.title).replace(
-            "__TOKEN_QUERY__", f"?token={self.token}" if self.token else ""
-        )
+        def rendered_page() -> str:
+            """Return the interface with its placeholders filled in.
+
+            Read per request and cached against the file's modification time,
+            so editing interfaces/app.html shows up on the next refresh
+            instead of needing a restart. A page load costs one stat().
+            """
+            try:
+                stamp = APP_FILE.stat().st_mtime
+            except OSError:
+                stamp = 0.0
+            if self._page_cache is None or self._page_stamp != stamp:
+                self._page_cache = load_page().replace("__TITLE__", self.title).replace(
+                    "__TOKEN_QUERY__", f"?token={self.token}" if self.token else ""
+                )
+                self._page_stamp = stamp
+            return self._page_cache
 
         @app.get("/", response_class=HTMLResponse)
         async def index(token: str = Query(default="")) -> Any:
@@ -356,7 +372,7 @@ class WebInterface:
                 return HTMLResponse(
                     "<h1>401</h1><p>Append ?token=… to the URL.</p>", status_code=401
                 )
-            return HTMLResponse(page)
+            return HTMLResponse(rendered_page())
 
         @app.get("/api/status")
         async def status(token: str = Query(default="")) -> Any:
