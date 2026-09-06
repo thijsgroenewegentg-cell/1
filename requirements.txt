@@ -14,6 +14,13 @@ python-dateutil>=2.9.0       # natural-ish date parsing for reminders
 psutil>=5.9.8                # CPU / RAM / disk / battery stats
 APScheduler>=3.10.4          # cron/interval scheduling (a built-in fallback exists)
 
+# --- Optional upgrades: everything below has a working fallback without it ---
+# pip install -r requirements.txt covers them; skip any line freely.
+pint>=0.23                   # exotic unit conversions beyond the built-in tables
+dateparser>=1.2.0            # "next Monday at 9am" style dates
+PyMuPDF>=1.24.0              # faster, column-aware PDF text extraction
+sentence-transformers>=2.7.0 # local embeddings without Ollama (large download)
+
 # ---- Memory (local vector DB) ----------------------------------------------
 chromadb>=0.5.0              # local vector store, no cloud, no key
 

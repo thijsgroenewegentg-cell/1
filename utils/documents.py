@@ -68,7 +68,25 @@ def extract_text(path: str | Path, limit: int = 400_000) -> str:
 
 
 def _extract_pdf(path: Path, limit: int) -> str:
-    """Pull text out of a PDF with pypdf."""
+    """Pull text out of a PDF, preferring PyMuPDF and falling back to pypdf.
+
+    PyMuPDF (``fitz``) keeps the reading order of multi-column pages and is
+    roughly an order of magnitude faster; pypdf is pure Python and always
+    installable. Whichever is present wins, in that order.
+    """
+    try:
+        import fitz  # PyMuPDF
+
+        with fitz.open(str(path)) as document:
+            chunks = [page.get_text("text") for page in document]
+        text = "\n\n".join(chunk for chunk in chunks if chunk.strip())
+        if text.strip():
+            return text
+    except ImportError:
+        pass
+    except Exception as exc:
+        logger.debug("PyMuPDF failed on %s (%s); trying pypdf.", path.name, exc)
+
     try:
         from pypdf import PdfReader
 

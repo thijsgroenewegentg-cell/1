@@ -158,7 +158,13 @@ class SecurityGuard:
         return cls(
             confirm_dangerous=bool(section.get("confirm_dangerous", True)),
             allow_shell=bool(section.get("allow_shell", True)),
-            extra_blocked=list(section.get("blocked_patterns", []) or []),
+            # ``shell_blacklist`` is the spec-sheet spelling; both are honoured
+            # and the entries are treated as literal text, not regex, so a
+            # blacklist of "rm -rf /" cannot accidentally match everything.
+            extra_blocked=(
+                list(section.get("blocked_patterns", []) or [])
+                + [re.escape(str(item)) for item in section.get("shell_blacklist", []) or []]
+            ),
             allowed_roots=list(section.get("allowed_roots", []) or []),
         )
 

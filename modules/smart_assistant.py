@@ -196,6 +196,19 @@ def _expand_units(tables: Dict[str, Dict[str, float]]) -> Dict[str, Dict[str, fl
 
 UNIT_TABLE = _expand_units(UNIT_TABLE)
 
+
+#: Language names JARVIS hears spoken, mapped to the ISO codes MyMemory wants.
+LANGUAGE_CODES: Dict[str, str] = {
+    "arabic": "ar", "bengali": "bn", "chinese": "zh", "mandarin": "zh",
+    "czech": "cs", "danish": "da", "dutch": "nl", "english": "en",
+    "finnish": "fi", "french": "fr", "german": "de", "greek": "el",
+    "hebrew": "he", "hindi": "hi", "hungarian": "hu", "indonesian": "id",
+    "italian": "it", "japanese": "ja", "korean": "ko", "norwegian": "no",
+    "polish": "pl", "portuguese": "pt", "romanian": "ro", "russian": "ru",
+    "spanish": "es", "swedish": "sv", "thai": "th", "turkish": "tr",
+    "ukrainian": "uk", "vietnamese": "vi",
+}
+
 TEMPERATURE_UNITS = {"c", "celsius", "f", "fahrenheit", "k", "kelvin", "°c", "°f",
                      "centigrade", "degrees celsius", "degrees fahrenheit"}
 
@@ -501,6 +514,17 @@ class SmartAssistant(BaseModule):
         if currency is not None:
             return currency
 
+        # Anything exotic (furlongs, joules, teaspoons per fortnight): let pint
+        # try before the model has to guess.
+        exotic = self._convert_with_pint(amount, source, target)
+        if exotic is not None:
+            return ModuleResult(
+                success=True,
+                output=f"{amount:g} {from_unit} = {exotic:,.6g} {to_unit}",
+                speak=f"{amount:g} {from_unit} is {exotic:,.6g} {to_unit}.",
+                data={"result": exotic, "category": "pint"},
+            )
+
         error = self._require_llm()
         if error:
             return ModuleResult.fail(f"I don't know how to convert {from_unit} to {to_unit}.")
@@ -510,6 +534,32 @@ class SmartAssistant(BaseModule):
             max_tokens=100,
         )
         return ModuleResult(success=bool(reply.strip()), output=reply.strip() or "Unknown units.")
+
+    @staticmethod
+    def _convert_with_pint(value: float, source: str, target: str) -> Optional[float]:
+        """Convert with the pint library when it is installed.
+
+        pint knows tens of thousands of unit spellings that no hand-written
+        table will ever cover. It is optional, so an ImportError is a normal
+        outcome, not an error.
+
+        Args:
+            value: The quantity.
+            source: Unit to convert from.
+            target: Unit to convert to.
+
+        Returns:
+            The converted magnitude, or ``None`` when pint is missing or the
+            units are not compatible.
+        """
+        try:
+            import pint
+
+            registry: Any = pint.UnitRegistry()
+            quantity = registry.Quantity(value, source)
+            return float(quantity.to(target).magnitude)
+        except Exception:
+            return None
 
     @staticmethod
     def _convert_temperature(value: float, source: str, target: str) -> Optional[float]:
@@ -574,13 +624,24 @@ class SmartAssistant(BaseModule):
                   "in japanese", "in dutch"],
     )
     async def translate(self, text: str, target_language: str) -> ModuleResult:
-        """Translate text using the local LLM."""
-        error = self._require_llm()
-        if error:
-            return error
+        """Translate text with the local LLM, or MyMemory when it is offline."""
         body = (text or "").strip()
         if not body:
             return ModuleResult.fail("Translate what?")
+
+        error = self._require_llm()
+        if error:
+            # No model running: MyMemory is free, keyless and good enough for
+            # a sentence or two.
+            fallback = await self._translate_via_mymemory(body, target_language)
+            if fallback is not None:
+                return ModuleResult(
+                    success=True,
+                    output=fallback,
+                    speak=fallback,
+                    data={"target": target_language, "engine": "mymemory"},
+                )
+            return error
         reply = await self.llm.complete(
             f"Translate the following into {target_language}. Output only the translation, "
             f"then on a second line a simple pronunciation hint if the script is non-Latin.\n\n"
@@ -594,6 +655,38 @@ class SmartAssistant(BaseModule):
             output=cleaned or "Translation failed.",
             data={"target": target_language},
         )
+
+    async def _translate_via_mymemory(self, text: str, target: str) -> Optional[str]:
+        """Translate through the free MyMemory API (no key, ~1000 words/day).
+
+        Args:
+            text: The text to translate; long inputs are trimmed to the
+                service's practical limit.
+            target: Target language name or code.
+
+        Returns:
+            The translation, or ``None`` when the service could not help.
+        """
+        code = LANGUAGE_CODES.get(target.strip().lower(), target.strip().lower()[:5])
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(
+                    "https://api.mymemory.translated.net/get",
+                    params={"q": text[:480], "langpair": f"en|{code}"},
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:
+            self.log.debug("MyMemory unavailable: %s", exc)
+            return None
+        translated = str(
+            (payload.get("responseData") or {}).get("translatedText") or ""
+        ).strip()
+        if not translated or translated.upper().startswith("PLEASE SELECT"):
+            return None
+        return translated
 
     # ---------------------------------------------------------- summarisation
     @tool(

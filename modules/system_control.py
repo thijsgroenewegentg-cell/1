@@ -695,6 +695,94 @@ class SystemControl(BaseModule):
             return ModuleResult.fail(f"Click failed: {exc}")
 
     @tool(
+        description=(
+            "Move, click, double-click, right-click, drag or scroll the mouse, "
+            "or report where the pointer currently is."
+        ),
+        keywords=["move the mouse", "double click", "right click", "scroll",
+                  "mouse position", "where is the mouse", "drag"],
+        params={
+            "action": {"type": "string",
+                       "description": "move | click | double | right | middle | "
+                                      "drag | scroll | position",
+                       "default": "position"},
+            "x": {"type": "integer", "description": "Target X", "default": -1},
+            "y": {"type": "integer", "description": "Target Y", "default": -1},
+            "amount": {"type": "integer",
+                       "description": "Scroll clicks: positive up, negative down",
+                       "default": 0},
+            "duration": {"type": "number", "description": "Seconds to take moving",
+                         "default": 0.2},
+        },
+    )
+    async def mouse(self, action: str = "position", x: int = -1, y: int = -1,
+                    amount: int = 0, duration: float = 0.2) -> ModuleResult:
+        """Drive the mouse, or ask it where it is.
+
+        Args:
+            action: What to do — ``move``, ``click``, ``double``, ``right``,
+                ``middle``, ``drag``, ``scroll`` or ``position``.
+            x: Target X coordinate; ``-1`` means "wherever the pointer is".
+            y: Target Y coordinate.
+            amount: Scroll distance in clicks, positive up.
+            duration: How long a move or drag should take, in seconds.
+
+        Returns:
+            A :class:`ModuleResult` describing what the pointer did.
+        """
+        gui = self._gui()
+        if gui is None:
+            return ModuleResult.fail("Mouse automation needs pyautogui and a desktop session.")
+
+        verb = (action or "position").strip().lower()
+        try:
+            width, height = gui.size()
+            current = gui.position()
+            target_x = int(x) if int(x) >= 0 else int(current[0])
+            target_y = int(y) if int(y) >= 0 else int(current[1])
+            # Off-screen coordinates trip pyautogui's failsafe corner.
+            target_x = max(1, min(int(width) - 2, target_x))
+            target_y = max(1, min(int(height) - 2, target_y))
+            span = max(0.0, float(duration))
+
+            if verb in ("position", "where", "locate"):
+                return ModuleResult.ok(
+                    f"The pointer is at ({current[0]}, {current[1]}) "
+                    f"on a {width}x{height} screen.",
+                    data={"x": current[0], "y": current[1],
+                          "width": width, "height": height},
+                )
+            if verb in ("move", "move_to", "goto"):
+                gui.moveTo(target_x, target_y, duration=span)
+                return ModuleResult.ok(f"Pointer moved to ({target_x}, {target_y}).")
+            if verb in ("double", "double_click", "doubleclick"):
+                gui.doubleClick(x=target_x, y=target_y)
+                return ModuleResult.ok(f"Double-clicked at ({target_x}, {target_y}).")
+            if verb in ("right", "right_click", "context"):
+                gui.rightClick(x=target_x, y=target_y)
+                return ModuleResult.ok(f"Right-clicked at ({target_x}, {target_y}).")
+            if verb in ("middle", "middle_click"):
+                gui.middleClick(x=target_x, y=target_y)
+                return ModuleResult.ok(f"Middle-clicked at ({target_x}, {target_y}).")
+            if verb in ("drag", "drag_to"):
+                gui.dragTo(target_x, target_y, duration=max(0.2, span), button="left")
+                return ModuleResult.ok(f"Dragged to ({target_x}, {target_y}).")
+            if verb == "scroll":
+                clicks = int(amount) or 3
+                gui.scroll(clicks)
+                way = "up" if clicks > 0 else "down"
+                return ModuleResult.ok(f"Scrolled {abs(clicks)} clicks {way}.")
+            if verb in ("click", "left", "left_click"):
+                gui.click(x=target_x, y=target_y)
+                return ModuleResult.ok(f"Clicked at ({target_x}, {target_y}).")
+            return ModuleResult.fail(
+                f"I don't know the mouse action '{action}', sir. Try move, click, "
+                "double, right, drag, scroll or position."
+            )
+        except Exception as exc:
+            return ModuleResult.fail(f"Mouse action failed: {exc}")
+
+    @tool(
         description="Read from or write to the system clipboard.",
         params={
             "action": {"type": "string", "description": "get or set", "default": "get"},

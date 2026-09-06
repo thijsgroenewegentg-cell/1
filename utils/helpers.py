@@ -451,11 +451,91 @@ def parse_duration(text: str) -> Optional[int]:
     return None
 
 
+def _parse_weekday(text: str, reference: datetime) -> Optional[datetime]:
+    """Resolve "friday at 6pm" or "next monday" without any dependencies.
+
+    ``dateparser`` handles a bare weekday but gives up on "next Monday at
+    9am", which is exactly how people phrase reminders, so this fills the gap.
+
+    Args:
+        text: The lower-cased expression.
+        reference: "Now".
+
+    Returns:
+        The next matching datetime, or ``None`` when no weekday is named.
+    """
+    index = next((number for number, day in enumerate(_WEEKDAY_WORDS) if day in text), None)
+    if index is None:
+        return None
+
+    ahead = (index - reference.weekday()) % 7
+    if ahead == 0 and ("next" in text or "coming" in text):
+        ahead = 7
+    target = reference + timedelta(days=ahead)
+
+    hour, minute = 9, 0
+    clock = re.search(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", text)
+    if clock:
+        hour = int(clock.group(1))
+        minute = int(clock.group(2) or 0)
+        suffix = clock.group(3)
+        if suffix == "pm" and hour < 12:
+            hour += 12
+        elif suffix == "am" and hour == 12:
+            hour = 0
+        if hour > 23 or minute > 59:
+            hour, minute = 9, 0
+    target = target.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= reference:
+        target += timedelta(days=7)
+    return target
+
+
+#: Weekday names that mean the hand-written rules will misread the phrase.
+_WEEKDAY_WORDS = (
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+)
+
+
+def _parse_when_with_dateparser(
+    text: str, reference: Optional[datetime] = None
+) -> Optional[datetime]:
+    """Last-resort time parsing via the optional ``dateparser`` package.
+
+    Handles the phrasings the hand-written parser deliberately refuses —
+    "next Monday", "the day after tomorrow", "in a fortnight", and dates
+    written in other languages.
+
+    Args:
+        text: Free-form time expression.
+        reference: "Now" for relative expressions.
+
+    Returns:
+        A datetime, or ``None`` when dateparser is absent or unsure.
+    """
+    try:
+        import dateparser
+
+        parsed = dateparser.parse(
+            text,
+            settings={
+                "PREFER_DATES_FROM": "future",
+                "RELATIVE_BASE": reference or datetime.now(),
+                "RETURN_AS_TIMEZONE_AWARE": False,
+            },
+        )
+    except Exception:
+        return None
+    return parsed
+
+
 def parse_when(text: str, reference: Optional[datetime] = None) -> Optional[datetime]:
     """Parse a loose time expression into an absolute ``datetime``.
 
     Understands ``in 10 minutes``, ``at 5pm``, ``tomorrow at 09:30``,
-    ``2026-09-05 14:00`` and bare clock times.
+    ``2026-09-05 14:00`` and bare clock times. Phrasings involving a named
+    weekday go to ``dateparser`` first when it is installed, because the
+    hand-written rules below would read "next Monday at 9am" as simply "9am".
 
     Args:
         text: Free-form time expression.
@@ -467,6 +547,15 @@ def parse_when(text: str, reference: Optional[datetime] = None) -> Optional[date
     if not text:
         return None
     reference = reference or datetime.now()
+
+    lowered = text.lower()
+    if any(day in lowered for day in _WEEKDAY_WORDS) or "day after" in lowered:
+        named = _parse_when_with_dateparser(text, reference)
+        if named is not None and named > reference:
+            return named
+        weekday = _parse_weekday(lowered, reference)
+        if weekday is not None:
+            return weekday
     lowered = text.lower().strip()
 
     relative = re.search(r"\bin\s+(.+)", lowered)
@@ -514,6 +603,12 @@ def parse_when(text: str, reference: Optional[datetime] = None) -> Optional[date
             if target <= reference:
                 target += timedelta(days=1)
             return target
+
+    # dateparser understands "next Monday" and "the day after tomorrow";
+    # dateutil is stricter but far more commonly installed. Try both.
+    natural = _parse_when_with_dateparser(text, reference)
+    if natural is not None:
+        return natural
 
     try:  # optional, nicer parsing when python-dateutil is installed
         from dateutil import parser as date_parser  # type: ignore

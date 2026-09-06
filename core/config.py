@@ -234,6 +234,123 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 _ENV_PREFIX = "JARVIS_"
 
 
+
+#: Older / alternative spellings mapped onto the keys JARVIS actually reads.
+#: Anyone hand-writing a config (or following a spec sheet) tends to reach for
+#: the left-hand form; both work, and the right-hand one wins if both appear.
+KEY_ALIASES: Dict[str, str] = {
+    "llm.base_url": "llm.host",
+    "llm.url": "llm.host",
+    "llm.provider": "llm.provider",          # accepted and ignored: always ollama
+    "llm.vision_model": "vision.model",
+    "voice.stt_model": "voice.stt.model",
+    "voice.stt_language": "voice.stt.language",
+    "voice.tts_voice": "voice.tts.voice",
+    "voice.tts_speed": "voice.tts.rate",
+    "voice.tts_rate": "voice.tts.rate",
+    "voice.wake_word_sensitivity": "voice.sensitivity",
+    "voice.speak_while_generating": "voice.stream_speech",
+    "voice.interrupt_enabled": "voice.interrupt",
+    "language": "assistant.language",
+    "assistant.persona": "assistant.personality",
+    "paths.data_dir": "paths.data",
+    "paths.logs_dir": "paths.logs",
+    "paths.backup_dir": "paths.backups",
+    "paths.screenshots_dir": "paths.screenshots",
+    "paths.knowledge_dir": "paths.knowledge",
+    "paths.plugins_dir": "self_improve.plugins_dir",
+    "database.file": "database.path",
+    "web_ui.enabled": "web_ui.enabled",
+    "security.confirm_destructive": "security.confirm_dangerous",
+    "security.max_shell_timeout": "security.shell_timeout",
+    "security.blacklist": "security.shell_blacklist",
+    "self_improve.can_modify_code": "self_improve.allow_code_edit",
+    "self_improve.can_install_packages": "self_improve.allow_pip",
+    "self_improve.can_clone_repos": "self_improve.allow_clone",
+    "self_improve.require_approval": "self_improve.review_plugins",
+    "communications.email": "email",
+    "quiet_hours": "productivity.quiet_hours",
+}
+
+
+def _normalise_aliases(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Rewrite alias keys onto their canonical names.
+
+    ``quiet_hours`` is special: the spec writes it as a block with
+    ``enabled``/``start``/``end``, while JARVIS stores the compact
+    ``"23:00-07:00"`` string, so the block is folded into one.
+
+    Args:
+        data: Raw settings straight out of the YAML file.
+
+    Returns:
+        The same settings with every alias moved to its real key. The input is
+        not modified.
+    """
+    if not isinstance(data, dict):
+        return {}
+    result = copy.deepcopy(data)
+
+    quiet = result.get("quiet_hours")
+    if isinstance(quiet, dict):
+        start = str(quiet.get("start", "") or "")
+        end = str(quiet.get("end", "") or "")
+        window = f"{start}-{end}" if start and end else ""
+        if not quiet.get("enabled", True):
+            window = ""
+        result.setdefault("productivity", {})
+        if isinstance(result["productivity"], dict):
+            result["productivity"].setdefault("quiet_hours", window)
+        result.pop("quiet_hours", None)
+
+    for alias, canonical in KEY_ALIASES.items():
+        if alias == canonical or alias == "quiet_hours":
+            continue
+        value = _dig(result, alias.split("."))
+        if value is _MISSING:
+            continue
+        _drop(result, alias.split("."))
+        if _dig(result, canonical.split(".")) is _MISSING:
+            _plant(result, canonical.split("."), value)
+    return result
+
+
+_MISSING = object()
+
+
+def _dig(data: Any, parts: List[str]) -> Any:
+    """Read a nested key, returning the sentinel when it is absent."""
+    node = data
+    for part in parts:
+        if not isinstance(node, dict) or part not in node:
+            return _MISSING
+        node = node[part]
+    return node
+
+
+def _plant(data: Dict[str, Any], parts: List[str], value: Any) -> None:
+    """Write a nested key, creating the intermediate dictionaries."""
+    node = data
+    for part in parts[:-1]:
+        nxt = node.get(part)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            node[part] = nxt
+        node = nxt
+    node[parts[-1]] = value
+
+
+def _drop(data: Dict[str, Any], parts: List[str]) -> None:
+    """Delete a nested key if it is there, pruning nothing else."""
+    node: Any = data
+    for part in parts[:-1]:
+        node = node.get(part) if isinstance(node, dict) else None
+        if not isinstance(node, dict):
+            return
+    if isinstance(node, dict):
+        node.pop(parts[-1], None)
+
+
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively merge ``override`` into a copy of ``base``."""
     result = copy.deepcopy(base)
@@ -287,7 +404,9 @@ class Config:
         """
         self.path: Optional[Path] = Path(path).expanduser() if path else None
         self.root: Path = self.path.parent.resolve() if self.path else Path.cwd()
-        self._data: Dict[str, Any] = _deep_merge(DEFAULT_CONFIG, data or {})
+        self._data: Dict[str, Any] = _deep_merge(
+            DEFAULT_CONFIG, _normalise_aliases(data or {})
+        )
         self._apply_env_overrides()
 
     # -- construction -------------------------------------------------------
@@ -321,7 +440,7 @@ class Config:
         if self.path and self.path.exists() and yaml is not None:
             try:
                 loaded = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
-                self._data = _deep_merge(DEFAULT_CONFIG, loaded)
+                self._data = _deep_merge(DEFAULT_CONFIG, _normalise_aliases(loaded))
                 self._apply_env_overrides()
             except Exception:
                 pass

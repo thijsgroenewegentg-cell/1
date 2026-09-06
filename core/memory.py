@@ -117,18 +117,29 @@ class OllamaEmbedder:
     """
 
     def __init__(
-        self, host: str = "http://localhost:11434", model: str = "nomic-embed-text"
+        self, host: str = "http://localhost:11434", model: str = "nomic-embed-text",
+        local_model: str = "",
     ) -> None:
         """Configure the embedder.
 
+        Three tiers, best first: a local sentence-transformers model when one
+        is configured and installed, Ollama's embedding endpoint, and finally
+        deterministic hash embeddings so memory never hard-fails.
+
         Args:
             host: Base URL of the Ollama server.
-            model: Embedding model name (pulled by ``setup.sh``).
+            model: Ollama embedding model name (pulled by ``setup.sh``).
+            local_model: sentence-transformers model, e.g.
+                ``all-MiniLM-L6-v2``. Empty disables that tier.
         """
         self.host = host.rstrip("/")
         self.model = model
         self._available: Optional[bool] = None
         self._dim: int = EMBED_DIM
+        #: sentence-transformers model, loaded lazily on first use.
+        self._local: Optional[Any] = None
+        self._local_tried = False
+        self.local_model = local_model
 
     @staticmethod
     def name() -> str:
@@ -140,6 +151,9 @@ class OllamaEmbedder:
         text = (text or "").strip()
         if not text:
             return [0.0] * self._dim
+        vector = self._embed_locally(text)
+        if vector is not None:
+            return vector
         if self._available is False:
             return hash_embedding(text, self._dim)
         try:
@@ -167,6 +181,47 @@ class OllamaEmbedder:
             self._available = False
         return hash_embedding(text, self._dim)
 
+    def _embed_locally(self, text: str) -> Optional[List[float]]:
+        """Embed with sentence-transformers, or return ``None`` if unavailable.
+
+        The model is loaded once, on first use — importing torch costs a
+        second or two, so it must not happen at start-up for people who never
+        configured it.
+
+        Args:
+            text: The string to embed.
+
+        Returns:
+            The vector, or ``None`` to fall through to the next tier.
+        """
+        if not self.local_model:
+            return None
+        if self._local is None and not self._local_tried:
+            self._local_tried = True
+            try:
+                from sentence_transformers import SentenceTransformer
+
+                self._local = SentenceTransformer(self.local_model)
+                logger.info("Embedding locally with sentence-transformers/%s.",
+                            self.local_model)
+            except Exception as exc:
+                logger.info(
+                    "sentence-transformers '%s' unavailable (%s) — using Ollama.",
+                    self.local_model, truncate(str(exc), 100),
+                )
+                self._local = None
+        if self._local is None:
+            return None
+        try:
+            vector = self._local.encode(text, normalize_embeddings=True)
+            values = [float(value) for value in vector]
+            self._dim = len(values)
+            return values
+        except Exception as exc:
+            logger.debug("Local embedding failed: %s", exc)
+            self._local = None
+            return None
+
     def __call__(self, input: Sequence[str]) -> List[List[float]]:
         """Embed a batch of documents (ChromaDB entry point)."""
         if isinstance(input, str):  # defensive: some versions pass a bare str
@@ -184,7 +239,7 @@ class OllamaEmbedder:
 
     def get_config(self) -> dict:
         """Serialisable configuration (required by newer ChromaDB versions)."""
-        return {"host": self.host, "model": self.model}
+        return {"host": self.host, "model": self.model, "local_model": self.local_model}
 
     @classmethod
     def build_from_config(cls, config: dict) -> "OllamaEmbedder":
@@ -192,6 +247,7 @@ class OllamaEmbedder:
         return cls(
             host=config.get("host", "http://localhost:11434"),
             model=config.get("model", "nomic-embed-text"),
+            local_model=config.get("local_model", ""),
         )
 
 
@@ -455,6 +511,7 @@ class Memory:
         self.embedder = OllamaEmbedder(
             host=str(config.get("llm.host", "http://localhost:11434")),
             model=str(config.get("memory.embedding_model", "nomic-embed-text")),
+            local_model=str(config.get("memory.local_embedding_model", "") or ""),
         )
         self.store: Optional[Any] = None
         self.backend: str = "disabled"

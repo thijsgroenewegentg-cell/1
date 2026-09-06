@@ -378,11 +378,40 @@ class WebSearch(BaseModule):
         keywords=["weather", "forecast", "temperature", "is it raining", "how hot", "how cold"],
         examples=['weather(location="Amsterdam")'],
     )
+    async def _locate_by_ip(self) -> str:
+        """Guess the user's city from their IP address, for free.
+
+        wttr.in geolocates by IP itself, but its guess is often the datacentre
+        rather than the user. ip-api.com is keyless and rate-limited to 45
+        requests a minute, which is far more than a weather query needs.
+
+        Returns:
+            A city name, or an empty string to let wttr.in decide.
+        """
+        cached = await self._cached(Cache.make_key("iploc"), ttl=86400)
+        if isinstance(cached, str):
+            return cached
+        response = await self._get("http://ip-api.com/json/?fields=status,city,regionName")
+        city = ""
+        if response is not None:
+            try:
+                payload = response.json()
+                if payload.get("status") == "success":
+                    city = str(payload.get("city") or "")
+            except Exception as exc:
+                self.log.debug("IP geolocation failed: %s", exc)
+        if city:
+            await self._store(Cache.make_key("iploc"), city, ttl=86400)
+        return city
+
     async def weather(self, location: str = "") -> ModuleResult:
         """Fetch weather from wttr.in (free, no key required)."""
         place = (location or "").strip()
         if not place or place.lower() == "auto":
             place = "" if self.default_location.lower() == "auto" else self.default_location
+
+        if not place:
+            place = await self._locate_by_ip()
 
         cache_key = Cache.make_key("wttr", place.lower(), self.units)
         payload = await self._cached(cache_key)
