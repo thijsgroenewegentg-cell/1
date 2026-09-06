@@ -56,6 +56,12 @@ class Event:
         return self.data.get(key, default)
 
 
+#: How long :meth:`EventBus.publish` waits for its handlers before carrying
+#: on without them. Subscribers are observers; none of them should be able to
+#: delay the answer the user is waiting for.
+HANDLER_TIMEOUT = 1.0
+
+
 class EventBus:
     """In-process publish/subscribe with a short replayable history."""
 
@@ -116,7 +122,11 @@ class EventBus:
     async def publish(self, name: str, /, source: str = "", **data: Any) -> Event:
         """Deliver an event to every matching handler and wait for them.
 
-        A handler that raises is logged and skipped; the others still run.
+        Handlers run concurrently and the wait is bounded by
+        :data:`HANDLER_TIMEOUT`. Serial, unbounded delivery meant one sluggish
+        subscriber — a web client on a stalled socket, say — held up the reply
+        the user was waiting for. A handler that raises, or overruns, is
+        logged; the others are unaffected either way.
 
         Args:
             name: Event name.
@@ -131,15 +141,31 @@ class EventBus:
         if not self.enabled:
             return event
 
+        pending: List["asyncio.Future[Any]"] = []
         for handler in list(self._handlers.get(name, [])) + list(
             self._handlers.get(WILDCARD, [])
         ):
             try:
                 outcome = handler(event)
-                if inspect.isawaitable(outcome):
-                    await outcome
             except Exception as error:  # a listener must never break the publisher
                 logger.debug("Event handler for %s failed: %s", name, error)
+                continue
+            if inspect.isawaitable(outcome):
+                pending.append(asyncio.ensure_future(outcome))
+
+        if pending:
+            done, unfinished = await asyncio.wait(pending, timeout=HANDLER_TIMEOUT)
+            for task in done:
+                failure = task.exception()
+                if failure is not None:
+                    logger.debug("Event handler for %s failed: %s", name, failure)
+            if unfinished:
+                # Let them finish in their own time rather than cancelling
+                # mid-write, but stop making the publisher wait.
+                logger.debug(
+                    "%d handler(s) for %s are still running after %.1fs.",
+                    len(unfinished), name, HANDLER_TIMEOUT,
+                )
         return event
 
     def emit(self, name: str, /, source: str = "", **data: Any) -> Optional[Event]:

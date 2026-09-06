@@ -167,3 +167,49 @@ def test_events_carry_a_source_and_a_timestamp():
 @pytest.mark.parametrize("name", [TURN_STARTED, TURN_FINISHED, ERROR_RAISED])
 def test_the_standard_event_names_are_namespaced(name):
     assert "." in name
+
+
+def test_a_slow_handler_cannot_hold_up_the_publisher():
+    """Subscribers are observers; none may delay the answer the user waits for."""
+    async def scenario() -> tuple:
+        import time
+
+        from core.event_bus import HANDLER_TIMEOUT
+
+        bus = EventBus()
+        fast = []
+
+        async def glacial(event: Event) -> None:
+            await asyncio.sleep(30)
+
+        bus.subscribe(TURN_FINISHED, glacial)
+        bus.subscribe(TURN_FINISHED, lambda event: fast.append(event.name))
+        started = time.perf_counter()
+        await bus.publish(TURN_FINISHED)
+        elapsed = time.perf_counter() - started
+        await bus.close()
+        return elapsed, fast, HANDLER_TIMEOUT
+
+    elapsed, fast, timeout = run(scenario())
+    assert elapsed < timeout + 1.0
+    assert fast == [TURN_FINISHED], "the well-behaved handler must still run"
+
+
+def test_handlers_run_concurrently_not_one_after_another():
+    async def scenario() -> float:
+        import time
+
+        bus = EventBus()
+
+        async def waits(event: Event) -> None:
+            await asyncio.sleep(0.2)
+
+        for _ in range(4):
+            bus.subscribe(TURN_STARTED, waits)
+        started = time.perf_counter()
+        await bus.publish(TURN_STARTED)
+        elapsed = time.perf_counter() - started
+        await bus.close()
+        return elapsed
+
+    assert run(scenario()) < 0.6, "four 0.2s handlers should overlap, not queue"
