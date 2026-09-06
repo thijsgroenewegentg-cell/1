@@ -58,6 +58,7 @@ class Jarvis:
         self.voice: Optional[Any] = None
         self.cli: Optional[CLI] = None
         self.web: Optional[Any] = None
+        self._web_task: Optional["asyncio.Task[Any]"] = None
         self._shutting_down = False
 
     # ------------------------------------------------------------------ setup
@@ -165,6 +166,32 @@ class Jarvis:
         assert self.cli is not None
         await self.cli.run()
 
+    async def start_background_web(self) -> None:
+        """Serve the phone interface alongside whatever else is running.
+
+        ``web_ui.enabled: true`` used to do nothing at all — the interface only
+        appeared with ``--web``. Now setting it means what it says: the server
+        comes up beside the terminal or voice session, and one-shot commands
+        are left alone because nobody wants ``--say`` to open a port.
+        """
+        if self.web is not None:
+            return
+        try:
+            from interfaces.web import WebInterface, local_addresses
+
+            server = WebInterface(self.brain, self.config)
+            self.web = server
+            self._web_task = asyncio.create_task(server.serve())
+            await asyncio.sleep(0.6)  # let it bind, so the address we print is real
+            for address in local_addresses(server.port):
+                suffix = f"?token={server.token}" if server.token else ""
+                if self.cli is not None:
+                    self.cli.success(f"Web interface: {address}{suffix}")
+        except Exception as exc:
+            logger.warning("Could not start the web interface: %s", exc)
+            if self.cli is not None:
+                self.cli.warn(f"Web interface unavailable: {exc}")
+
     async def run_web(self, port: Optional[int] = None, with_cli: bool = False) -> None:
         """Serve the browser/phone interface.
 
@@ -271,6 +298,11 @@ class Jarvis:
         if self.web is not None:
             with contextlib.suppress(Exception):
                 await self.web.stop()
+        if self._web_task is not None:
+            self._web_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._web_task
+            self._web_task = None
         if self.voice is not None:
             with contextlib.suppress(Exception):
                 await self.voice.shutdown()
@@ -469,12 +501,16 @@ async def async_main(args: argparse.Namespace) -> int:
             await jarvis.run_once(args.say)
         elif args.web:
             await jarvis.run_web(port=args.port, with_cli=args.with_cli)
-        elif args.cli:
-            await jarvis.run_cli()
-        elif args.voice or (jarvis.voice is not None and jarvis.voice.available):
-            await jarvis.run_voice()
         else:
-            await jarvis.run_cli()
+            # web_ui.enabled means "serve it too", not "serve it instead".
+            if jarvis.config.get("web_ui.enabled", False):
+                await jarvis.start_background_web()
+            if args.cli:
+                await jarvis.run_cli()
+            elif args.voice or (jarvis.voice is not None and jarvis.voice.available):
+                await jarvis.run_voice()
+            else:
+                await jarvis.run_cli()
     except KeyboardInterrupt:
         pass
     except Exception as exc:

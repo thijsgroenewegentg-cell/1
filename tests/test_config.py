@@ -158,10 +158,20 @@ def test_quiet_hours_can_be_a_plain_string(tmp_path):
 
 
 def test_every_setting_is_read_by_something():
-    """A setting that nothing reads is a promise the assistant cannot keep."""
-    import subprocess
+    """A setting that nothing reads is a promise the assistant cannot keep.
 
-    def walk(node: dict, prefix: str = "") -> "Iterator[str]":
+    Matching on the leaf name alone was too generous — "enabled" appears in a
+    dozen files, so ``web_ui.enabled`` passed this test for months while doing
+    absolutely nothing. A setting now counts as read only if its dotted key
+    appears, or its leaf appears in a file that also names its section.
+    """
+    sources = {}
+    for folder in ("core", "modules", "utils", "interfaces", "plugins"):
+        for path in (PROJECT_ROOT / folder).rglob("*.py"):
+            sources[path] = path.read_text(encoding="utf-8")
+    sources[PROJECT_ROOT / "main.py"] = (PROJECT_ROOT / "main.py").read_text()
+
+    def walk(node: dict, prefix: str = "") -> Iterator[str]:
         for key, value in node.items():
             dotted = f"{prefix}.{key}" if prefix else key
             if isinstance(value, dict) and value and all(isinstance(k, str) for k in value):
@@ -169,18 +179,31 @@ def test_every_setting_is_read_by_something():
             else:
                 yield dotted
 
-    haystack = subprocess.run(
-        ["grep", "-rn", "--include=*.py", "-e", "get(", "-e", "section(",
-         "core", "modules", "utils", "interfaces", "main.py", "plugins"],
-        capture_output=True, text=True, cwd=str(PROJECT_ROOT),
-    ).stdout
+    #: Sections handed to another module wholesale, which then reads the leaves
+    #: without ever naming the section: setup_logging(config.section("logging")).
+    OWNERS = {
+        "logging": ("utils/logger.py",),
+        "security": ("utils/security.py",),
+        "paths": ("core/config.py",),
+        "user": ("core/config.py", "core/personality.py"),
+        "database": ("core/memory.py",),
+    }
 
     orphans = []
     for dotted in walk(DEFAULT_CONFIG):
-        leaf, section = dotted.split(".")[-1], dotted.split(".")[0]
-        if not (f'"{dotted}"' in haystack or f'"{leaf}"' in haystack
-                or f'section("{section}")' in haystack):
+        top, leaf = dotted.split(".")[0], dotted.split(".")[-1]
+        quoted = (f'"{dotted}"', f"'{dotted}'")
+        found = any(any(form in text for form in quoted) for text in sources.values())
+        if not found:
+            for path, text in sources.items():
+                names_section = f'section("{top}")' in text or "path_for(" in text
+                owner = any(str(path).endswith(name) for name in OWNERS.get(top, ()))
+                if (names_section or owner) and (f'"{leaf}"' in text or f"'{leaf}'" in text):
+                    found = True
+                    break
+        if not found:
             orphans.append(dotted)
+
     assert not orphans, f"settings nothing reads: {orphans}"
 
 

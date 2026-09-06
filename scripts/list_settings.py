@@ -176,6 +176,10 @@ DESCRIPTIONS: Dict[str, str] = {
     "vision.fallback_models": "Tried in order when the configured vision model is missing.",
     "vision.max_tokens": "Longest description of an image.",
     "vision.temperature": "Sampling temperature for image descriptions.",
+    "vision.screenshot_dir": "Where screenshots are written. Blank uses paths.screenshots.",
+    "vision.keep_screenshots": "How many screenshots to keep before pruning the oldest.",
+    "vision.max_pixels": "Images larger than this are shrunk before the model sees them.",
+    "vision.timeout": "Seconds to wait for the vision model.",
     # -- blender ------------------------------------------------------------
     "blender.executable": (
         "Full path to the Blender binary. Blank searches PATH and the usual places."
@@ -264,9 +268,7 @@ DESCRIPTIONS: Dict[str, str] = {
     "paths.logs": "Log directory.",
     "paths.notes": "Where notes are written as Markdown.",
     "paths.code": "Where generated code is saved.",
-    "paths.plugins": "Where plugin skills live.",
     "paths.screenshots": "Where screenshots are kept.",
-    "paths.downloads": "Where downloads are put.",
     "paths.tts_cache": "Cached speech audio.",
     "paths.knowledge": "Knowledge-base storage.",
     "paths.backups": "Backup archives.",

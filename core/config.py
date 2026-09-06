@@ -135,6 +135,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "fallback_models": ["llava:7b", "bakllava", "moondream", "llama3.2-vision"],
         "max_tokens": 400,
         "temperature": 0.2,
+        "screenshot_dir": "",        # blank = paths.screenshots
+        "keep_screenshots": 10,
+        "max_pixels": 1600000,
+        "timeout": 180,
     },
     "blender": {
         "executable": "",            # blank = look on PATH and the usual places
@@ -232,9 +236,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "logs": "logs",
         "notes": "data/notes",
         "code": "data/code",
-        "plugins": "plugins",
         "screenshots": "data/screenshots",
-        "downloads": "data/downloads",
         "tts_cache": "data/tts",
         "knowledge": "data/knowledge",
     },

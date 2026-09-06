@@ -46,9 +46,20 @@ class Vision(BaseModule):
         super().__init__(config, llm=llm, security=security)
         section = config.section("vision")
         self.model: str = str(section.get("model", "llava"))
+        #: Tried in order when the configured model is not installed. These
+        #: were advertised in config.yaml and read by nobody, so a missing
+        #: llava produced a flat refusal instead of trying bakllava.
+        self.fallback_models: List[str] = [
+            str(name) for name in section.get("fallback_models", []) or []
+        ]
+        self.max_tokens: int = int(section.get("max_tokens", 400))
+        self.temperature: float = float(section.get("temperature", 0.2))
         self.max_pixels: int = int(section.get("max_pixels", 1_600_000))
         self.screenshot_dir: Path = config.resolve(
-            section.get("screenshot_dir", "data/screenshots")
+            # "or", not a .get default: the key exists and is blank by
+            # design, and a blank path resolves to the project root.
+            section.get("screenshot_dir")
+            or config.get("paths.screenshots", "data/screenshots")
         )
         self.keep_screenshots: int = int(section.get("keep_screenshots", 10))
         self.timeout: float = float(section.get("timeout", 180))
@@ -205,21 +216,36 @@ class Vision(BaseModule):
 
     # ------------------------------------------------------------- inference
     async def _ensure_model(self) -> Optional[str]:
-        """Return an error message if the vision model isn't usable."""
+        """Check a vision model is usable, falling back where configured.
+
+        Returns:
+            An error message when nothing usable is installed, else ``None``.
+            When the configured model is missing but a listed fallback is
+            present, the fallback is adopted for the rest of the session.
+        """
         if self.llm is None or not getattr(self.llm, "available", False):
             return (
                 "Ollama isn't responding, sir. Start it with 'ollama serve' before asking "
                 "me to look at anything."
             )
         try:
-            if not await self.llm.has_model(self.model):
-                return (
-                    f"I have no eyes yet — the '{self.model}' model isn't installed. "
-                    f"Run: ollama pull {self.model}"
-                )
+            if await self.llm.has_model(self.model):
+                return None
+            for candidate in self.fallback_models:
+                if candidate != self.model and await self.llm.has_model(candidate):
+                    self.log.info(
+                        "Vision model '%s' is missing; using '%s' instead.",
+                        self.model, candidate,
+                    )
+                    self.model = candidate
+                    return None
+            listed = ", ".join([self.model, *self.fallback_models][:4])
+            return (
+                f"I have no eyes yet — none of these are installed: {listed}. "
+                f"Run: ollama pull {self.model}"
+            )
         except Exception:
             return None
-        return None
 
     async def _ask_model(self, image_path: Path, prompt: str) -> str:
         """Send an image plus prompt to the local vision model."""
@@ -227,7 +253,8 @@ class Vision(BaseModule):
         data = await run_blocking(prepared.read_bytes)
         encoded = base64.b64encode(data).decode("ascii")
         return await self.llm.vision(
-            prompt=prompt, images=[encoded], model=self.model, timeout=self.timeout
+            prompt=prompt, images=[encoded], model=self.model, timeout=self.timeout,
+            temperature=self.temperature, max_tokens=self.max_tokens,
         )
 
     # ----------------------------------------------------------------- tools
