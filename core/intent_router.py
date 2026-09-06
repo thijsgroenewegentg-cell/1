@@ -15,7 +15,7 @@ A confident keyword match overrules a hesitant model, which is what keeps
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from utils.helpers import extract_json, similar
 from utils.logger import get_logger
@@ -113,6 +113,46 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
 }
 
 
+#: Confidence at which a keyword match outranks the model entirely.
+DECISIVE_CONFIDENCE = 0.97
+
+#: Phrases that settle the question on their own. A 3B router model is
+#: confidently wrong often enough ("set a timer" → system_control, because it
+#: contains the word "time") that these skip the model entirely: it is both
+#: more accurate and one less round trip.
+DECISIVE_PHRASES: Dict[str, Tuple[str, ...]] = {
+    "productivity": (
+        "set a timer", "set a 10", "start a timer", "set an alarm", "remind me",
+        "add a reminder", "to my todo", "to my to-do", "todo list", "to-do list",
+        "start a stopwatch", "daily briefing", "take a note", "make a note",
+    ),
+    "system_control": (
+        "what time is it", "what's the time", "what is the time", "the current time",
+        "take a screenshot", "lock the screen", "lock my screen", "shut down the computer",
+        "what's my cpu", "how much ram", "battery level",
+    ),
+    "web_search": (
+        "search for", "search the web", "google ", "duckduckgo",
+        "what's the weather", "what is the weather", "how's the weather",
+        "how is the weather", "the weather in", "weather forecast",
+        "latest news", "in the news", "look it up online",
+    ),
+    "file_manager": (
+        "find all pdf", "find every pdf", "organize my", "organise my",
+        "summarize this document", "summarise this document", "summarize the document",
+        "summarise the document", "duplicate files", "largest files",
+    ),
+    "code_assistant": (
+        "write a python", "write me a python", "write a script", "write a program",
+        "explain this code", "debug this", "refactor this", "run this code",
+    ),
+    "smart_assistant": (
+        "translate ", "convert ", "how many kilometres", "how many kilometers",
+        "what does the word", "brainstorm ",
+    ),
+}
+
+
 class IntentRouter:
     """Decides which module handles an utterance."""
 
@@ -137,6 +177,11 @@ class IntentRouter:
             An :class:`Intent`.
         """
         keyword_intent = self._keyword_intent(text)
+
+        # A decisive phrase is more reliable than a small router model, and
+        # skipping the call makes the answer instant.
+        if keyword_intent.confidence >= DECISIVE_CONFIDENCE:
+            return keyword_intent
 
         if not self.brain.llm.available:
             return keyword_intent
@@ -197,8 +242,24 @@ class IntentRouter:
         return keyword_intent
 
     def _keyword_intent(self, text: str) -> Intent:
-        """Score the utterance against :data:`INTENT_KEYWORDS`."""
+        """Score the utterance against the keyword tables.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            An :class:`Intent` whose confidence reaches
+            :data:`DECISIVE_CONFIDENCE` only for phrases that admit no doubt.
+        """
         lowered = f" {(text or '').lower().strip()} "
+
+        for module, phrases in DECISIVE_PHRASES.items():
+            if module not in self.brain.modules:
+                continue
+            hit = next((phrase for phrase in phrases if phrase in lowered), "")
+            if hit:
+                return Intent(module, DECISIVE_CONFIDENCE, f"decisive phrase {hit!r}",
+                              method="keyword")
         scores: Dict[str, float] = {}
         for module, keywords in INTENT_KEYWORDS.items():
             if module not in self.brain.modules:

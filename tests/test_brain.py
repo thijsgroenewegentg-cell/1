@@ -12,7 +12,13 @@ from __future__ import annotations
 import pytest
 
 from core.brain import Brain
-from core.intent_router import INTENT_KEYWORDS, Intent, IntentRouter
+from core.intent_router import (
+    DECISIVE_CONFIDENCE,
+    DECISIVE_PHRASES,
+    INTENT_KEYWORDS,
+    Intent,
+    IntentRouter,
+)
 from core.personality import Personality
 from core.planner import MAX_REACT_STEPS, Planner
 from tests.conftest import run
@@ -73,6 +79,24 @@ def test_the_ten_reference_utterances_route_correctly(brain, utterance, module):
     assert intent.module == module, f"{utterance!r} went to {intent.module}"
 
 
+@pytest.mark.parametrize(
+    ("utterance", "module"),
+    [
+        ("set a timer for 10 minutes then tell me a joke about it", "productivity"),
+        ("remind me to water the plants when you get a moment", "productivity"),
+        ("what time is it, by the way", "system_control"),
+        ("could you search for the best pizza in rome", "web_search"),
+    ],
+)
+def test_decisive_phrases_beat_the_router_model(brain, utterance, module):
+    # A 3B router model reads "set a timer" as a question about the time. A
+    # phrase this unambiguous must not depend on the model at all.
+    intent = run(brain.classify(utterance))
+    assert intent.module == module
+    assert intent.method == "keyword"
+    assert intent.confidence >= DECISIVE_CONFIDENCE
+
+
 def test_classification_reports_how_it_decided(brain):
     intent = run(brain.classify("open chrome"))
     assert intent.method in {"keyword", "llm", "fallback"}
@@ -82,6 +106,19 @@ def test_classification_reports_how_it_decided(brain):
 def test_every_keyword_table_names_a_real_module(brain):
     for module in INTENT_KEYWORDS:
         assert module in brain.modules or module in {"memory", "conversation"}
+
+
+def test_every_decisive_phrase_names_a_real_module(brain):
+    for module in DECISIVE_PHRASES:
+        assert module in brain.modules
+
+
+def test_no_decisive_phrase_is_claimed_by_two_modules():
+    seen: dict = {}
+    for module, phrases in DECISIVE_PHRASES.items():
+        for phrase in phrases:
+            assert phrase not in seen, f"{phrase!r} claimed by {seen.get(phrase)} and {module}"
+            seen[phrase] = module
 
 
 def test_an_empty_utterance_is_answered_not_routed(brain):

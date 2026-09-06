@@ -556,8 +556,10 @@ async def test_with_mock_llm(root: Path, host: str) -> None:
     check("llm online", brain.llm.available, "client says offline")
     check("model resolved", brain.llm.model.startswith("llama3.2"), brain.llm.model)
 
-    intent = await brain.classify("what time is it")
-    check("llm classification", intent.module == "system_control" and intent.method == "llm",
+    # "what time is it" is a decisive phrase now, so it never reaches the
+    # model; ask something only the classifier can place.
+    intent = await brain.classify("tell me something interesting about octopuses")
+    check("llm classification", intent.method == "llm",
           f"{intent.module}/{intent.method}")
 
     reply = await brain.process("what time is it")
