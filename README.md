@@ -277,7 +277,7 @@ python main.py --restore ~/jarvis.zip          # put it back (never overwrites)
 python main.py --restore ~/jarvis.zip --force  # overwrite, after a safety copy
 python main.py --uninstall         # shows what it will delete, then asks
 
-pytest                             # 493 fast unit tests
+pytest                             # 673 fast unit tests
 python tests/test_smoke.py         # full offline test suite (no model needed)
 ```
 
@@ -450,6 +450,8 @@ jarvis/
 │   ├── install_service_linux.sh          systemd user service
 │   ├── install_service_macos.sh          LaunchAgent
 │   └── install_service_windows.ps1       scheduled task at logon
+├── CHANGELOG.md             what changed, and which bugs went with it
+├── docs/CONFIGURATION.md    all 185 settings, with defaults and effects
 ├── docs/FUNCTIONS.md        index of every function (scripts/list_functions.py)
 ├── .github/ci.yml           ruff + mypy + tests CI (move to .github/workflows/)
 ├── plugins/
@@ -458,7 +460,7 @@ jarvis/
 │   └── *.py                 skills JARVIS writes for itself (loaded at start-up)
 ├── tests/
 │   ├── conftest.py          offline Config fixture + the run() helper
-│   ├── test_<module>.py     one suite per module — 493 fast unit tests in total
+│   ├── test_<module>.py     one suite per module — 673 fast unit tests in total
 │   ├── test_smoke.py        282-check end-to-end suite
 │   └── mock_ollama.py       scripted LLM server (streaming + vision) for testing
 └── data/                    SQLite DB, ChromaDB, notes, code, screenshots, TTS cache
@@ -472,7 +474,7 @@ Everything lives in `config.yaml`. Highlights:
 
 ```yaml
 user:
-  name: "Thijs"          # what JARVIS calls you
+  name: "Sir"            # what JARVIS calls you
   title: "sir"           # or "ma'am", "boss", or "" for none
 
 assistant:
@@ -528,7 +530,7 @@ blender:
   allow_bpy_module: true     # accept "pip install bpy" when the app is absent
 
 web_ui:
-  enabled: false
+  enabled: false             # or start it on demand: python main.py --web
   host: "0.0.0.0"            # reachable from your phone on the same Wi-Fi
   port: 8765
   require_token: true        # a blank token is generated into data/web_token.txt
@@ -1178,7 +1180,7 @@ Locally:
 pip install -e ".[dev]"
 ruff check .        # lint
 mypy                # type-check core, utils, modules, interfaces
-pytest              # 493 fast unit tests, one suite per module
+pytest              # 673 fast unit tests, one suite per module
 pytest tests/test_productivity.py -q    # or just the module you touched
 python tests/test_smoke.py   # the full sweep
 

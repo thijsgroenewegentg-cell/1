@@ -229,7 +229,7 @@ def test_saving_keeps_the_comments(tmp_path):
     path.write_text(
         "# JARVIS configuration\n"
         "user:\n"
-        '  name: "Thijs"            # what JARVIS calls you\n'
+        '  name: "Ada"            # what JARVIS calls you\n'
         "  title: sir               # or ma'am, or blank\n"
         "\n"
         "llm:\n"
@@ -251,7 +251,7 @@ def test_only_the_changed_line_is_rewritten(tmp_path):
     path = tmp_path / "config.yaml"
     original = (
         "user:\n"
-        '  name: "Thijs"            # aligned comment\n'
+        '  name: "Ada"            # aligned comment\n'
         "  title: sir\n"
         "llm:\n"
         "  temperature: 0.7\n"
@@ -272,7 +272,7 @@ def test_only_the_changed_line_is_rewritten(tmp_path):
 
 def test_a_setting_the_user_added_themselves_is_left_alone(tmp_path):
     path = tmp_path / "config.yaml"
-    path.write_text("user:\n  name: Thijs\n  favourite_biscuit: hobnob  # mine, not yours\n")
+    path.write_text("user:\n  name: Ada\n  favourite_biscuit: hobnob  # mine, not yours\n")
     config = Config.load(path)
     config.set("user.name", "Sir")
     config.save()

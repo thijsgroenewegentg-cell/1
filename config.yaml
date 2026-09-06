@@ -6,7 +6,7 @@
 # =============================================================================
 
 user:
-  name: "Thijs"            # How JARVIS addresses you
+  name: Sir  # How JARVIS addresses you
   title: "sir"             # "sir" / "ma'am" / "boss" / "" to disable
   location: "auto"         # City name for weather, or "auto" for IP lookup
   units: "metric"          # metric | imperial
@@ -203,7 +203,7 @@ self_improve:
     - "config.yaml"
 
 web_ui:
-  enabled: true  # phone/browser access on your LAN
+  enabled: false  # phone/browser access on your LAN
   host: "0.0.0.0"
   port: 8765
   token: ""                # shared secret; blank = one is generated for you

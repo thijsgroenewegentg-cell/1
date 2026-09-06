@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jarvis-local"
-version = "1.1.0"
+version = "1.2.0"
 description = "A 100% free, fully local JARVIS-style personal AI assistant (Ollama + Whisper + Edge-TTS + ChromaDB)"
 readme = "README.md"
 requires-python = ">=3.9"
