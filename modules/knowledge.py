@@ -174,6 +174,21 @@ class Knowledge(BaseModule):
             return "search_documents", {"query": text}
         return "ask_documents", {"question": text}
 
+    async def shutdown(self) -> None:
+        """Release the document index.
+
+        This module opens a second vector store of its own; leaving it open
+        cost a couple of file descriptors every time a session started, which
+        a long-lived assistant eventually notices.
+        """
+        closer = getattr(self.store, "close", None)
+        if callable(closer):
+            try:
+                await run_blocking(closer)
+            except Exception as exc:
+                self.log.debug("Closing the document index failed: %s", exc)
+        self.store = None
+
     # ---------------------------------------------------------------- indexing
     def _iter_documents(self, root: Path) -> List[Path]:
         """Collect indexable files under ``root``."""

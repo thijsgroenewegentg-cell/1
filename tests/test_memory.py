@@ -142,3 +142,50 @@ def test_an_unwritable_data_directory_does_not_take_the_assistant_down(config, t
     run(memory.add_exchange("hello", "good evening", "conversation"))
     assert memory.short_term.messages()
     assert isinstance(run(memory.recall("anything")), list)
+
+
+def test_shutting_down_gives_the_file_handles_back(tmp_path):
+    """ChromaDB caches every client it builds, process-wide.
+
+    Nothing ever closed them, so each session leaked a handful of
+    descriptors; a long enough run — or a long enough test suite — hit the
+    process limit and everything that opens a file started failing.
+    """
+    import copy
+    import gc
+    import os
+
+    from core.brain import Brain
+    from core.config import DEFAULT_CONFIG, Config
+
+    if not os.path.isdir("/proc/self/fd"):  # pragma: no cover - non-Linux
+        pytest.skip("needs /proc to count descriptors")
+
+    def descriptors() -> int:
+        return len(os.listdir("/proc/self/fd"))
+
+    def build(index: int) -> Config:
+        root = tmp_path / f"run{index}"
+        data = copy.deepcopy(DEFAULT_CONFIG)
+        data["llm"]["host"] = "http://127.0.0.1:59999"
+        data["paths"] = {name: str(root / name) for name in
+                         ("data", "logs", "backups", "screenshots", "knowledge")}
+        data["database"] = {"path": str(root / "jarvis.db")}
+        data["memory"]["path"] = str(root / "chroma")
+        data["voice"]["enabled"] = False
+        config = Config(data=data, path=root / "config.yaml")
+        config.ensure_directories()
+        return config
+
+    async def sessions() -> None:
+        for index in range(6):
+            brain = Brain(build(index))
+            await brain.initialize()
+            await brain.shutdown()
+
+    run(sessions())
+    gc.collect()
+    before = descriptors()
+    run(sessions())
+    gc.collect()
+    assert descriptors() - before < 8, "sessions are leaking file descriptors"

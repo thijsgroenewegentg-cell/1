@@ -792,7 +792,7 @@ class Brain:
             except Exception:
                 pass
         try:
-            await self.memory.save()
+            await self.memory.close()
         except Exception:
             pass
         await self.llm.close()

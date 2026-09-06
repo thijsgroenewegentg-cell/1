@@ -352,6 +352,33 @@ def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
 class ChromaStore:
     """ChromaDB-backed persistent vector store."""
 
+    #: Cleared by :meth:`close`, hence optional.
+    client: Optional[Any] = None
+    collection: Optional[Any] = None
+
+    def close(self) -> None:
+        """Release the client's files and drop it from ChromaDB's cache.
+
+        ChromaDB keeps every system it has built in a process-wide cache, so
+        opening a store per session — a reload, a repair run, a test — leaked
+        file descriptors until the process hit its limit and everything that
+        touches a file started failing.
+        """
+        client = getattr(self, "client", None)
+        self.client = None
+        self.collection = None
+        if client is None:
+            return
+        # close() releases this client's files; clear_system_cache() drops
+        # ChromaDB's process-wide registry, which is what actually holds them.
+        for attempt in (client.close, getattr(client, "clear_system_cache", None)):
+            if attempt is None:
+                continue
+            try:
+                attempt()
+            except Exception as error:
+                logger.debug("Closing ChromaDB: %s", error)
+
     def __init__(self, path: Path, collection: str, embedder: OllamaEmbedder) -> None:
         """Open (or create) a persistent Chroma collection.
 
@@ -376,16 +403,30 @@ class ChromaStore:
         except Exception as exc:  # pragma: no cover - depends on environment
             raise RuntimeError(f"ChromaDB unavailable: {exc}") from exc
 
+    def _live(self) -> Any:
+        """Return the collection, or say plainly that the store is closed.
+
+        Returns:
+            The ChromaDB collection.
+
+        Raises:
+            RuntimeError: When :meth:`close` has already run — a clear
+                sentence beats an AttributeError from three frames deeper.
+        """
+        if self.collection is None:
+            raise RuntimeError("the vector store has been closed")
+        return self.collection
+
     def add(self, doc_id: str, text: str, metadata: Dict[str, Any]) -> None:
         """Insert one document."""
-        self.collection.add(ids=[doc_id], documents=[text], metadatas=[metadata or {}])
+        self._live().add(ids=[doc_id], documents=[text], metadatas=[metadata or {}])
 
     def query(self, text: str, k: int) -> List[MemoryHit]:
         """Return the ``k`` nearest documents as :class:`MemoryHit` objects."""
         count = self.count()
         if count == 0:
             return []
-        result = self.collection.query(query_texts=[text], n_results=min(k, count))
+        result = self._live().query(query_texts=[text], n_results=min(k, count))
         documents = (result.get("documents") or [[]])[0]
         metadatas = (result.get("metadatas") or [[]])[0]
         distances = (result.get("distances") or [[]])[0]
@@ -400,12 +441,14 @@ class ChromaStore:
     def count(self) -> int:
         """Number of stored documents."""
         try:
-            return int(self.collection.count())
+            return int(self._live().count())
         except Exception:
             return 0
 
     def wipe(self) -> None:
         """Delete and recreate the collection."""
+        if self.client is None:
+            return
         try:
             self.client.delete_collection(self.name)
         except Exception:
@@ -999,6 +1042,22 @@ class Memory:
             return removed
 
         return await run_blocking(_delete)
+
+    async def close(self) -> None:
+        """Flush and release the long-term store.
+
+        Called from :meth:`core.brain.Brain.shutdown`, so a session that ends
+        gives its file handles back.
+        """
+        await self.save()
+        closer = getattr(self.store, "close", None)
+        if callable(closer):
+            try:
+                await run_blocking(closer)
+            except Exception as exc:
+                logger.debug("Closing the vector store failed: %s", exc)
+        self.store = None
+        self.backend = "closed"
 
     async def save(self) -> bool:
         """Flush everything to disk (Chroma persists automatically)."""

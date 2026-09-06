@@ -15,7 +15,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/config.py`](#coreconfigpy) — 28
 - [`core/event_bus.py`](#coreevent_buspy) — 13
 - [`core/intent_router.py`](#coreintent_routerpy) — 5
-- [`core/memory.py`](#corememorypy) — 66
+- [`core/memory.py`](#corememorypy) — 69
 - [`core/personality.py`](#corepersonalitypy) — 5
 - [`core/planner.py`](#coreplannerpy) — 5
 - [`interfaces/cli.py`](#interfacesclipy) — 31
@@ -26,7 +26,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
 - [`modules/communications.py`](#modulescommunicationspy) — 24
 - [`modules/file_manager.py`](#modulesfile_managerpy) — 32
-- [`modules/knowledge.py`](#modulesknowledgepy) — 19
+- [`modules/knowledge.py`](#modulesknowledgepy) — 20
 - [`modules/models.py`](#modulesmodelspy) — 17
 - [`modules/productivity.py`](#modulesproductivitypy) — 72
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
@@ -56,7 +56,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
 - [`tests/test_install.py`](#teststest_installpy) — 17
 - [`tests/test_knowledge.py`](#teststest_knowledgepy) — 15
-- [`tests/test_memory.py`](#teststest_memorypy) — 19
+- [`tests/test_memory.py`](#teststest_memorypy) — 23
 - [`tests/test_models.py`](#teststest_modelspy) — 7
 - [`tests/test_plugins.py`](#teststest_pluginspy) — 18
 - [`tests/test_productivity.py`](#teststest_productivitypy) — 23
@@ -325,7 +325,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/memory.py`
 
-*66 functions*
+*69 functions*
 
 > Dual memory system for JARVIS.
 
@@ -367,7 +367,9 @@ and marked with `·`; methods the intent router can call are marked
 
 ### `class ChromaStore` — ChromaDB-backed persistent vector store.
 
+- `def close(self) -> None` — Release the client's files and drop it from ChromaDB's cache.
 - `def __init__(self, path: Path, collection: str, embedder: OllamaEmbedder) -> None` — Open (or create) a persistent Chroma collection.
+- `def _live(self) -> Any` — Return the collection, or say plainly that the store is closed.
 - `def add(self, doc_id: str, text: str, metadata: Dict[str, Any]) -> None` — Insert one document.
 - `def query(self, text: str, k: int) -> List[MemoryHit]` — Return the ``k`` nearest documents as :class:`MemoryHit` objects.
 - `def count(self) -> int` — Number of stored documents.
@@ -412,6 +414,7 @@ and marked with `·`; methods the intent router can call are marked
   · `def _search() -> List[Dict[str, Any]]`
 - `async def forget(self, keyword: str) -> int` — Delete facts matching ``keyword`` from SQLite (and JSON store).
   · `def _delete() -> int`
+- `async def close(self) -> None` — Flush and release the long-term store.
 - `async def save(self) -> bool` — Flush everything to disk (Chroma persists automatically).
 - `async def clear_short_term(self) -> None` — Wipe the in-RAM conversation window and the running summary.
 - `async def wipe_all(self) -> bool` — Destroy every stored memory. Irreversible.
@@ -814,7 +817,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/knowledge.py`
 
-*19 functions*
+*20 functions*
 
 > Retrieval-augmented answers over your own documents.
 
@@ -827,6 +830,7 @@ and marked with `·`; methods the intent router can call are marked
   · `def _open() -> Tuple[Any, str]`
 - `async def _background_index(self) -> None` — Index the configured roots without blocking start-up.
 - `def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]` — Rule-based routing used when no LLM is available.
+- `async def shutdown(self) -> None` — Release the document index.
 - `def _iter_documents(self, root: Path) -> List[Path]` — Collect indexable files under ``root``.
 - `def _needs_index(self, path: Path, force: bool) -> bool` — Check whether a file is new or modified since the last index.
 - `def _index_one(self, path: Path) -> int` — Extract, chunk and embed a single document.
@@ -1751,7 +1755,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_memory.py`
 
-*19 functions*
+*23 functions*
 
 > Unit tests for core/memory.py.
 
@@ -1774,6 +1778,10 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_stats_report_the_backend_and_counts(memory)`
 - `def test_clearing_short_term_memory_leaves_the_long_term_alone(memory)`
 - `def test_an_unwritable_data_directory_does_not_take_the_assistant_down(config, tmp_path)`
+- `def test_shutting_down_gives_the_file_handles_back(tmp_path)` — ChromaDB caches every client it builds, process-wide.
+  · `def descriptors() -> int`
+  · `def build(index: int) -> Config`
+  · `async def sessions() -> None`
 
 ## `tests/test_models.py`
 
@@ -2240,5 +2248,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1543 functions across 63 files.**
+**1551 functions across 63 files.**
 
