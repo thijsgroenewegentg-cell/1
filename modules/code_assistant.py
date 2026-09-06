@@ -67,6 +67,8 @@ class CodeAssistant(BaseModule):
         super().__init__(config, llm=llm, security=security)
         self.code_dir: Path = config.path_for("code")
         self.sandbox_timeout = float(config.get("security.sandbox_timeout", 20))
+        #: Address-space ceiling for sandboxed snippets (POSIX; 0 disables).
+        self.sandbox_memory_mb = int(config.get("security.sandbox_memory_mb", 1024) or 0)
         self.last_code: str = ""
         self.last_language: str = "python"
 
@@ -403,6 +405,7 @@ class CodeAssistant(BaseModule):
                 timeout=limit,
                 cwd=workdir,
                 env=environment,
+                memory_mb=self.sandbox_memory_mb,
             )
 
         if code_returned == -9:
@@ -455,10 +458,9 @@ class CodeAssistant(BaseModule):
         if not target.suffix:
             target = target.with_suffix(extension)
 
-        if self.security is not None:
-            assessment = self.security.is_path_allowed(target, write=True)
-            if assessment.blocked:
-                return ModuleResult.fail(f"Refused: {assessment.reason}")
+        refusal = await self.guard_path(target, write=True, what="save code to")
+        if refusal is not None:
+            return refusal
 
         try:
             ensure_dir(target.parent)

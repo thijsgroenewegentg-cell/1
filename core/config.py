@@ -193,6 +193,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "confirm_dangerous": True,
         "allow_shell": True,
         "shell_timeout": 60,
+        "sandbox_memory_mb": 1024,
         "sandbox_timeout": 20,
         "blocked_patterns": [],
         "allowed_roots": [],

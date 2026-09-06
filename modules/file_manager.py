@@ -472,10 +472,9 @@ class FileManager(BaseModule):
         if not root.exists() or not root.is_dir():
             return ModuleResult.fail(f"{root} is not a folder.")
 
-        if self.security is not None:
-            assessment = self.security.is_path_allowed(root, write=True)
-            if assessment.blocked:
-                return ModuleResult.fail(f"Refused: {assessment.reason}")
+        refusal = await self.guard_path(root, write=True, what="reorganise")
+        if refusal is not None:
+            return refusal
 
         extension_map: Dict[str, str] = {
             extension: category
@@ -860,10 +859,9 @@ class FileManager(BaseModule):
     async def make_folder(self, path: str) -> ModuleResult:
         """Create a directory (with parents)."""
         target = resolve_user_path(path)
-        if self.security is not None:
-            assessment = self.security.is_path_allowed(target, write=True)
-            if assessment.blocked:
-                return ModuleResult.fail(f"Refused: {assessment.reason}")
+        refusal = await self.guard_path(target, write=True, what="create the folder")
+        if refusal is not None:
+            return refusal
         try:
             ensure_dir(target)
             return ModuleResult.ok(f"Created {target}.")
@@ -885,11 +883,10 @@ class FileManager(BaseModule):
         target = resolve_user_path(destination)
         if not origin.exists():
             return ModuleResult.fail(f"{origin} doesn't exist.")
-        if self.security is not None:
-            for candidate in (origin, target):
-                assessment = self.security.is_path_allowed(candidate, write=True)
-                if assessment.blocked:
-                    return ModuleResult.fail(f"Refused: {assessment.reason}")
+        for candidate in (origin, target):
+            refusal = await self.guard_path(candidate, write=True, what="move")
+            if refusal is not None:
+                return refusal
         try:
             if target.is_dir():
                 target = target / origin.name
@@ -954,12 +951,11 @@ class FileManager(BaseModule):
         except Exception:
             return ModuleResult.fail(f"Operation #{entry['id']} is unreadable, sir.")
 
-        if self.security is not None:
-            for source, destination in moves:
-                for candidate in (Path(source), Path(destination)):
-                    assessment = self.security.is_path_allowed(candidate, write=True)
-                    if assessment.blocked:
-                        return ModuleResult.fail(f"Refused: {assessment.reason}")
+        for source, destination in moves:
+            for candidate in (Path(source), Path(destination)):
+                refusal = await self.guard_path(candidate, write=True, what="restore")
+                if refusal is not None:
+                    return refusal
 
         def _restore() -> Dict[str, Any]:
             restored, missing, blocked = 0, 0, []

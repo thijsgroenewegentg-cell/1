@@ -30,6 +30,11 @@ SKIP_DIRECTORIES = {
 }
 
 
+#: Below this many characters a file holds nothing worth embedding. Kept low
+#: on purpose: a single-line note is still a fact worth recalling.
+MIN_DOCUMENT_CHARS = 12
+
+
 class Knowledge(BaseModule):
     """A private, local knowledge base built from your own files."""
 
@@ -194,9 +199,21 @@ class Knowledge(BaseModule):
             return True
 
     def _index_one(self, path: Path) -> int:
-        """Extract, chunk and embed a single document. Returns chunk count."""
+        """Extract, chunk and embed a single document.
+
+        Args:
+            path: The file to index.
+
+        Returns:
+            The number of chunks stored. Zero means the file held no usable
+            text — the caller counts those so the summary can explain itself
+            instead of reporting a mysterious "0 documents".
+        """
         text = extract_text(path)
-        if len(text.strip()) < 40:
+        # A one-line note ("Widget is a tortoiseshell cat") is a perfectly good
+        # thing to remember. The old floor of 40 characters silently dropped
+        # exactly the short notes people most want indexed.
+        if len(text.strip()) < MIN_DOCUMENT_CHARS:
             return 0
         chunks = chunk_text(text, self.chunk_size, self.chunk_overlap)
         if not chunks:
@@ -280,6 +297,7 @@ class Knowledge(BaseModule):
             files_indexed = 0
             chunks_added = 0
             skipped = 0
+            empty = 0
             errors = 0
             for target in targets:
                 for candidate in self._iter_documents(target):
@@ -292,6 +310,8 @@ class Knowledge(BaseModule):
                         if added:
                             files_indexed += 1
                             chunks_added += added
+                        else:
+                            empty += 1
                     except Exception as exc:
                         errors += 1
                         self.log.debug("Indexing %s failed: %s", candidate, exc)
@@ -300,6 +320,7 @@ class Knowledge(BaseModule):
                 "indexed": files_indexed,
                 "chunks": chunks_added,
                 "skipped": skipped,
+                "empty": empty,
                 "errors": errors,
             }
 
@@ -312,7 +333,8 @@ class Knowledge(BaseModule):
         summary = (
             f"Indexed {stats['indexed']} document(s) into {stats['chunks']} chunks "
             f"from {', '.join(str(t) for t in targets)} in {elapsed:.1f}s "
-            f"({stats['skipped']} already current, {stats['errors']} unreadable)."
+            f"({stats['skipped']} already current, {stats.get('empty', 0)} with no "
+            f"readable text, {stats['errors']} unreadable)."
         )
         return ModuleResult(
             success=True,

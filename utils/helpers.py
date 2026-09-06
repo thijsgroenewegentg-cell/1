@@ -125,12 +125,48 @@ async def with_timeout(
         return default
 
 
+def _resource_limiter(memory_mb: int) -> Optional[Callable[[], None]]:
+    """Build a ``preexec_fn`` that caps a child process's memory.
+
+    A sandbox with a time limit but no memory limit is only half a sandbox:
+    ``bytearray(2_000_000_000)`` finishes well inside the timeout and takes
+    the machine's memory with it. POSIX only — Windows has no equivalent hook,
+    and the timeout still applies there.
+
+    Args:
+        memory_mb: Address-space ceiling in megabytes.
+
+    Returns:
+        A callable for ``preexec_fn``, or ``None`` where unsupported.
+    """
+    if memory_mb <= 0 or IS_WINDOWS:
+        return None
+    try:
+        import resource
+    except ImportError:  # pragma: no cover - non-POSIX
+        return None
+
+    def _apply() -> None:
+        """Runs in the child between fork and exec."""
+        limit = memory_mb * 1024 * 1024
+        for which in (resource.RLIMIT_AS, resource.RLIMIT_DATA):
+            try:
+                _soft, hard = resource.getrlimit(which)
+                ceiling = limit if hard in (resource.RLIM_INFINITY, -1) else min(limit, hard)
+                resource.setrlimit(which, (ceiling, hard))
+            except (ValueError, OSError):
+                continue
+
+    return _apply
+
+
 async def run_command(
     command: Sequence[str] | str,
     timeout: float = 30.0,
     cwd: Optional[str] = None,
     shell: bool = False,
     env: Optional[Dict[str, str]] = None,
+    memory_mb: int = 0,
 ) -> Tuple[int, str, str]:
     """Run a subprocess asynchronously with a hard timeout.
 
@@ -140,11 +176,13 @@ async def run_command(
         cwd: Working directory.
         shell: Execute through the system shell.
         env: Extra environment variables (merged over ``os.environ``).
+        memory_mb: Optional address-space cap for the child (POSIX only).
 
     Returns:
         ``(returncode, stdout, stderr)``. Return code ``-9`` means timeout.
     """
     merged_env = {**os.environ, **(env or {})}
+    limiter = _resource_limiter(memory_mb)
     try:
         if shell or isinstance(command, str):
             cmd_str = command if isinstance(command, str) else " ".join(command)
@@ -154,6 +192,7 @@ async def run_command(
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=merged_env,
+                preexec_fn=limiter,
             )
         else:
             proc = await asyncio.create_subprocess_exec(
@@ -162,6 +201,7 @@ async def run_command(
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=merged_env,
+                preexec_fn=limiter,
             )
     except FileNotFoundError as exc:
         return 127, "", str(exc)

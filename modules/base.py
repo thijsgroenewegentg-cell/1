@@ -408,6 +408,40 @@ class BaseModule:
         return None
 
     # -- execution ----------------------------------------------------------
+    async def guard_path(
+        self, path: Any, write: bool = True, what: str = "touch"
+    ) -> Optional[ModuleResult]:
+        """Check a filesystem path against the security guard.
+
+        The guard grades a path SAFE, DANGEROUS ("ask first") or BLOCKED, but
+        every call site used to test only ``.blocked`` — so a write outside
+        the allowed roots, which is exactly the case the grading exists for,
+        went ahead without anyone being asked.
+
+        Args:
+            path: The path about to be read or written.
+            write: True when the operation modifies it.
+            what: Verb used in the confirmation prompt.
+
+        Returns:
+            ``None`` when the operation may proceed, or the
+            :class:`ModuleResult` to return to the caller when it may not.
+        """
+        if self.security is None:
+            return None
+        assessment = self.security.is_path_allowed(path, write=write)
+        if assessment.blocked:
+            return ModuleResult.fail(f"Refused: {assessment.reason}")
+        if assessment.needs_confirmation and getattr(
+            self.security, "confirm_dangerous", True
+        ):
+            approved = await self.security.confirm(
+                f"{what} {path}\n  {assessment.reason}. Proceed?"
+            )
+            if not approved:
+                return ModuleResult.fail("Cancelled — you did not confirm.")
+        return None
+
     async def call_tool(self, name: str, params: Optional[Dict[str, Any]] = None) -> ModuleResult:
         """Invoke a tool by name with keyword parameters.
 

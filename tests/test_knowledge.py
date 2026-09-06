@@ -93,3 +93,27 @@ def test_documents_can_be_forgotten(knowledge, library):
 
 def test_indexed_text_is_treated_as_untrusted(knowledge):
     assert knowledge.tools["ask_documents"].untrusted
+
+
+def test_a_short_note_is_indexed_and_findable(knowledge, tmp_path):
+    # Anything under 40 characters used to be dropped silently — which is
+    # precisely the length of the notes people keep.
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    (folder / "cat.txt").write_text("Widget is a tortoiseshell.")
+    indexed = run(knowledge.call_tool("index_documents", {"path": str(folder)}))
+    assert indexed.success
+    assert "1 document" in indexed.output
+
+    found = run(knowledge.call_tool("search_documents", {"query": "tortoiseshell"}))
+    assert found.success
+    assert "cat.txt" in found.output
+
+
+def test_an_empty_file_is_reported_not_hidden(knowledge, tmp_path):
+    folder = tmp_path / "blanks"
+    folder.mkdir()
+    (folder / "nothing.txt").write_text("")
+    result = run(knowledge.call_tool("index_documents", {"path": str(folder)}))
+    assert result.success
+    assert "no readable text" in result.output

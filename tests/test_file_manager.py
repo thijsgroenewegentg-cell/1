@@ -155,3 +155,39 @@ def test_binary_files_are_not_read_aloud(files, tmp_path):
 
 def test_text_files_are_still_readable(files, tree):
     assert run(files.call_tool("read_file", {"path": str(tree / "notes.txt")})).success
+
+
+def test_writing_outside_the_allowed_roots_needs_confirmation(tmp_path, monkeypatch):
+    # The guard graded this DANGEROUS ("ask first"), but every call site only
+    # checked .blocked, so the write went ahead without anyone being asked.
+    from tests.conftest import build_config
+
+    config = build_config(tmp_path)
+    config.set("security.allowed_roots", [str(tmp_path)])
+    config.set("security.confirm_dangerous", True)
+    module = FileManager(config)
+
+    asked = []
+
+    async def decline(prompt: str) -> bool:
+        asked.append(prompt)
+        return False
+
+    module.security.set_confirm_hook(decline)
+
+    target = tmp_path.parent / "jarvis-should-not-create-this"
+    result = run(module.call_tool("make_folder", {"path": str(target)}))
+    assert not result.success
+    assert asked, "the user should have been asked"
+    assert not target.exists()
+
+
+def test_writing_inside_the_allowed_roots_is_unchallenged(tmp_path):
+    from tests.conftest import build_config
+
+    config = build_config(tmp_path)
+    config.set("security.allowed_roots", [str(tmp_path)])
+    module = FileManager(config)
+    result = run(module.call_tool("make_folder", {"path": str(tmp_path / "fine")}))
+    assert result.success
+    assert (tmp_path / "fine").is_dir()

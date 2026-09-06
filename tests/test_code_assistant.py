@@ -104,3 +104,20 @@ def test_writing_code_without_a_model_says_so(coder):
     result = run(coder.call_tool("write_code", {"description": "a fizzbuzz"}))
     assert not result.success
     assert result.error
+
+
+def test_a_memory_hog_is_stopped(coder):
+    # A sandbox with a time limit but no memory limit is half a sandbox:
+    # this allocation finishes well inside the timeout.
+    result = run(coder.call_tool(
+        "run_python", {"code": "x = bytearray(2_000_000_000); print(len(x))", "timeout": 15}
+    ))
+    assert not result.success
+
+
+def test_modest_allocations_still_work(coder):
+    result = run(coder.call_tool(
+        "run_python", {"code": "x = bytearray(5_000_000); print(len(x))", "timeout": 15}
+    ))
+    assert result.success
+    assert "5000000" in result.output
