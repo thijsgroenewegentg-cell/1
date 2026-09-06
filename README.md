@@ -250,7 +250,7 @@ python main.py --restore ~/jarvis.zip          # put it back (never overwrites)
 python main.py --restore ~/jarvis.zip --force  # overwrite, after a safety copy
 python main.py --uninstall         # shows what it will delete, then asks
 
-pytest                             # 102 fast unit tests
+pytest                             # 110 fast unit tests
 python tests/test_smoke.py         # full offline test suite (no model needed)
 ```
 
@@ -273,6 +273,8 @@ python tests/test_smoke.py         # full offline test suite (no model needed)
 | `plugins` | list the skills JARVIS has written for itself |
 | `changes` / `undo` | its own change history, and roll back the last one |
 | `selftest` | run the 282-check smoke suite against the current code |
+| `language [code]` | show or change the language JARVIS speaks (`language nl`) |
+| `languages` | the 21 languages with a free voice |
 | `mute` / `unmute` | speak replies in text mode |
 | `clear`, `config`, `exit` | as expected |
 
@@ -397,6 +399,7 @@ jarvis/
 │   ├── helpers.py           shared utilities
 │   ├── security.py          risk assessment + confirmation gate
 │   ├── cache.py             SQLite TTL cache for web lookups
+│   ├── language.py          21 languages: Whisper model, TTS voice, prompt rule
 │   ├── backup.py            backup / restore / uninstall
 │   └── documents.py         shared PDF/DOCX/PPTX/HTML text extraction + chunking
 ├── scripts/
@@ -407,7 +410,7 @@ jarvis/
 ├── .github/ci.yml           ruff + mypy + tests CI (move to .github/workflows/)
 ├── plugins/                 skills JARVIS writes for itself (loaded at start-up)
 ├── tests/
-│   ├── test_units.py        102 fast pytest unit tests (no Ollama, no network)
+│   ├── test_units.py        110 fast pytest unit tests (no Ollama, no network)
 │   ├── test_smoke.py        282-check end-to-end suite
 │   └── mock_ollama.py       scripted LLM server (streaming + vision) for testing
 └── data/                    SQLite DB, ChromaDB, notes, code, screenshots, TTS cache
@@ -424,6 +427,10 @@ user:
   name: "Thijs"          # what JARVIS calls you
   title: "sir"           # or "ma'am", "boss", or "" for none
 
+assistant:
+  name: "JARVIS"
+  language: "en"         # nl, de, fr, es … drives STT, TTS and the reply language
+
 llm:
   model: "llama3.2"      # any Ollama model: mistral, llama3, phi3, qwen2.5…
   temperature: 0.7
@@ -435,7 +442,9 @@ voice:
   porcupine_access_key: ""       # optional free key from console.picovoice.ai
   interrupt: true                # talk over JARVIS to stop him
   stt: { model: "base.en" }      # tiny.en is faster, small.en is sharper
-  tts: { voice: "en-GB-RyanNeural", rate: "+8%" }
+                                 #   (the .en suffix drops itself when
+                                 #    assistant.language is not English)
+  tts: { voice: "", rate: "+8%" }  # blank = the best free voice for the language
 
 memory:
   summarize: true            # compress old turns into a running briefing
@@ -522,6 +531,40 @@ Any setting can be overridden by an environment variable:
 ollama pull mistral
 # then set llm.model: "mistral" in config.yaml
 ```
+
+### Speaking another language
+
+One setting changes all three halves of the conversation — what JARVIS hears,
+what it says, and what it thinks in:
+
+```yaml
+assistant:
+  language: "nl"        # en, nl, de, fr, es, it, pt, pl, sv, da, no, fi,
+                        # tr, ru, uk, cs, ar, hi, zh, ja, ko
+```
+
+That single line does three things:
+
+* **Transcription** switches to a multilingual Whisper model. The `.en` models
+  are English-only and do not fail on Dutch — they invent plausible English,
+  which is far worse than an error — so `base.en` automatically becomes `base`.
+* **Speech** picks the best free Edge-TTS neural voice for the language
+  (`nl-NL-MaartenNeural` for Dutch, `de-DE-ConradNeural` for German, …). A
+  voice you set yourself in `voice.tts.voice` still wins, as long as it speaks
+  the language you chose; if it does not, JARVIS says so in the log and uses
+  the right one instead.
+* **The persona** gains a rule telling the model to reply in that language
+  however you write to it, while leaving tool names, paths and code alone.
+
+You can also switch mid-conversation with `/language nl`, which saves the
+choice to `config.yaml`. `/languages` lists the lot. Leave `voice.tts.voice`
+and `voice.stt.language` at their defaults (`""` and `auto`) to let the
+language setting drive them.
+
+One honest caveat: anything the model writes follows your language, but the
+handful of fixed strings the modules emit without the model (timer
+confirmations, error messages, the offline fallback greeting) stay English.
+The sarcasm, at least, survives translation.
 
 ### Voices
 
@@ -1015,7 +1058,7 @@ Extras mirror the optional dependencies: `pip install -e ".[voice]"`,
 ## Continuous integration
 
 `.github/ci.yml` (move it to `.github/workflows/ci.yml` to switch it on) runs
-**ruff**, **mypy**, the 102 pytest unit tests and the 282-check offline smoke
+**ruff**, **mypy**, the 110 pytest unit tests and the 282-check offline smoke
 suite on Linux, macOS and Windows (Python 3.9–3.12), measures coverage over both
 suites, and builds a wheel. No models are downloaded — `tests/mock_ollama.py`
 scripts the LLM, including token streaming and vision responses.

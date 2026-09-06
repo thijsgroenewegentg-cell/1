@@ -36,6 +36,8 @@ from core.brain import Brain  # noqa: E402
 from core.config import Config  # noqa: E402
 from interfaces.cli import CLI  # noqa: E402
 from utils.helpers import detect_os  # noqa: E402
+from utils.language import get as language_get  # noqa: E402
+from utils.language import voice_for  # noqa: E402
 from utils.logger import get_logger, setup_logging  # noqa: E402
 
 logger = get_logger("main")
@@ -232,6 +234,13 @@ class Jarvis:
         self.cli.success(
             "Modules: " + ", ".join(f"{n} ({c} tools)" for n, c in report["modules"].items())
         )
+
+        spoken = language_get(self.config.get("assistant.language", "en"))
+        if spoken.code != "en":
+            self.cli.success(
+                f"Language: {spoken.english_name} ({spoken.native_name}) — "
+                f"voice {voice_for(spoken.code, self.config.get('voice.tts.voice', ''))}"
+            )
 
         if self.voice is not None:
             voice_report = await self.voice.self_test()

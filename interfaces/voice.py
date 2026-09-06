@@ -40,6 +40,8 @@ from utils.helpers import (
     truncate,
     which,
 )
+from utils.language import normalise as normalise_language
+from utils.language import voice_for, whisper_model_for
 from utils.logger import get_logger
 
 logger = get_logger("interfaces.voice")
@@ -81,7 +83,16 @@ class TextToSpeech:
         self.active_engine: str = ""
         self._piper_binary: Optional[str] = None
         self._piper_model: Optional[Path] = None
-        self.voice: str = str(config.get("voice.tts.voice", "en-GB-RyanNeural"))
+        spoken = str(config.get("assistant.language", "en"))
+        configured_voice = str(config.get("voice.tts.voice", "") or "")
+        self.language: str = normalise_language(spoken)
+        #: An explicit voice wins, but only if it speaks the chosen language.
+        self.voice: str = voice_for(spoken, configured_voice)
+        if configured_voice and self.voice != configured_voice:
+            logger.info(
+                "Voice '%s' does not speak %s; using '%s' instead.",
+                configured_voice, self.language, self.voice,
+            )
         self.rate: str = str(config.get("voice.tts.rate", "+8%"))
         self.volume: str = str(config.get("voice.tts.volume", "+0%"))
         self.pitch: str = str(config.get("voice.tts.pitch", "+0Hz"))
@@ -754,10 +765,22 @@ class SpeechToText:
     def __init__(self, config: Any) -> None:
         """Read the ``voice.stt`` settings."""
         stt = config.section("voice").get("stt", {})
-        self.model_name = str(stt.get("model", "base.en"))
+        spoken = str(config.get("assistant.language", "en"))
+        configured_model = str(stt.get("model", "base.en"))
+        # base.en does not fail on Dutch — it invents English, which is worse.
+        self.model_name = whisper_model_for(spoken, configured_model)
+        if self.model_name != configured_model:
+            logger.info(
+                "Language is %s, so transcribing with the multilingual '%s' "
+                "instead of the English-only '%s'.",
+                normalise_language(spoken), self.model_name, configured_model,
+            )
         self.device = str(stt.get("device", "auto"))
         self.compute_type = str(stt.get("compute_type", "auto"))
-        self.language = str(stt.get("language", "en"))
+        configured_language = str(stt.get("language", "") or "").strip().lower()
+        if configured_language in ("", "auto"):
+            configured_language = ""
+        self.language = configured_language or normalise_language(spoken)
         self.beam_size = int(stt.get("beam_size", 1))
         self.vad_filter = bool(stt.get("vad_filter", True))
         self.model: Optional[Any] = None

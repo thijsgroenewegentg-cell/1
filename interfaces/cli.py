@@ -14,6 +14,9 @@ from datetime import datetime
 from typing import Any, List, Optional
 
 from utils.helpers import extract_code_blocks, human_duration, truncate
+from utils.language import LANGUAGES, voice_for, whisper_model_for
+from utils.language import get as language_get
+from utils.language import resolve as resolve_language
 from utils.logger import get_logger
 
 logger = get_logger("interfaces.cli")
@@ -61,6 +64,8 @@ HELP_ROWS: List[tuple[str, str]] = [
     ("undo", "Roll back JARVIS's last self-modification"),
     ("stream on|off", "Toggle live token-by-token replies"),
     ("mute / unmute", "Toggle spoken replies in text mode"),
+    ("language [code]", "Show or change the language JARVIS speaks"),
+    ("languages", "List the languages with a free voice"),
     ("config", "Show the active configuration"),
     ("exit / quit", "Shut JARVIS down"),
 ]
@@ -287,6 +292,14 @@ class CLI:
             self.show_config()
             return True
 
+        if command == "language" or command.startswith("language "):
+            await self.switch_language(argument)
+            return True
+
+        if command in {"languages", "language list"}:
+            self.show_languages()
+            return True
+
         if command in {"mute", "unmute"}:
             self.speak_replies = command == "unmute"
             self.info(f"Spoken replies {'on' if self.speak_replies else 'off'}.")
@@ -389,6 +402,60 @@ class CLI:
             for name, description in HELP_ROWS:
                 print(f"  {name:<20} {description}")
 
+    def show_languages(self) -> None:
+        """List every language JARVIS has a free voice for."""
+        current = language_get(self.brain.config.get("assistant.language", "en"))
+        rows = ", ".join(
+            f"[bold cyan]{code}[/] ({item.english_name})" if code == current.code
+            else f"{code} ({item.english_name})"
+            for code, item in sorted(LANGUAGES.items())
+        )
+        self.print(f"Languages: {rows}")
+        self.info("Switch with /language <code>, e.g. /language nl.")
+
+    async def switch_language(self, code: str) -> None:
+        """Report or change the language JARVIS speaks, live.
+
+        Args:
+            code: A language tag. Empty simply reports the current one.
+        """
+        current = language_get(self.brain.config.get("assistant.language", "en"))
+        if not code:
+            self.info(
+                f"Currently speaking {current.english_name} ({current.native_name}). "
+                "Use /languages to see the options."
+            )
+            return
+
+        wanted = resolve_language(code)
+        if wanted is None:
+            self.error(f"I have no voice for '{code}', sir. Try /languages.")
+            return
+        if wanted.code == current.code:
+            self.info(f"Already speaking {wanted.english_name}, sir.")
+            return
+
+        self.brain.config.set("assistant.language", wanted.code)
+        if self.voice is not None:
+            tts = getattr(self.voice, "tts", None)
+            stt = getattr(self.voice, "stt", None)
+            if tts is not None:
+                tts.voice = voice_for(wanted.code, "")
+                tts.language = wanted.code
+            if stt is not None:
+                stt.language = wanted.code
+                needed = whisper_model_for(wanted.code, stt.model_name)
+                if needed != stt.model_name:
+                    self.info(
+                        f"Transcription needs the multilingual '{needed}' model; "
+                        "restart voice mode to load it."
+                    )
+        saved = self.brain.config.save()
+        self.success(
+            f"Switching to {wanted.english_name} ({wanted.native_name})."
+            + ("" if saved else " Config file not writable, so this lasts until restart.")
+        )
+
     async def show_status(self) -> None:
         """Show a full system status report."""
         report = await self.brain.status_report()
@@ -420,6 +487,9 @@ class CLI:
             "Modules",
             ", ".join(f"{name} ({count})" for name, count in report["modules"].items()) or "none",
         )
+        spoken = language_get(self.brain.config.get("assistant.language", "en"))
+        if spoken.code != "en":
+            table.add_row("Language", f"{spoken.english_name} ({spoken.native_name})")
         table.add_row("Turns this session", str(report["turns"]))
         table.add_row("Uptime", human_duration(report["uptime_seconds"]))
         table.add_row("Platform", report["os"])

@@ -47,6 +47,7 @@ from utils.helpers import (
     strip_markdown,
     truncate,
 )
+from utils.language import prompt_instruction as language_instruction
 from utils.logger import get_logger
 from utils.security import RiskLevel, SecurityGuard, scan_untrusted, wrap_untrusted
 
@@ -911,6 +912,11 @@ class Brain:
             lines.append(
                 "7. When genuinely useful, add one short proactive suggestion at the end."
             )
+
+        instruction = language_instruction(self.config.get("assistant.language", "en"))
+        if instruction:
+            rules = sum(1 for line in lines if re.match(r"^\d+\. ", line))
+            lines.append(f"{rules + 1}. {instruction}")
 
         lines += [
             "",

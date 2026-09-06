@@ -13,6 +13,9 @@ user:
 
 assistant:
   name: "JARVIS"
+  language: "en"                          # en, nl, de, fr, es, it, pt, pl, sv, …
+                                          #   picks the Whisper model, the TTS
+                                          #   voice and the reply language
   personality: "witty"     # witty | professional | minimal
   sarcasm: 0.35            # 0.0 (dry) .. 1.0 (insufferable)
   greet_on_start: true
@@ -87,9 +90,12 @@ voice:
 
   stt:
     model: "base.en"                       # tiny.en | base.en | small.en | medium
+                                           #   the .en models are English-only; a
+                                           #   non-English assistant.language drops
+                                           #   the suffix automatically
     device: "auto"                         # auto | cpu | cuda
     compute_type: "auto"                   # auto | int8 | float16
-    language: "en"
+    language: "auto"                       # auto = follow assistant.language
     beam_size: 1
     vad_filter: true
 
@@ -100,7 +106,9 @@ voice:
     engine: "auto"
     piper_voice: ""                        # name or path of a .onnx voice in data/piper
     piper_speed: 1.0                       # >1 faster, <1 slower
-    voice: "en-GB-RyanNeural"              # try en-US-GuyNeural, en-AU-WilliamNeural
+    voice: ""                              # blank = the best free voice for your
+                                           #   language (en-GB-RyanNeural for English,
+                                           #   nl-NL-MaartenNeural for Dutch, …)
     rate: "+8%"
     volume: "+0%"
     pitch: "+0Hz"

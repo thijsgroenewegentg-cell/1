@@ -668,3 +668,103 @@ def test_a_named_image_that_is_missing_is_reported_not_swapped_for_the_screen(
     tool, params = vision.offline_router("describe this image ~/definitely-not-here.png")
     assert tool == "describe_image"
     assert params["path"].endswith("definitely-not-here.png")
+
+
+# --------------------------------------------------------------------- language
+
+
+def test_language_tags_are_normalised_however_they_are_written():
+    from utils.language import normalise
+
+    assert normalise("nl") == "nl"
+    assert normalise("nl-NL") == "nl"
+    assert normalise("NL_be") == "nl"
+    assert normalise("dutch") == "nl"
+    assert normalise("Nederlands") == "nl"
+    assert normalise("") == "en"
+    assert normalise("klingon") == "en"
+
+
+def test_a_non_english_language_drops_the_english_only_whisper_suffix():
+    from utils.language import whisper_model_for
+
+    assert whisper_model_for("en", "base.en") == "base.en"
+    assert whisper_model_for("nl", "base.en") == "base"
+    assert whisper_model_for("nl", "small.en") == "small"
+    assert whisper_model_for("nl", "medium") == "medium"
+    assert whisper_model_for("nl", "") == "base"
+
+
+def test_a_configured_voice_only_wins_if_it_speaks_the_language():
+    from utils.language import voice_for
+
+    assert voice_for("en", "") == "en-GB-RyanNeural"
+    assert voice_for("nl", "") == "nl-NL-MaartenNeural"
+    assert voice_for("nl", "nl-BE-ArnaudNeural") == "nl-BE-ArnaudNeural"
+    assert voice_for("nl", "en-GB-RyanNeural") == "nl-NL-MaartenNeural"
+    assert voice_for("de", "de-DE-KatjaNeural") == "de-DE-KatjaNeural"
+
+
+def test_every_language_entry_has_voices_that_match_its_own_code():
+    from utils.language import LANGUAGES, normalise
+
+    for code, language in LANGUAGES.items():
+        assert language.code == code
+        assert language.voices, code
+        for voice in language.voices:
+            assert normalise(voice) == code, (code, voice)
+
+
+def test_english_needs_no_reply_language_rule_but_dutch_does():
+    from utils.language import prompt_instruction
+
+    assert prompt_instruction("en") is None
+    dutch = prompt_instruction("nl-NL")
+    assert dutch is not None
+    assert "Dutch" in dutch and "Nederlands" in dutch
+
+
+def test_the_system_prompt_pins_the_reply_language(offline_modules):
+    import copy
+
+    from core.brain import Brain
+    from core.config import DEFAULT_CONFIG, Config
+
+    data = copy.deepcopy(DEFAULT_CONFIG)
+    data["assistant"]["language"] = "fr"
+    prompt = Brain(Config(data=data, path=None)).system_prompt()
+    assert "Always reply in French" in prompt
+
+    data["assistant"]["language"] = "en"
+    assert "Always reply in" not in Brain(Config(data=data, path=None)).system_prompt()
+
+
+def test_an_unknown_language_is_rejected_rather_than_silently_becoming_english():
+    from utils.language import is_supported, resolve
+
+    assert resolve("klingon") is None
+    assert resolve("") is None
+    assert resolve("nb-NO").code == "no"
+    assert resolve("fr-CA").code == "fr"
+    assert is_supported("english") and not is_supported("xx")
+
+
+def test_the_cli_can_switch_language_at_runtime(tmp_path):
+    import asyncio
+    import copy
+
+    from core.brain import Brain
+    from core.config import DEFAULT_CONFIG, Config
+    from interfaces.cli import CLI
+
+    path = tmp_path / "config.yaml"
+    config = Config(data=copy.deepcopy(DEFAULT_CONFIG), path=path)
+    cli = CLI(Brain(config))
+
+    assert asyncio.run(cli.handle_command("/language nl"))
+    assert config.get("assistant.language") == "nl"
+    assert "language: nl" in path.read_text()
+
+    # A language we have no voice for must not quietly reset us to English.
+    asyncio.run(cli.handle_command("/language klingon"))
+    assert config.get("assistant.language") == "nl"

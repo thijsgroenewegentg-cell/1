@@ -18,6 +18,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "user": {"name": "Sir", "title": "sir", "location": "auto", "units": "metric"},
     "assistant": {
         "name": "JARVIS",
+        "language": "en",          # one setting for STT, TTS and the persona
         "personality": "witty",
         "sarcasm": 0.35,
         "greet_on_start": True,
@@ -78,12 +79,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             "model": "base.en",
             "device": "auto",
             "compute_type": "auto",
-            "language": "en",
+            "language": "auto",        # auto = follow assistant.language
             "beam_size": 1,
             "vad_filter": True,
         },
         "tts": {
-            "voice": "en-GB-RyanNeural",
+            "voice": "",               # blank = the default voice for the language
             "rate": "+8%",
             "volume": "+0%",
             "pitch": "+0Hz",
