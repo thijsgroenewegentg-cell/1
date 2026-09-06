@@ -548,6 +548,10 @@ class Blender(BaseModule):
             return ModuleResult.fail("Which .blend should I render, sir?")
         if not target.is_file():
             return ModuleResult.fail(f"No .blend file at {target}.")
+        if not self._is_blend(target):
+            return ModuleResult.fail(
+                f"{target.name} isn't a Blender file, sir — I need a .blend."
+            )
         self.last_blend = str(target)
 
         kind, _ = self.find_runtime() or ("", "")
@@ -641,9 +645,13 @@ class Blender(BaseModule):
         folder, stem = prefix.parent, prefix.name
         if not folder.is_dir():
             return []
+        # Blender names frames "<prefix><4-digit frame><ext>". Matching the
+        # prefix alone swept up anything that happened to sit there with a
+        # recent timestamp, and reported it as freshly rendered.
+        pattern = re.compile(rf"^{re.escape(stem)}\d{{3,}}\.[A-Za-z0-9]+$")
         return sorted(
             (path for path in folder.iterdir()
-             if path.is_file() and path.name.startswith(stem)
+             if path.is_file() and pattern.match(path.name)
              and path.stat().st_mtime >= since),
             key=lambda path: path.name,
         )
@@ -715,6 +723,18 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
         )
 
     # ------------------------------------------------------------- inspection
+    @staticmethod
+    def _is_blend(path: Path) -> bool:
+        """Whether a path is plausibly a Blender file.
+
+        Args:
+            path: The file in question.
+
+        Returns:
+            True for ``.blend`` and its numbered backups (``.blend1``).
+        """
+        return path.suffix.lower().startswith(".blend")
+
     @tool(
         description="Report what is inside a .blend: objects, cameras, materials, frames.",
         params={
@@ -740,6 +760,10 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
         target = resolve_user_path(blend_file)
         if not target.is_file():
             return ModuleResult.fail(f"No .blend file at {target}.")
+        if not self._is_blend(target):
+            return ModuleResult.fail(
+                f"{target.name} isn't a Blender file, sir — I need a .blend."
+            )
         self.last_blend = str(target)
 
         _code, out, err = await self._run_script(INSPECT_SCRIPT, str(target))
@@ -1061,6 +1085,10 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
             return ModuleResult.fail("Which .blend should I export, sir?")
         if not target.is_file():
             return ModuleResult.fail(f"No .blend file at {target}.")
+        if not self._is_blend(target):
+            return ModuleResult.fail(
+                f"{target.name} isn't a Blender file, sir — I need a .blend."
+            )
 
         suffix = ("." + format.strip().lower().lstrip(".")) if format else ".glb"
         operator = EXPORTERS.get(suffix)

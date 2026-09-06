@@ -349,3 +349,44 @@ def test_building_a_scene_without_a_model_says_so(blender):
 def test_a_description_becomes_a_sensible_filename(blender):
     assert blender._slug("make me a 3d scene of a red sports car") == "red-sports-car"
     assert blender._slug("!!!") == "scene"
+
+
+# ------------------------------------------------------- files that are not scenes
+def test_a_text_file_is_not_a_scene(blender, tmp_path):
+    junk = tmp_path / "notes.txt"
+    junk.write_text("this is not a blender file")
+    for name, params in (("scene_info", {"blend_file": str(junk)}),
+                         ("render", {"blend_file": str(junk)}),
+                         ("export_model", {"blend_file": str(junk), "format": "glb"})):
+        result = run(blender.call_tool(name, params))
+        assert not result.success, name
+        assert "blender file" in result.error.lower()
+
+
+def test_blend_backups_are_still_accepted(blender, scene, tmp_path):
+    backup = tmp_path / "city.blend1"
+    backup.write_text(scene.read_text())
+    result = run(blender.call_tool("scene_info", {"blend_file": str(backup)}))
+    assert result.success
+
+
+def test_unrelated_files_are_not_counted_as_rendered(blender, scene, tmp_path):
+    # A recent file sharing the output prefix was reported as a rendered frame.
+    destination = tmp_path / "out"
+    destination.mkdir()
+    intruder = destination / "city_notes.txt"
+    intruder.write_text("nothing to do with the render")
+
+    result = run(blender.call_tool(
+        "render", {"blend_file": str(scene), "frame": 1, "output": str(destination)}
+    ))
+    assert result.success
+    assert all(path.endswith((".png", ".jpg")) for path in result.data["files"])
+    assert not any("notes" in path for path in result.data["files"])
+
+
+def test_every_tool_is_still_registered(blender):
+    # A helper wedged between @tool and its function silently unregisters it.
+    for name in ("blender_status", "render", "scene_info", "run_script",
+                 "make_scene", "export_model", "open_blender", "list_renders"):
+        assert name in blender.tools, name

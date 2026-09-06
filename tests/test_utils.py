@@ -315,3 +315,31 @@ def test_missing_packages_are_one_command_not_several(tmp_path):
     first_command = finding.fix.split(";")[0]
     assert first_command.count("pip install") <= 1
     assert "&&" not in first_command
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        'print(open("/etc/passwd").read())',
+        'from pathlib import Path; Path("~/.ssh/id_rsa").read_text()',
+        'import requests; requests.get("http://example.com")',
+        'import os; print(os.environ)',
+        'import pickle; pickle.loads(b"")',
+    ],
+)
+def test_code_that_reaches_outside_needs_confirmation(code):
+    # Only writes were flagged, so printing ~/.ssh/id_rsa counted as "inert".
+    assert SecurityGuard().assess_code(code).needs_confirmation, code
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "print(sum(range(10)))",
+        "import math; print(math.sqrt(2))",
+        'import bpy; bpy.ops.mesh.primitive_cube_add(location=(0, 0, 1))',
+        'import bpy\nbpy.ops.wm.open_mainfile(filepath="/tmp/a.blend")',
+    ],
+)
+def test_ordinary_code_runs_without_nagging(code):
+    assert not SecurityGuard().assess_code(code).needs_confirmation, code

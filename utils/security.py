@@ -121,13 +121,23 @@ _PROTECTED_ROOTS = (
 # Python constructs blocked inside the code sandbox.
 _SANDBOX_FORBIDDEN: Sequence[str] = (
     r"\bimport\s+shutil\b",
-    r"\bshutil\.rmtree\b",
-    r"\bos\.(remove|unlink|rmdir|removedirs|system)\b",
+    r"\bshutil\.(rmtree|copy|move)\b",
+    r"\bos\.(remove|unlink|rmdir|removedirs|system|popen|execv?|spawn\w*|kill)\b",
+    r"\bos\.environ\b",
     r"\bsubprocess\b",
     r"\bsocket\b",
     r"\bctypes\b",
-    r"\b__import__\s*\(\s*['\"]os['\"]",
-    r"\bopen\s*\([^)]*['\"][wa]",
+    r"\b__import__\s*\(",
+    # Reading is as sensitive as writing: printing ~/.ssh/id_rsa or
+    # /etc/passwd was classed "inert" because only 'w' and 'a' were matched.
+    r"\bopen\s*\(",
+    r"\bPath\s*\([^)]*\)\s*\.\s*(read|write|unlink|rmdir|open|rename|replace)",
+    r"\b(pathlib|glob)\.(Path|glob|iglob)\b",
+    # Anything that leaves the machine.
+    r"\b(requests|httpx|urllib|urllib2|ftplib|smtplib|telnetlib|paramiko)\b",
+    r"\bhttp\.client\b",
+    r"\b(pickle|marshal|shelve)\b",
+    r"\beval\s*\(|\bexec\s*\(",
 )
 
 
