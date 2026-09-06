@@ -326,7 +326,8 @@ class WebInterface:
                 from interfaces.voice import TextToSpeech
 
                 engine = TextToSpeech(self.config)
-                if await engine.initialize():
+                # the browser plays what we synthesise; the server needs no speaker
+                if await engine.initialize(needs_player=False):
                     self._tts = engine
             except Exception as exc:
                 logger.debug("Web TTS unavailable: %s", exc)

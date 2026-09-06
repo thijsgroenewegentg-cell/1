@@ -79,7 +79,7 @@ class TextToSpeech:
         self.config = config
         self.engine: str = str(config.get("voice.tts.engine", "auto")).lower().strip()
         self.piper_voice: str = str(config.get("voice.tts.piper_voice", "")).strip()
-        self.piper_speed: float = float(config.get("voice.tts.piper_speed", 1.0) or 1.0)
+        self.piper_speed: float = float(config.get("voice.tts.piper_speed", 0.96) or 0.96)
         self.active_engine: str = ""
         self._piper_binary: Optional[str] = None
         self._piper_model: Optional[Path] = None
@@ -93,9 +93,9 @@ class TextToSpeech:
                 "Voice '%s' does not speak %s; using '%s' instead.",
                 configured_voice, self.language, self.voice,
             )
-        self.rate: str = str(config.get("voice.tts.rate", "+8%"))
+        self.rate: str = str(config.get("voice.tts.rate", "-4%"))
         self.volume: str = str(config.get("voice.tts.volume", "+0%"))
-        self.pitch: str = str(config.get("voice.tts.pitch", "+0Hz"))
+        self.pitch: str = str(config.get("voice.tts.pitch", "-2Hz"))
         self.cache_enabled: bool = bool(config.get("voice.tts.cache", True))
         self.cache_dir: Path = config.path_for("tts_cache")
         ensure_dir(self.cache_dir)
@@ -105,8 +105,13 @@ class TextToSpeech:
         self.speaking: bool = False
 
     # -- setup --------------------------------------------------------------
-    async def initialize(self) -> bool:
+    async def initialize(self, needs_player: bool = True) -> bool:
         """Pick a speech engine and an audio player.
+
+        Args:
+            needs_player: False for synthesis-only use (the web interface
+                streams the audio to a browser, which plays it itself), so a
+                headless machine without ffplay can still speak there.
 
         Returns:
             True when JARVIS can speak.
@@ -130,11 +135,14 @@ class TextToSpeech:
 
         self._player = self._find_player()
         if self._player is None:
-            logger.warning(
-                "No audio player found. Install ffmpeg (ffplay) or mpv, "
-                "or on Linux: sudo apt install ffmpeg"
-            )
-            return False
+            if needs_player:
+                logger.warning(
+                    "No audio player found. Install ffmpeg (ffplay) or mpv, "
+                    "or on Linux: sudo apt install ffmpeg"
+                )
+                return False
+            logger.info("No local audio player — synthesis only, which is "
+                        "all the web interface needs.")
 
         self.active_engine = engines[0]
         self.available = True
@@ -144,7 +152,7 @@ class TextToSpeech:
             else f"edge voice={self.voice}"
         )
         logger.info("TTS ready — engine=%s %s player=%s",
-                    self.active_engine, detail, self._player[0])
+                    self.active_engine, detail, (self._player or ["none"])[0])
         return True
 
     def _find_piper(self) -> bool:

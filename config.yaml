@@ -111,9 +111,9 @@ voice:
     voice: ""                              # blank = the best free voice for your
                                            #   language (en-GB-RyanNeural for English,
                                            #   nl-NL-MaartenNeural for Dutch, …)
-    rate: "+8%"
-    volume: "+0%"
-    pitch: "+0Hz"
+    rate: "-4%"                             # the JARVIS cadence: measured,
+    volume: "+0%"                           #   never hurried, a butler's pace
+    pitch: "-2Hz"                           #   and a shade below bright
     cache: true
 
   vad:

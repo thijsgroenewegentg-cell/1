@@ -102,11 +102,17 @@ body.dragging #field { cursor: grabbing; }
 }
 /* the listening ring collapses inward instead: sound arriving, not leaving */
 .shock.in { animation-name: shockIn; animation-duration: .8s; }
+.shock.bad { border-color: var(--bad); }
 @keyframes shockIn {
   from { opacity: 0;  transform: translate(-50%, -50%) scale(1); }
   30%  { opacity: .4; }
   to   { opacity: 0;  transform: translate(-50%, -50%) scale(.12); }
 }
+/* the room pulses with the voice: readout while speaking, mic while hearing */
+body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinite; }
+@keyframes speakGlow { 50% { text-shadow: 0 0 24px rgba(110, 168, 255, .85); } }
+.dot-btn.recording { animation: recPulse 1.2s ease-in-out infinite; }
+@keyframes recPulse { 50% { box-shadow: 0 0 28px rgba(55, 200, 232, .5); } }
 
 /* ---------------------------------------------------------- the transcript */
 /* A short, centred column of type floating under the sphere. Old lines sink
@@ -148,6 +154,15 @@ body.dragging #field { cursor: grabbing; }
             text-transform: uppercase; }
 .cursor { color: var(--accent); animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
+/* finished replies arrive word by word, each rising out of a blur */
+.line.ai .w {
+  display: inline-block; opacity: 0;
+  animation: wordIn .55s cubic-bezier(.2, .7, .3, 1) forwards;
+}
+@keyframes wordIn {
+  from { opacity: 0; transform: translateY(7px); filter: blur(5px); }
+  to   { opacity: 1; transform: none;          filter: blur(0); }
+}
 
 /* first-run hint, fades on its own */
 #hint {
@@ -354,9 +369,12 @@ body.dragging #field { cursor: grabbing; }
   .box input.search, #typed input { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  body, .toast, .box, .cursor, .shock, #hud { animation: none !important; transition: none !important; }
+  body, .toast, .box, .cursor, .shock, #hud, #readout, .dot-btn.recording {
+    animation: none !important; transition: none !important;
+  }
   .shock { display: none; }
   .glass::after { display: none; }
+  .line.ai .w { animation: none; opacity: 1; }
 }
 </style>
 </head>
@@ -516,6 +534,7 @@ const FAR = PALETTE.map((c) => c.map((v, i) => Math.round(v * 0.45 + [64, 84, 18
 const buckets = Array.from({ length: PALETTE.length * 2 }, () => []);
 let width = 0, height = 0, dpr = 1, radius = 0, cx = 0, cy = 0;
 let vignette = null;
+let stars = [];                          // a few cold points behind everything
 let frameTimes = [], lastFrame = performance.now(), fps = 60;
 
 function hash(a, b) {
@@ -562,6 +581,12 @@ function resize() {
   vignette = ctx.createRadialGradient(cx, cy, radius * 0.7, cx, cy, Math.max(width, height) * 0.72);
   vignette.addColorStop(0, "rgba(0,0,0,0)");
   vignette.addColorStop(1, "rgba(0,0,0,0.55)");
+  stars = Array.from({ length: 70 }, (_, i) => ({
+    x: hash(i, 11) * width,
+    y: hash(i, 23) * height,
+    a: 0.03 + hash(i, 37) * 0.09,
+    w: hash(i, 51) * 6.2832,
+  }));
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, width, height);
 }
@@ -666,6 +691,14 @@ function draw(now) {
   aura.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = aura;
   ctx.fillRect(0, 0, width, height);
+  /* a few cold stars, far behind the lattice, breathing out of phase */
+  ctx.fillStyle = "rgb(159,180,255)";
+  for (let i = 0; i < stars.length; i++) {
+    const s = stars[i];
+    ctx.globalAlpha = s.a * (0.7 + 0.3 * Math.sin(t * 0.8 + s.w));
+    ctx.fillRect(s.x, s.y, 1, 1);
+  }
+  ctx.globalAlpha = 1;
   /* ignition: the sphere arrives small, overshoots, then settles */
   const iq = Math.min(1, t / 1.5);
   const c1 = 1.70158, c3 = c1 + 1;
@@ -733,6 +766,22 @@ function draw(now) {
     }
   }
   ctx.globalAlpha = 1;
+  /* voice rings: while hearing or speaking, the sound stands just outside
+     the lattice as one or two concentric halos, sized by the live level */
+  const ringLevel = Math.max(orb.tts, orb.mic);
+  if (ringLevel > 0.05 && !reduced) {
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = `rgba(${glow[0]},${glow[1]},${glow[2]},${0.10 + ringLevel * 0.30})`;
+    ctx.beginPath();
+    ctx.arc(cxNow, cyNow, radius * scaleNow * (1.16 + ringLevel * 0.10), 0, 6.2832);
+    ctx.stroke();
+    if (orb.tts > 0.05) {
+      ctx.strokeStyle = `rgba(${glow[0]},${glow[1]},${glow[2]},${orb.tts * 0.22})`;
+      ctx.beginPath();
+      ctx.arc(cxNow, cyNow, radius * scaleNow * (1.05 + orb.tts * 0.06), 0, 6.2832);
+      ctx.stroke();
+    }
+  }
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, width, height);
   requestAnimationFrame(draw);
@@ -868,11 +917,30 @@ function trimLogKeep(node) {
     kids[i].style.opacity = kids[i] === node ? 1 : (FADE[kids.length - 1 - i] ?? 0.04);
   }
 }
+/** Words rising out of a blur, one after another — but only for plain prose;
+    code and markup stay exactly as they were typeset. */
+function stagger(node) {
+  if (reduced || /<[a-z]/i.test(node.innerHTML)) return;
+  const words = node.textContent.split(/(\s+)/);
+  node.textContent = "";
+  let delay = 0;
+  for (const word of words) {
+    if (!word.trim()) { node.appendChild(document.createTextNode(word)); continue; }
+    const span = document.createElement("span");
+    span.className = "w";
+    span.style.animationDelay = Math.min(1400, delay) + "ms";
+    span.textContent = word;
+    node.appendChild(span);
+    delay += 26;
+  }
+}
+
 /** Finish a reply: typeset it, and offer copy / speak on hover. */
 function finishReply(text) {
   const node = beginStream();
   node.innerHTML = rich(text);
   if (text.length > 160 || text.includes("```")) node.classList.add("wide");
+  stagger(node);
   const acts = document.createElement("div");
   acts.className = "acts";
   const copy = document.createElement("button");
@@ -992,6 +1060,7 @@ function handle(data) {
     }
   } else if (data.type === "error") {
     toast(data.text, true);
+    spawnShock("bad");
     setBusy(false);
   }
 }
