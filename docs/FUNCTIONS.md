@@ -44,7 +44,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`utils/scheduler.py`](#utilsschedulerpy) — 26
 - [`utils/security.py`](#utilssecuritypy) — 14
 - [`tests/mock_ollama.py`](#testsmock_ollamapy) — 10
-- [`tests/test_brain.py`](#teststest_brainpy) — 22
+- [`tests/test_brain.py`](#teststest_brainpy) — 25
 - [`tests/test_cli.py`](#teststest_clipy) — 14
 - [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 13
 - [`tests/test_communications.py`](#teststest_communicationspy) — 8
@@ -301,7 +301,7 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def __init__(self, brain: 'Brain') -> None` — Attach the router to a brain.
 - `async def classify(self, text: str) -> Intent` — Determine which module (if any) should handle ``text``.
-- `def _keyword_intent(self, text: str) -> Intent` — Score the utterance against :data:`INTENT_KEYWORDS`.
+- `def _keyword_intent(self, text: str) -> Intent` — Score the utterance against the keyword tables.
 - `def _closest_module(self, name: str) -> Optional[str]` — Fuzzy-match a hallucinated category onto a loaded module.
 
 ## `core/memory.py`
@@ -1348,7 +1348,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_brain.py`
 
-*22 functions*
+*25 functions*
 
 > Unit tests for core/brain.py and the pieces it delegates to.
 
@@ -1357,8 +1357,11 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_expected_modules_are_loaded(brain)`
 - `def test_a_disabled_module_is_not_loaded(config)`
 - `def test_the_ten_reference_utterances_route_correctly(brain, utterance, module)`
+- `def test_decisive_phrases_beat_the_router_model(brain, utterance, module)`
 - `def test_classification_reports_how_it_decided(brain)`
 - `def test_every_keyword_table_names_a_real_module(brain)`
+- `def test_every_decisive_phrase_names_a_real_module(brain)`
+- `def test_no_decisive_phrase_is_claimed_by_two_modules()`
 - `def test_an_empty_utterance_is_answered_not_routed(brain)`
 - `def test_dispatch_runs_a_tool_by_qualified_name(brain)`
 - `def test_dispatch_finds_a_bare_tool_name(brain)`
@@ -1943,5 +1946,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1299 functions across 58 files.**
+**1302 functions across 58 files.**
 
