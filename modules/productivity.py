@@ -30,6 +30,7 @@ from utils.helpers import (
     truncate,
     which,
 )
+from utils.scheduler import Scheduler
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS todos (
@@ -347,6 +348,11 @@ class Productivity(BaseModule):
             str(config.get("productivity.quiet_hours", "") or "")
         )
         self._scheduler_task: Optional[asyncio.Task] = None
+        #: APScheduler when it is installed, an asyncio fallback when it is not.
+        self._scheduler = Scheduler(
+            timezone=str(config.get("user.timezone", "") or ""),
+            prefer_apscheduler=bool(config.get("productivity.use_apscheduler", True)),
+        )
         self._init_db()
 
     # ------------------------------------------------------------------ infra
@@ -371,8 +377,13 @@ class Productivity(BaseModule):
 
     async def setup(self) -> None:
         """Start the background scheduler and report anything missed."""
-        if self._scheduler_task is None or self._scheduler_task.done():
-            self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+        if not self._scheduler.running:
+            engine = self._scheduler.start()
+            self._scheduler.every(
+                self.scheduler_interval, self._tick,
+                job_id="productivity-tick", name="reminder and schedule poll",
+            )
+            self.log.debug("Reminder scheduler started (%s engine).", engine)
         if self.catch_up_on_start:
             await self._catch_up()
 
@@ -553,22 +564,32 @@ class Productivity(BaseModule):
         except Exception:
             pass
 
+    async def _tick(self) -> None:
+        """One scheduler pass: fire due reminders and jobs, flush held speech.
+
+        Called by :class:`utils.scheduler.Scheduler` every
+        ``productivity.scheduler_interval`` seconds. Never raises — a failure
+        here would silently kill every future reminder.
+        """
+        try:
+            for row in await run_blocking(self._pop_due_reminders):
+                await self._announce(f"Reminder: {row['text']}")
+            for job in await run_blocking(self._pop_due_jobs):
+                await self._run_job(job)
+            await self._flush_deferred()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.log.debug("Scheduler hiccup: %s", exc)
+
     async def _scheduler_loop(self) -> None:
-        """Poll for due reminders, scheduled jobs and held announcements."""
-        self.log.debug("Reminder scheduler started.")
+        """Poll in a plain loop — used only if the Scheduler cannot start."""
         while True:
             try:
                 await asyncio.sleep(self.scheduler_interval)
-                due = await run_blocking(self._pop_due_reminders)
-                for row in due:
-                    await self._announce(f"Reminder: {row['text']}")
-                for job in await run_blocking(self._pop_due_jobs):
-                    await self._run_job(job)
-                await self._flush_deferred()
+                await self._tick()
             except asyncio.CancelledError:
                 break
-            except Exception as exc:
-                self.log.debug("Scheduler hiccup: %s", exc)
 
     def _pop_due_jobs(self) -> List[Dict[str, Any]]:
         """Return scheduled jobs that are due, and reschedule them."""

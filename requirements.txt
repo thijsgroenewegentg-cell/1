@@ -12,6 +12,7 @@ httpx>=0.27.0                # async HTTP client (talks to Ollama)
 rich>=13.7.0                 # colored terminal UI
 python-dateutil>=2.9.0       # natural-ish date parsing for reminders
 psutil>=5.9.8                # CPU / RAM / disk / battery stats
+APScheduler>=3.10.4          # cron/interval scheduling (a built-in fallback exists)
 
 # ---- Memory (local vector DB) ----------------------------------------------
 chromadb>=0.5.0              # local vector store, no cloud, no key

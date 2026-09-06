@@ -633,7 +633,7 @@ class Brain:
         subclass becomes a first-class skill at start-up.
         """
         try:
-            from modules.self_improve import discover_plugins, load_plugin
+            from plugins.plugin_loader import discover, inspect_plugin, load
         except Exception as exc:  # pragma: no cover - defensive
             logger.debug("Plugin loader unavailable: %s", exc)
             return
@@ -641,16 +641,23 @@ class Brain:
         directory = self.config.resolve(
             self.config.get("self_improve.plugins_dir", "plugins")
         )
-        for path in discover_plugins(directory):
+        enforce = bool(self.config.get("self_improve.vet_plugins", True))
+        for path in discover(directory):
             name = path.stem
             if name in self.modules:
                 continue
             if not self.config.get(f"modules.{name}", True):
                 logger.info("Plugin '%s' disabled in config.", name)
                 continue
+            report = inspect_plugin(path)
+            if enforce and not report.safe:
+                logger.warning(
+                    "Plugin '%s' refused: %s", name, "; ".join(report.issues)
+                )
+                continue
             try:
                 instance = await run_blocking(
-                    load_plugin, path, self.config, self.llm, self.security
+                    load, path, self.config, self.llm, self.security, enforce
                 )
                 if instance is None:
                     continue

@@ -25,6 +25,7 @@ in SQLite with a restorable backup.
 from __future__ import annotations
 
 import ast
+import contextlib
 import difflib
 import importlib
 import importlib.util
@@ -1871,6 +1872,13 @@ def load_plugin(
     Returns:
         The instantiated module, or ``None`` when the file defines no module.
     """
+    from plugins.plugin_loader import load as _load
+
+    with contextlib.suppress(Exception):
+        instance = _load(path, config, llm=llm, security=security, enforce=False)
+        if instance is not None:
+            return instance
+
     module_name = f"jarvis_plugin_{path.stem}"
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
