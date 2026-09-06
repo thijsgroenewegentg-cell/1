@@ -577,8 +577,16 @@ class Models(BaseModule):
     def _catalogue_entry(name: str) -> Optional[Dict[str, Any]]:
         """Look a model up in the curated catalogue."""
         base = (name or "").split(":")[0].lower()
+        if not base:
+            return None
         for entry in CATALOG:
             if entry["name"].split(":")[0].lower() == base:
+                return entry
+        # "llama3" should still be recognised as a model even though the
+        # catalogue lists llama3.2 and llama3.1 — people drop the point release.
+        for entry in CATALOG:
+            family = entry["name"].split(":")[0].lower()
+            if len(base) >= 4 and (family.startswith(base) or base.startswith(family)):
                 return entry
         return None
 
