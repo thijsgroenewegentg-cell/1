@@ -123,6 +123,55 @@ button { cursor: pointer; border: 0; background: none; }
 }
 #caption .copy:hover { color: var(--listen); }
 
+/* -------------------------------------------------------------- cards */
+#cards {
+  display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; justify-content: center;
+  pointer-events: auto; max-width: 760px;
+}
+.card {
+  border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+  background: rgba(8, 14, 26, .82); backdrop-filter: blur(14px); text-align: left;
+  min-width: 190px; max-width: 340px; animation: rise .28s ease-out;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .5);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+.card h4 {
+  margin: 0 0 8px; font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--dimmer); font-weight: 500;
+}
+.card ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.card li { font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
+.card li .mark { color: var(--listen); flex: none; }
+.card li .muted { color: var(--dimmer); font-size: 11.5px; }
+.card .big { font-size: 27px; font-weight: 500; letter-spacing: -.01em; }
+.card .kv { display: flex; justify-content: space-between; gap: 14px; font-size: 12.5px; padding: 2px 0; }
+.card .kv span:first-child { color: var(--dimmer); }
+.gauge { margin-top: 7px; }
+.gauge .label { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--dimmer); }
+.gauge .track { height: 4px; border-radius: 4px; background: rgba(125, 165, 225, .14); margin-top: 3px; }
+.gauge .fill { height: 100%; border-radius: 4px; background: var(--listen); transition: width .5s; }
+.gauge .fill.hot { background: var(--bad); }
+
+/* ------------------------------------------------------------- history */
+#history {
+  position: fixed; top: 0; left: 0; bottom: 0; width: min(420px, 94vw); z-index: 21;
+  background: rgba(6, 11, 20, .97); border-right: 1px solid var(--line); backdrop-filter: blur(22px);
+  transform: translateX(-100%); transition: transform .26s cubic-bezier(.4, 0, .2, 1);
+  display: flex; flex-direction: column;
+}
+body.history-open #history { transform: none; }
+#history header {
+  padding: 18px 18px 12px; border-bottom: 1px solid var(--line); font-size: 10px;
+  letter-spacing: .2em; text-transform: uppercase; color: var(--dimmer);
+  display: flex; justify-content: space-between;
+}
+#historyList { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.entry { display: flex; flex-direction: column; gap: 4px; }
+.entry .who { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--dimmer); }
+.entry .what { font-size: 13.5px; line-height: 1.55; }
+.entry.me .what { color: var(--text); }
+.entry.ai .what { color: var(--dim); }
+
 /* ---------------------------------------------------------- timeline */
 #rail {
   position: fixed; top: 0; right: 0; bottom: 0; width: 300px; z-index: 3;
@@ -307,6 +356,9 @@ body.panel-open #panel { transform: none; }
   <div id="tiles" title="Modules — each lights up when it does something"></div>
   <div id="brand"><span id="link"></span><b>__TITLE__</b><span id="topState">connecting</span></div>
   <div id="topRight">
+    <button class="ghost" id="historyBtn" title="Conversation history (H)" aria-label="History">
+      <svg viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+    </button>
     <button class="ghost" id="keysBtn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
       <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
     </button>
@@ -320,6 +372,7 @@ body.panel-open #panel { transform: none; }
 <div id="stage">
   <div id="state"></div>
   <div id="caption" class="dim" aria-live="polite">Hold <b>space</b> and speak, or press <b>K</b> for anything.</div>
+  <div id="cards"></div>
 </div>
 
 <div id="rail" aria-live="polite"></div>
@@ -344,7 +397,7 @@ body.panel-open #panel { transform: none; }
       <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.5-4.5"/></svg>
     </button>
   </div>
-  <div class="hint"><kbd>space</kbd> speak · <kbd>K</kbd> commands · <kbd>T</kbd> type · <kbd>?</kbd> keys</div>
+  <div class="hint"><kbd>space</kbd> speak · <kbd>K</kbd> commands · <kbd>T</kbd> type · <kbd>H</kbd> history · <kbd>?</kbd> keys</div>
 </div>
 
 <div id="palette" role="dialog" aria-label="Command palette">
@@ -362,6 +415,7 @@ body.panel-open #panel { transform: none; }
     <kbd>K</kbd><span>command palette</span>
     <kbd>T</kbd><span>type a message</span>
     <kbd>S</kbd><span>speech on or off</span>
+    <kbd>H</kbd><span>conversation history</span>
     <kbd>Ctrl /</kbd><span>status, tools, audit</span>
     <kbd>esc</kbd><span>stop, or close</span>
     <kbd>?</kbd><span>this list</span>
@@ -395,6 +449,11 @@ body.panel-open #panel { transform: none; }
       <button class="tool" id="auditRefresh" style="width:auto;align-self:flex-start">refresh</button>
     </div>
   </div>
+</div>
+
+<div id="history" aria-label="Conversation history">
+  <header><span>Conversation</span><span id="historyCount">0 turns</span></header>
+  <div id="historyList"></div>
 </div>
 
 <div id="toasts" aria-live="assertive"></div>
@@ -434,7 +493,8 @@ const COLOURS = {
   lost:   [248, 113, 113],
 };
 let paint = COLOURS.idle.slice();
-let shell = [], stars = [];
+let shell = [], stars = [], inner = [], comets = [];
+const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
 let quality = 1;                       // scaled down if frames get expensive
 let frameTimes = [], lastFrame = performance.now(), fps = 60;
 
@@ -460,9 +520,20 @@ function buildStars(count) {
   }
 }
 
+function buildInner(count) {
+  inner = [];
+  for (let i = 0; i < count; i++) {
+    const y = 1 - (i / (count - 1)) * 2;
+    const ring = Math.sqrt(Math.max(0, 1 - y * y));
+    const theta = i * Math.PI * (3 - Math.sqrt(5)) * 1.7;
+    inner.push({ x: Math.cos(theta) * ring, y, z: Math.sin(theta) * ring });
+  }
+}
+
 function applyQuality() {
   const wide = innerWidth >= 760;
   buildShell(Math.round((wide ? 3200 : 1500) * quality));
+  buildInner(Math.round((wide ? 700 : 320) * quality));
   buildStars(Math.round((wide ? 150 : 70) * quality));
 }
 
@@ -473,6 +544,11 @@ function resize() {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 }
 addEventListener("resize", () => { resize(); applyQuality(); });
+addEventListener("pointermove", (event) => {
+  // a little camera drift towards the pointer, so the sphere feels present
+  camera.targetX = (event.clientX / innerWidth - 0.5) * 2;
+  camera.targetY = (event.clientY / innerHeight - 0.5) * 2;
+});
 resize();
 applyQuality();
 
@@ -508,8 +584,16 @@ function draw(now) {
   const [red, green, blue] = paint.map(Math.round);
   const rgb = (alpha) => `rgba(${red},${green},${blue},${alpha})`;
 
+  camera.x += (camera.targetX - camera.x) * 0.045;
+  camera.y += (camera.targetY - camera.y) * 0.045;
+  const driftX = camera.x * 16, driftY = camera.y * 10;
+
+  ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = "#03060c";
   ctx.fillRect(0, 0, width, height);
+  // Light adds up from here on, so overlapping points bloom instead of
+  // flattening — the single biggest difference to how solid the shell looks.
+  ctx.globalCompositeOperation = "lighter";
 
   // -- starfield ---------------------------------------------------------
   for (const star of stars) {
@@ -526,6 +610,21 @@ function draw(now) {
   ctx.fillRect(0, 0, width, height);
 
   const breathe = 1 + Math.sin(orb.time * 1.1) * 0.012 + orb.energy * 0.07 + orb.pulse * 0.05;
+  const project = (point, radiusScale, spinScale) => {
+    const spinNow = orb.spin * spinScale;
+    const cosNow = Math.cos(spinNow), sinNow = Math.sin(spinNow);
+    let x = point.x * cosNow - point.z * sinNow;
+    let z = point.x * sinNow + point.z * cosNow;
+    let y = point.y * Math.cos(tilt) - z * Math.sin(tilt);
+    z = point.y * Math.sin(tilt) + z * Math.cos(tilt);
+    const depth = (z + 1) / 2;
+    const scale = 0.74 + depth * 0.44;
+    return {
+      x: centreX + driftX + x * radiusScale * scale,
+      y: centreY + driftY + y * radiusScale * scale,
+      depth, z,
+    };
+  };
   const cosine = Math.cos(orb.spin), sine = Math.sin(orb.spin);
   const tilt = Math.sin(orb.time * 0.22) * 0.16;
 
@@ -541,28 +640,43 @@ function draw(now) {
     ctx.stroke();
   }
 
+  // -- the inner core shell, turning the other way ------------------------
+  for (let i = 0; i < inner.length; i++) {
+    const spot = project(inner[i], base * breathe * 0.55, -0.7);
+    ctx.fillStyle = rgb((0.04 + spot.depth * 0.16 + orb.energy * 0.1).toFixed(3));
+    ctx.fillRect(spot.x, spot.y, 1.3, 1.3);
+  }
+
   // -- the shell ----------------------------------------------------------
   for (let i = 0; i < shell.length; i++) {
     const point = shell[i];
-    let x = point.x * cosine - point.z * sine;
-    let z = point.x * sine + point.z * cosine;
-    let y = point.y * Math.cos(tilt) - z * Math.sin(tilt);
-    z = point.y * Math.sin(tilt) + z * Math.cos(tilt);
-
     const wobble = 1 + orb.energy * 0.045 * Math.sin(point.y * 6 + orb.time * 4.2 + point.x * 3);
-    const radius = base * breathe * wobble;
-    const depth = (z + 1) / 2;
-    const scale = 0.74 + depth * 0.44;
-    const screenX = centreX + x * radius * scale;
-    const screenY = centreY + y * radius * scale;
-
-    const rim = Math.pow(1 - Math.abs(z), 3);
-    const alpha = 0.07 + depth * depth * (0.45 + orb.energy * 0.32) + rim * 0.34;
-    const size = (0.5 + depth * 1.15 + rim * 0.5) * (1 + orb.energy * 0.22);
+    const spot = project(point, base * breathe * wobble, 1);
+    const rim = Math.pow(1 - Math.abs(spot.z), 3);
+    const alpha = 0.05 + spot.depth * spot.depth * (0.34 + orb.energy * 0.26) + rim * 0.26;
+    const size = (0.5 + spot.depth * 1.15 + rim * 0.5) * (1 + orb.energy * 0.22);
     ctx.fillStyle = rgb(alpha.toFixed(3));
     ctx.beginPath();
-    ctx.arc(screenX, screenY, size, 0, 6.2832);
+    ctx.arc(spot.x, spot.y, size, 0, 6.2832);
     ctx.fill();
+  }
+
+  // -- comets, thrown outward whenever something happens -------------------
+  for (let i = comets.length - 1; i >= 0; i--) {
+    const comet = comets[i];
+    comet.life -= 0.014;
+    if (comet.life <= 0) { comets.splice(i, 1); continue; }
+    comet.radius += comet.speed;
+    const angle = comet.angle + orb.time * 0.1;
+    const x = centreX + driftX + Math.cos(angle) * comet.radius;
+    const y = centreY + driftY + Math.sin(angle) * comet.radius * 0.85;
+    ctx.strokeStyle = rgb((comet.life * 0.5).toFixed(3));
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(centreX + driftX + Math.cos(angle) * (comet.radius - 22),
+               centreY + driftY + Math.sin(angle) * (comet.radius - 22) * 0.85);
+    ctx.stroke();
   }
 
   // -- the spectrum ring: real audio while listening, a slow idle wave else
@@ -579,9 +693,10 @@ function draw(now) {
     ctx.strokeStyle = rgb(0.12 + level * 0.6);
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(centreX + cosAngle * ringRadius, centreY + sinAngle * ringRadius * squash);
-    ctx.lineTo(centreX + cosAngle * (ringRadius + length),
-               centreY + sinAngle * (ringRadius + length) * squash);
+    ctx.moveTo(centreX + driftX + cosAngle * ringRadius,
+               centreY + driftY + sinAngle * ringRadius * squash);
+    ctx.lineTo(centreX + driftX + cosAngle * (ringRadius + length),
+               centreY + driftY + sinAngle * (ringRadius + length) * squash);
     ctx.stroke();
   }
 
@@ -606,7 +721,18 @@ function draw(now) {
 requestAnimationFrame(draw);
 
 function mood(hue, energy) { orb.hue = hue; orb.target = energy; }
-function pulse() { orb.pulse = 1; }
+function pulse(burst) {
+  orb.pulse = 1;
+  const count = burst ? 14 : 5;
+  for (let i = 0; i < count; i++) {
+    comets.push({
+      angle: Math.random() * 6.2832,
+      radius: 40 + Math.random() * 30,
+      speed: 1.6 + Math.random() * 2.6,
+      life: 0.7 + Math.random() * 0.5,
+    });
+  }
+}
 
 /* --------------------------------------------------------------- text */
 function escapeHtml(text) {
@@ -666,6 +792,125 @@ function toast(text, bad) {
   setTimeout(() => node.remove(), 3800);
 }
 
+/* ========================================================================
+   Result cards. Tools return structured data — todo rows, CPU figures, file
+   listings — and the brain now publishes it. Drawing it beats asking someone
+   to read it out of a paragraph.
+   ====================================================================== */
+function card(title, body) {
+  return '<div class="card"><h4>' + escapeHtml(title) + "</h4>" + body + "</div>";
+}
+
+function gauge(label, percent, text) {
+  const value = Math.max(0, Math.min(100, Number(percent) || 0));
+  return '<div class="gauge"><div class="label"><span>' + escapeHtml(label) +
+    "</span><span>" + escapeHtml(text || value.toFixed(0) + "%") +
+    '</span></div><div class="track"><div class="fill' + (value > 85 ? " hot" : "") +
+    '" style="width:' + value + '%"></div></div></div>';
+}
+
+/** Render a value that might be a raw byte count as something readable. */
+function human(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || Math.abs(number) < 1024) return escapeHtml(String(value));
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = number, unit = 0;
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+  return size.toFixed(size < 10 ? 1 : 0) + " " + units[unit];
+}
+
+function list(items, mark) {
+  return "<ul>" + items.map((item) =>
+    '<li><span class="mark">' + mark + "</span><span>" + item + "</span></li>").join("") + "</ul>";
+}
+
+/** Turn one tool result into a card, or nothing when there is little to show. */
+function renderCard(tool, data) {
+  if (!data || typeof data !== "object") return "";
+  const name = String(tool || "").split(".").pop().replace(/_/g, " ");
+
+  if (Array.isArray(data.todos) && data.todos.length) {
+    return card("todo list", list(data.todos.slice(0, 7).map((todo) =>
+      escapeHtml(String(todo.task || todo)) +
+      (todo.due ? ' <span class="muted">' + escapeHtml(todo.due) + "</span>" : "")), "○"));
+  }
+  if (Array.isArray(data.reminders) && data.reminders.length) {
+    return card("reminders", list(data.reminders.slice(0, 6).map((item) =>
+      escapeHtml(String(item.text || item))), "◷"));
+  }
+  if (Array.isArray(data.notes) && data.notes.length) {
+    return card("notes", list(data.notes.slice(0, 5).map((note) =>
+      escapeHtml(String(note.title || note))), "▪"));
+  }
+  if (Array.isArray(data.files) && data.files.length) {
+    return card("files", list(data.files.slice(0, 7).map((file) =>
+      escapeHtml(String(file).split("/").pop())), "▸"));
+  }
+  if (data.cpu_percent !== undefined) {
+    return card("this machine",
+      gauge("cpu", data.cpu_percent, data.cpu_percent + "% of " + (data.cpu_cores || "?") + " cores") +
+      gauge("memory", data.ram_percent, (data.ram_used || "") + " / " + (data.ram_total || "")) +
+      (data.battery_percent !== undefined && data.battery_percent !== null
+        ? gauge("battery", data.battery_percent) : ""));
+  }
+  if (data.used_percent !== undefined && data.free !== undefined) {
+    return card("storage", gauge("used", data.used_percent,
+      human(data.free) + " free of " + human(data.total || "?")));
+  }
+  if (data.result !== undefined && data.expression !== undefined) {
+    return card(escapeHtml(String(data.expression)).slice(0, 40),
+      '<div class="big">' + escapeHtml(String(data.result)) + "</div>");
+  }
+  if (Array.isArray(data.entries) && data.entries.length) {
+    return card("audit", list(data.entries.slice(0, 6).map((entry) =>
+      escapeHtml(String(entry.outcome || "")) + ' <span class="muted">' +
+      escapeHtml(String(entry.action || "").slice(0, 34)) + "</span>"), "•"));
+  }
+  if (Array.isArray(data.objects) && data.objects.length) {
+    return card("scene", list(data.objects.slice(0, 6).map((object) =>
+      escapeHtml(String(object.name || object)) + ' <span class="muted">' +
+      escapeHtml(String(object.type || "")) + "</span>"), "◆"));
+  }
+
+  // anything else worth showing: a short key/value table
+  const rows = Object.entries(data).filter(([, value]) =>
+    ["string", "number", "boolean"].includes(typeof value)).slice(0, 6);
+  if (rows.length < 2) return "";
+  return card(name, rows.map(([key, value]) =>
+    '<div class="kv"><span>' + escapeHtml(key.replace(/_/g, " ")) + "</span><span>" +
+    escapeHtml(String(value)).slice(0, 40) + "</span></div>").join(""));
+}
+
+function showCards(html) {
+  const holder = $("cards");
+  if (!html) return;
+  holder.insertAdjacentHTML("beforeend", html);
+  while (holder.children.length > 3) holder.firstChild.remove();
+}
+
+function clearCards() { $("cards").innerHTML = ""; }
+
+/* ------------------------------------------------------------- history */
+const conversation = [];
+function remember(who, what) {
+  conversation.push({ who, what });
+  if (conversation.length > 60) conversation.shift();
+  $("historyCount").textContent = conversation.filter((entry) => entry.who === "me").length + " turns";
+  const list = $("historyList");
+  const node = document.createElement("div");
+  node.className = "entry " + who;
+  node.innerHTML = '<div class="who">' + (who === "me" ? "you" : "jarvis") +
+    '</div><div class="what">' + light(what) + "</div>";
+  list.appendChild(node);
+  list.scrollTop = list.scrollHeight;
+}
+
+function toggleHistory(force) {
+  const open = force === undefined ? !document.body.classList.contains("history-open") : force;
+  document.body.classList.toggle("history-open", open);
+  $("historyBtn").classList.toggle("on", open);
+}
+
 /* ------------------------------------------------------------- modules */
 const MODULES = ["system_control", "web_search", "productivity", "code_assistant",
                  "file_manager", "smart_assistant", "knowledge", "vision",
@@ -721,7 +966,8 @@ function handle(data) {
     replyText = data.text || replyText;
     say(replyText || "…", { fade: 30000 });
     trace("ai", escapeHtml(replyText.slice(0, 160)));
-    pulse();
+    remember("ai", replyText);
+    pulse(true);
     setBusy(false);
     turns += 1; $("statTurns").textContent = turns;
     const summary = (data.intent || "answer") + " · " + (data.seconds || 0).toFixed(1) + "s";
@@ -741,6 +987,8 @@ function handle(data) {
       status("working");
       mood("think", 0.6);
       pulse();
+    } else if (data.name === "tool.result") {
+      showCards(renderCard(data.data.tool, data.data.data));
     } else if (data.name === "error.raised") {
       trace("err", escapeHtml(String(data.data.error || "").slice(0, 90)));
     }
@@ -770,7 +1018,9 @@ function send(text) {
   if (!text || busy) return;
   if (!socket || socket.readyState !== 1) { toast("Not connected yet.", true); return; }
   trace("me", escapeHtml(text));
+  remember("me", text);
   say(text, { dim: true });
+  clearCards();
   replyText = "";
   socket.send(JSON.stringify({ text }));
   setBusy(true);
@@ -1035,6 +1285,7 @@ $("keyboard").addEventListener("click", () => showTyped(!$("typed").classList.co
 $("sendBtn").addEventListener("click", () => send(input.value));
 $("paletteBtn").addEventListener("click", openPalette);
 $("keysBtn").addEventListener("click", () => $("keys").classList.toggle("show"));
+$("historyBtn").addEventListener("click", () => toggleHistory());
 $("keys").addEventListener("click", () => $("keys").classList.remove("show"));
 $("palette").addEventListener("click", (event) => {
   if (event.target === $("palette")) closePalette();
@@ -1086,6 +1337,7 @@ addEventListener("keydown", (event) => {
   else if (event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
   else if (event.key.toLowerCase() === "t") { event.preventDefault(); showTyped(true); }
   else if (event.key.toLowerCase() === "s") { event.preventDefault(); toggleSpeech(); }
+  else if (event.key.toLowerCase() === "h") { event.preventDefault(); toggleHistory(); }
   else if (event.key === "/" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); togglePanel(); }
 });
 addEventListener("keyup", (event) => {
@@ -1122,6 +1374,8 @@ $("speech").addEventListener("click", toggleSpeech);
 $("setSpeech").addEventListener("click", toggleSpeech);
 $("setClear").addEventListener("click", () => {
   rail.innerHTML = ""; turns = 0; $("statTurns").textContent = "0";
+  clearCards(); conversation.length = 0; $("historyList").innerHTML = "";
+  $("historyCount").textContent = "0 turns";
   say("Hold <b>space</b> and speak, or press <b>K</b> for anything.", { dim: true });
   toast("Cleared.");
 });

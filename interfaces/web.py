@@ -679,7 +679,8 @@ class WebInterface:
 
         def relay(event: Any) -> None:
             """Push one event out to the sockets, best effort."""
-            if event.name not in {"turn.intent", "tool.called", "error.raised"}:
+            if event.name not in {"turn.intent", "tool.called", "tool.result",
+                                  "error.raised"}:
                 return
             payload = json.dumps({"type": "event", "name": event.name, "data": event.data})
             for socket in list(self._sockets):

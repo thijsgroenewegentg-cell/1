@@ -241,3 +241,42 @@ def test_a_blank_optional_number_falls_back_to_its_default(brain):
     # whole call fail — that is what the default is for.
     result = run(brain.dispatch("productivity.list_todos", {"limit": ""}))
     assert result.success
+
+
+# ------------------------------------------- results, not just prose
+def test_a_tool_result_is_published(brain):
+    """Interfaces should be able to draw the data, not parse the sentence."""
+    seen = []
+    brain.events.subscribe("tool.result", lambda event: seen.append(event.data))
+    run(brain.dispatch("productivity.add_todo", {"task": "sourdough"}))
+    run(brain.dispatch("productivity.list_todos", {}))
+
+    assert len(seen) == 2
+    listing = seen[-1]
+    assert listing["tool"] == "productivity.list_todos"
+    assert listing["ok"] is True
+    assert any("sourdough" in str(todo) for todo in listing["data"]["todos"])
+
+
+def test_published_data_is_kept_small(brain):
+    """A file search can return thousands of rows; a socket should not."""
+    from core.brain import _compact
+
+    shrunk = _compact({
+        "files": [f"/tmp/file{number}.txt" for number in range(500)],
+        "text": "x" * 5000,
+        "nested": {"deep": {"deeper": {"deepest": {"further": "unreachable"}}}},
+        "count": 500,
+    })
+    assert len(shrunk["files"]) == 9          # eight, plus the "and more" note
+    assert "more" in shrunk["files"][-1]
+    assert len(shrunk["text"]) <= 240
+    assert shrunk["count"] == 500
+    assert shrunk["nested"]["deep"]["deeper"]["deepest"] == "…"
+
+
+def test_the_result_event_survives_a_failing_tool(brain):
+    seen = []
+    brain.events.subscribe("tool.result", lambda event: seen.append(event.data))
+    run(brain.dispatch("productivity.complete_todo", {"task": "nothing like this"}))
+    assert seen and seen[-1]["ok"] is False

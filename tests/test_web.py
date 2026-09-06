@@ -254,3 +254,29 @@ def test_the_interface_declares_its_shortcuts(web):
     page = load_page()
     for key in ("space", "K", "T", "?"):
         assert f"<kbd>{key}</kbd>" in page, key
+
+
+def test_tool_results_reach_the_browser(web):
+    """The interface draws cards from these, so they must be relayed."""
+    sent = []
+
+    class FakeSocket:
+        async def send_text(self, payload: str) -> None:
+            sent.append(payload)
+
+    async def scenario() -> None:
+        import json
+
+        web._sockets.add(FakeSocket())
+        web._watch_the_brain()
+        await web.brain.events.publish(
+            "tool.result", tool="productivity.list_todos", ok=True,
+            data={"todos": [{"task": "sourdough"}]},
+        )
+        await asyncio.sleep(0.05)
+        assert sent, "the result should have been relayed"
+        message = json.loads(sent[-1])
+        assert message["name"] == "tool.result"
+        assert message["data"]["data"]["todos"][0]["task"] == "sourdough"
+
+    run(scenario())

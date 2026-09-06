@@ -54,14 +54,17 @@ def scripted_reply(prompt: str) -> str:
             ("self_improve", ("github", "your own code", "your source", "plugin",
                               "improve yourself", "new skill")),
             ("web_search", ("weather", "search", "news", "wikipedia", "look up")),
-            ("system_control", ("open ", "screenshot", "volume", "lock", "cpu", "time")),
+            ("system_control", ("open ", "screenshot", "volume", "lock", "cpu", "time",
+                                "system stats", "disk", "storage", "space left",
+                                "memory usage", "ram", "processes")),
             ("productivity", ("todo", "task", "remind", "timer", "note", "briefing")),
             ("code_assistant", ("code", "script", "function", "debug", "python")),
             ("file_manager", ("file", "pdf", "folder", "organize", "document")),
             ("knowledge", ("my documents", "my notes", "index", "knowledge base")),
             ("vision", ("my screen", "this image", "what do you see", "screenshot of")),
             ("communications", ("my email", "my inbox", "my calendar", "next meeting")),
-            ("smart_assistant", ("calculate", "convert", "translate", "meaning", "explain")),
+            ("smart_assistant", ("calculate", "convert", "translate", "meaning", "explain",
+                                 "%", "how many", "what is ")),
         ]
         for name, triggers in rules:
             if any(trigger in request for trigger in triggers):
@@ -84,17 +87,32 @@ def scripted_reply(prompt: str) -> str:
         match = re.search(r"USER REQUEST:\s*(.+)", prompt)
         if match:
             request = match.group(1).strip().lower()
+        # Reading a question and picking a plausible tool keeps this double
+        # honest: "what's on my todo list" must not answer by adding one.
         if "time" in request:
             action, params = "system_control.current_time", {}
         elif "weather" in request:
             action, params = "web_search.weather", {"location": ""}
+        elif any(word in request for word in ("what's on my todo", "whats on my todo",
+                                              "list my todo", "show my todo",
+                                              "my todo list", "my tasks")):
+            action, params = "productivity.list_todos", {}
         elif "todo" in request or "task" in request:
             action, params = "productivity.add_todo", {"task": "buy milk"}
         elif "timer" in request:
             action, params = "productivity.start_timer", {"duration": "5 minutes"}
+        elif any(word in request for word in ("disk", "storage", "space left", "how full")):
+            action, params = "system_control.disk_free", {}
+        elif any(word in request for word in ("system stats", "cpu", "memory usage",
+                                              "how is my computer", "ram")):
+            action, params = "system_control.system_stats", {}
+        elif any(word in request for word in ("note", "notes")):
+            action, params = "productivity.search_notes", {"query": ""}
+        elif "remind" in request:
+            action, params = "productivity.list_reminders", {}
         elif "github" in request:
             action, params = "self_improve.search_github", {"query": request}
-        elif "calculate" in request or "%" in request:
+        elif "calculate" in request or "%" in request or "convert" in request:
             action, params = "smart_assistant.calculate", {"expression": "15% of 240"}
         else:
             action, params = "smart_assistant.answer", {"question": request}

@@ -11,7 +11,7 @@ and marked with `·`; methods the intent router can call are marked
 
 - [`main.py`](#mainpy) — 20
 - [`install.py`](#installpy) — 56
-- [`core/brain.py`](#corebrainpy) — 55
+- [`core/brain.py`](#corebrainpy) — 57
 - [`core/config.py`](#coreconfigpy) — 28
 - [`core/event_bus.py`](#coreevent_buspy) — 13
 - [`core/intent_router.py`](#coreintent_routerpy) — 5
@@ -47,7 +47,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/fake_blender.py`](#testsfake_blenderpy) — 22
 - [`tests/mock_ollama.py`](#testsmock_ollamapy) — 10
 - [`tests/test_blender.py`](#teststest_blenderpy) — 43
-- [`tests/test_brain.py`](#teststest_brainpy) — 30
+- [`tests/test_brain.py`](#teststest_brainpy) — 33
 - [`tests/test_cli.py`](#teststest_clipy) — 15
 - [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 15
 - [`tests/test_communications.py`](#teststest_communicationspy) — 8
@@ -68,7 +68,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
-- [`tests/test_web.py`](#teststest_webpy) — 28
+- [`tests/test_web.py`](#teststest_webpy) — 31
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 13
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
@@ -171,9 +171,11 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*55 functions*
+*57 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
+
+- `def _compact(value: Any, depth: int = 0) -> Any` — Shrink a tool's data to something worth putting on a socket.
 
 ### `class OllamaClient` — Async client for a local Ollama server.
 
@@ -225,6 +227,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def _tool_spec(self, reference: str) -> Optional[Any]` — Look up the :class:`~modules.base.ToolSpec` behind a reference.
 - `async def _injection_gate(self, reference: str, params: Dict[str, Any]) -> Optional[str]` — Refuse or re-confirm dangerous work driven by untrusted content.
 - `async def dispatch(self, reference: str, params: Dict[str, Any]) -> ModuleResult` — Execute ``module.tool`` (or a bare tool name) with ``params``.
+- `def _announce_result(self, reference: str, result: ModuleResult) -> ModuleResult` — Publish a tool's structured result, then hand it back unchanged.
 - `async def _memory_tool(self, tool_name: str, params: Dict[str, Any]) -> ModuleResult` — Handle the brain-level memory tools.
 - `async def process(self, text: str, speak_status: bool = False, on_token: Optional[TokenCallback] = None) -> str` — Main entry point: turn a user utterance into JARVIS's reply.
 - `async def _background_upkeep(self, user_text: str, response: str) -> None` — Mine facts and compress old history without blocking the reply.
@@ -1517,7 +1520,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_brain.py`
 
-*30 functions*
+*33 functions*
 
 > Unit tests for core/brain.py and the pieces it delegates to.
 
@@ -1551,6 +1554,9 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_genuinely_offline_model_still_explains_itself(brain)`
 - `def test_a_stale_stop_does_not_kill_the_next_turn(brain)`
 - `def test_a_blank_optional_number_falls_back_to_its_default(brain)`
+- `def test_a_tool_result_is_published(brain)` — Interfaces should be able to draw the data, not parse the sentence.
+- `def test_published_data_is_kept_small(brain)` — A file search can return thousands of rows; a socket should not.
+- `def test_the_result_event_survives_a_failing_tool(brain)`
 
 ## `tests/test_cli.py`
 
@@ -2172,7 +2178,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*28 functions*
+*31 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -2202,6 +2208,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_interface_is_self_contained(web)` — No CDN, no external fonts: it has to work on a machine with no internet.
 - `def test_editing_the_interface_does_not_need_a_restart(web, tmp_path, monkeypatch)` — The page is cached against the file's timestamp, not for the process.
 - `def test_the_interface_declares_its_shortcuts(web)` — Every key the script listens for should be discoverable in the UI.
+- `def test_tool_results_reach_the_browser(web)` — The interface draws cards from these, so they must be relayed.
+  · `async def scenario() -> None`
 
 ## `tests/test_web_search.py`
 
@@ -2252,5 +2260,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1555 functions across 63 files.**
+**1563 functions across 63 files.**
 

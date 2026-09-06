@@ -542,6 +542,38 @@ NEGATIVE = {
 # ---------------------------------------------------------------------------
 
 
+def _compact(value: Any, depth: int = 0) -> Any:
+    """Shrink a tool's data to something worth putting on a socket.
+
+    A file search can return thousands of rows and a document read a megabyte
+    of text; neither belongs in a status message. Lists keep their first few
+    entries, strings are trimmed, and nesting stops at three levels.
+
+    Args:
+        value: Whatever the tool put in ``ModuleResult.data``.
+        depth: Current nesting depth, used to stop runaway structures.
+
+    Returns:
+        A small, JSON-safe version of ``value``.
+    """
+    if depth > 3:
+        return "…"
+    if isinstance(value, str):
+        return value if len(value) <= 240 else value[:237] + "…"
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {str(key): _compact(item, depth + 1)
+                for key, item in list(value.items())[:12]}
+    if isinstance(value, (list, tuple, set)):
+        items = list(value)
+        shortened = [_compact(item, depth + 1) for item in items[:8]]
+        if len(items) > 8:
+            shortened.append(f"…and {len(items) - 8} more")
+        return shortened
+    return _compact(str(value), depth)
+
+
 class Brain:
     """JARVIS's cognition: persona, routing, tool use and memory integration."""
 
@@ -1066,7 +1098,7 @@ class Brain:
                 self.events.emit(
                     "tool.called", source="brain", tool=reference, params=params
                 )
-                return await module.call_tool(tool_name, params)
+                return self._announce_result(reference, await module.call_tool(tool_name, params))
             return await module.execute(str(params.get("query", "")), params)
 
         # Bare tool name: search every module.
@@ -1075,11 +1107,32 @@ class Brain:
                 self.events.emit(
                     "tool.called", source="brain", tool=reference, params=params
                 )
-                return await module.call_tool(reference, params)
+                return self._announce_result(reference, await module.call_tool(reference, params))
 
         return ModuleResult.fail(
             f"No such tool '{reference}'. Known modules: {', '.join(self.modules)}."
         )
+
+    def _announce_result(self, reference: str, result: ModuleResult) -> ModuleResult:
+        """Publish a tool's structured result, then hand it back unchanged.
+
+        Tools already return their findings as data — todo rows, CPU figures,
+        file listings — and until now only the prose reached the interface.
+        Publishing the data lets a client draw it properly instead of parsing
+        sentences.
+
+        Args:
+            reference: ``module.tool``.
+            result: What the tool returned.
+
+        Returns:
+            ``result``, untouched.
+        """
+        self.events.emit(
+            "tool.result", source="brain", tool=reference, ok=result.success,
+            data=_compact(result.data),
+        )
+        return result
 
     async def _memory_tool(self, tool_name: str, params: Dict[str, Any]) -> ModuleResult:
         """Handle the brain-level memory tools."""
