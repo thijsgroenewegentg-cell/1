@@ -849,7 +849,7 @@ function draw(now) {
   /* while speaking, the sphere keeps a heartbeat: lub-dub, twice a second */
   const hb = Math.pow(Math.max(0, Math.sin(t * 4.6)), 10)
            + 0.6 * Math.pow(Math.max(0, Math.sin(t * 4.6 - 0.9)), 10);
-  scaleNow *= 1 + orb.speakMix * 0.035 * hb;
+  if (!reduced) scaleNow *= 1 + orb.speakMix * 0.035 * hb;
 
   for (const b of buckets) b.length = 0;
 
@@ -863,7 +863,7 @@ function draw(now) {
     /* the mind comes apart: while thinking, a minority of dots break orbit
        and swirl above the lattice, then settle back when he answers */
     let loose = 0;
-    if (orb.thinkMix > 0.02 && p.loose) {
+    if (!reduced && orb.thinkMix > 0.02 && p.loose) {
       loose = orb.thinkMix;
       const ea = (t * 1.6 + p.w) * loose;
       const ce = Math.cos(ea), se = Math.sin(ea);
@@ -990,7 +990,7 @@ function draw(now) {
   /* foreground dust, out of focus, between you and him */
   ctx.fillStyle = "rgb(180,200,255)";
   for (const d of dust) {
-    d.x += d.dx * dt; d.y += d.dy * dt;
+    if (!reduced) { d.x += d.dx * dt; d.y += d.dy * dt; }
     if (d.x < -4) d.x = width + 4;
     if (d.x > width + 4) d.x = -4;
     if (d.y < -4) d.y = height + 4;
