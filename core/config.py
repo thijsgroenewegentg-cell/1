@@ -8,11 +8,15 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from utils.logger import get_logger
+
 try:
     import yaml
 except Exception:  # pragma: no cover - yaml is a hard requirement in practice
     yaml = None  # type: ignore[assignment]
 
+
+logger = get_logger("core.config")
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "user": {"name": "Sir", "title": "sir", "location": "auto", "units": "metric"},
@@ -292,10 +296,19 @@ def _normalise_aliases(data: Dict[str, Any]) -> Dict[str, Any]:
     result = copy.deepcopy(data)
 
     quiet = result.get("quiet_hours")
-    if isinstance(quiet, dict):
+    if isinstance(quiet, str) and quiet.strip():
+        result.setdefault("productivity", {})
+        if isinstance(result["productivity"], dict):
+            result["productivity"].setdefault("quiet_hours", quiet.strip())
+        result.pop("quiet_hours", None)
+    elif isinstance(quiet, dict):
         start = str(quiet.get("start", "") or "")
         end = str(quiet.get("end", "") or "")
         window = f"{start}-{end}" if start and end else ""
+        if (start or end) and not window:
+            logger.warning(
+                "config.yaml: quiet_hours needs both 'start' and 'end' — ignoring it."
+            )
         if not quiet.get("enabled", True):
             window = ""
         result.setdefault("productivity", {})
@@ -352,12 +365,39 @@ def _drop(data: Dict[str, Any], parts: List[str]) -> None:
         node.pop(parts[-1], None)
 
 
-def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively merge ``override`` into a copy of ``base``."""
+def _deep_merge(
+    base: Dict[str, Any], override: Dict[str, Any], path: str = ""
+) -> Dict[str, Any]:
+    """Recursively merge ``override`` into a copy of ``base``.
+
+    A typo that turns a section into a list or a scalar (``voice: yes``) used
+    to replace the whole section, leaving every setting under it as ``None``
+    and producing baffling failures much later. Such a value is refused and
+    the defaults kept, with a warning naming the key.
+
+    Args:
+        base: The defaults.
+        override: The user's settings.
+        path: Dotted prefix used in warnings.
+
+    Returns:
+        A new merged dictionary.
+    """
     result = copy.deepcopy(base)
     for key, value in (override or {}).items():
+        dotted = f"{path}.{key}" if path else key
         if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = _deep_merge(result[key], value)
+            result[key] = _deep_merge(result[key], value, dotted)
+        elif isinstance(result.get(key), dict) and not isinstance(value, dict):
+            logger.warning(
+                "config.yaml: '%s' should be a section, not %s — keeping the defaults.",
+                dotted, type(value).__name__,
+            )
+        elif value is None and result.get(key) is not None:
+            logger.warning(
+                "config.yaml: '%s' is empty — keeping the default (%r).",
+                dotted, result.get(key),
+            )
         else:
             result[key] = copy.deepcopy(value)
     return result

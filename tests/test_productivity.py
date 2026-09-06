@@ -181,3 +181,16 @@ def test_the_scheduler_is_running_after_setup(productivity):
 
 def test_a_tick_with_nothing_due_is_harmless(productivity):
     run(productivity._tick())
+
+
+def test_a_negative_duration_is_refused(productivity):
+    # "-5 minutes" lost its sign and quietly started a five-minute timer.
+    result = run(productivity.call_tool("start_timer", {"duration": "-5 minutes"}))
+    assert not result.success
+
+
+def test_a_non_numeric_id_is_refused_politely(productivity):
+    # This used to raise ValueError inside the tool and log a stack trace.
+    result = run(productivity.call_tool("delete_note", {"note_id": "the shopping one"}))
+    assert not result.success
+    assert "number" in result.error.lower()

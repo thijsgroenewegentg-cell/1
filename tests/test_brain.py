@@ -202,3 +202,9 @@ def test_an_intent_is_a_plain_data_object():
     intent = Intent(module="web_search", confidence=0.9, method="keyword")
     assert intent.module == "web_search"
     assert 0 <= intent.confidence <= 1
+
+
+def test_a_number_shaped_parameter_rejects_prose(brain):
+    # The tool used to raise ValueError two frames later and log a traceback.
+    result = run(brain.dispatch("productivity.delete_todo", {"task_id": "the milk one"}))
+    assert not result.success

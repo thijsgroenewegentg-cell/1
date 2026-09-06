@@ -21,6 +21,7 @@ from utils.helpers import (
     ensure_dir,
     friendly_when,
     human_bytes,
+    looks_binary,
     read_text_file,
     resolve_user_path,
     run_blocking,
@@ -836,6 +837,12 @@ class FileManager(BaseModule):
         target = resolve_user_path(path)
         if not target.exists() or not target.is_file():
             return ModuleResult.fail(f"No file at {target}.")
+        if looks_binary(target):
+            return ModuleResult.fail(
+                f"{target.name} is a binary file ({human_bytes(target.stat().st_size)}), "
+                "sir — reading it out would be gibberish. Ask me to summarise it "
+                "instead if it's a document."
+            )
         content = read_text_file(target, 300_000)
         self.last_document = content
         return ModuleResult(

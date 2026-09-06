@@ -138,22 +138,38 @@ PARAM_SYNONYMS: Dict[str, Tuple[str, ...]] = {
 }
 
 
-def _coerce_value(kind: str, value: Any) -> Any:
+class ToolParamError(ValueError):
+    """A supplied parameter cannot be used as the tool declared it."""
+
+
+def _coerce_value(kind: str, value: Any, name: str = "") -> Any:
     """Coerce one supplied value to the type the tool declared.
 
     Args:
         kind: The declared JSON-ish type.
         value: The raw value.
+        name: The parameter name, used in the error message.
 
     Returns:
-        The coerced value, or the original when coercion is impossible.
+        The coerced value.
+
+    Raises:
+        ToolParamError: When a number-shaped parameter was given something
+            that is not a number. Passing the rubbish through instead means
+            the tool itself blows up with a stack trace two frames later,
+            which is neither useful to the user nor to the model.
     """
-    original = value
     try:
         if kind == "integer":
-            return int(float(str(value)))
+            return int(float(str(value).strip()))
         if kind == "number":
-            return float(str(value))
+            return float(str(value).strip())
+    except (TypeError, ValueError):
+        label = f"'{name}'" if name else "that parameter"
+        raise ToolParamError(
+            f"{label} needs to be a number, but I was given {value!r}."
+        ) from None
+    try:
         if kind == "boolean":
             if isinstance(value, str):
                 return value.strip().lower() in {"true", "yes", "1", "on"}
@@ -164,7 +180,7 @@ def _coerce_value(kind: str, value: Any) -> Any:
         if kind == "string" and not isinstance(value, str):
             return str(value)
     except Exception:
-        return original
+        return value
     return value
 
 
@@ -416,7 +432,10 @@ class BaseModule:
                     f"Available: {', '.join(self._tools) or 'none'}"
                 )
 
-        cleaned = self._coerce_params(spec, params)
+        try:
+            cleaned = self._coerce_params(spec, params)
+        except ToolParamError as error:
+            return ModuleResult.fail(str(error))
 
         # ``confirm_dangerous: false`` must also switch off tool-level prompts —
         # otherwise a non-interactive run (web UI, service) blocks on input()
@@ -509,7 +528,7 @@ class BaseModule:
         cleaned: Dict[str, Any] = {}
         for key, meta in spec.params.items():
             if key in params and params[key] is not None:
-                cleaned[key] = _coerce_value(meta.get("type", "string"), params[key])
+                cleaned[key] = _coerce_value(meta.get("type", "string"), params[key], key)
             elif "default" in meta:
                 cleaned[key] = meta["default"]
             elif meta.get("required"):
@@ -529,7 +548,7 @@ class BaseModule:
                 if slot is None:
                     continue
                 cleaned[slot] = _coerce_value(
-                    spec.params[slot].get("type", "string"), value
+                    spec.params[slot].get("type", "string"), value, slot
                 )
                 empty.remove(slot)
         return cleaned

@@ -47,7 +47,8 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
     "system_control": [
         "open ", "launch ", "start app", "close ", "quit ", "kill ", "screenshot",
         "screen shot", "volume", "mute", "unmute", "lock screen", "lock the",
-        "cpu", "ram", "memory usage", "disk", "battery", "system stats",
+        "cpu", "ram", "memory usage", "ram usage", "using all my memory",
+        "using my memory", "disk", "battery", "system stats",
         "lock my", "lock screen", "lock the", "lock this",
         "what time", "what's the time", "current time", "today's date", "what date",
         "shell", "terminal", "run command", "type ", "press ", "click ",
@@ -76,7 +77,8 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "organise", "clean up folder", "summarize this document", "summarise this document",
         "read the file", "read file", "open the pdf", "pdf", "docx", "csv",
         "spreadsheet", "in my downloads", "on my desktop", "folder", "directory",
-        "duplicate files", "disk usage of",
+        "duplicate files", "disk usage of", "biggest file", "largest file",
+        "biggest files", "largest files", "taking up space", "space hogs",
     ],
     "knowledge": [
         "my documents", "my notes folder", "in my files", "according to my",
@@ -88,14 +90,22 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "what's on my screen", "whats on my screen", "look at my screen", "see my screen",
         "read my screen", "describe this image", "what is in this picture", "look at this",
         "what does this screenshot", "analyze the image", "analyse the image",
-        "what do you see",
+        "what do you see", "on my screen", "on the screen", "read the text on",
+        "screen say", "screen shows",
     ],
     "communications": [
         "my email", "my inbox", "unread mail", "any new mail", "check mail",
         "send an email", "reply to", "my calendar", "my schedule", "my meetings",
         "next meeting", "what's on my calendar", "events today", "appointments",
     ],
+    "models": [
+        "what models", "which models", "list models", "installed models",
+        "switch to ", "switch model", "change model", "use the model",
+        "pull the model", "download the model", "ollama model", "which model are you",
+        "what model are you", "best model for", "recommend a model",
+    ],
     "self_improve": [
+        "plugin", "plugins", "your plugins", "your tools",
         "search github", "on github", "find a repo", "find a library", "integrate that",
         "add a new skill", "install a plugin", "list your plugins", "your own code",
         "your source code", "modify yourself", "improve yourself", "rewrite your",
@@ -106,7 +116,9 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
     "smart_assistant": [
         "meaning of life", "explain", "why does", "how does", "what does",
         "calculate", "convert", "translate", "summarize this text", "summarise this text",
-        "write a poem", "write a story", "brainstorm", "idea", "advice",
+        "write a poem", "write a story", "write me a", "haiku", "limerick",
+        "short story", "define ", "definition of", "what does the word",
+        "brainstorm", "idea", "advice",
         "compare", "pros and cons", "how many", "solve", "math",
         "% of", "percent of", "square root", "average of",
     ],
@@ -120,6 +132,15 @@ DECISIVE_CONFIDENCE = 0.97
 #: confidently wrong often enough ("set a timer" → system_control, because it
 #: contains the word "time") that these skip the model entirely: it is both
 #: more accurate and one less round trip.
+#: Words that veto a decisive match: "convert 10 miles to km" is a unit
+#: conversion, but "convert this file to pdf" is emphatically not.
+DECISIVE_VETOES: Dict[str, Tuple[str, ...]] = {
+    "smart_assistant": (
+        "file", "document", "pdf", "docx", "csv", "spreadsheet", "folder",
+        "image", "picture", "screenshot", "video", "audio",
+    ),
+}
+
 DECISIVE_PHRASES: Dict[str, Tuple[str, ...]] = {
     "productivity": (
         "set a timer", "set a 10", "start a timer", "set an alarm", "remind me",
@@ -257,6 +278,8 @@ class IntentRouter:
             if module not in self.brain.modules:
                 continue
             hit = next((phrase for phrase in phrases if phrase in lowered), "")
+            if hit and any(word in lowered for word in DECISIVE_VETOES.get(module, ())):
+                continue
             if hit:
                 return Intent(module, DECISIVE_CONFIDENCE, f"decisive phrase {hit!r}",
                               method="keyword")

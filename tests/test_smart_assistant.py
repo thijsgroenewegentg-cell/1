@@ -8,6 +8,8 @@ genuinely needs the LLM is asserted only on its failure manners.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from modules.smart_assistant import LANGUAGE_CODES, SmartAssistant
@@ -100,3 +102,62 @@ def test_answering_without_a_model_explains_itself(smart):
 def test_translating_an_empty_string_is_refused(smart):
     result = run(smart.call_tool("translate", {"text": "", "target_language": "dutch"}))
     assert not result.success
+
+
+# --------------------------------------------------- resource-exhaustion guards
+@pytest.mark.parametrize(
+    "expression",
+    ["9**9**9", "10**1000000", "factorial(2000000)", "pow(9, 9999999)", "2**2**2**2**2"],
+)
+def test_ruinous_arithmetic_is_refused_quickly(smart, expression):
+    # 9**9**9 used to pin a CPU for hours *inside the turn*, freezing the
+    # whole assistant: no reply, no interrupt, nothing.
+    started = time.perf_counter()
+    result = run(smart.call_tool("calculate", {"expression": expression}))
+    assert not result.success
+    assert time.perf_counter() - started < 5.0
+
+
+def test_dividing_by_zero_gets_a_straight_answer(smart):
+    result = run(smart.call_tool("calculate", {"expression": "1/0"}))
+    assert not result.success
+    assert "zero" in result.error.lower()
+
+
+def test_sensible_big_numbers_still_work(smart):
+    result = run(smart.call_tool("calculate", {"expression": "2**64"}))
+    assert result.success
+    assert result.data["result"] == 2 ** 64
+
+
+# ------------------------------------------------------- number and unit parsing
+@pytest.mark.parametrize(
+    ("phrase", "value"),
+    [
+        ("convert -5 celsius to fahrenheit", -5.0),
+        ("convert 1e3 km to miles", 1000.0),
+        ("convert 2.5e3 km to miles", 2500.0),
+        ("convert 1,500 m to km", 1500.0),
+        ("convert 10 miles to km", 10.0),
+    ],
+)
+def test_numbers_survive_the_router(smart, phrase, value):
+    # "[\d.,]+" read "-5" as 5 and "1e308" as 308.
+    tool, params = smart.offline_router(phrase)
+    assert tool == "convert"
+    assert params["value"] == value
+
+
+def test_freezing_temperatures_convert_correctly(smart):
+    tool, params = smart.offline_router("convert -40 celsius to fahrenheit")
+    result = run(smart.call_tool(tool, params))
+    assert result.success
+    assert "-40" in result.output
+
+
+def test_units_do_not_swallow_the_grammar(smart):
+    # "how many grams are in 2.5 kg" asked to convert into "grams are".
+    tool, params = smart.offline_router("how many grams are in 2.5 kg")
+    assert tool == "convert"
+    assert params["to_unit"] == "grams"
+    assert run(smart.call_tool(tool, params)).success

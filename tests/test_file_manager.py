@@ -142,3 +142,16 @@ def test_folder_stats_counts_the_tree(files, tree):
     result = run(files.call_tool("folder_stats", {"directory": str(tree)}))
     assert result.success
     assert "file" in result.output.lower()
+
+
+def test_binary_files_are_not_read_aloud(files, tmp_path):
+    # Dumping a JPEG into the conversation (and into TTS) helps nobody.
+    blob = tmp_path / "photo.bin"
+    blob.write_bytes(bytes(range(256)) * 50)
+    result = run(files.call_tool("read_file", {"path": str(blob)}))
+    assert not result.success
+    assert "binary" in result.error.lower()
+
+
+def test_text_files_are_still_readable(files, tree):
+    assert run(files.call_tool("read_file", {"path": str(tree / "notes.txt")})).success

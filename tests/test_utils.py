@@ -217,3 +217,22 @@ def test_logging_to_a_file_actually_writes_it(tmp_path):
     setup_logging({"level": "DEBUG", "file": str(target)})
     get_logger("test.file").warning("a warning worth keeping")
     assert target.exists()
+
+
+@pytest.mark.parametrize("text", ["-5 minutes", "minus 5 minutes", "-0.5h"])
+def test_negative_durations_are_rejected(text):
+    from utils.helpers import parse_duration
+
+    assert parse_duration(text) is None
+
+
+def test_binary_files_are_recognised(tmp_path):
+    from utils.helpers import looks_binary
+
+    text_file = tmp_path / "a.txt"
+    text_file.write_text("perfectly ordinary prose, sir")
+    blob = tmp_path / "b.bin"
+    blob.write_bytes(bytes(range(256)) * 20)
+    assert not looks_binary(text_file)
+    assert looks_binary(blob)
+    assert not looks_binary(tmp_path / "missing.txt")

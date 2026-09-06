@@ -418,12 +418,19 @@ def friendly_when(dt: datetime, reference: Optional[datetime] = None) -> str:
 def parse_duration(text: str) -> Optional[int]:
     """Parse ``"10 minutes"``, ``"1h30m"``, ``"90s"`` into seconds.
 
+    Args:
+        text: A spoken or written duration.
+
     Returns:
-        Number of seconds, or ``None`` when nothing recognisable is found.
+        Number of seconds, or ``None`` when nothing recognisable is found —
+        including a negative duration, which used to lose its sign and start a
+        five-minute timer for "minus five minutes".
     """
     if not text:
         return None
     text = text.lower().strip()
+    if re.search(r"(?:^|\s)[-−]\s*\d", text) or "minus " in text:
+        return None
     total = 0.0
     found = False
 
@@ -671,6 +678,35 @@ def safe_filename(name: str, extension: str = "") -> str:
     if extension and not stem.lower().endswith(extension.lower()):
         stem = f"{stem}{extension}"
     return stem[:200]
+
+
+def looks_binary(path: Path, sample: int = 4096) -> bool:
+    """Guess whether a file is binary rather than text.
+
+    Reading a JPEG aloud, or pasting one into the conversation, helps nobody —
+    and control characters can wreck a terminal. A NUL byte or a high share of
+    unprintable bytes in the first few KB is the usual heuristic.
+
+    Args:
+        path: The file to sniff.
+        sample: How many bytes to look at.
+
+    Returns:
+        True when the file should be treated as binary.
+    """
+    try:
+        chunk = path.open("rb").read(sample)
+    except Exception:
+        return False
+    if not chunk:
+        return False
+    if b"\x00" in chunk:
+        return True
+    printable = sum(
+        1 for byte in chunk
+        if 32 <= byte < 127 or byte in (9, 10, 13) or byte >= 128
+    )
+    return printable / len(chunk) < 0.85
 
 
 def read_text_file(path: str | Path, limit: int = 200_000) -> str:

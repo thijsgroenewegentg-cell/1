@@ -130,3 +130,24 @@ def test_every_alias_points_at_a_plausible_key():
     for alias, canonical in KEY_ALIASES.items():
         assert canonical, f"{alias} maps to nothing"
         assert " " not in canonical
+
+
+def test_a_malformed_section_keeps_the_defaults(tmp_path):
+    # `voice: yes` used to blank out every setting under voice.
+    path = tmp_path / "broken.yaml"
+    path.write_text("voice: yes\nllm:\n  - one\n  - two\n")
+    config = Config.load(path)
+    assert config.get("llm.model") == DEFAULT_CONFIG["llm"]["model"]
+    assert config.get("voice.enabled") is not None
+
+
+def test_an_empty_value_keeps_the_default(tmp_path):
+    path = tmp_path / "empty-value.yaml"
+    path.write_text("llm:\n  model: ~\n")
+    assert Config.load(path).get("llm.model") == DEFAULT_CONFIG["llm"]["model"]
+
+
+def test_quiet_hours_can_be_a_plain_string(tmp_path):
+    path = tmp_path / "quiet.yaml"
+    path.write_text('quiet_hours: "22:00-06:00"\n')
+    assert Config.load(path).get("productivity.quiet_hours") == "22:00-06:00"

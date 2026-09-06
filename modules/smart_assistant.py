@@ -8,13 +8,14 @@ and creative writing.
 from __future__ import annotations
 
 import ast
+import asyncio
 import math
 import operator
 import re
 from typing import Any, Callable, ClassVar, Dict, List, Optional
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
-from utils.helpers import clean_text, truncate
+from utils.helpers import clean_text, run_blocking, truncate
 
 # ---------------------------------------------------------------------------
 # Safe arithmetic evaluator
@@ -58,8 +59,44 @@ _MATH_NAMES.update(
 )
 
 
+#: Ceilings that keep a "safe" evaluator from being a denial-of-service. The
+#: AST walk cannot execute anything dangerous, but ``9**9**9`` still pins a
+#: CPU for hours and ``factorial(1e9)`` eats the machine's memory — and since
+#: the evaluation runs inside the turn, that would freeze the whole assistant.
+MAX_RESULT_BITS = 1 << 16      # ~19,700 decimal digits is plenty for a person
+MAX_FACTORIAL = 2000
+MAX_EXPRESSION_NODES = 400
+MAX_EXPRESSION_CHARS = 2000
+
+
+def _guard_size(value: Any) -> Any:
+    """Reject an intermediate result that is too large to be reasonable.
+
+    Args:
+        value: The value a sub-expression produced.
+
+    Returns:
+        The value unchanged when it is of a sane size.
+
+    Raises:
+        ValueError: When an integer exceeds :data:`MAX_RESULT_BITS`.
+    """
+    too_big = (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and value.bit_length() > MAX_RESULT_BITS
+    )
+    if too_big:
+        raise ValueError("that number is far too large for me to work with")
+    return value
+
+
 def safe_eval(expression: str) -> float:
     """Evaluate an arithmetic expression without executing arbitrary code.
+
+    Guards against both hostile code (only maths nodes are walked) and hostile
+    *arithmetic* — huge powers and factorials are refused before they are
+    computed rather than after.
 
     Args:
         expression: e.g. ``"(3 + 4) * sqrt(16) / 2"``.
@@ -68,9 +105,14 @@ def safe_eval(expression: str) -> float:
         The numeric result.
 
     Raises:
-        ValueError: If the expression contains anything unsupported.
+        ValueError: If the expression contains anything unsupported, or asks
+            for a number too large to compute.
     """
+    if len(expression) > MAX_EXPRESSION_CHARS:
+        raise ValueError("that expression is too long")
     tree = ast.parse(expression, mode="eval")
+    if sum(1 for _ in ast.walk(tree)) > MAX_EXPRESSION_NODES:
+        raise ValueError("that expression is too complicated")
 
     def _eval(node: ast.AST) -> Any:
         if isinstance(node, ast.Expression):
@@ -80,7 +122,16 @@ def safe_eval(expression: str) -> float:
                 return node.value
             raise ValueError(f"Unsupported constant: {node.value!r}")
         if isinstance(node, ast.BinOp) and type(node.op) in _BINARY_OPS:
-            return _BINARY_OPS[type(node.op)](_eval(node.left), _eval(node.right))
+            left, right = _eval(node.left), _eval(node.right)
+            if isinstance(node.op, ast.Pow):
+                # Estimate the size *before* computing it: 9**9**9 would take
+                # hours and gigabytes, and the answer helps nobody.
+                if isinstance(right, float) and right > 1e6:
+                    raise ValueError("that exponent is too large")
+                integers = isinstance(left, int) and isinstance(right, int) and right > 0
+                if integers and max(1, left.bit_length()) * right > MAX_RESULT_BITS:
+                    raise ValueError("that power is too large for me to compute")
+            return _guard_size(_BINARY_OPS[type(node.op)](left, right))
         if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
             return _UNARY_OPS[type(node.op)](_eval(node.operand))
         if isinstance(node, ast.Name):
@@ -93,7 +144,19 @@ def safe_eval(expression: str) -> float:
             function = _MATH_NAMES[node.func.id]
             if not callable(function):
                 raise ValueError(f"{node.func.id} is not callable")
-            return function(*[_eval(argument) for argument in node.args])
+            arguments = [_eval(argument) for argument in node.args]
+            if node.func.id == "factorial" and arguments and (
+                not isinstance(arguments[0], int) or arguments[0] > MAX_FACTORIAL
+            ):
+                raise ValueError(f"factorial is limited to {MAX_FACTORIAL}")
+            if node.func.id == "pow" and len(arguments) >= 2:
+                base, exponent = arguments[0], arguments[1]
+                integers = (
+                    isinstance(base, int) and isinstance(exponent, int) and exponent > 0
+                )
+                if integers and max(1, base.bit_length()) * exponent > MAX_RESULT_BITS:
+                    raise ValueError("that power is too large for me to compute")
+            return _guard_size(function(*arguments))
         if isinstance(node, (ast.Tuple, ast.List)):
             return [_eval(element) for element in node.elts]
         if isinstance(node, ast.Compare):
@@ -111,6 +174,32 @@ def safe_eval(expression: str) -> float:
         raise ValueError(f"Unsupported expression element: {type(node).__name__}")
 
     return _eval(tree)
+
+
+#: A number as people write it: optional sign, thousands separators, decimals
+#: and scientific notation. ``[\d.,]+`` used to read "-5" as 5 (freezing point
+#: conversions came out wrong) and "1e308" as 308.
+NUMBER_PATTERN = r"[-+]?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?"
+
+#: A unit, optionally two words ("nautical miles", "fluid ounces"), but never
+#: swallowing the sentence's grammar: "how many grams are in 2.5 kg" used to
+#: ask for a conversion into "grams are".
+UNIT_PATTERN = r"[a-z°/]+(?:\s(?!are\b|is\b|in\b|per\b|to\b|into\b|of\b)[a-z]+)?"
+
+
+def parse_number(text: str) -> float:
+    """Read a human-written number, thousands separators and all.
+
+    Args:
+        text: e.g. ``"1,500"``, ``"-5"``, ``"2.5e3"``.
+
+    Returns:
+        The value as a float.
+
+    Raises:
+        ValueError: When it is not a number at all.
+    """
+    return float(text.replace(",", "").strip())
 
 
 # ---------------------------------------------------------------------------
@@ -272,14 +361,14 @@ class SmartAssistant(BaseModule):
             return "calculate", {"expression": text.strip(" ?")}
 
         inverted = re.search(
-            r"how many\s+([a-z°/]+(?:\s[a-z]+)?)\s+(?:are\s+|is\s+)?(?:in|per|to)\s+"
-            r"([\d.,]+)\s*([a-z°/]+(?:\s[a-z]+)?)",
+            rf"how many\s+({UNIT_PATTERN})\s+(?:are\s+|is\s+)?(?:in|per|to)\s+"
+            rf"({NUMBER_PATTERN})\s*({UNIT_PATTERN})",
             lowered,
         )
         if inverted:
             try:
                 return "convert", {
-                    "value": float(inverted.group(2).replace(",", "")),
+                    "value": parse_number(inverted.group(2)),
                     "from_unit": inverted.group(3).strip(),
                     "to_unit": inverted.group(1).strip(),
                 }
@@ -287,13 +376,14 @@ class SmartAssistant(BaseModule):
                 pass
 
         conversion = re.search(
-            r"(?:convert\s+)?([\d.,]+)\s*([a-z°/]+(?:\s[a-z]+)?)\s+(?:in|to|into)\s+([a-z°/]+(?:\s[a-z]+)?)",
+            rf"(?:convert\s+)?({NUMBER_PATTERN})\s*({UNIT_PATTERN})"
+            rf"\s+(?:in|to|into)\s+({UNIT_PATTERN})",
             lowered,
         )
         if conversion and ("convert" in lowered or " to " in lowered or " in " in lowered):
             try:
                 return "convert", {
-                    "value": float(conversion.group(1).replace(",", "")),
+                    "value": parse_number(conversion.group(1)),
                     "from_unit": conversion.group(2).strip(),
                     "to_unit": conversion.group(3).strip(),
                 }
@@ -416,7 +506,9 @@ class SmartAssistant(BaseModule):
 
         normalised = self._normalise_expression(raw)
         try:
-            value = safe_eval(normalised)
+            # Off the event loop and on a leash: the guards above bound the
+            # work, and this bounds the wait if one of them is ever outwitted.
+            value = await asyncio.wait_for(run_blocking(safe_eval, normalised), timeout=5.0)
             if isinstance(value, float):
                 rendered = f"{value:,.10g}"
             else:
@@ -427,6 +519,20 @@ class SmartAssistant(BaseModule):
                 speak=f"That's {rendered}.",
                 data={"expression": normalised, "result": value},
             )
+        except asyncio.TimeoutError:
+            return ModuleResult.fail(
+                "That calculation was going to take longer than my patience, sir."
+            )
+        except ZeroDivisionError:
+            return ModuleResult.fail("Dividing by zero, sir. Even I have limits.")
+        except ValueError as exc:
+            # The size guards refuse with a specific reason; passing a
+            # ludicrous sum to the language model instead would be silly.
+            reason = str(exc)
+            if any(marker in reason for marker in
+                   ("too large", "too long", "too complicated", "limited to")):
+                return ModuleResult.fail(f"I won't attempt that one — {reason}.")
+            self.log.debug("safe_eval failed for %r: %s", normalised, exc)
         except Exception as exc:
             self.log.debug("safe_eval failed for %r: %s", normalised, exc)
 
