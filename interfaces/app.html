@@ -48,6 +48,9 @@ body { color: var(--ink); font: 14px/1.55 var(--sans); -webkit-font-smoothing: a
 body.ready { opacity: 1; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 input { font: inherit; }
+button:focus-visible, input:focus-visible {
+  outline: 1px solid var(--accent); outline-offset: 3px; border-radius: 6px;
+}
 
 /* ---------------------------------------------------------- liquid glass */
 /* One material for every surface: a saturated blur of the room behind it,
@@ -128,6 +131,9 @@ body.dragging #field { cursor: grabbing; }
   padding: 9px 11px; font: 11px/1.55 var(--mono); color: #aeb6c4;
 }
 .line.ai b { color: #fff; font-weight: 600; }
+/* long or code-bearing replies stop centre-stage poetry and become a page */
+.line.ai.wide { text-align: left; width: 100%; }
+.line.ai.wide .acts { left: auto; right: 0; transform: none; }
 /* hover actions on a finished reply: copy it, or hear it again */
 .line.ai .acts {
   position: absolute; left: 50%; transform: translateX(-50%); bottom: -15px;
@@ -270,6 +276,15 @@ body.dragging #field { cursor: grabbing; }
 .opt.sel .label { color: var(--ink); }
 .opt.sel .badge { color: var(--accent); border-color: var(--line-warm); }
 .opt mark { background: none; color: var(--accent); }
+.phead {
+  margin: 10px 10px 4px; font: 8px/1 var(--mono); letter-spacing: .26em;
+  text-transform: uppercase; color: #232833;
+}
+.pfoot {
+  margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line);
+  font: 8.5px/1 var(--mono); letter-spacing: .2em; text-transform: uppercase;
+  color: #232833; display: flex; gap: 16px; justify-content: center;
+}
 
 .tabs { display: flex; gap: 18px; margin-bottom: 12px; }
 .tabs button { font: 9.5px/1 var(--mono); letter-spacing: .24em; text-transform: uppercase;
@@ -307,6 +322,7 @@ body.dragging #field { cursor: grabbing; }
 .hist .me { color: var(--dim); font: 11px/1.5 var(--mono); }
 .hist .me::before { content: "› "; color: var(--faint); }
 .hist .ai { color: #cfd6e2; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; }
+.hist .tm { float: right; margin-left: 12px; color: #232833; font: 9px/1.6 var(--mono); }
 
 .keysgrid { display: grid; grid-template-columns: auto 1fr; gap: 9px 20px;
             font: 12px/1.4 var(--mono); color: var(--dim); align-items: center; }
@@ -334,6 +350,8 @@ body.dragging #field { cursor: grabbing; }
   .sheet { align-items: flex-end; }
   .box { width: 100%; max-height: 82vh; border-radius: 16px 16px 0 0;
          border-bottom: 0; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  /* 16px keeps iOS from zooming the input on focus */
+  .box input.search, #typed input { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   body, .toast, .box, .cursor, .shock, #hud { animation: none !important; transition: none !important; }
@@ -357,7 +375,7 @@ body.dragging #field { cursor: grabbing; }
     </svg>
   </button>
   <button id="readout" title="Status — tap for commands" aria-label="Status, tap for commands">
-    <span id="state">boot</span>
+    <span id="state" aria-live="polite">boot</span>
     <span id="clock">--:--</span>
   </button>
   <button class="dot-btn" id="typeBtn" title="Type instead (T)" aria-label="Type instead">
@@ -370,7 +388,7 @@ body.dragging #field { cursor: grabbing; }
 
 <form id="typed" class="glass" autocomplete="off">
   <input id="input" placeholder="say something…" aria-label="Message">
-  <button type="submit" title="Send" aria-label="Send">↵</button>
+  <button type="submit" id="sendBtn" title="Send" aria-label="Send">↵</button>
 </form>
 
 <div class="sheet" id="palette" role="dialog" aria-label="Command palette">
@@ -379,6 +397,7 @@ body.dragging #field { cursor: grabbing; }
     <input class="search" id="paletteInput" placeholder="ask, or search every tool…"
            autocomplete="off" aria-label="Command palette">
     <div class="scroll" id="paletteList"></div>
+    <div class="pfoot"><span>↵ run</span><span>↑ ↓ move</span><span>esc close</span></div>
   </div>
 </div>
 
@@ -491,7 +510,10 @@ const PALETTE = [
   [138, 92, 255],
 ];
 let dots = [];
-const buckets = PALETTE.map(() => []);   // reused per frame, no allocation
+/* six buckets: each colour twice, once for the near side and once tinted
+   cool for the far side, so depth reads as atmosphere rather than dimness */
+const FAR = PALETTE.map((c) => c.map((v, i) => Math.round(v * 0.45 + [64, 84, 180][i] * 0.55)));
+const buckets = Array.from({ length: PALETTE.length * 2 }, () => []);
 let width = 0, height = 0, dpr = 1, radius = 0, cx = 0, cy = 0;
 let vignette = null;
 let frameTimes = [], lastFrame = performance.now(), fps = 60;
@@ -680,7 +702,7 @@ function draw(now) {
     const persp = 3.0 / (3.0 - Z);
     const depth = Math.max(0, Math.min(1, (Z + 1.25) / 2.5));
     const spark = sparks[n] *= 0.88;
-    buckets[p.c].push(
+    buckets[p.c * 2 + (depth < 0.45 ? 1 : 0)].push(
       cxNow + X * radius * scaleNow * persp,
       cyNow + Y * radius * scaleNow * persp,
       base * (0.8 + 1.2 * depth) + spark * 1.4,
@@ -689,12 +711,13 @@ function draw(now) {
     );
   }
 
-  for (let c = 0; c < PALETTE.length; c++) {
-    const [rr, gg, bb] = PALETTE[c];
+  for (let b = 0; b < buckets.length; b++) {
+    const colour = (b & 1) ? FAR[b >> 1] : PALETTE[b >> 1];
+    const [rr, gg, bb] = colour;
     ctx.fillStyle = `rgb(${rr},${gg},${bb})`;
-    const list = buckets[c];
+    const list = buckets[b];
     for (let i = 0; i < list.length; i += 4) {
-      const a = Math.max(0.08, Math.min(1, list[i + 3] * gain[c]));
+      const a = Math.max(0.08, Math.min(1, list[i + 3] * gain[b >> 1]));
       const size = list[i + 2];
       /* near dots get a soft halo, so the front of the sphere glows a little */
       if (size > 1.35) {
@@ -849,6 +872,7 @@ function trimLogKeep(node) {
 function finishReply(text) {
   const node = beginStream();
   node.innerHTML = rich(text);
+  if (text.length > 160 || text.includes("```")) node.classList.add("wide");
   const acts = document.createElement("div");
   acts.className = "acts";
   const copy = document.createElement("button");
@@ -868,7 +892,9 @@ function finishReply(text) {
 }
 function endStream() { streamNode = null; }
 
-function remember(who, text) { transcript.push({ who, text }); }
+function remember(who, text) {
+  transcript.push({ who, text, at: new Date().toTimeString().slice(0, 5) });
+}
 
 function toast(text, bad) {
   const node = document.createElement("div");
@@ -910,6 +936,8 @@ function connect() {
   socket.onopen = () => {
     const wasDown = retry > 0;
     retry = 0; status(""); pulse(0.6);
+    /* a turn in flight when the link died will never finish: stand down */
+    if (busy) { endStream(); setBusy(false); }
     if (wasDown) toast("Back online.");
   };
   socket.onclose = () => {
@@ -970,8 +998,23 @@ function handle(data) {
 
 function setBusy(value) {
   busy = value;
+  const sendBtn = $("sendBtn");
+  sendBtn.textContent = value ? "■" : "↵";
+  sendBtn.title = value ? "Cancel the turn" : "Send";
+  sendBtn.setAttribute("aria-label", value ? "Cancel the turn" : "Send");
+  $("input").placeholder = value ? "thinking… enter cancels" : "say something…";
   if (value) { status("thinking"); streamNode = null; replyText = ""; turnStarted = performance.now(); }
   else status("");
+}
+
+/** Ask the brain to stand down mid-turn; whatever it already said stays. */
+function cancelTurn() {
+  if (!busy) return;
+  if (socket && socket.readyState === 1) socket.send(JSON.stringify({ command: "cancel" }));
+  if (replyText) finishReply(replyText);
+  else endStream();
+  setBusy(false);
+  status("cancelled");
 }
 
 function send(text) {
@@ -1196,6 +1239,20 @@ async function paletteOptions(query) {
       danger: tool.dangerous,
     });
   }
+  if (!query.trim()) {
+    /* empty query: a guided tour instead of a ranking — recents you actually
+       used, the quick asks, then the tool catalogue by name */
+    const grouped = [];
+    const recent = pool.filter((o) => recents.includes(o.label)).slice(0, 5);
+    for (const o of recent) grouped.push({ ...o, group: "recent" });
+    for (const o of pool.filter((o) => o.kind !== "tool")) grouped.push({ ...o, group: "quick" });
+    const tools = pool.filter((o) => o.kind === "tool")
+      .sort((a, b) => (recents.includes(b.label) - recents.includes(a.label))
+                      || a.hint.localeCompare(b.hint))
+      .slice(0, 30);
+    for (const o of tools) grouped.push({ ...o, group: "tools" });
+    return grouped;
+  }
   const ranked = pool
     .map((option) => ({
       option,
@@ -1208,7 +1265,7 @@ async function paletteOptions(query) {
     .map((row) => row.option);
   /* the old behaviour people miss: type anything, and the first option is
      asking exactly that */
-  if (query.trim()) ranked.unshift({ label: query.trim(), hint: "ask this exactly", kind: "ask" });
+  ranked.unshift({ label: query.trim(), hint: "ask this exactly", kind: "ask" });
   return ranked;
 }
 
@@ -1230,7 +1287,15 @@ async function drawPalette(query) {
 function paintPalette() {
   const list = $("paletteList");
   list.innerHTML = "";
+  let lastGroup = null;
   options.forEach((option, index) => {
+    if (option.group && option.group !== lastGroup) {
+      lastGroup = option.group;
+      const head = document.createElement("div");
+      head.className = "phead";
+      head.textContent = lastGroup;
+      list.appendChild(head);
+    }
     const node = document.createElement("button");
     node.className = "opt" + (index === cursor ? " sel" : "");
     node.type = "button";
@@ -1279,11 +1344,20 @@ function runOption(index) {
 /* =======================================================================
    Panel: status, tools, audit.
    ===================================================================== */
+let panelTimer = null;
 function togglePanel(force) {
   const show = force === undefined ? !$("panel").classList.contains("show") : force;
   closeSheets();
   $("panel").classList.toggle("show", show);
-  if (show) { loadStatus(); loadTools(); loadAudit(); }
+  if (panelTimer) { clearInterval(panelTimer); panelTimer = null; }
+  if (show) {
+    loadStatus(); loadTools(); loadAudit();
+    /* the panel is a window, not a snapshot: it refreshes while open */
+    panelTimer = setInterval(() => {
+      if ($("panel").classList.contains("show")) { loadStatus(); loadAudit(); }
+      else { clearInterval(panelTimer); panelTimer = null; }
+    }, 5000);
+  }
 }
 
 function kv(key, value, cls) {
@@ -1306,6 +1380,7 @@ async function loadStatus() {
          " long · " + (memory.backend || "?")) +
       kv("clients", data.clients ?? 1) +
       kv("turns", turns) +
+      kv("render", (fps | 0) + " fps · " + dots.length + " dots") +
       kv("speech", settings.speech ? "on" : "off");
     mods.innerHTML = "";
     const modules = data.modules || {};
@@ -1389,6 +1464,12 @@ function toggleHistory(force) {
     const node = document.createElement("div");
     node.className = entry.who === "me" ? "me" : "ai";
     node.textContent = entry.text;
+    if (entry.at) {
+      const tm = document.createElement("span");
+      tm.className = "tm";
+      tm.textContent = entry.at;
+      node.appendChild(tm);
+    }
     list.appendChild(node);
   }
   list.scrollTop = list.scrollHeight;
@@ -1448,7 +1529,11 @@ for (const name of ["pointerup", "pointercancel"]) {
 }
 
 $("typeBtn").addEventListener("click", () => showTyped(!$("typed").classList.contains("show")));
-$("typed").addEventListener("submit", (event) => { event.preventDefault(); send($("input").value); });
+$("typed").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (busy) cancelTurn();
+  else send($("input").value);
+});
 $("readout").addEventListener("click", openPalette);
 $("mic").addEventListener("pointerdown", (event) => {
   event.preventDefault();
@@ -1489,6 +1574,7 @@ addEventListener("keydown", (event) => {
     .some((id) => $(id).classList.contains("show"));
   if (event.key === "Escape") {
     if (recording) cancelRecording();
+    else if (busy && !sheetOpen && !typing) cancelTurn();
     closeSheets(); showTyped(false);
     return;
   }
@@ -1547,6 +1633,16 @@ fetch("/api/status" + auth)
   .then((data) => { if (data.greeting) typeOut(data.greeting); })
   .catch(() => {});
 setTimeout(() => document.body.classList.add("ready"), 60);
+/* warm the tool catalogue while nobody is looking, so the first K is instant */
+setTimeout(() => {
+  if (toolCache) return;
+  fetch("/api/tools" + auth).then((r) => r.json())
+    .then((data) => {
+      toolCache = data.tools || [];
+      $("toolCount").textContent = toolCache.length + " tools";
+    })
+    .catch(() => {});
+}, 1500);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 </script>
 </body>
