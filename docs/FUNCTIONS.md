@@ -51,12 +51,12 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_config.py`](#teststest_configpy) — 18
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
-- [`tests/test_knowledge.py`](#teststest_knowledgepy) — 13
+- [`tests/test_knowledge.py`](#teststest_knowledgepy) — 15
 - [`tests/test_memory.py`](#teststest_memorypy) — 19
 - [`tests/test_models.py`](#teststest_modelspy) — 7
 - [`tests/test_plugins.py`](#teststest_pluginspy) — 18
 - [`tests/test_productivity.py`](#teststest_productivitypy) — 23
-- [`tests/test_self_improve.py`](#teststest_self_improvepy) — 17
+- [`tests/test_self_improve.py`](#teststest_self_improvepy) — 18
 - [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 16
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
 - [`tests/test_system_control.py`](#teststest_system_controlpy) — 12
@@ -1542,7 +1542,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_knowledge.py`
 
-*13 functions*
+*15 functions*
 
 > Unit tests for modules/knowledge.py — the RAG document index.
 
@@ -1559,6 +1559,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_indexed_text_is_treated_as_untrusted(knowledge)`
 - `def test_a_short_note_is_indexed_and_findable(knowledge, tmp_path)`
 - `def test_an_empty_file_is_reported_not_hidden(knowledge, tmp_path)`
+- `def test_an_explicit_path_survives_the_router(knowledge, tmp_path)`
+- `def test_a_named_folder_still_works(knowledge)`
 
 ## `tests/test_memory.py`
 
@@ -1657,7 +1659,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_self_improve.py`
 
-*17 functions*
+*18 functions*
 
 > Unit tests for modules/self_improve.py — JARVIS editing his own source.
 
@@ -1678,6 +1680,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_protected_file_is_refused_for_being_protected(self_improve)`
 - `def test_a_broken_rewrite_is_rejected_by_the_syntax_gate(self_improve)`
 - `def test_a_sound_rewrite_passes_the_syntax_gate(self_improve)`
+- `def test_the_source_tree_is_found_regardless_of_where_the_config_lives(tmp_path)` — Following config.root broke self-inspection for anyone using --config.
 
 ## `tests/test_smart_assistant.py`
 
@@ -1998,5 +2001,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1350 functions across 58 files.**
+**1353 functions across 58 files.**
 
