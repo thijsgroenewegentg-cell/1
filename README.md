@@ -406,10 +406,12 @@ jarvis/
 │   ├── backup.py            backup / restore / uninstall
 │   └── documents.py         shared PDF/DOCX/PPTX/HTML text extraction + chunking
 ├── scripts/
+│   ├── list_functions.py                 regenerate docs/FUNCTIONS.md
 │   ├── jarvis.sh / jarvis.bat            launchers that also start Ollama
 │   ├── install_service_linux.sh          systemd user service
 │   ├── install_service_macos.sh          LaunchAgent
 │   └── install_service_windows.ps1       scheduled task at logon
+├── docs/FUNCTIONS.md        index of all 920 functions (scripts/list_functions.py)
 ├── .github/ci.yml           ruff + mypy + tests CI (move to .github/workflows/)
 ├── plugins/                 skills JARVIS writes for itself (loaded at start-up)
 ├── tests/
