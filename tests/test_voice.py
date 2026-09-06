@@ -151,3 +151,36 @@ def test_the_voice_interface_reports_what_is_missing(config):
     voice = VoiceInterface(config)
     ready = run(voice.initialize())
     assert isinstance(ready, bool)
+
+
+# ------------------------------------------------------- switching it off
+def test_the_wake_word_can_be_switched_off(config):
+    """`voice.engine: none` is a choice, not a failure to find an engine."""
+    config.set("voice.engine", "none")
+    detector = WakeWordDetector(config, Microphone(config), SpeechToText(config))
+    assert run(detector.initialize()) == "none"
+
+
+def test_a_blank_wake_word_means_no_wake_word(config):
+    config.set("voice.wake_word", "")
+    detector = WakeWordDetector(config, Microphone(config), SpeechToText(config))
+    assert run(detector.initialize()) == "none"
+
+
+@pytest.mark.parametrize("spelling", ["none", "off", "OFF", "disabled", "false"])
+def test_every_way_of_saying_off_is_understood(config, spelling):
+    config.set("voice.engine", spelling)
+    detector = WakeWordDetector(config, Microphone(config), SpeechToText(config))
+    assert run(detector.initialize()) == "none"
+
+
+def test_the_doctor_calls_a_disabled_wake_word_healthy(config, tmp_path):
+    from utils.doctor import diagnose
+
+    config.set("voice.enabled", True)   # the audio checks are skipped otherwise
+    config.set("voice.engine", "none")
+    report = run(diagnose(config, root=tmp_path))
+    wake = [item for item in report.findings if item.name == "Wake word"]
+    assert wake, "the doctor should mention the wake word"
+    assert wake[0].state != "fail"
+    assert "choice" in wake[0].detail

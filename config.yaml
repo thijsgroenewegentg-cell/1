@@ -54,7 +54,7 @@ productivity:
 voice:
   enabled: true
   wake_word: jarvis
-  engine: auto
+  engine: none
   porcupine_access_key: ''
   porcupine_keyword: jarvis
   sensitivity: 0.6

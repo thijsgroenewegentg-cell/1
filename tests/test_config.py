@@ -8,6 +8,7 @@ config.yaml drive the real settings.
 
 from __future__ import annotations
 
+import sys
 from typing import Iterator
 
 import pytest
@@ -181,3 +182,14 @@ def test_every_setting_is_read_by_something():
                 or f'section("{section}")' in haystack):
             orphans.append(dotted)
     assert not orphans, f"settings nothing reads: {orphans}"
+
+
+def test_every_setting_is_documented():
+    """A knob nobody can explain is a knob nobody can use."""
+    import subprocess
+
+    result = subprocess.run(
+        [sys.executable, "scripts/list_settings.py"],
+        capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

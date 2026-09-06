@@ -86,3 +86,23 @@ def test_scraped_pages_are_marked_untrusted(web):
 
 def test_search_results_are_marked_untrusted(web):
     assert web.tools["search"].untrusted
+
+
+def test_a_network_failure_reads_like_a_sentence(web):
+    # The search client pastes the whole tracking URL into its error message.
+    import httpx
+
+    message = web._search_failure(
+        httpx.ConnectError("error sending request for url (https://search.yahoo.com/"
+                           "search;_ylt=5bKEW6yYfZUzyX0iStcvHZIe;_ylu=ce94P8ieBDacCNjY)")
+    )
+    assert "http" not in message
+    assert "internet" in message.lower()
+
+
+def test_rate_limiting_is_named(web):
+    assert "rate-limit" in web._search_failure(RuntimeError("Ratelimit 429")).lower()
+
+
+def test_an_unexpected_failure_still_says_something(web):
+    assert "failed" in web._search_failure(RuntimeError("something odd")).lower()

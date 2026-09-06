@@ -162,6 +162,37 @@ class WebSearch(BaseModule):
         return "search", {"query": query or text}
 
     # ---------------------------------------------------------------- search
+    @staticmethod
+    def _search_failure(error: Exception) -> str:
+        """Turn a search library exception into a sentence worth reading.
+
+        The underlying client reports a failure by pasting the entire request
+        URL — tracking parameters and all — into the message, which told the
+        user nothing except that something had gone wrong.
+
+        Args:
+            error: Whatever the search client raised.
+
+        Returns:
+            A short explanation, with the likely cause first.
+        """
+        text = str(error)
+        # The type name is the reliable signal; the message is often just a URL.
+        lowered = f"{type(error).__name__} {text}".lower()
+        if any(marker in lowered for marker in
+               ("connect", "timeout", "timed out", "name resolution", "unreachable",
+                "ssl", "network", "error sending request", "dns", "proxy",
+                "getaddrinfo", "refused")):
+            return (
+                "I couldn't reach the search engine, sir — that usually means no "
+                "internet, or a firewall in the way. Everything local still works."
+            )
+        if "ratelimit" in lowered or "429" in lowered or "too many requests" in lowered:
+            return (
+                "DuckDuckGo is rate-limiting me. Give it a minute and I'll try again."
+            )
+        return f"The search failed: {truncate(text.splitlines()[0], 160)}"
+
     @tool(
         description="Search the web with DuckDuckGo and return the top results.",
         params={
@@ -222,7 +253,7 @@ class WebSearch(BaseModule):
         try:
             results = await run_blocking(_search)
         except Exception as exc:
-            return ModuleResult.fail(f"Search failed: {truncate(str(exc), 200)}")
+            return ModuleResult.fail(self._search_failure(exc))
 
         if not results:
             return ModuleResult.ok(f"No results for '{query}'.", results=[])

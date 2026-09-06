@@ -412,6 +412,11 @@ def check_audio(report: Report, config: Any) -> None:
         )
 
     engine = str(config.get("voice.engine", "auto"))
+    if engine.strip().lower() in {"none", "off", "false", "disabled"} or not str(
+        config.get("voice.wake_word", "jarvis")
+    ).strip():
+        report.add("Wake word", OK, "off by choice — JARVIS answers anything it hears")
+        return
     key = str(config.get("voice.porcupine_access_key", "") or "")
     if engine == "porcupine" and not key:
         report.add(

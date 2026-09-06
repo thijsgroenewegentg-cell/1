@@ -914,6 +914,16 @@ class WakeWordDetector:
         Returns:
             The engine in use: ``porcupine``, ``whisper`` or ``none``.
         """
+        # Turning the wake word off is a legitimate choice, not a failure:
+        # blank it out, or set voice.engine to none/off/disabled, and JARVIS
+        # simply answers anything it hears.
+        if self.requested_engine in {"none", "off", "false", "disabled"} or not self.wake_word:
+            self.engine = "none"
+            logger.info(
+                "Wake word disabled — I'll respond to anything I hear on the microphone."
+            )
+            return self.engine
+
         wants_openwakeword = self.requested_engine in {"openwakeword", "oww", "auto"}
         if wants_openwakeword and await run_blocking(self._init_openwakeword):
             self.engine = "openwakeword"
@@ -945,7 +955,11 @@ class WakeWordDetector:
             return self.engine
 
         self.engine = "none"
-        logger.warning("No wake-word engine available; use push-to-talk or the CLI.")
+        logger.warning(
+            "No wake-word engine available, so I'll answer anything I hear. Install "
+            "openwakeword, add a Porcupine key, or set voice.engine: none to make "
+            "that deliberate."
+        )
         return self.engine
 
     def _init_porcupine(self) -> bool:
