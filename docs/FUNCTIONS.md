@@ -33,11 +33,11 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 24
 - [`modules/system_control.py`](#modulessystem_controlpy) — 23
 - [`modules/vision.py`](#modulesvisionpy) — 15
-- [`modules/web_search.py`](#modulesweb_searchpy) — 19
+- [`modules/web_search.py`](#modulesweb_searchpy) — 20
 - [`plugins/plugin_loader.py`](#pluginsplugin_loaderpy) — 12
 - [`utils/backup.py`](#utilsbackuppy) — 11
 - [`utils/cache.py`](#utilscachepy) — 12
-- [`utils/doctor.py`](#utilsdoctorpy) — 23
+- [`utils/doctor.py`](#utilsdoctorpy) — 25
 - [`utils/documents.py`](#utilsdocumentspy) — 8
 - [`utils/helpers.py`](#utilshelperspy) — 36
 - [`utils/language.py`](#utilslanguagepy) — 8
@@ -51,7 +51,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_cli.py`](#teststest_clipy) — 14
 - [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 15
 - [`tests/test_communications.py`](#teststest_communicationspy) — 8
-- [`tests/test_config.py`](#teststest_configpy) — 20
+- [`tests/test_config.py`](#teststest_configpy) — 21
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
 - [`tests/test_knowledge.py`](#teststest_knowledgepy) — 15
@@ -64,12 +64,13 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
 - [`tests/test_system_control.py`](#teststest_system_controlpy) — 12
 - [`tests/test_units.py`](#teststest_unitspy) — 96
-- [`tests/test_utils.py`](#teststest_utilspy) — 32
+- [`tests/test_utils.py`](#teststest_utilspy) — 35
 - [`tests/test_vision.py`](#teststest_visionpy) — 8
-- [`tests/test_voice.py`](#teststest_voicepy) — 20
+- [`tests/test_voice.py`](#teststest_voicepy) — 24
 - [`tests/test_web.py`](#teststest_webpy) — 12
-- [`tests/test_web_search.py`](#teststest_web_searchpy) — 10
+- [`tests/test_web_search.py`](#teststest_web_searchpy) — 13
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
+- [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
 
 ## `main.py`
 
@@ -1084,7 +1085,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/web_search.py`
 
-*19 functions*
+*20 functions*
 
 > Internet research with zero API keys.
 
@@ -1096,6 +1097,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _get(self, url: str, **kwargs: Any) -> Optional[Any]` — HTTP GET with a browser-ish user agent. Returns the response or None.
 - `def _ddgs_class() -> Optional[Any]` *staticmethod* — Import the DuckDuckGo client, supporting both package names.
 - `def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]` — Rule-based routing with parameter extraction (used without an LLM).
+- `def _search_failure(error: Exception) -> str` *staticmethod* — Turn a search library exception into a sentence worth reading.
 - `async def search(self, query: str, max_results: int = 0) -> ModuleResult` **@tool** — Run a DuckDuckGo text search.
   · `def _search() -> List[Dict[str, str]]`
 - `async def research(self, query: str) -> ModuleResult` **@tool** — Search, read the top pages and summarise them with the local LLM.
@@ -1173,7 +1175,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `utils/doctor.py`
 
-*23 functions*
+*25 functions*
 
 > ``python main.py --doctor`` — find out why JARVIS is unhappy.
 
@@ -1188,6 +1190,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def check_web_port(report: Report, config: Any) -> None` — Check whether the web UI's port is free.
 - `def check_config(report: Report, config: Any, path: Optional[Path]) -> None` — Check the config file itself, and the settings people get wrong.
 - `def check_temp(report: Report) -> None` — Check that the temp directory works — audio and sandboxing need it.
+- `def check_capabilities(report: Report, config: Any) -> None` — Report capabilities that are switched on but cannot work yet.
+  · `def _package(fix: str) -> str` — Pull the package name out of a 'pip install X' fix.
 - `async def diagnose(config: Any, root: Optional[Path] = None) -> Report` — Run every check and collect the findings.
 - `async def diagnose_config_path(path: Optional[str] = None) -> Report` — Load the config from disk and diagnose it.
 - `def render(report: Report, use_colour: bool = True) -> str` — Format a report for a terminal.
@@ -1575,7 +1579,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_config.py`
 
-*20 functions*
+*21 functions*
 
 > Unit tests for core/config.py.
 
@@ -1599,6 +1603,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_quiet_hours_can_be_a_plain_string(tmp_path)`
 - `def test_every_setting_is_read_by_something()` — A setting that nothing reads is a promise the assistant cannot keep.
   · `def walk(node: dict, prefix: str = '') -> 'Iterator[str]'`
+- `def test_every_setting_is_documented()` — A knob nobody can explain is a knob nobody can use.
 
 ## `tests/test_event_bus.py`
 
@@ -1992,7 +1997,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_utils.py`
 
-*32 functions*
+*35 functions*
 
 > Unit tests for the utils package: scheduler, logger, security and cache.
 
@@ -2028,6 +2033,9 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_negative_durations_are_rejected(text)`
 - `def test_binary_files_are_recognised(tmp_path)`
 - `def test_database_connections_do_not_leak(tmp_path)` — `with sqlite3.connect(...)` commits but does not close.
+- `def test_the_doctor_names_capabilities_that_cannot_run(tmp_path)` — Turning a module on says what you want; this says whether it can work.
+- `def test_a_disabled_module_is_not_complained_about(tmp_path)`
+- `def test_missing_packages_are_one_command_not_several(tmp_path)`
 
 ## `tests/test_vision.py`
 
@@ -2046,7 +2054,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_voice.py`
 
-*20 functions*
+*24 functions*
 
 > Unit tests for interfaces/voice.py.
 
@@ -2070,6 +2078,10 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_recording_without_a_device_returns_nothing(config)`
 - `def test_the_voice_interface_assembles_from_config(config)`
 - `def test_the_voice_interface_reports_what_is_missing(config)`
+- `def test_the_wake_word_can_be_switched_off(config)` — `voice.engine: none` is a choice, not a failure to find an engine.
+- `def test_a_blank_wake_word_means_no_wake_word(config)`
+- `def test_every_way_of_saying_off_is_understood(config, spelling)`
+- `def test_the_doctor_calls_a_disabled_wake_word_healthy(config, tmp_path)`
 
 ## `tests/test_web.py`
 
@@ -2092,7 +2104,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web_search.py`
 
-*10 functions*
+*13 functions*
 
 > Unit tests for modules/web_search.py.
 
@@ -2106,6 +2118,9 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_url_is_required_to_read_a_page(web)`
 - `def test_scraped_pages_are_marked_untrusted(web)`
 - `def test_search_results_are_marked_untrusted(web)`
+- `def test_a_network_failure_reads_like_a_sentence(web)`
+- `def test_rate_limiting_is_named(web)`
+- `def test_an_unexpected_failure_still_says_something(web)`
 
 ## `scripts/list_functions.py`
 
@@ -2122,7 +2137,19 @@ and marked with `·`; methods the intent router can call are marked
 - `def build(root: pathlib.Path) -> Tuple[str, int]` — Build the whole document.
 - `def main() -> int` — Write ``docs/FUNCTIONS.md`` and report what was written.
 
+## `scripts/list_settings.py`
+
+*5 functions*
+
+> Generate ``docs/CONFIGURATION.md`` — every setting, default and effect.
+
+- `def walk(node: Dict[str, Any], prefix: str = '') -> Iterator[Tuple[str, Any]]` — Yield every leaf setting as ``(dotted key, default)``.
+- `def undocumented() -> List[str]` — Settings with no entry in :data:`DESCRIPTIONS`.
+- `def render_default(value: Any) -> str` — Format a default for the table.
+- `def build() -> str` — Render the whole document.
+- `def main() -> int` — Write the document, refusing to leave a setting unexplained.
+
 ---
 
-**1439 functions across 61 files.**
+**1458 functions across 62 files.**
 

@@ -264,3 +264,54 @@ def test_database_connections_do_not_leak(tmp_path):
         assert after - before < 10, f"leaked {after - before} descriptors"
     finally:
         run(module.shutdown())
+
+
+# ------------------------------------------------------------------- doctor
+def test_the_doctor_names_capabilities_that_cannot_run(tmp_path):
+    """Turning a module on says what you want; this says whether it can work."""
+    from tests.conftest import build_config
+    from utils.doctor import WARN, Report, check_capabilities
+
+    config = build_config(tmp_path)
+    config.set("modules.blender", True)
+    config.set("blender.executable", str(tmp_path / "no-such-blender"))
+    config.set("blender.allow_bpy_module", False)
+
+    report = Report()
+    check_capabilities(report, config)
+    finding = next(item for item in report.findings if item.name == "Enabled capabilities")
+    if finding.state == WARN:
+        assert finding.detail
+        assert finding.fix, "a complaint without a remedy is not much use"
+
+
+def test_a_disabled_module_is_not_complained_about(tmp_path):
+    from tests.conftest import build_config
+    from utils.doctor import Report, check_capabilities
+
+    config = build_config(tmp_path)
+    for name in ("blender", "vision", "knowledge", "web_search", "system_control",
+                 "file_manager"):
+        config.set(f"modules.{name}", False)
+    config.set("voice.enabled", False)
+    config.set("web_ui.enabled", False)
+
+    report = Report()
+    check_capabilities(report, config)
+    finding = next(item for item in report.findings if item.name == "Enabled capabilities")
+    assert "can actually run" in finding.detail
+
+
+def test_missing_packages_are_one_command_not_several(tmp_path):
+    # "pip install a && pip install b && pip install c" is not a remedy, it is
+    # a chore. Everything installable goes into a single command.
+    from tests.conftest import build_config
+    from utils.doctor import Report, check_capabilities
+
+    config = build_config(tmp_path)
+    report = Report()
+    check_capabilities(report, config)
+    finding = next(item for item in report.findings if item.name == "Enabled capabilities")
+    first_command = finding.fix.split(";")[0]
+    assert first_command.count("pip install") <= 1
+    assert "&&" not in first_command

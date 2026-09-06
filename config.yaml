@@ -26,11 +26,11 @@ llm:
   max_tokens: 700
   timeout: 180
   keep_alive: 10m
+  router_model: ''
   stream: true
   retries: 2
   retry_backoff: 0.75
   warm_up: true
-  router_model: ''
 memory:
   enabled: true
   short_term_limit: 20
@@ -75,14 +75,14 @@ voice:
     beam_size: 1
     vad_filter: true
   tts:
-    engine: auto
-    piper_voice: ''
-    piper_speed: 1.0
     voice: ''
     rate: +8%
     volume: +0%
     pitch: +0Hz
     cache: true
+    engine: auto
+    piper_voice: ''
+    piper_speed: 1.0
   vad:
     sample_rate: 16000
     frame_ms: 30
@@ -100,6 +100,7 @@ modules:
   smart_assistant: true
   knowledge: true
   vision: true
+  blender: true
   communications: true
   models: true
   self_improve: true
@@ -114,7 +115,7 @@ knowledge:
   max_files: 5000
   top_k: 5
   min_relevance: 0.05
-  auto_index_on_start: false
+  auto_index_on_start: true
 vision:
   model: llava
   fallback_models:
@@ -124,6 +125,16 @@ vision:
   - llama3.2-vision
   max_tokens: 400
   temperature: 0.2
+blender:
+  executable: ''
+  output_dir: data/renders
+  engine: ''
+  samples: 0
+  timeout: 300
+  render_timeout: 1800
+  memory_mb: 0
+  allow_scripts: true
+  allow_bpy_module: true
 email:
   enabled: false
   imap_host: ''
@@ -142,6 +153,7 @@ calendar:
   local_file: data/jarvis.ics
   look_ahead_days: 7
 self_improve:
+  root: ''
   enabled: true
   allow_code_edit: true
   allow_plugin_install: true
@@ -164,7 +176,7 @@ self_improve:
   - modules/self_improve.py
   - config.yaml
 web_ui:
-  enabled: false
+  enabled: true
   host: 0.0.0.0
   port: 8765
   token: ''
@@ -177,6 +189,7 @@ security:
   confirm_dangerous: true
   allow_shell: true
   shell_timeout: 60
+  sandbox_memory_mb: 1024
   sandbox_timeout: 20
   blocked_patterns: []
   allowed_roots: []
@@ -197,6 +210,7 @@ paths:
   logs: logs
   notes: data/notes
   code: data/code
+  plugins: plugins
   screenshots: data/screenshots
   downloads: data/downloads
   tts_cache: data/tts
@@ -208,5 +222,3 @@ logging:
   backups: 3
   color: true
   quiet_libraries: true
-blender:
-  executable: ''

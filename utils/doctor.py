@@ -209,11 +209,9 @@ def check_packages(report: Report) -> None:
             f"all {len(OPTIONAL_PACKAGES)} present — every feature is available",
         )
     else:
-        listed = ", ".join(f"{name} ({why})" for name, why in missing_optional[:4])
-        if len(missing_optional) > 4:
-            listed += f", and {len(missing_optional) - 4} more"
+        listed = ", ".join(f"{name} ({why})" for name, why in missing_optional)
         report.add(
-            "Optional packages", WARN, f"missing {listed}",
+            "Optional packages", WARN, f"{len(missing_optional)} missing: {listed}",
             "pip install " + " ".join(name for name, _ in missing_optional),
         )
 
@@ -527,6 +525,88 @@ def check_temp(report: Report) -> None:
         )
 
 
+#: For each module: what it needs beyond Python, and how to get it.
+CAPABILITY_NEEDS: Dict[str, List[Tuple[str, str, str]]] = {
+    "voice": [
+        ("faster_whisper", "faster-whisper", "pip install faster-whisper"),
+        ("edge_tts", "edge-tts", "pip install edge-tts"),
+        ("sounddevice", "a microphone binding", "pip install sounddevice"),
+    ],
+    "vision": [("PIL", "Pillow", "pip install Pillow")],
+    "web_ui": [
+        ("fastapi", "FastAPI", "pip install fastapi 'uvicorn[standard]'"),
+        ("uvicorn", "Uvicorn", "pip install 'uvicorn[standard]'"),
+    ],
+    "knowledge": [("chromadb", "ChromaDB", "pip install chromadb")],
+    "web_search": [("ddgs", "the DuckDuckGo client", "pip install ddgs")],
+    "system_control": [("pyautogui", "pyautogui", "pip install pyautogui")],
+    "file_manager": [("pandas", "pandas", "pip install pandas")],
+}
+
+
+def check_capabilities(report: Report, config: Any) -> None:
+    """Report capabilities that are switched on but cannot work yet.
+
+    Turning a module on in ``config.yaml`` is a statement of intent; whether
+    it can actually do anything depends on what is installed. This says which
+    switched-on capability is still dark, and the one command that fixes it.
+
+    Args:
+        report: The report to add findings to.
+        config: The loaded configuration.
+    """
+    incomplete: List[str] = []
+    packages: List[str] = []
+    fixes: List[str] = []
+
+    def _package(fix: str) -> str:
+        """Pull the package name out of a 'pip install X' fix."""
+        return fix.replace("pip install ", "").strip()
+
+    for capability, needs in CAPABILITY_NEEDS.items():
+        enabled = (
+            bool(config.get("voice.enabled", True)) if capability == "voice"
+            else bool(config.get("web_ui.enabled", False)) if capability == "web_ui"
+            else bool(config.get(f"modules.{capability}", True))
+        )
+        if not enabled:
+            continue
+        for module, label, fix in needs:
+            if not _import_ok(module):
+                incomplete.append(f"{capability} needs {label}")
+                package = _package(fix)
+                if package not in packages:
+                    packages.append(package)
+
+    # Blender is a program, not a package.
+    if config.get("modules.blender", True):
+        configured = str(config.get("blender.executable", "") or "")
+        found = shutil.which("blender") or (
+            configured and Path(configured).expanduser().is_file()
+        )
+        if not found and not _import_ok("bpy"):
+            incomplete.append("blender needs Blender itself")
+            fixes.append("install Blender from blender.org, or: pip install bpy")
+
+    # Mail is configured, not installed.
+    mail_on = bool(config.get("modules.communications", True)) and bool(
+        config.get("email.enabled", False)
+    )
+    if mail_on and not (config.get("email.imap_host") and config.get("email.user")):
+        incomplete.append("email is on but has no server or account")
+        fixes.append("fill in email.imap_host and email.user in config.yaml")
+
+    if not incomplete:
+        report.add("Enabled capabilities", OK, "everything switched on can actually run")
+        return
+
+    # One command, not one per package.
+    remedy = f"pip install {' '.join(packages)}" if packages else ""
+    if fixes:
+        remedy = f"{remedy}; then {'; '.join(fixes)}" if remedy else "; ".join(fixes)
+    report.add("Enabled capabilities", WARN, "; ".join(incomplete), remedy)
+
+
 async def diagnose(config: Any, root: Optional[Path] = None) -> Report:
     """Run every check and collect the findings.
 
@@ -545,6 +625,7 @@ async def diagnose(config: Any, root: Optional[Path] = None) -> Report:
     steps: List[Tuple[str, Any]] = [
         ("Python", lambda: check_python(report)),
         ("Packages", lambda: check_packages(report)),
+        ("Capabilities", lambda: check_capabilities(report, config)),
         ("Config", lambda: check_config(report, config, config_path)),
         ("Ollama", lambda: check_ollama(report, config)),
         ("Memory", lambda: check_memory_ram(report, config)),
