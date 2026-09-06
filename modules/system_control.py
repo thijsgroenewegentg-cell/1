@@ -27,6 +27,7 @@ from utils.helpers import (
     human_bytes,
     human_duration,
     resolve_user_path,
+    run_blocking,
     run_command,
     safe_filename,
     truncate,
@@ -122,6 +123,7 @@ class SystemControl(BaseModule):
         self.screenshot_dir = config.path_for("screenshots")
         self.shell_timeout = float(config.get("security.shell_timeout", 60))
         self._pyautogui: Optional[Any] = None
+        self._cpu_primed = False
 
     # ------------------------------------------------------------- utilities
     def _gui(self) -> Optional[Any]:
@@ -139,6 +141,25 @@ class SystemControl(BaseModule):
                 self.log.debug("pyautogui unavailable: %s", exc)
                 return None
         return self._pyautogui
+
+    async def setup(self) -> None:
+        """Take the first CPU sample so the first status answer is quick."""
+        await run_blocking(self._prime_cpu)
+
+    def _prime_cpu(self) -> None:
+        """Take a throwaway CPU reading so the next one is instant.
+
+        ``cpu_percent(interval=None)`` reports the load since the previous
+        call, so somebody has to make a first call. Doing it at start-up costs
+        nothing and takes the wait out of the first answer.
+        """
+        try:
+            import psutil
+
+            psutil.cpu_percent(interval=None)
+            self._cpu_primed = True
+        except Exception:
+            self._cpu_primed = False
 
     # ---------------------------------------------------------- offline route
     def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]:
@@ -433,7 +454,15 @@ class SystemControl(BaseModule):
         except Exception:
             return ModuleResult.fail("psutil isn't installed — run: pip install psutil")
 
-        cpu_percent = psutil.cpu_percent(interval=0.4)
+        # psutil.cpu_percent(interval=0.4) sleeps for four hundred milliseconds,
+        # which was most of the time this answer took. Sampling without an
+        # interval reports the load since the previous call instead: the
+        # background primer below keeps a recent reading available, so the
+        # figure is current without anyone waiting for it.
+        cpu_percent = psutil.cpu_percent(interval=None)
+        if cpu_percent == 0.0 and not self._cpu_primed:
+            cpu_percent = psutil.cpu_percent(interval=0.08)
+        self._cpu_primed = True
         cores = psutil.cpu_count(logical=True) or 1
         virtual = psutil.virtual_memory()
         disk = psutil.disk_usage(str(Path.home().anchor or "/"))

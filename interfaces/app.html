@@ -494,6 +494,11 @@ const COLOURS = {
 };
 let paint = COLOURS.idle.slice();
 let shell = [], stars = [], inner = [], comets = [];
+//: Points are drawn in a handful of paths grouped by brightness rather than
+//: one path each: 3,200 fillStyle changes and fills per frame was the single
+//: most expensive thing on the page.
+const BUCKETS = 9;
+const buckets = Array.from({ length: BUCKETS }, () => ({ x: [], y: [], r: [] }));
 const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
 let quality = 1;                       // scaled down if frames get expensive
 let frameTimes = [], lastFrame = performance.now(), fps = 60;
@@ -641,23 +646,41 @@ function draw(now) {
   }
 
   // -- the inner core shell, turning the other way ------------------------
+  ctx.beginPath();
   for (let i = 0; i < inner.length; i++) {
     const spot = project(inner[i], base * breathe * 0.55, -0.7);
-    ctx.fillStyle = rgb((0.04 + spot.depth * 0.16 + orb.energy * 0.1).toFixed(3));
-    ctx.fillRect(spot.x, spot.y, 1.3, 1.3);
+    ctx.rect(spot.x, spot.y, 1.3, 1.3);
   }
+  ctx.fillStyle = rgb((0.09 + orb.energy * 0.08).toFixed(3));
+  ctx.fill();
 
-  // -- the shell ----------------------------------------------------------
+  // -- the shell, gathered into brightness buckets ------------------------
+  for (let b = 0; b < BUCKETS; b++) {
+    buckets[b].x.length = 0; buckets[b].y.length = 0; buckets[b].r.length = 0;
+  }
+  let brightest = 0;
   for (let i = 0; i < shell.length; i++) {
     const point = shell[i];
     const wobble = 1 + orb.energy * 0.045 * Math.sin(point.y * 6 + orb.time * 4.2 + point.x * 3);
     const spot = project(point, base * breathe * wobble, 1);
-    const rim = Math.pow(1 - Math.abs(spot.z), 3);
+    const rim = (1 - Math.abs(spot.z)) ** 3;
     const alpha = 0.05 + spot.depth * spot.depth * (0.34 + orb.energy * 0.26) + rim * 0.26;
     const size = (0.5 + spot.depth * 1.15 + rim * 0.5) * (1 + orb.energy * 0.22);
-    ctx.fillStyle = rgb(alpha.toFixed(3));
+    const slot = Math.min(BUCKETS - 1, (alpha * BUCKETS) | 0);
+    if (slot > brightest) brightest = slot;
+    buckets[slot].x.push(spot.x);
+    buckets[slot].y.push(spot.y);
+    buckets[slot].r.push(size);
+  }
+  for (let b = 0; b <= brightest; b++) {
+    const bucket = buckets[b];
+    if (!bucket.x.length) continue;
+    ctx.fillStyle = rgb(((b + 0.5) / BUCKETS).toFixed(3));
     ctx.beginPath();
-    ctx.arc(spot.x, spot.y, size, 0, 6.2832);
+    for (let i = 0; i < bucket.x.length; i++) {
+      ctx.moveTo(bucket.x[i] + bucket.r[i], bucket.y[i]);
+      ctx.arc(bucket.x[i], bucket.y[i], bucket.r[i], 0, 6.2832);
+    }
     ctx.fill();
   }
 

@@ -111,3 +111,17 @@ def test_the_audit_filter_is_validated(system):
     result = run(system.call_tool("security_log", {"outcome": "sideways"}))
     assert not result.success
     assert "blocked" in result.error
+
+
+def test_reading_the_cpu_does_not_block_the_turn(system):
+    """psutil.cpu_percent(interval=0.4) sleeps; it was most of this answer."""
+    import time
+
+    run(system.setup())          # primes the first sample
+    started = time.perf_counter()
+    result = run(system.call_tool("system_stats", {}))
+    elapsed = time.perf_counter() - started
+
+    assert result.success
+    assert elapsed < 0.25, f"system stats took {elapsed:.2f}s"
+    assert "cpu_percent" in result.data

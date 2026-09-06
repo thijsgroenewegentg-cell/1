@@ -280,3 +280,17 @@ def test_tool_results_reach_the_browser(web):
         assert message["data"]["data"]["todos"][0]["task"] == "sourdough"
 
     run(scenario())
+
+
+def test_the_page_is_compressed(web):
+    """61 KB of markup over Wi-Fi is a visible load; 18 KB is not."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    plain = client.get("/", params={"token": web.token},
+                       headers={"Accept-Encoding": "identity"})
+    packed = client.get("/", params={"token": web.token},
+                        headers={"Accept-Encoding": "gzip"})
+    assert plain.status_code == packed.status_code == 200
+    assert packed.headers.get("content-encoding") == "gzip"
+    assert int(packed.headers["content-length"]) < len(plain.content) / 2

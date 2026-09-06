@@ -347,6 +347,15 @@ class WebInterface:
             )
 
         app = FastAPI(title=f"{self.title} web interface", docs_url=None, redoc_url=None)
+        # The interface is one 61 KB document of markup, style and script.
+        # Compressed it is a fifth of that, which is the difference between a
+        # snappy load and a visible one over Wi-Fi.
+        try:
+            from fastapi.middleware.gzip import GZipMiddleware
+
+            app.add_middleware(GZipMiddleware, minimum_size=1024)
+        except Exception as error:  # pragma: no cover - middleware is optional
+            logger.debug("Compression unavailable: %s", error)
         def rendered_page() -> str:
             """Return the interface with its placeholders filled in.
 

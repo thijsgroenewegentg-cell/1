@@ -31,7 +31,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/productivity.py`](#modulesproductivitypy) — 72
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
 - [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 24
-- [`modules/system_control.py`](#modulessystem_controlpy) — 24
+- [`modules/system_control.py`](#modulessystem_controlpy) — 26
 - [`modules/vision.py`](#modulesvisionpy) — 15
 - [`modules/web_search.py`](#modulesweb_searchpy) — 20
 - [`plugins/plugin_loader.py`](#pluginsplugin_loaderpy) — 12
@@ -63,12 +63,12 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_self_improve.py`](#teststest_self_improvepy) — 18
 - [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 16
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
-- [`tests/test_system_control.py`](#teststest_system_controlpy) — 15
+- [`tests/test_system_control.py`](#teststest_system_controlpy) — 16
 - [`tests/test_units.py`](#teststest_unitspy) — 96
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
-- [`tests/test_web.py`](#teststest_webpy) — 31
+- [`tests/test_web.py`](#teststest_webpy) — 32
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 13
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
@@ -1058,7 +1058,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/system_control.py`
 
-*24 functions*
+*26 functions*
 
 > Control the host computer: apps, screenshots, stats, volume, input, shell.
 
@@ -1066,6 +1066,8 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None` — Initialise paths and detect the platform.
 - `def _gui(self) -> Optional[Any]` — Lazily import pyautogui (it opens a display connection).
+- `async def setup(self) -> None` — Take the first CPU sample so the first status answer is quick.
+- `def _prime_cpu(self) -> None` — Take a throwaway CPU reading so the next one is instant.
 - `def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]` — Rule-based routing with parameter extraction (used without an LLM).
 - `async def open_app(self, name: str) -> ModuleResult` **@tool** — Open an application, resolving common aliases per platform.
 - `async def _launch(self, target: str) -> tuple[int, str, str]` — Platform-specific application launch.
@@ -1941,7 +1943,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_system_control.py`
 
-*15 functions*
+*16 functions*
 
 > Unit tests for modules/system_control.py.
 
@@ -1960,6 +1962,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_audit_trail_is_reportable(system)`
 - `def test_an_empty_trail_reads_calmly(config)`
 - `def test_the_audit_filter_is_validated(system)`
+- `def test_reading_the_cpu_does_not_block_the_turn(system)` — psutil.cpu_percent(interval=0.4) sleeps; it was most of this answer.
 
 ## `tests/test_units.py`
 
@@ -2178,7 +2181,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*31 functions*
+*32 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -2210,6 +2213,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_interface_declares_its_shortcuts(web)` — Every key the script listens for should be discoverable in the UI.
 - `def test_tool_results_reach_the_browser(web)` — The interface draws cards from these, so they must be relayed.
   · `async def scenario() -> None`
+- `def test_the_page_is_compressed(web)` — 61 KB of markup over Wi-Fi is a visible load; 18 KB is not.
 
 ## `tests/test_web_search.py`
 
@@ -2260,5 +2264,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1563 functions across 63 files.**
+**1567 functions across 63 files.**
 
