@@ -157,6 +157,21 @@ Then say **"Jarvis"**, wait for the chime, and talk. Or just type.
    python main.py
    ```
 
+**Or let the installer do all of it:**
+
+```bash
+python install.py --everything          # asks before anything intrusive
+python install.py --everything -y       # unattended
+```
+
+That one command installs the audio libraries pip cannot provide (PortAudio,
+FFmpeg), builds the virtual environment, installs every package group,
+installs Ollama and pulls the chat, embedding and vision models, switches on
+all twelve modules and every capability, and finishes by telling you exactly
+what — if anything — is still missing. Add `--blender` to install Blender's
+Python module, and `--autostart` to start JARVIS at login; both are skipped
+unless asked for, even with `-y`.
+
 *Windows notes*
 * Volume control uses `pycaw` (installed automatically).
 * If `pyaudio`/`sounddevice` fails to build, install the

@@ -10,7 +10,7 @@ and marked with `·`; methods the intent router can call are marked
 ## Contents
 
 - [`main.py`](#mainpy) — 18
-- [`install.py`](#installpy) — 47
+- [`install.py`](#installpy) — 54
 - [`core/brain.py`](#corebrainpy) — 55
 - [`core/config.py`](#coreconfigpy) — 26
 - [`core/event_bus.py`](#coreevent_buspy) — 13
@@ -54,6 +54,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_config.py`](#teststest_configpy) — 21
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
+- [`tests/test_install.py`](#teststest_installpy) — 13
 - [`tests/test_knowledge.py`](#teststest_knowledgepy) — 15
 - [`tests/test_memory.py`](#teststest_memorypy) — 19
 - [`tests/test_models.py`](#teststest_modelspy) — 7
@@ -102,7 +103,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `install.py`
 
-*47 functions*
+*54 functions*
 
 > JARVIS — one-command installer.
 
@@ -121,7 +122,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def run_live(command: Sequence[str], timeout: int = 3600) -> int` — Run a command with its output attached to this terminal.
 - `def run_streaming(command: Sequence[str], keep: int = 60) -> Tuple[int, str]` — Run a command, showing a compact one-line progress trace.
 - `def http_get(url: str, timeout: int = 5) -> Optional[bytes]` — Fetch a URL, returning ``None`` on any failure.
-- `def download(url: str, destination: Path, label: str) -> bool` — Download a file with a percentage progress line.
+- `def download(url: str, destination: Path, label: str, optional: bool = False) -> bool` — Download a file with a percentage progress line.
+- `def truncate_reason(text: str, limit: int = 90) -> str` — Shorten an exception message for a one-line report.
 - `def total_ram_gb() -> float` — Best-effort physical memory size in GiB (0.0 when unknown).
 - `def suggest_model() -> str` — Pick a sensible default model for the amount of RAM available.
 - `def check_environment() -> bool` — Verify Python, disk, RAM and connectivity.
@@ -141,6 +143,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def install_piper_voice(assume_yes: bool) -> bool` — Download a free offline Piper voice so speech needs no network.
 - `def _set_yaml_value(block: str, key: str, value: str) -> str` — Replace one ``key: value`` line inside a YAML block, keeping its comment.
 - `def personalise_config(name: str, title: str, model: str) -> None` — Write the user's name, title and model choice into ``config.yaml``.
+- `def package_manager() -> str` — Find a package manager this machine actually has.
+- `def install_system_dependencies(assume_yes: bool) -> None` — Install the audio libraries pip cannot supply.
+- `def enable_everything(python: Path) -> bool` — Switch every capability on in ``config.yaml``.
+- `def install_blender(python: Path, assume_yes: bool, force: bool = False) -> None` — Make the Blender module usable, one way or another.
+- `def install_autostart(assume_yes: bool, force: bool = False) -> None` — Offer to start JARVIS automatically at login.
+- `def run_doctor(python: Path) -> None` — Finish by telling the user exactly what is still missing.
 - `def create_directories(python: Path) -> None` — Create the data/logs/notes folders declared in the configuration.
 - `def create_shortcut() -> None` — Create a desktop / Start-menu entry that launches JARVIS.
 - `def _shortcut_windows() -> None` — Create ``JARVIS.lnk`` on the desktop and in the Start menu.
@@ -1668,6 +1676,26 @@ and marked with `·`; methods the intent router can call are marked
   · `async def decline(prompt: str) -> bool`
 - `def test_writing_inside_the_allowed_roots_is_unchallenged(tmp_path)`
 
+## `tests/test_install.py`
+
+*13 functions*
+
+> Unit tests for install.py, in particular its --everything mode.
+
+- `def installer()` — Import install.py as a module without running it.
+- `def test_everything_is_accepted(installer)`
+- `def test_everything_implies_the_full_profile(installer)`
+- `def test_the_intrusive_extras_have_their_own_flags(installer)`
+- `def test_they_are_off_unless_asked_for(installer)`
+- `def test_every_module_is_switched_on(installer)`
+- `def test_the_two_footguns_are_left_alone(installer)`
+- `def test_the_wake_word_is_not_forced_back_on(installer)`
+- `def test_every_key_it_writes_is_a_real_setting(installer)`
+  · `def exists(dotted: str) -> bool`
+- `def test_the_audio_libraries_cover_every_manager(installer)`
+- `def test_the_package_manager_lookup_never_raises(installer)`
+- `def test_a_long_error_is_shortened_for_one_line(installer)`
+
 ## `tests/test_knowledge.py`
 
 *15 functions*
@@ -2151,5 +2179,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1458 functions across 62 files.**
+**1478 functions across 63 files.**
 

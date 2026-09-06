@@ -378,8 +378,20 @@ def http_get(url: str, timeout: int = 5) -> Optional[bytes]:
         return None
 
 
-def download(url: str, destination: Path, label: str) -> bool:
-    """Download a file with a percentage progress line."""
+def download(url: str, destination: Path, label: str, optional: bool = False) -> bool:
+    """Download a file with a percentage progress line.
+
+    Args:
+        url: What to fetch.
+        destination: Where to write it.
+        label: Shown in the progress line.
+        optional: When true a failure is a warning, not an error — an offline
+            machine skipping an optional voice pack has not broken anything,
+            and a red cross says otherwise.
+
+    Returns:
+        True when the file was written.
+    """
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "JARVIS-installer"})
         with urllib.request.urlopen(request, timeout=60) as response:
@@ -401,8 +413,26 @@ def download(url: str, destination: Path, label: str) -> bool:
         return True
     except Exception as exc:
         clear_progress()
-        fail(f"download failed: {exc}")
+        reason = str(exc)
+        if optional:
+            warn(f"{label}: {truncate_reason(reason)} — skipping, it is optional")
+        else:
+            fail(f"download failed: {reason}")
         return False
+
+
+def truncate_reason(text: str, limit: int = 90) -> str:
+    """Shorten an exception message for a one-line report.
+
+    Args:
+        text: The message.
+        limit: Longest string to keep.
+
+    Returns:
+        The message, shortened with an ellipsis when necessary.
+    """
+    first = text.strip().splitlines()[0] if text.strip() else "unknown error"
+    return first if len(first) <= limit else first[: limit - 1] + "…"
 
 
 def total_ram_gb() -> float:
@@ -877,11 +907,13 @@ def install_piper_voice(assume_yes: bool) -> bool:
     folder.mkdir(parents=True, exist_ok=True)
     model = folder / f"{PIPER_VOICE_NAME}.onnx"
     config_file = folder / f"{PIPER_VOICE_NAME}.onnx.json"
+    # Edge-TTS already covers speech; Piper is the fully offline extra, so a
+    # failed download here is a missing nicety, not a broken install.
     if not download(f"{PIPER_VOICE_BASE}{PIPER_VOICE_NAME}.onnx", model,
-                    "downloading the offline voice"):
+                    "downloading the offline voice", optional=True):
         return False
     if not download(f"{PIPER_VOICE_BASE}{PIPER_VOICE_NAME}.onnx.json", config_file,
-                    "downloading the voice config"):
+                    "downloading the voice config", optional=True):
         return False
     ok(f"offline voice installed ({PIPER_VOICE_NAME})")
     return True
@@ -946,6 +978,230 @@ def personalise_config(name: str, title: str, model: str) -> None:
             ok("config.yaml left as it is")
     except Exception as exc:
         warn(f"could not edit config.yaml ({exc}) — edit it by hand if you like")
+
+
+# ---------------------------------------------------------------------------
+# "Everything" mode: system libraries, all models, all capabilities
+# ---------------------------------------------------------------------------
+
+#: The system packages the voice pipeline needs, per package manager. These
+#: are libraries pip cannot provide: PortAudio for the microphone and FFmpeg
+#: for playback.
+SYSTEM_PACKAGES: Dict[str, Tuple[str, ...]] = {
+    "apt-get": ("portaudio19-dev", "libportaudio2", "ffmpeg", "libsndfile1"),
+    "dnf": ("portaudio-devel", "ffmpeg-free", "libsndfile"),
+    "pacman": ("portaudio", "ffmpeg", "libsndfile"),
+    "zypper": ("portaudio-devel", "ffmpeg", "libsndfile1"),
+    "brew": ("portaudio", "ffmpeg", "libsndfile"),
+    "winget": ("Gyan.FFmpeg",),
+    "choco": ("ffmpeg",),
+}
+
+#: Every capability, switched on. Two are deliberately absent:
+#: ``security.confirm_dangerous`` stays on because it is a safety rail, and
+#: ``self_improve.allow_pip_install`` stays off because it installs arbitrary
+#: packages — that one should be a decision, not a default.
+EVERYTHING_ON: Dict[str, object] = {
+    **{f"modules.{name}": True for name in (
+        "system_control", "web_search", "productivity", "code_assistant",
+        "file_manager", "smart_assistant", "knowledge", "vision", "blender",
+        "communications", "models", "self_improve",
+    )},
+    "voice.enabled": True,
+    "voice.stream_speech": True,
+    "voice.interrupt": True,
+    "voice.conversation_mode": True,
+    "voice.chime": True,
+    "assistant.greet_on_start": True,
+    "assistant.proactive": True,
+    "memory.enabled": True,
+    "memory.long_term": True,
+    "memory.auto_extract_facts": True,
+    "memory.summarize": True,
+    "memory.autosave": True,
+    "knowledge.auto_index_on_start": True,
+    "web_ui.enabled": True,
+    "calendar.enabled": True,
+    "self_improve.enabled": True,
+    "self_improve.allow_code_edit": True,
+    "self_improve.allow_plugin_install": True,
+    "self_improve.review_plugins": True,
+    "self_improve.run_tests_after_edit": True,
+    "productivity.catch_up_on_start": True,
+    "llm.stream": True,
+    "llm.warm_up": True,
+}
+
+
+def package_manager() -> str:
+    """Find a package manager this machine actually has.
+
+    Returns:
+        Its command name, or an empty string when there is none to use.
+    """
+    candidates = ("brew",) if IS_MACOS else (
+        ("winget", "choco") if IS_WINDOWS else ("apt-get", "dnf", "pacman", "zypper")
+    )
+    return next((name for name in candidates if shutil.which(name)), "")
+
+
+def install_system_dependencies(assume_yes: bool) -> None:
+    """Install the audio libraries pip cannot supply.
+
+    The microphone needs PortAudio and playback needs FFmpeg; neither is a
+    Python package. Without them the voice pipeline installs perfectly and
+    then cannot hear or speak, which is a baffling way to fail.
+
+    Args:
+        assume_yes: Skip the confirmation prompt.
+    """
+    manager = package_manager()
+    if not manager:
+        warn("no package manager found — install PortAudio and FFmpeg by hand for voice")
+        return
+    packages = SYSTEM_PACKAGES.get(manager, ())
+    if not packages:
+        return
+
+    listed = " ".join(packages)
+    if not ask_yes_no(f"Install audio libraries with {manager} ({listed})?",
+                      default=True, assume_yes=assume_yes):
+        info("skipped — voice will need PortAudio and FFmpeg later")
+        return
+
+    if manager == "brew":
+        command = ["brew", "install", *packages]
+    elif manager == "winget":
+        command = ["winget", "install", "--silent", "--accept-package-agreements",
+                   "--accept-source-agreements", *packages]
+    elif manager == "choco":
+        command = ["choco", "install", "-y", *packages]
+    elif manager == "pacman":
+        command = ["sudo", "pacman", "-S", "--needed", "--noconfirm", *packages]
+    elif manager == "dnf":
+        command = ["sudo", "dnf", "install", "-y", *packages]
+    elif manager == "zypper":
+        command = ["sudo", "zypper", "--non-interactive", "install", *packages]
+    else:
+        run(["sudo", "apt-get", "update", "-qq"], timeout=600)
+        command = ["sudo", "apt-get", "install", "-y", "--no-install-recommends", *packages]
+
+    progress(f"installing {listed}…")
+    code = run_live(command, timeout=1800)
+    clear_progress()
+    if code == 0:
+        ok(f"audio libraries installed with {manager}")
+    else:
+        warn(f"{manager} could not install them — voice may stay silent "
+             f"(try: {' '.join(command)})")
+
+
+def enable_everything(python: Path) -> bool:
+    """Switch every capability on in ``config.yaml``.
+
+    Done through JARVIS's own configuration code rather than by editing YAML
+    text, so aliases, defaults and validation all apply.
+
+    Args:
+        python: The virtual environment's interpreter.
+
+    Returns:
+        True when the file was written.
+    """
+    settings = json.dumps(EVERYTHING_ON)
+    code = (
+        "import json;"
+        "from core.config import Config;"
+        "c = Config.load('config.yaml');"
+        f"[c.set(k, v) for k, v in json.loads({settings!r}).items()];"
+        "print('enabled', len(c.section('modules')), 'modules') if c.save() else None"
+    )
+    result = run([str(python), "-c", code], timeout=180)
+    if result.returncode == 0:
+        ok(f"every capability enabled in config.yaml ({len(EVERYTHING_ON)} settings)")
+        info("wake word, confirmations and pip-install permission left for you to decide")
+        return True
+    warn("could not update config.yaml — enable capabilities by hand if you like")
+    return False
+
+
+def install_blender(python: Path, assume_yes: bool, force: bool = False) -> None:
+    """Make the Blender module usable, one way or another.
+
+    ``bpy`` is a 400 MB download that only helps when the application is
+    absent, so an unattended run skips it unless ``--blender`` says otherwise:
+    ``-y`` means "take the defaults", and the default here is no.
+
+    Args:
+        python: The virtual environment's interpreter.
+        assume_yes: Whether prompts are being answered automatically.
+        force: Install bpy without asking.
+    """
+    existing = shutil.which("blender")
+    if existing:
+        ok(f"Blender found at {existing}")
+        return
+    if IS_MACOS and Path("/Applications/Blender.app").exists():
+        ok("Blender found in /Applications")
+        return
+    info("Blender is not installed — the 3D module needs it")
+    wanted = force or ask_yes_no(
+        "Install Blender's Python module instead (pip install bpy, ~400 MB)?",
+        default=False, assume_yes=assume_yes,
+    )
+    if not wanted:
+        info("skipped — install Blender from blender.org, or rerun with --blender")
+        return
+    progress("installing bpy…")
+    code = run_live([str(python), "-m", "pip", "install", "bpy"], timeout=3600)
+    clear_progress()
+    if code == 0:
+        ok("bpy installed — rendering and scripting work, but there is no Blender window")
+    else:
+        warn("bpy would not install (it needs Python 3.11 exactly) — "
+             "install Blender from blender.org instead")
+
+
+def install_autostart(assume_yes: bool, force: bool = False) -> None:
+    """Offer to start JARVIS automatically at login.
+
+    Hooking into login is a change to the machine, not to this folder, so an
+    unattended run leaves it alone unless ``--autostart`` asks for it.
+
+    Args:
+        assume_yes: Whether prompts are being answered automatically.
+        force: Install the service without asking.
+    """
+    scripts = {
+        "linux": PROJECT_DIR / "scripts" / "install_service_linux.sh",
+        "macos": PROJECT_DIR / "scripts" / "install_service_macos.sh",
+        "windows": PROJECT_DIR / "scripts" / "install_service_windows.ps1",
+    }
+    key = "windows" if IS_WINDOWS else "macos" if IS_MACOS else "linux"
+    script = scripts[key]
+    if not script.exists():
+        return
+    wanted = force or ask_yes_no("Start JARVIS automatically when you log in?",
+                                 default=False, assume_yes=assume_yes)
+    if not wanted:
+        info(f"skipped — run {script.name} later, or rerun with --autostart")
+        return
+    command = (["powershell", "-ExecutionPolicy", "Bypass", "-File", str(script)]
+               if IS_WINDOWS else ["bash", str(script)])
+    if run_live(command, timeout=600) == 0:
+        ok("JARVIS will start at login")
+    else:
+        warn(f"the autostart script failed — run it yourself: {script}")
+
+
+def run_doctor(python: Path) -> None:
+    """Finish by telling the user exactly what is still missing.
+
+    Args:
+        python: The virtual environment's interpreter.
+    """
+    print()
+    run_live([str(python), "main.py", "--doctor"], timeout=600)
 
 
 def create_directories(python: Path) -> None:
@@ -1124,7 +1380,7 @@ def final_summary(started: float, model: str, profile: str) -> None:
     print(f"    · Model in use: {model} — change it in config.yaml (llm.model)")
     print("    · Everything runs on this machine. No keys, no accounts, no bills.")
     print("    · Ollama must be running: it starts on login, or run 'ollama serve'.")
-    if profile != "full":
+    if profile not in {"full", "everything"}:
         print("    · Voice mode needs the full profile: rerun 'python install.py --full'")
 
     if WARNINGS:
@@ -1159,6 +1415,12 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
                          help="voice, vision, documents, desktop control (default)")
     profile.add_argument("--standard", action="store_const", dest="profile", const="standard",
                          help="everything except the microphone stack")
+    parser.add_argument("--everything", action="store_true",
+                        help="the lot: audio libraries, every model, every capability on")
+    parser.add_argument("--blender", action="store_true",
+                        help="install Blender's Python module (bpy) when the app is absent")
+    parser.add_argument("--autostart", action="store_true",
+                        help="start JARVIS automatically at login")
     profile.add_argument("--minimal", action="store_const", dest="profile", const="minimal",
                          help="text and web only, smallest install")
     parser.add_argument("-y", "--yes", action="store_true",
@@ -1207,25 +1469,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     banner()
 
     started = time.time()
-    total_steps = 7
+    everything = bool(arguments.everything)
+    total_steps = 9 if everything else 7
 
     step(1, total_steps, "Checking your system")
     if not check_environment():
         return 1
 
     profile = arguments.profile or ("standard" if arguments.repair else None)
+    if everything:
+        profile = "full"
     if profile is None:
         print()
         profile = choose_profile(assume_yes)
     ok(f"profile: {profile} — {PROFILE_BLURB[profile]}")
 
-    step(2, total_steps, "Setting up the Python environment")
+    if everything:
+        step(2, total_steps, "System audio libraries")
+        install_system_dependencies(assume_yes)
+
+    step(3 if everything else 2, total_steps, "Setting up the Python environment")
     python = create_venv(Path(arguments.venv), recreate=arguments.recreate)
     if python is None:
         return 1
     upgrade_pip(python)
 
-    step(3, total_steps, f"Installing packages ({PROFILE_SIZE[profile]} download)")
+    step(4 if everything else 3, total_steps,
+         f"Installing packages ({PROFILE_SIZE[profile]} download)")
     if not install_packages(python, profile):
         fail("essential packages could not be installed — see the errors above.")
         info("Try again with:  python install.py --minimal")
@@ -1233,11 +1503,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     model = arguments.model or suggest_model()
     model_installed = ""
-    step(4, total_steps, "Local language model (Ollama)")
+    step(5 if everything else 4, total_steps, "Local language model (Ollama)")
     if arguments.no_ollama:
         info("skipped (--no-ollama)")
     else:
-        wants_vision = bool(arguments.vision) or (
+        wants_vision = bool(arguments.vision) or everything or (
             profile == "full"
             and not arguments.no_model
             and ask_yes_no("Also download the vision model (llava, ~4 GB)?",
@@ -1254,7 +1524,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if profile == "full" and not arguments.no_voice_model:
         install_piper_voice(assume_yes)
 
-    step(5, total_steps, "Configuration")
+    step(6 if everything else 5, total_steps, "Configuration")
     if arguments.repair:
         ok("configuration left untouched (--repair)")
     else:
@@ -1266,8 +1536,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         personalise_config(name.strip(), title.strip(), model_installed)
     create_directories(python)
     make_launchers_executable()
+    if everything:
+        enable_everything(python)
+        install_blender(python, assume_yes, force=bool(arguments.blender))
 
-    step(6, total_steps, "Shortcuts")
+    step(7 if everything else 6, total_steps, "Shortcuts")
     if arguments.no_shortcut:
         info("skipped (--no-shortcut)")
     elif ask_yes_no("Add a JARVIS shortcut to your desktop?", default=True,
@@ -1276,13 +1549,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     else:
         info("no shortcut created")
 
-    step(7, total_steps, "Checking every component")
+    if everything:
+        step(8, total_steps, "Starting at login")
+        install_autostart(assume_yes, force=bool(arguments.autostart))
+
+    step(9 if everything else 7, total_steps, "Checking every component")
     if arguments.no_test:
         info("skipped (--no-test)")
     elif not self_test(python):
         warn("the self-test reported problems — read the lines above")
 
-    final_summary(started, model_installed or model, profile)
+    if everything and not arguments.no_test:
+        # The self-test says whether it runs; the doctor says what is missing.
+        run_doctor(python)
+
+    final_summary(started, model_installed or model,
+                  "everything" if everything else profile)
 
     if not assume_yes and sys.stdin.isatty():
         if ask_yes_no("Start JARVIS now?", default=True):
