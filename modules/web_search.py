@@ -396,19 +396,6 @@ class WebSearch(BaseModule):
         )
 
     # --------------------------------------------------------------- weather
-    @tool(
-        description="Get the current weather and a short forecast for a location.",
-        params={
-            "location": {
-                "type": "string",
-                "description": "City name, or empty for auto-detect",
-                "default": "",
-            }
-        },
-        untrusted=True,
-        keywords=["weather", "forecast", "temperature", "is it raining", "how hot", "how cold"],
-        examples=['weather(location="Amsterdam")'],
-    )
     async def _locate_by_ip(self) -> str:
         """Guess the user's city from their IP address, for free.
 
@@ -435,6 +422,19 @@ class WebSearch(BaseModule):
             await self._store(Cache.make_key("iploc"), city, ttl=86400)
         return city
 
+    @tool(
+        description="Get the current weather and a short forecast for a location.",
+        params={
+            "location": {
+                "type": "string",
+                "description": "City name, or empty for auto-detect",
+                "default": "",
+            }
+        },
+        untrusted=True,
+        keywords=["weather", "forecast", "temperature", "is it raining", "how hot", "how cold"],
+        examples=['weather(location="Amsterdam")'],
+    )
     async def weather(self, location: str = "") -> ModuleResult:
         """Fetch weather from wttr.in (free, no key required)."""
         place = (location or "").strip()

@@ -106,3 +106,15 @@ def test_rate_limiting_is_named(web):
 
 def test_an_unexpected_failure_still_says_something(web):
     assert "failed" in web._search_failure(RuntimeError("something odd")).lower()
+
+
+def test_the_weather_tool_is_registered_and_its_helper_stays_private(web):
+    """The decorator belongs on ``weather``, not on ``_locate_by_ip``.
+
+    A misplaced ``@tool`` once exposed the private IP-geolocation helper as a
+    callable tool while leaving the actual weather tool unregistered, so the
+    one free flagship feature was unreachable by name.
+    """
+    assert "weather" in web.tools
+    assert "_locate_by_ip" not in web.tools
+    assert web.tools["weather"].examples == ['weather(location="Amsterdam")']
