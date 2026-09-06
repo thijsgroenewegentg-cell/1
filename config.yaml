@@ -70,10 +70,12 @@ productivity:
 voice:
   enabled: true
   wake_word: "jarvis"
-  # porcupine  -> needs a FREE access key from console.picovoice.ai
-  # whisper    -> no key at all, uses faster-whisper to hear the wake word
-  # auto       -> porcupine if a key is present, otherwise whisper
-  engine: none
+  # openwakeword -> free, keyless, low CPU  (pip install openwakeword)
+  # porcupine    -> needs a FREE access key from console.picovoice.ai
+  # whisper      -> no key at all, uses faster-whisper to hear the wake word
+  # auto         -> openWakeWord, else Porcupine if keyed, else Whisper
+  # none         -> no wake word: JARVIS answers anything it hears
+  engine: auto
   porcupine_access_key: ""
   porcupine_keyword: "jarvis"
   sensitivity: 0.6
