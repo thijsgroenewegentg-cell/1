@@ -131,9 +131,10 @@ class Jarvis:
             f"tts: {report['tts_voice']}, wake: {report['wake_engine']}"
         )
 
-        greeting = await self.brain.greeting()
-        self.cli.assistant_panel(greeting)
-        await self.voice.speak(greeting)
+        if self.config.get("assistant.greet_on_start", True):
+            greeting = await self.brain.greeting()
+            self.cli.assistant_panel(greeting)
+            await self.voice.speak(greeting)
 
         wake_word = self.config.get("voice.wake_word", "jarvis")
         self.cli.info(f"Listening. Say '{wake_word}' to wake me. Ctrl+C to exit.")

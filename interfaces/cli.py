@@ -620,10 +620,11 @@ class CLI:
         self.running = True
         self.banner()
 
-        greeting = await self.brain.greeting()
-        self.assistant_panel(greeting)
-        if self.speak_replies and self.voice is not None:
-            await self.voice.speak(greeting)
+        if self.brain.config.get("assistant.greet_on_start", True):
+            greeting = await self.brain.greeting()
+            self.assistant_panel(greeting)
+            if self.speak_replies and self.voice is not None:
+                await self.voice.speak(greeting)
         self.info("Type 'help' for commands, 'voice' for voice mode, 'exit' to quit.")
 
         while self.running:

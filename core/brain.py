@@ -83,6 +83,14 @@ class OllamaClient:
             config: The global configuration object.
         """
         self.config = config
+        provider = str(config.get("llm.provider", "ollama") or "ollama").strip().lower()
+        if provider not in {"ollama", ""}:
+            # Better a clear sentence than silently ignoring the setting and
+            # leaving someone to wonder why their API key does nothing.
+            logger.warning(
+                "llm.provider is '%s', but JARVIS only ever talks to Ollama — "
+                "everything runs locally and free, by design.", provider,
+            )
         self.host: str = str(config.get("llm.host", "http://localhost:11434")).rstrip("/")
         self.model: str = str(config.get("llm.model", "llama3.2"))
         self.router_model: str = str(config.get("llm.router_model", "") or self.model)
@@ -1167,6 +1175,10 @@ class Brain:
             if self.config.get("memory.auto_extract_facts", True):
                 await self.memory.extract_and_store_facts(user_text, response, self.llm)
             await self.memory.summarize_if_needed(self.llm)
+            if self.config.get("memory.autosave", True):
+                # ChromaDB persists itself; the JSON fallback does not, so
+                # without this a crash loses everything learnt since start-up.
+                await self.memory.save()
         except Exception as exc:
             logger.debug("Background upkeep failed: %s", exc)
 

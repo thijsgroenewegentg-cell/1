@@ -8,9 +8,12 @@ config.yaml drive the real settings.
 
 from __future__ import annotations
 
+from typing import Iterator
+
 import pytest
 
 from core.config import DEFAULT_CONFIG, KEY_ALIASES, Config
+from tests.conftest import PROJECT_ROOT
 
 
 def test_dotted_keys_are_read_and_written(tmp_path):
@@ -151,3 +154,30 @@ def test_quiet_hours_can_be_a_plain_string(tmp_path):
     path = tmp_path / "quiet.yaml"
     path.write_text('quiet_hours: "22:00-06:00"\n')
     assert Config.load(path).get("productivity.quiet_hours") == "22:00-06:00"
+
+
+def test_every_setting_is_read_by_something():
+    """A setting that nothing reads is a promise the assistant cannot keep."""
+    import subprocess
+
+    def walk(node: dict, prefix: str = "") -> "Iterator[str]":
+        for key, value in node.items():
+            dotted = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict) and value and all(isinstance(k, str) for k in value):
+                yield from walk(value, dotted)
+            else:
+                yield dotted
+
+    haystack = subprocess.run(
+        ["grep", "-rn", "--include=*.py", "-e", "get(", "-e", "section(",
+         "core", "modules", "utils", "interfaces", "main.py", "plugins"],
+        capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+    ).stdout
+
+    orphans = []
+    for dotted in walk(DEFAULT_CONFIG):
+        leaf, section = dotted.split(".")[-1], dotted.split(".")[0]
+        if not (f'"{dotted}"' in haystack or f'"{leaf}"' in haystack
+                or f'section("{section}")' in haystack):
+            orphans.append(dotted)
+    assert not orphans, f"settings nothing reads: {orphans}"
