@@ -150,271 +150,43 @@ self.addEventListener("fetch", event => {
 });
 """
 
-PAGE = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0f14">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="__TITLE__">
-<link rel="manifest" href="/manifest.webmanifest__TOKEN_QUERY__">
-<link rel="apple-touch-icon" href="/icon-180.png">
-<link rel="icon" href="/icon-192.png">
+#: The interface itself lives next door as a real HTML file, so it can be
+#: edited and read like a document instead of a Python string.
+APP_FILE = Path(__file__).with_name("app.html")
+
+#: Shown only if that file is missing from an installation.
+FALLBACK_PAGE = """<!doctype html><meta charset="utf-8">
 <title>__TITLE__</title>
-<style>
-  :root {
-    --bg: #0b0f14; --panel: #121821; --line: #1e2836; --text: #e6edf3;
-    --dim: #7d8da1; --accent: #38bdf8; --accent-dim: #0ea5e9; --user: #1d4ed8;
-  }
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; margin: 0; }
-  body {
-    background: var(--bg); color: var(--text); display: flex; flex-direction: column;
-    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, sans-serif;
-  }
-  header {
-    display: flex; align-items: center; gap: 10px; padding: 14px 16px;
-    border-bottom: 1px solid var(--line); background: var(--panel);
-    padding-top: calc(14px + env(safe-area-inset-top));
-  }
-  header h1 { font-size: 17px; margin: 0; letter-spacing: .14em; font-weight: 600; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: #f87171; flex: none; }
-  .dot.on { background: #34d399; box-shadow: 0 0 10px #34d39988; }
-  #meta { margin-left: auto; color: var(--dim); font-size: 12px; text-align: right; }
-  #log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-  .msg { max-width: 82%; padding: 10px 13px; border-radius: 14px; white-space: pre-wrap;
-         word-wrap: break-word; overflow-wrap: anywhere; }
-  .me { align-self: flex-end; background: var(--user); border-bottom-right-radius: 4px; }
-  .ai { align-self: flex-start; background: var(--panel); border: 1px solid var(--line);
-        border-bottom-left-radius: 4px; }
-  .ai.pending::after { content: "▌"; color: var(--accent); animation: blink 1s steps(1) infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
-  .sys { align-self: center; color: var(--dim); font-size: 13px; text-align: center; }
-  .ai code, .me code { background: #0008; padding: 1px 5px; border-radius: 5px;
-                       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 90%; }
-  .ai pre { background: #0b0f14; border: 1px solid var(--line); border-radius: 10px;
-            padding: 10px; overflow-x: auto; }
-  footer { border-top: 1px solid var(--line); background: var(--panel); padding: 10px;
-           padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
-  form { display: flex; gap: 8px; align-items: flex-end; }
-  textarea {
-    flex: 1; resize: none; min-height: 44px; max-height: 140px; padding: 11px 13px;
-    border-radius: 12px; border: 1px solid var(--line); background: #0b0f14;
-    color: var(--text); font: inherit; outline: none;
-  }
-  textarea:focus { border-color: var(--accent-dim); }
-  button { border: 0; border-radius: 12px; padding: 0 16px; height: 44px; font: inherit;
-           font-weight: 600; background: var(--accent); color: #04121c; cursor: pointer; }
-  button.ghost { background: transparent; color: var(--dim); border: 1px solid var(--line);
-                 padding: 0 12px; font-weight: 400; }
-  button:disabled { opacity: .5; cursor: default; }
-  .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px;
-          color: var(--dim); font-size: 13px; background: transparent; cursor: pointer; height: auto; }
-  #mic { background: transparent; border: 1px solid var(--line); color: var(--text);
-         width: 44px; padding: 0; font-size: 19px; }
-  #mic.recording { background: #ef4444; color: #fff; border-color: #ef4444;
-                   animation: pulse 1.2s ease-in-out infinite; }
-  #mic.busy { opacity: .6; }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 7px #ef444433; } }
-</style>
-</head>
-<body>
-<header>
-  <span class="dot" id="dot"></span>
-  <h1>__TITLE__</h1>
-  <span id="meta">connecting…</span>
-</header>
-<div id="log"></div>
-<footer>
-  <form id="form">
-    <textarea id="input" rows="1" placeholder="Ask me something, sir…" autocomplete="off"></textarea>
-    <button id="mic" class="ghost" type="button" title="Hold to talk">🎤</button>
-    <button id="send" type="submit">Send</button>
-    <button id="stop" class="ghost" type="button" title="Stop the current reply">Stop</button>
-  </form>
-  <div class="row">
-    <button class="chip" type="button" data-say="What's the weather?">weather</button>
-    <button class="chip" type="button" data-say="Give me my daily briefing">briefing</button>
-    <button class="chip" type="button" data-say="What's on my calendar today?">calendar</button>
-    <button class="chip" type="button" data-say="system stats">system</button>
-    <button class="chip" type="button" id="speaker">🔊 speech: off</button>
-  </div>
-</footer>
+<body style="background:#070b11;color:#e8eef6;font:16px system-ui;padding:40px">
+<h1>__TITLE__</h1>
+<p>interfaces/app.html is missing, so this is the plain fallback.</p>
+<form onsubmit="event.preventDefault();ask()">
+  <input id="q" style="width:70%;padding:8px" placeholder="Ask something">
+  <button>Send</button></form>
+<pre id="out" style="white-space:pre-wrap"></pre>
 <script>
 const token = new URLSearchParams(location.search).get("token") || "";
-const log = document.getElementById("log");
-const dot = document.getElementById("dot");
-const meta = document.getElementById("meta");
-const input = document.getElementById("input");
-const form = document.getElementById("form");
-const sendButton = document.getElementById("send");
-const speakerButton = document.getElementById("speaker");
-let socket = null, pending = null, speech = false, busy = false;
+async function ask() {
+  const text = document.getElementById("q").value;
+  const reply = await fetch("/api/ask" + (token ? "?token=" + token : ""),
+    { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }) }).then(r => r.json());
+  document.getElementById("out").textContent += "\n> " + text + "\n" + (reply.reply || reply.detail);
+}
+</script></body>"""
 
-function escapeHtml(text) {
-  return text.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-}
-function render(text) {
-  let html = escapeHtml(text);
-  html = html.replace(/```([\\s\\S]*?)```/g, (m, code) => "<pre>" + code.trim() + "</pre>");
-  html = html.replace(/`([^`\\n]+)`/g, "<code>$1</code>");
-  html = html.replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>");
-  return html;
-}
-function bubble(cls, text) {
-  const node = document.createElement("div");
-  node.className = "msg " + cls;
-  node.innerHTML = render(text || "");
-  log.appendChild(node);
-  log.scrollTop = log.scrollHeight;
-  return node;
-}
-function connect() {
-  const scheme = location.protocol === "https:" ? "wss" : "ws";
-  socket = new WebSocket(scheme + "://" + location.host + "/ws" + (token ? "?token=" + encodeURIComponent(token) : ""));
-  socket.onopen = () => { dot.classList.add("on"); meta.textContent = "connected"; };
-  socket.onclose = () => {
-    dot.classList.remove("on"); meta.textContent = "reconnecting…";
-    busy = false; sendButton.disabled = false; setTimeout(connect, 2000);
-  };
-  socket.onerror = () => { meta.textContent = "connection error"; };
-  socket.onmessage = event => {
-    const data = JSON.parse(event.data);
-    if (data.type === "token") {
-      if (!pending) pending = bubble("ai pending", "");
-      pending.dataset.text = (pending.dataset.text || "") + data.text;
-      pending.innerHTML = render(pending.dataset.text);
-      log.scrollTop = log.scrollHeight;
-    } else if (data.type === "reply") {
-      const text = data.text || (pending && pending.dataset.text) || "";
-      if (pending) { pending.className = "msg ai"; pending.innerHTML = render(text); }
-      else bubble("ai", text);
-      pending = null; busy = false; sendButton.disabled = false;
-      meta.textContent = data.intent ? data.intent + " · " + (data.seconds || 0).toFixed(1) + "s" : "connected";
-      if (speech && text) speak(text);
-    } else if (data.type === "status") {
-      meta.textContent = data.text;
-    } else if (data.type === "notice") {
-      bubble("sys", "🔔 " + data.text);
-      log.scrollTop = log.scrollHeight;
-      if (speech && data.text) speak(data.text);
-      if (window.Notification && Notification.permission === "granted") {
-        try { new Notification("JARVIS", { body: data.text }); } catch (err) {}
-      }
-    } else if (data.type === "error") {
-      bubble("sys", "⚠ " + data.text); pending = null; busy = false; sendButton.disabled = false;
-    }
-  };
-}
-function speak(text) {
-  const audio = new Audio("/api/tts?text=" + encodeURIComponent(text.slice(0, 900)) + (token ? "&token=" + encodeURIComponent(token) : ""));
-  audio.play().catch(() => {});
-}
-function send(text) {
-  if (!text.trim() || busy || !socket || socket.readyState !== 1) return;
-  bubble("me", text);
-  socket.send(JSON.stringify({ text }));
-  busy = true; sendButton.disabled = true; meta.textContent = "thinking…";
-  input.value = ""; input.style.height = "auto";
-}
-form.addEventListener("submit", event => { event.preventDefault(); send(input.value); });
-input.addEventListener("input", () => {
-  input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px";
-});
-input.addEventListener("keydown", event => {
-  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(input.value); }
-});
-document.getElementById("stop").addEventListener("click", () => {
-  if (socket && socket.readyState === 1) socket.send(JSON.stringify({ command: "cancel" }));
-  busy = false; sendButton.disabled = false;
-});
-document.querySelectorAll("[data-say]").forEach(chip =>
-  chip.addEventListener("click", () => send(chip.dataset.say)));
-// ---- push to talk ---------------------------------------------------------
-const micButton = document.getElementById("mic");
-let recorder = null, chunks = [], recording = false;
 
-async function startRecording() {
-  if (recording || !navigator.mediaDevices || !window.MediaRecorder) {
-    bubble("sys", "This browser will not give me a microphone. Type instead, sir.");
-    return;
-  }
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (err) {
-    bubble("sys", "Microphone refused: " + err.message);
-    return;
-  }
-  chunks = [];
-  const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"]
-    .find(type => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) || "";
-  recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-  recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
-  recorder.onstop = async () => {
-    stream.getTracks().forEach(track => track.stop());
-    micButton.classList.remove("recording");
-    if (!chunks.length) return;
-    micButton.classList.add("busy");
-    meta.textContent = "transcribing…";
-    const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-    try {
-      const response = await fetch("/api/listen" + (token ? "?token=" + encodeURIComponent(token) : ""),
-                                   { method: "POST", body: blob,
-                                     headers: { "Content-Type": blob.type || "audio/webm" } });
-      const data = await response.json();
-      if (!response.ok || data.error) {
-        bubble("sys", "⚠ " + (data.detail || data.error || "transcription failed"));
-      } else if (!data.text) {
-        bubble("sys", "I heard nothing, sir.");
-      } else {
-        send(data.text);
-      }
-    } catch (err) {
-      bubble("sys", "⚠ " + err.message);
-    } finally {
-      micButton.classList.remove("busy");
-      if (meta.textContent === "transcribing…") meta.textContent = "connected";
-    }
-  };
-  recorder.start();
-  recording = true;
-  micButton.classList.add("recording");
-  meta.textContent = "listening…";
-}
+def load_page() -> str:
+    """Read the interface from disk, falling back to a minimal page.
 
-function stopRecording() {
-  if (!recording) return;
-  recording = false;
-  try { recorder.stop(); } catch (err) { /* already stopped */ }
-}
-
-micButton.addEventListener("pointerdown", event => { event.preventDefault(); startRecording(); });
-["pointerup", "pointerleave", "pointercancel"].forEach(name =>
-  micButton.addEventListener(name, event => { event.preventDefault(); stopRecording(); }));
-
-speakerButton.addEventListener("click", () => {
-  speech = !speech;
-  speakerButton.textContent = "🔊 speech: " + (speech ? "on" : "off");
-  if (speech && window.Notification && Notification.permission === "default") {
-    Notification.requestPermission().catch(() => {});
-  }
-});
-fetch("/api/status" + (token ? "?token=" + encodeURIComponent(token) : ""))
-  .then(response => response.json())
-  .then(data => bubble("sys", data.greeting || "JARVIS online."))
-  .catch(() => bubble("sys", "JARVIS online."));
-connect();
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js").catch(() => {});
-}
-</script>
-</body>
-</html>
-"""
+    Returns:
+        The HTML, with ``__TITLE__`` and ``__TOKEN_QUERY__`` still in place.
+    """
+    try:
+        return APP_FILE.read_text(encoding="utf-8")
+    except Exception as error:  # pragma: no cover - only when a file is lost
+        logger.warning("interfaces/app.html is unreadable (%s); using the fallback.", error)
+        return FALLBACK_PAGE
 
 
 #: Longest message accepted from a browser. Generous for dictation, small
@@ -451,6 +223,10 @@ class WebInterface:
         self.title = str(section.get("title", config.get("assistant.name", "JARVIS")))
         self.clients: int = 0
         self._sockets: Set[Any] = set()
+        self._watching = False
+        #: Strong references to in-flight relay tasks, so they are not
+        #: collected mid-send.
+        self._relays: Set["asyncio.Task[None]"] = set()
         self._icons: Dict[int, bytes] = {}
         self._stt: Optional[Any] = None
         self._stt_tried = False
@@ -569,7 +345,7 @@ class WebInterface:
             )
 
         app = FastAPI(title=f"{self.title} web interface", docs_url=None, redoc_url=None)
-        page = PAGE.replace("__TITLE__", self.title).replace(
+        page = load_page().replace("__TITLE__", self.title).replace(
             "__TOKEN_QUERY__", f"?token={self.token}" if self.token else ""
         )
 
@@ -628,6 +404,40 @@ class WebInterface:
                     "intent": getattr(intent, "module", "") if intent else "",
                 }
             )
+
+        @app.get("/api/tools")
+        async def tools(token: str = Query(default="")) -> Any:
+            """List every tool, so the interface can offer them for browsing."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            listing = []
+            for module_name, module in getattr(self.brain, "modules", {}).items():
+                for name, spec in getattr(module, "tools", {}).items():
+                    examples = list(getattr(spec, "examples", []) or [])
+                    listing.append({
+                        "module": module_name,
+                        "name": name,
+                        "description": getattr(spec, "description", ""),
+                        "example": examples[0] if examples else "",
+                        "dangerous": bool(getattr(spec, "dangerous", False)),
+                    })
+            listing.sort(key=lambda item: (item["module"], item["name"]))
+            return JSONResponse({"tools": listing})
+
+        @app.get("/api/audit")
+        async def audit(token: str = Query(default=""), limit: int = Query(default=25)) -> Any:
+            """Report what needed permission, for the audit tab."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            guard = getattr(self.brain, "security", None)
+            if guard is None:
+                return JSONResponse({"entries": []})
+            try:
+                entries = guard.recent_audit(max(1, min(200, int(limit))))
+            except Exception as error:
+                logger.debug("Could not read the audit trail: %s", error)
+                entries = []
+            return JSONResponse({"entries": entries})
 
         @app.get("/api/tts")
         async def tts(text: str = Query(...), token: str = Query(default="")) -> Any:
@@ -747,6 +557,7 @@ class WebInterface:
             peer = websocket.client.host if websocket.client else "unknown"
             await websocket.accept()
             self._sockets.add(websocket)
+            self._watch_the_brain()
             self.clients += 1
             logger.info("Web client connected (%d active).", self.clients)
             try:
@@ -838,6 +649,42 @@ class WebInterface:
                 await socket.send_text(payload)
             except Exception:
                 self._sockets.discard(socket)
+
+    def _watch_the_brain(self) -> None:
+        """Relay the brain's internal events to connected browsers.
+
+        The brain already announces which module it picked and which tools it
+        ran; forwarding that turns the interface from a text box into
+        something that shows its working.
+        """
+        events = getattr(self.brain, "events", None)
+        if events is None or self._watching:
+            return
+
+        def relay(event: Any) -> None:
+            """Push one event out to the sockets, best effort."""
+            if event.name not in {"turn.intent", "tool.called", "error.raised"}:
+                return
+            payload = json.dumps({"type": "event", "name": event.name, "data": event.data})
+            for socket in list(self._sockets):
+                task = asyncio.ensure_future(self._send_quietly(socket, payload))
+                self._relays.add(task)
+                task.add_done_callback(self._relays.discard)
+
+        events.subscribe("*", relay)
+        self._watching = True
+
+    async def _send_quietly(self, socket: Any, payload: str) -> None:
+        """Send to one socket, dropping it if it has gone away.
+
+        Args:
+            socket: The WebSocket to write to.
+            payload: The JSON text to send.
+        """
+        try:
+            await socket.send_text(payload)
+        except Exception:
+            self._sockets.discard(socket)
 
     async def _handle_turn(self, websocket: Any, text: str) -> None:
         """Run one request, streaming tokens back to the browser."""

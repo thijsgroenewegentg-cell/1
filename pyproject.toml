@@ -93,7 +93,9 @@ include = ["core*", "interfaces*", "modules*", "utils*"]
 exclude = ["tests*", "data*", "logs*", "scripts*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.yaml", "*.yml"]
+# app.html is the browser interface, not an optional extra: without it the
+# web UI falls back to a bare form.
+"*" = ["*.yaml", "*.yml", "*.html"]
 
 [tool.ruff]
 line-length = 100

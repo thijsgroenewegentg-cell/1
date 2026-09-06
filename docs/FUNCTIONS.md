@@ -20,7 +20,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/planner.py`](#coreplannerpy) — 5
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 73
-- [`interfaces/web.py`](#interfaceswebpy) — 26
+- [`interfaces/web.py`](#interfaceswebpy) — 32
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 24
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
@@ -68,7 +68,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
-- [`tests/test_web.py`](#teststest_webpy) — 13
+- [`tests/test_web.py`](#teststest_webpy) — 25
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 13
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
@@ -585,12 +585,13 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*26 functions*
+*32 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
 - `def render_icon(size: int) -> bytes` — Draw the app icon as a PNG, with no image library involved.
   · `def chunk(kind: bytes, payload: bytes) -> bytes` — Assemble one PNG chunk with its CRC.
+- `def load_page() -> str` — Read the interface from disk, falling back to a minimal page.
 - `def local_addresses(port: int) -> List[str]` — Best-effort list of URLs this machine can be reached on.
 
 ### `class WebInterface` — FastAPI + WebSocket front-end that runs alongside the CLI.
@@ -605,6 +606,8 @@ and marked with `·`; methods the intent router can call are marked
   · `async def index(token: str = Query(default='')) -> Any` — Serve the chat page.
   · `async def status(token: str = Query(default='')) -> Any` — Report assistant status and a greeting.
   · `async def ask(request: Request, token: str = Query(default='')) -> Any` — Answer a single question over plain JSON (no streaming).
+  · `async def tools(token: str = Query(default='')) -> Any` — List every tool, so the interface can offer them for browsing.
+  · `async def audit(token: str = Query(default=''), limit: int = Query(default=25)) -> Any` — Report what needed permission, for the audit tab.
   · `async def tts(text: str = Query(...), token: str = Query(default='')) -> Any` — Render text to speech and return an audio file.
   · `async def manifest(token: str = Query(default='')) -> Any` — Serve the PWA manifest so the page installs to a home screen.
   · `async def service_worker() -> Any` — Serve the offline shell worker (never behind the token gate).
@@ -613,6 +616,9 @@ and marked with `·`; methods the intent router can call are marked
   · `async def websocket_endpoint(websocket: WebSocket) -> None` — Stream replies token-by-token to a connected browser.
 - `async def _speech_to_text(self) -> Optional[Any]` — Return a loaded Whisper engine, sharing the voice pipeline's if there is one.
 - `async def broadcast(self, message: str, kind: str = 'notice') -> None` — Push an unprompted message to every open browser tab.
+- `def _watch_the_brain(self) -> None` — Relay the brain's internal events to connected browsers.
+  · `def relay(event: Any) -> None` — Push one event out to the sockets, best effort.
+- `async def _send_quietly(self, socket: Any, payload: str) -> None` — Send to one socket, dropping it if it has gone away.
 - `async def _handle_turn(self, websocket: Any, text: str) -> None` — Run one request, streaming tokens back to the browser.
   · `def on_token(token: str) -> None` — Hand a generated token to the sender task.
   · `async def pump() -> None` — Forward tokens to the socket in order.
@@ -2157,7 +2163,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*13 functions*
+*25 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -2174,6 +2180,16 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_normal_message_is_accepted(web)`
 - `def test_every_endpoint_demands_the_token(web)`
 - `def test_the_page_can_be_installed_as_an_app(web)` — --app relies on the page being a standalone-display PWA.
+- `def test_the_interface_is_a_real_file(web)`
+- `def test_the_served_page_has_no_placeholders_left(web)`
+- `def test_the_page_survives_a_missing_asset(web, monkeypatch, tmp_path)` — An installation that lost app.html should degrade, not 500.
+- `def test_the_tools_endpoint_lists_every_tool(web)`
+- `def test_the_audit_endpoint_answers(web)`
+- `def test_the_new_endpoints_demand_the_token(web)`
+- `def test_brain_events_reach_the_browser(web)` — The interface shows which module answered and which tools ran.
+  · `async def scenario() -> None`
+- `def test_uninteresting_events_are_not_relayed(web)`
+  · `async def scenario() -> None`
 
 ## `tests/test_web_search.py`
 
@@ -2224,5 +2240,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1525 functions across 63 files.**
+**1543 functions across 63 files.**
 

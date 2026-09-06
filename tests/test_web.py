@@ -8,6 +8,8 @@ token and the app assembling at all.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from core.brain import Brain
@@ -113,3 +115,102 @@ def test_the_page_can_be_installed_as_an_app(web):
     assert manifest["display"] == "standalone"
     assert manifest["icons"]
     assert manifest["start_url"]
+
+
+# ------------------------------------------------------------ the interface
+def test_the_interface_is_a_real_file(web):
+    from interfaces.web import APP_FILE, load_page
+
+    assert APP_FILE.is_file(), "interfaces/app.html should ship with the package"
+    page = load_page()
+    assert page.lstrip().startswith("<!doctype html>")
+    assert "__TITLE__" in page and "__TOKEN_QUERY__" in page
+
+
+def test_the_served_page_has_no_placeholders_left(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    page = client.get("/", params={"token": web.token}).text
+    assert "__TITLE__" not in page
+    assert "__TOKEN_QUERY__" not in page
+    assert "<title>" in page
+
+
+def test_the_page_survives_a_missing_asset(web, monkeypatch, tmp_path):
+    """An installation that lost app.html should degrade, not 500."""
+    from interfaces import web as web_module
+
+    monkeypatch.setattr(web_module, "APP_FILE", tmp_path / "gone.html")
+    page = web_module.load_page()
+    assert "__TITLE__" in page
+    assert "fallback" in page.lower()
+
+
+def test_the_tools_endpoint_lists_every_tool(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    response = client.get("/api/tools", params={"token": web.token})
+    assert response.status_code == 200
+    tools = response.json()["tools"]
+    assert len(tools) > 100
+    first = tools[0]
+    assert {"module", "name", "description"} <= set(first)
+
+
+def test_the_audit_endpoint_answers(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    response = client.get("/api/audit", params={"token": web.token})
+    assert response.status_code == 200
+    assert isinstance(response.json()["entries"], list)
+
+
+def test_the_new_endpoints_demand_the_token(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    assert client.get("/api/tools").status_code == 401
+    assert client.get("/api/audit").status_code == 401
+
+
+def test_brain_events_reach_the_browser(web):
+    """The interface shows which module answered and which tools ran."""
+    sent = []
+
+    class FakeSocket:
+        async def send_text(self, payload: str) -> None:
+            sent.append(payload)
+
+    async def scenario() -> None:
+        import json
+
+        web._sockets.add(FakeSocket())
+        web._watch_the_brain()
+        await web.brain.events.publish("tool.called", tool="productivity.add_todo")
+        await asyncio.sleep(0.05)
+        assert sent, "the tool call should have been relayed"
+        message = json.loads(sent[-1])
+        assert message["type"] == "event"
+        assert message["data"]["tool"] == "productivity.add_todo"
+
+    run(scenario())
+
+
+def test_uninteresting_events_are_not_relayed(web):
+    sent = []
+
+    class FakeSocket:
+        async def send_text(self, payload: str) -> None:
+            sent.append(payload)
+
+    async def scenario() -> None:
+        web._sockets.add(FakeSocket())
+        web._watch_the_brain()
+        await web.brain.events.publish("memory.written", detail="noise")
+        await asyncio.sleep(0.05)
+
+    run(scenario())
+    assert not sent
