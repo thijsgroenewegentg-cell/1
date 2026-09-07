@@ -693,7 +693,7 @@ const $ = (id) => document.getElementById(id);
 const token = new URLSearchParams(location.search).get("token") || "";
 const auth = token ? "?token=" + encodeURIComponent(token) : "";
 const settings = {
-  speech: localStorage.getItem("jarvis.speech") === "1",
+  speech: localStorage.getItem("jarvis.speech") !== "0",
   contrast: localStorage.getItem("jarvis.contrast") === "1",
   /* room sound: on by default, off for anyone who asked the OS to calm down */
   sfx: localStorage.getItem("jarvis.sfx") === null
@@ -2524,7 +2524,12 @@ async function startRecording() {
   }
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch (err) { toast("Microphone refused: " + err.message, true); return; }
+  catch (err) {
+    const reason = err && err.name === "NotAllowedError"
+      ? "Microphone permission was blocked. Allow microphone access for this app, then try again."
+      : "Microphone unavailable: " + (err.message || "check your input device");
+    toast(reason, true); return;
+  }
 
   dropHint();
   stopSpeech();                       // barge-in: he yields the floor
@@ -3185,6 +3190,11 @@ for (const tab of document.querySelectorAll(".tabs button")) {
 
 addEventListener("keydown", (event) => {
   const typing = /^(INPUT|TEXTAREA|BUTTON)$/.test(document.activeElement.tagName);
+  /* Command palette is a global command key. Ctrl/Cmd+K works even while the
+     composer has focus; plain K remains typeable in text fields. */
+  if ((event.key === "k" || event.key === "K") && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault(); openPalette(); return;
+  }
   const sheetOpen = ["palette", "panel", "history", "keys"]
     .some((id) => $(id).classList.contains("show"));
   if (event.key === "Escape") {
