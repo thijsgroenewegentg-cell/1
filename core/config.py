@@ -22,11 +22,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "user": {"name": "Sir", "title": "sir", "location": "auto", "units": "metric"},
     "assistant": {
         "name": "JARVIS",
-        "language": "en",          # one setting for STT, TTS and the persona
-        "personality": "witty",
-        "sarcasm": 0.35,
+        "language": "nl",          # one setting for STT, TTS and the persona
+        "personality": "professional",
+        "sarcasm": 0.0,
         "greet_on_start": True,
-        "proactive": True,
+        "proactive": False,
     },
     "llm": {
         "provider": "ollama",
