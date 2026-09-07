@@ -186,6 +186,43 @@ DECISIVE_PHRASES: Dict[str, Tuple[str, ...]] = {
 }
 
 
+#: Tool keywords too generic to route on. They are useful for picking a tool
+#: once a module has been chosen ("open" is unambiguous inside system_control),
+#: but at the module level they fire on ordinary conversation.
+GENERIC_TOOL_KEYWORDS = frozenset({
+    "cat", "lap", "open", "close", "start", "quit", "press", "drag", "index",
+    "go to", "tell me", "what's", "what is", "why is", "how is", "show me",
+    "list", "add", "run", "make", "get", "set", "find", "read", "write",
+})
+
+#: Below this length a keyword must match as a whole word, never a substring:
+#: "cat" should not fire on "cats" or "category".
+_MIN_SUBSTRING_KEYWORD = 6
+
+
+def _keyword_matches(keyword: str, padded_text: str) -> bool:
+    """Test one tool keyword against an utterance already padded with spaces.
+
+    Short keywords are matched on word boundaries. Substring matching is what
+    made "do you like cats" route to file_manager, whose ``analyze_csv`` tool
+    declares the keyword "cat".
+
+    Args:
+        keyword: The keyword declared on a tool.
+        padded_text: The lowercased utterance, wrapped in single spaces.
+
+    Returns:
+        True when the keyword should count as a match.
+    """
+    keyword = (keyword or "").strip().lower()
+    if not keyword or keyword in GENERIC_TOOL_KEYWORDS:
+        return False
+    if len(keyword) >= _MIN_SUBSTRING_KEYWORD or " " in keyword:
+        return keyword in padded_text
+    # Short single words: require whole-word boundaries.
+    return f" {keyword} " in padded_text or f" {keyword}." in padded_text
+
+
 class IntentRouter:
     """Decides which module handles an utterance."""
 
@@ -274,6 +311,35 @@ class IntentRouter:
             )
         return keyword_intent
 
+    def _tool_keywords(self) -> Dict[str, List[str]]:
+        """Collect every loaded tool's keywords, grouped by owning module.
+
+        :data:`INTENT_KEYWORDS` is hand-maintained and only ever held a subset
+        of what the ``@tool`` decorators already declare, so a phrase like
+        "what did i copy" — a keyword on ``system_control.clipboard`` — scored
+        nothing at the module level and fell through to conversation, which
+        fails outright when Ollama is offline. Reading the tools directly keeps
+        the two layers in step: a keyword added to a tool now routes to its
+        module for free.
+
+        Returns:
+            ``{module_name: [keyword, ...]}`` for the loaded modules.
+        """
+        cached = getattr(self, "_tool_keyword_cache", None)
+        signature = tuple(sorted(self.brain.modules))
+        if cached is not None and cached[0] == signature:
+            return cached[1]  # type: ignore[no-any-return]
+
+        collected: Dict[str, List[str]] = {}
+        for name, module in self.brain.modules.items():
+            words: List[str] = []
+            for spec in getattr(module, "tools", {}).values():
+                words.extend(spec.keywords)
+            if words:
+                collected[name] = words
+        self._tool_keyword_cache = (signature, collected)
+        return collected
+
     def _keyword_intent(self, text: str) -> Intent:
         """Score the utterance against the keyword tables.
 
@@ -305,6 +371,21 @@ class IntentRouter:
                     score += 1.0 + len(keyword) / 40.0
             if score:
                 scores[module] = score
+
+        # The curated table above wins ties; tool keywords only ever add signal
+        # a module would otherwise have missed, so a curated match still beats
+        # an incidental one. They score slightly lower for that reason.
+        for module, keywords in self._tool_keywords().items():
+            if module not in self.brain.modules:
+                continue
+            matched = {
+                keyword
+                for keyword in keywords
+                if _keyword_matches(keyword, lowered)
+            }
+            if matched:
+                bonus = sum(0.8 + len(keyword) / 40.0 for keyword in matched)
+                scores[module] = scores.get(module, 0.0) + bonus
 
         if any(phrase in lowered for phrase in (" remember that ", " remember this ",
                                                 " forget ", " what do you remember",
