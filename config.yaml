@@ -222,6 +222,10 @@ security:
   blocked_patterns: []
   # Restrict file operations to these roots ([] = home directory only)
   allowed_roots: []
+  # Credential files (~/.ssh/*, ~/.aws/credentials, *.pem, .env, …) are asked
+  # about before being read or written, even though they sit inside your home
+  # directory. Bulk scans and the document indexer skip them silently. With
+  # confirm_dangerous: false there is nobody to ask, so they are refused.
 
 web:
   max_results: 5

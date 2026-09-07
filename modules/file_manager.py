@@ -435,6 +435,10 @@ class FileManager(BaseModule):
             for file_path in self._iter_files(root, True, self.max_scan_files):
                 if file_path.suffix.lower() not in TEXT_EXTENSIONS:
                     continue
+                # Skipped silently: prompting once per credential file during a
+                # bulk scan is unusable, and a match line would print the key.
+                if self.security is not None and self.security.is_sensitive_path(file_path):
+                    continue
                 try:
                     if file_path.stat().st_size > 5_000_000:
                         continue
@@ -709,6 +713,9 @@ class FileManager(BaseModule):
         target = resolve_user_path(path)
         if not target.exists() or not target.is_file():
             return ModuleResult.fail(f"No file at {target}.")
+        refusal = await self.guard_path(target, write=False, what="read")
+        if refusal is not None:
+            return refusal
 
         text = await run_blocking(self._extract_document, target)
         if not text.strip():
@@ -777,6 +784,9 @@ class FileManager(BaseModule):
         target = resolve_user_path(path)
         if not target.exists():
             return ModuleResult.fail(f"No file at {target}.")
+        refusal = await self.guard_path(target, write=False, what="read")
+        if refusal is not None:
+            return refusal
 
         def _analyze() -> Dict[str, Any]:
             try:
@@ -851,6 +861,9 @@ class FileManager(BaseModule):
         target = resolve_user_path(path)
         if not target.exists() or not target.is_file():
             return ModuleResult.fail(f"No file at {target}.")
+        refusal = await self.guard_path(target, write=False, what="read")
+        if refusal is not None:
+            return refusal
         if looks_binary(target):
             return ModuleResult.fail(
                 f"{target.name} is a binary file ({human_bytes(target.stat().st_size)}), "

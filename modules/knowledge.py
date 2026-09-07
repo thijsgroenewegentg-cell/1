@@ -207,6 +207,11 @@ class Knowledge(BaseModule):
                 candidate = Path(current) / filename
                 if not is_supported(candidate):
                     continue
+                # Dot-files are skipped above, but a credential without a
+                # leading dot (certs/server.pem) would otherwise be embedded
+                # into the vector store and resurface in unrelated answers.
+                if self.security is not None and self.security.is_sensitive_path(candidate):
+                    continue
                 try:
                     if candidate.stat().st_size > self.max_file_bytes:
                         continue

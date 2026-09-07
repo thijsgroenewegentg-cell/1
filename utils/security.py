@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence
 
@@ -112,6 +113,44 @@ _CAUTION_PATTERNS: Sequence[str] = (
     r"\bpython\d?\b\s+-c",
     r"\beval\b|\bexec\b",
     r">\s*[^\s|]+",
+)
+
+# Files holding credentials. These live *inside* $HOME, so every roots-based
+# check rates them perfectly safe — yet they are the ones worth stealing. The
+# injection patterns below already anticipate "cat ~/.ssh/id_rsa" arriving from
+# a web page, so reads are gated here rather than trusted.
+#
+# Matched against the path relative to $HOME, case-insensitively, using glob
+# semantics; a match makes the operation DANGEROUS (confirm), never BLOCKED,
+# so a user who genuinely wants the file can still say yes.
+_SENSITIVE_PATTERNS: Sequence[str] = (
+    ".ssh/*",
+    ".gnupg/*",
+    ".aws/credentials",
+    ".aws/config",
+    ".config/gcloud/*",
+    ".azure/*",
+    ".kube/config",
+    ".docker/config.json",
+    ".netrc",
+    ".pgpass",
+    ".git-credentials",
+    ".npmrc",
+    ".pypirc",
+    ".env",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.keystore",
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    # Browser and OS credential stores.
+    "Library/Keychains/*",
+    ".local/share/keyrings/*",
+    ".mozilla/firefox/*/logins.json",
 )
 
 # Directories that should never be written to or organised.
@@ -260,6 +299,16 @@ class SecurityGuard:
                     RiskLevel.BLOCKED, f"{target} is a protected system location"
                 )
 
+        # Credentials are checked before the roots test, because they sit
+        # inside $HOME and would otherwise be graded SAFE. Reading matters as
+        # much as writing here: the danger is exfiltration, not corruption.
+        secret = self._sensitive_match(target)
+        if secret:
+            return RiskAssessment(
+                RiskLevel.DANGEROUS,
+                f"{target} looks like a credential file ({secret})",
+            )
+
         if write:
             # Protected locations are checked first. Doing it the other way
             # round made this unreachable for exactly the paths that matter:
@@ -291,6 +340,52 @@ class SecurityGuard:
                     f"({', '.join(str(r) for r in roots)})",
                 )
         return RiskAssessment(RiskLevel.SAFE, "Path is fine")
+
+    def is_sensitive_path(self, path: str | Path) -> bool:
+        """Whether ``path`` looks like a credential file.
+
+        Bulk readers (grep-style scans, indexers, folder summaries) use this to
+        skip secrets quietly instead of prompting once per file, which would be
+        unusable and would train the user to say yes.
+
+        Args:
+            path: The path to test.
+
+        Returns:
+            True when the path matches a credential pattern.
+        """
+        try:
+            return bool(self._sensitive_match(expand_path(path)))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _sensitive_match(target: Path) -> str:
+        """Return the pattern naming ``target`` as a credential file, if any.
+
+        Args:
+            target: An already-expanded absolute path.
+
+        Returns:
+            The matching pattern, or ``""`` when the path looks ordinary.
+        """
+        candidates = []
+        try:
+            candidates.append(target.relative_to(Path.home()).as_posix())
+        except Exception:
+            pass
+        # Also test the bare name and the trailing two segments, so that a key
+        # kept outside $HOME (/srv/deploy/id_rsa) is still recognised.
+        candidates.append(target.name)
+        parts = target.as_posix().split("/")
+        if len(parts) >= 2:
+            candidates.append("/".join(parts[-2:]))
+
+        for pattern in _SENSITIVE_PATTERNS:
+            for candidate in candidates:
+                if fnmatch(candidate.lower(), pattern.lower()):
+                    return pattern
+        return ""
 
     @staticmethod
     def _is_within(child: Path, parent: Path) -> bool:

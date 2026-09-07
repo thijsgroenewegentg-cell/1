@@ -433,14 +433,28 @@ class BaseModule:
         if assessment.blocked:
             self.security.record(f"{what} {path}", "blocked", assessment.reason, self.name)
             return ModuleResult.fail(f"Refused: {assessment.reason}")
-        if assessment.needs_confirmation and getattr(
-            self.security, "confirm_dangerous", True
-        ):
-            approved = await self.security.confirm(
-                f"{what} {path}\n  {assessment.reason}. Proceed?"
-            )
-            if not approved:
-                return ModuleResult.fail("Cancelled — you did not confirm.")
+        if assessment.needs_confirmation:
+            if getattr(self.security, "confirm_dangerous", True):
+                approved = await self.security.confirm(
+                    f"{what} {path}\n  {assessment.reason}. Proceed?"
+                )
+                if not approved:
+                    return ModuleResult.fail("Cancelled — you did not confirm.")
+                return None
+            # confirm_dangerous is off, so nobody can be asked. For most paths
+            # that means "proceed" — but a credential file must not be handed
+            # over merely because the prompt was switched off, which is exactly
+            # the configuration a web UI or background service runs under.
+            if getattr(self.security, "is_sensitive_path", None) and (
+                self.security.is_sensitive_path(path)
+            ):
+                self.security.record(
+                    f"{what} {path}", "blocked", assessment.reason, self.name
+                )
+                return ModuleResult.fail(
+                    f"Refused: {assessment.reason}. Confirmation is disabled, "
+                    "so I will not touch it unattended."
+                )
         return None
 
     async def call_tool(self, name: str, params: Optional[Dict[str, Any]] = None) -> ModuleResult:
