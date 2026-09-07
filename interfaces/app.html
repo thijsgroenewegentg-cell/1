@@ -2409,6 +2409,7 @@ function stopSpeech() {
   speechQueue.length = 0;
   speechActive = false;
   if (currentAudio) { try { currentAudio.pause(); } catch (err) { /* gone */ } currentAudio = null; }
+  if (window.speechSynthesis) { try { window.speechSynthesis.cancel(); } catch (err) { /* unavailable */ } }
   clearInterval(ttsMeter);
   orb.tts = 0;
   logEl.style.setProperty("--glow", "0");
@@ -2464,43 +2465,58 @@ function audioReady() {
 }
 
 function speakAloud(text, next) {
+  /* Browser speech is the guaranteed last line of defence. Edge-TTS can be
+     unavailable offline, blocked by a firewall, or missing from a minimal
+     install; that must never turn a spoken assistant silently mute. */
+  const browserFallback = () => {
+    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+      if (next) next(); else toast("Speech is unavailable: install the voice package.", true);
+      return;
+    }
+    try {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "nl-NL";
+      utterance.rate = 0.94;
+      utterance.pitch = 0.88;
+      const voices = window.speechSynthesis.getVoices();
+      const voice = voices.find((v) => /^nl/i.test(v.lang)) || voices.find((v) => /^en-GB/i.test(v.lang));
+      if (voice) utterance.voice = voice;
+      speechActive = true; status("speaking", true);
+      const finish = () => { orb.tts = 0; if (next) next(); else if (!busy) status(""); };
+      utterance.onend = finish; utterance.onerror = finish;
+      window.speechSynthesis.speak(utterance);
+    } catch (err) { if (next) next(); }
+  };
   const audio = new Audio("/api/tts?text=" + encodeURIComponent(text.slice(0, 900)) +
     (token ? "&token=" + encodeURIComponent(token) : ""));
   currentAudio = audio;
+  let finished = false;
   const done = () => {
-    clearInterval(ttsMeter);
-    orb.tts = 0;
-    logEl.style.setProperty("--glow", "0");
+    if (finished) return; finished = true;
+    clearInterval(ttsMeter); orb.tts = 0; logEl.style.setProperty("--glow", "0");
     if (currentAudio === audio) currentAudio = null;
-    if (next) next();
-    else if (!busy) status("");
+    if (next) next(); else if (!busy) status("");
   };
+  audio.addEventListener("ended", done);
+  audio.addEventListener("error", () => { if (!finished) { done(); browserFallback(); } });
   const ctx = audioReady();
   if (ctx && ttsAnalyser) {
     try {
       ctx.resume().catch(() => {});
-      const source = ctx.createMediaElementSource(audio);
-      source.connect(ttsAnalyser);
-      clearInterval(ttsMeter);
-      status("speaking", true);
+      const source = ctx.createMediaElementSource(audio); source.connect(ttsAnalyser);
+      clearInterval(ttsMeter); status("speaking", true);
       const spectrum = new Uint8Array(ttsAnalyser.frequencyBinCount);
       ttsMeter = setInterval(() => {
-        ttsAnalyser.getByteTimeDomainData(ttsWave);
-        ttsAnalyser.getByteFrequencyData(spectrum);
-        feedSpectrum(spectrum);
-        let peak = 0;
+        ttsAnalyser.getByteTimeDomainData(ttsWave); ttsAnalyser.getByteFrequencyData(spectrum);
+        feedSpectrum(spectrum); let peak = 0;
         for (const value of ttsWave) peak = Math.max(peak, Math.abs(value - 128));
         orb.tts = Math.min(1, (peak / 128) * 2.6);
         if (!reduced) logEl.style.setProperty("--glow", orb.tts.toFixed(2));
       }, 45);
-      audio.addEventListener("ended", done);
-      audio.addEventListener("error", done);
-    } catch (err) { /* metering is a luxury */ }
+    } catch (err) { /* metering is optional */ }
   }
   audio.play().catch(() => {
-    if (currentAudio === audio) currentAudio = null;
-    if (next) next();
-    else toast("No speech engine on the server.", true);
+    if (!finished) { done(); browserFallback(); }
   });
 }
 
