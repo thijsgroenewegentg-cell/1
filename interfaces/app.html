@@ -84,6 +84,18 @@ body.alert::after { box-shadow: inset 0 0 200px rgba(255, 122, 60, .17); }
 body[data-mood="think"] #aperture { inset: 4vh 2.2vw; opacity: .46; }
 body[data-mood="speak"] #aperture { opacity: .52; }
 body.alert #aperture { opacity: .9; }
+/* The black is not empty: each act blooms a restrained atmospheric field
+   behind the lattice, like a theatre before the next beat. */
+body::before { content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.7;
+  background: radial-gradient(ellipse at 50% 46%, color-mix(in srgb, var(--accent) 10%, transparent) 0%, transparent 34%),
+              radial-gradient(ellipse at 50% 72%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 48%);
+  transition: background 1.4s ease, opacity 1.4s ease; }
+body[data-mood="think"]::before { opacity:1; background: radial-gradient(ellipse at 50% 45%, rgba(138,92,255,.16), transparent 38%), radial-gradient(ellipse at 30% 80%, rgba(60,30,150,.08), transparent 45%); }
+body[data-mood="speak"]::before { opacity:1; background: radial-gradient(ellipse at 50% 45%, rgba(110,168,255,.18), transparent 40%), radial-gradient(ellipse at 70% 75%, rgba(40,90,180,.09), transparent 50%); }
+body.alert::before { opacity:1; background: radial-gradient(ellipse at 50% 45%, rgba(255,120,50,.16), transparent 40%), radial-gradient(ellipse at 50% 80%, rgba(120,30,10,.12), transparent 52%); }
+@keyframes apertureBreath { 0%,100% { opacity:.28; } 50% { opacity:.44; } }
+body[data-mood="think"] #aperture { animation: apertureBreath 1.8s ease-in-out infinite; }
+body.alert #aperture { animation: apertureBreath .7s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { #aperture { transition: none; } }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 input { font: inherit; }
