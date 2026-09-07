@@ -38,6 +38,24 @@
   --burst: 0;
   --tint: 150, 190, 255;
   --live: rgb(var(--tint));
+
+  /* ---- the scale ----------------------------------------------------
+     Thirteen different corner radii and four ways of writing the same
+     border had accumulated across the page. One scale, used everywhere,
+     so surfaces look like one machine instead of a pile of components. */
+  --r-sm: 8px;     /* chips, badges, keycaps        */
+  --r-md: 12px;    /* buttons, inputs, list rows    */
+  --r-lg: 18px;    /* cards, panels, dialogs        */
+  --r-full: 999px;
+  /* Every raised surface uses these three, so depth is consistent. */
+  --surface: rgba(10, 17, 30, .82);
+  --surface-solid: rgba(9, 15, 27, .98);
+  --shadow-sm: 0 8px 24px rgba(0, 0, 0, .45);
+  --shadow-md: 0 20px 52px rgba(0, 0, 0, .6);
+  --shadow-lg: 0 44px 100px rgba(0, 0, 0, .75);
+  /* One easing curve for everything that moves, so the whole interface
+     shares a single sense of weight. */
+  --ease: cubic-bezier(.16, 1, .3, 1);
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg); }
@@ -71,10 +89,11 @@ body.awake #dock  { transition-delay: .25s; }
 body.awake #rail  { transition-delay: .30s; }
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; }
-:focus-visible { outline: 2px solid var(--listen); outline-offset: 3px; border-radius: 8px; }
+:focus-visible { outline: 2px solid var(--live); outline-offset: 3px; border-radius: var(--r-sm); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, "Roboto Mono", monospace; }
 ::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-thumb { background: rgba(125, 165, 225, .18); border-radius: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(var(--tint), .22); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(var(--tint), .4); }
 
 #orb { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
 /* The vignette breathes with the orb: it tightens and takes on the orb's
@@ -114,7 +133,7 @@ button { cursor: pointer; border: 0; background: none; }
 }
 #tiles { display: grid; grid-template-columns: repeat(4, 14px); gap: 6px; pointer-events: auto; }
 .tile {
-  width: 14px; height: 14px; border-radius: 4px; background: rgba(125, 165, 225, .1);
+  width: 14px; height: 14px; border-radius: 4px; background: rgba(var(--tint), .1);
   border: 1px solid var(--line); transition: background .3s, box-shadow .3s, transform .3s, border-color .3s;
 }
 .tile.lit {
@@ -133,14 +152,25 @@ button { cursor: pointer; border: 0; background: none; }
   text-shadow: 0 0 calc(var(--energy) * 26px) rgba(var(--tint), var(--energy));
 }
 #link { width: 6px; height: 6px; border-radius: 50%; background: var(--bad); transition: background .3s; }
-#link.on { background: var(--good); box-shadow: 0 0 10px rgba(52, 211, 153, .8); }
+#link.on {
+  background: var(--good); box-shadow: 0 0 12px rgba(52, 211, 153, .9);
+  animation: heartbeat 3.4s ease-in-out infinite;
+}
+/* A slow pulse on the link dot: proof the socket is alive, not just a
+   green light that would look identical if everything had frozen. */
+@keyframes heartbeat { 0%, 88%, 100% { opacity: 1; } 94% { opacity: .35; } }
 #topRight { display: flex; gap: 8px; pointer-events: auto; }
 .ghost {
-  width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line);
-  color: var(--dimmer); display: grid; place-items: center; transition: all .18s;
-  background: rgba(8, 14, 26, .5);
+  width: 36px; height: 36px; border-radius: var(--r-md); border: 1px solid var(--line);
+  color: var(--dimmer); display: grid; place-items: center;
+  transition: all .18s var(--ease); background: rgba(8, 14, 26, .5);
 }
-.ghost:hover { color: var(--listen); border-color: var(--line-warm); }
+.ghost:hover {
+  color: var(--live); border-color: rgba(var(--tint), .4);
+  background: rgba(var(--tint), .09); transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .4), 0 0 22px rgba(var(--tint), .2);
+}
+.ghost:active { transform: translateY(0); }
 .ghost svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7;
              stroke-linecap: round; stroke-linejoin: round; }
 #tileLabel {
@@ -202,16 +232,19 @@ body.reading #caption { font-size: 25px; }
 #caption .cursor { color: var(--speak); animation: blink 1.05s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 #caption code { font-family: ui-monospace, monospace; font-size: 88%;
-                background: rgba(125, 165, 225, .13); padding: 1px 6px; border-radius: 6px; }
+                background: rgba(var(--tint), .14); padding: 2px 7px;
+                border-radius: var(--r-sm); color: #eaf2ff; }
 #caption pre {
-  text-align: left; font-size: 12.5px; background: rgba(6, 12, 22, .9); border: 1px solid var(--line);
-  border-radius: 12px; padding: 12px 14px; overflow-x: auto; position: relative;
+  text-align: left; font-size: 12.5px; background: rgba(6, 12, 22, .92);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 13px 15px; overflow-x: auto; position: relative;
+  box-shadow: var(--shadow-sm);
 }
 #caption .copy {
   position: absolute; top: 6px; right: 8px; font-size: 10px; letter-spacing: .1em;
   text-transform: uppercase; color: var(--dimmer);
 }
-#caption .copy:hover { color: var(--listen); }
+#caption .copy:hover { color: var(--live); }
 
 /* -------------------------------------------------------------- cards */
 #cards {
@@ -219,7 +252,7 @@ body.reading #caption { font-size: 25px; }
   pointer-events: auto; max-width: 760px;
 }
 .card {
-  position: relative; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+  position: relative; border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px 16px;
   background: rgba(8, 14, 26, .82); backdrop-filter: blur(14px); text-align: left;
   min-width: 190px; max-width: 340px;
   animation: rise .5s cubic-bezier(.16, 1, .3, 1);
@@ -241,28 +274,39 @@ body.reading #caption { font-size: 25px; }
 @keyframes rise {
   from { opacity: 0; transform: translateY(26px) scale(.94); filter: blur(6px); }
 }
+/* Cards cascade instead of appearing as one block. Six is plenty — beyond
+   that the last card would wait too long to be worth the effect. */
+.card:nth-child(2) { animation-delay: .06s; animation-fill-mode: backwards; }
+.card:nth-child(3) { animation-delay: .12s; animation-fill-mode: backwards; }
+.card:nth-child(4) { animation-delay: .18s; animation-fill-mode: backwards; }
+.card:nth-child(5) { animation-delay: .24s; animation-fill-mode: backwards; }
+.card:nth-child(6) { animation-delay: .30s; animation-fill-mode: backwards; }
 .card h4 {
-  margin: 0 0 8px; font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase;
-  color: var(--dimmer); font-weight: 500;
+  margin: 0 0 10px; font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase;
+  color: rgba(var(--tint), .7); font-weight: 500;
 }
 .card ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
 .card li { font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
-.card li .mark { color: var(--listen); flex: none; }
+.card li .mark { color: var(--live); flex: none; }
 .card li .muted { color: var(--dimmer); font-size: 11.5px; }
-.card .big { font-size: 27px; font-weight: 500; letter-spacing: -.01em; }
+.card .big {
+  font-size: 32px; font-weight: 500; letter-spacing: -.02em; line-height: 1.1;
+  text-shadow: 0 0 30px rgba(var(--tint), .35);
+}
 .card .kv { display: flex; justify-content: space-between; gap: 14px; font-size: 12.5px; padding: 2px 0; }
 .card .kv span:first-child { color: var(--dimmer); }
 .gauge { margin-top: 7px; }
 .gauge .label { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--dimmer); }
-.gauge .track { height: 4px; border-radius: 4px; background: rgba(125, 165, 225, .14); margin-top: 3px; }
-.gauge .fill { height: 100%; border-radius: 4px; background: var(--listen); transition: width .5s; }
+.gauge .track { height: 4px; border-radius: 4px; background: rgba(var(--tint), .14); margin-top: 3px; }
+.gauge .fill { height: 100%; border-radius: 4px; background: var(--live);
+               box-shadow: 0 0 12px rgba(var(--tint), .6); transition: width .5s var(--ease); }
 .gauge .fill.hot { background: var(--bad); }
 
 /* ------------------------------------------------------------- history */
 #history {
   position: fixed; top: 0; left: 0; bottom: 0; width: min(420px, 94vw); z-index: 21;
-  background: rgba(6, 11, 20, .97); border-right: 1px solid var(--line); backdrop-filter: blur(22px);
-  transform: translateX(-100%); transition: transform .26s cubic-bezier(.4, 0, .2, 1);
+  background: var(--surface-solid); border-right: 1px solid var(--line); backdrop-filter: blur(26px);
+  transform: translateX(-100%); transition: transform .42s var(--ease);
   display: flex; flex-direction: column;
 }
 body.history-open #history { transform: none; }
@@ -272,8 +316,16 @@ body.history-open #history { transform: none; }
   display: flex; justify-content: space-between;
 }
 #historyList { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
-.entry { display: flex; flex-direction: column; gap: 4px; }
+.entry {
+  display: flex; flex-direction: column; gap: 5px; padding: 11px 13px;
+  border-radius: var(--r-md); border: 1px solid transparent;
+  animation: rise .4s var(--ease);
+}
+/* Your words are a raised surface; the reply is plain, so a long thread
+   scans as an alternating rhythm rather than an undifferentiated wall. */
+.entry.me { background: rgba(var(--tint), .07); border-color: rgba(var(--tint), .16); }
 .entry .who { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--dimmer); }
+.entry.me .who { color: rgba(var(--tint), .85); }
 .entry .what { font-size: 13.5px; line-height: 1.55; }
 .entry.me .what { color: var(--text); }
 .entry.ai .what { color: var(--dim); }
@@ -294,7 +346,8 @@ body.history-open #history { transform: none; }
 }
 .line.me { color: var(--text); }
 .line.ai { color: var(--dim); }
-.line.trace { color: var(--dimmer); font-family: ui-monospace, monospace; font-size: 10.5px; }
+.line.trace { color: var(--dimmer); font-family: ui-monospace, monospace; font-size: 10.5px;
+              letter-spacing: -.01em; }
 .line.trace b { color: var(--live); font-weight: 400;
                 text-shadow: 0 0 14px rgba(var(--tint), .6); }
 .line.trace i { color: var(--dimmer); font-style: normal; opacity: .7; }
@@ -318,10 +371,12 @@ body.history-open #history { transform: none; }
               inset 0 0 0 1px rgba(var(--tint), calc(var(--energy) * .2));
 }
 .round {
-  width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
-  color: var(--dim); border: 1px solid transparent; transition: all .18s;
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  color: var(--dim); border: 1px solid transparent; transition: all .18s var(--ease);
 }
-.round:hover { color: var(--text); background: rgba(125, 165, 225, .1); }
+.round:hover { color: var(--text); background: rgba(var(--tint), .12);
+               transform: translateY(-2px); }
+.round:active { transform: translateY(0) scale(.94); }
 .round.on { color: var(--live); border-color: rgba(var(--tint), .5);
             background: rgba(var(--tint), .12); box-shadow: 0 0 22px rgba(var(--tint), .35); }
 /* A control that cannot do anything should look like it. Struck through
@@ -355,21 +410,28 @@ body.history-open #history { transform: none; }
 }
 #mic.busy { opacity: .45; }
 #micRing { position: absolute; inset: -4px; transform: rotate(-90deg); pointer-events: none; }
-#micRing circle { fill: none; stroke: var(--listen); stroke-width: 2; opacity: .85;
+#micRing circle { fill: none; stroke: var(--live); stroke-width: 2; opacity: .9;
                   stroke-linecap: round; transition: stroke-dashoffset .1s linear; }
 #typed {
   display: none; align-items: center; gap: 8px; width: min(600px, 90vw);
-  border: 1px solid var(--line); border-radius: 16px; padding: 6px 6px 6px 16px;
+  border: 1px solid var(--line); border-radius: var(--r-lg); padding: 6px 6px 6px 18px;
   background: var(--glass); backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-md); transition: border-color .2s, box-shadow .2s;
+}
+#typed:focus-within {
+  border-color: rgba(var(--tint), .45);
+  box-shadow: var(--shadow-md), 0 0 40px rgba(var(--tint), .2);
 }
 #typed.show { display: flex; }
 #typed input { flex: 1; border: 0; background: none; outline: none; padding: 9px 0; }
 #typed input::placeholder { color: var(--dimmer); }
-#typed button { color: var(--listen); padding: 0 10px; font-size: 18px; }
+#typed button { color: var(--live); padding: 0 12px; font-size: 18px;
+                transition: transform .16s var(--ease); }
+#typed button:hover { transform: scale(1.18); }
 .hint { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--dimmer); }
 .hint kbd {
-  font: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px;
-  color: var(--dim);
+  font: inherit; border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px;
+  color: var(--dim); background: rgba(var(--tint), .05);
 }
 
 /* --------------------------------------------------------- the palette */
@@ -385,21 +447,31 @@ body.history-open #history { transform: none; }
   from { opacity: 0; transform: translateY(-22px) scale(.96); filter: blur(8px); }
 }
 .palette-box {
-  width: min(620px, 92vw); border: 1px solid var(--line-warm); border-radius: 18px;
-  background: rgba(8, 14, 26, .97); box-shadow: 0 40px 90px rgba(0, 0, 0, .7); overflow: hidden;
+  width: min(620px, 92vw); border: 1px solid var(--line-warm); border-radius: var(--r-lg);
+  background: var(--surface-solid); box-shadow: var(--shadow-lg),
+              0 0 90px rgba(var(--tint), .12); overflow: hidden; position: relative;
+}
+/* Lit along its top edge by the orb, like the cards. */
+.palette-box::before {
+  content: ""; position: absolute; top: 0; left: 18%; right: 18%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--tint), .7), transparent);
 }
 #paletteInput {
   width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none;
-  padding: 17px 20px; font-size: 16px; outline: none;
+  padding: 19px 22px; font-size: 17px; outline: none; letter-spacing: -.01em;
 }
 #paletteInput::placeholder { color: var(--dimmer); }
 #paletteList { max-height: 46vh; overflow-y: auto; padding: 8px; }
 .option {
   display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
-  padding: 10px 12px; border-radius: 11px; transition: background .12s;
+  padding: 11px 13px; border-radius: var(--r-md); position: relative;
+  transition: background .14s, transform .14s var(--ease);
 }
-.option.on { background: rgba(var(--tint), .14);
-             box-shadow: inset 2px 0 0 var(--live); }
+.option:hover { background: rgba(var(--tint), .07); }
+.option.on {
+  background: rgba(var(--tint), .14); transform: translateX(3px);
+  box-shadow: inset 2px 0 0 var(--live), 0 0 30px rgba(var(--tint), .16);
+}
 .option .badge {
   font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--dimmer);
   border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; flex: none;
@@ -413,9 +485,9 @@ body.history-open #history { transform: none; }
 
 /* ----------------------------------------------------------- the panel */
 #panel {
-  position: fixed; top: 0; right: 0; bottom: 0; width: min(370px, 92vw); z-index: 20;
-  background: rgba(6, 11, 20, .97); border-left: 1px solid var(--line); backdrop-filter: blur(22px);
-  transform: translateX(100%); transition: transform .26s cubic-bezier(.4, 0, .2, 1);
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 92vw); z-index: 20;
+  background: var(--surface-solid); border-left: 1px solid var(--line); backdrop-filter: blur(26px);
+  transform: translateX(100%); transition: transform .42s var(--ease);
   display: flex; flex-direction: column;
 }
 body.panel-open #panel { transform: none; }
@@ -429,8 +501,17 @@ body.panel-open #panel { transform: none; }
 #panel::before { left: 0; }
 #history::before { right: 0; }
 .tabs { display: flex; gap: 4px; padding: 16px 12px 0; border-bottom: 1px solid var(--line); }
-.tab { padding: 9px 13px; font-size: 12.5px; color: var(--dimmer); border-radius: 9px 9px 0 0; }
-.tab.on { color: var(--text); background: rgba(125, 165, 225, .1); }
+.tab {
+  padding: 10px 14px; font-size: 12.5px; color: var(--dimmer); position: relative;
+  border-radius: var(--r-sm) var(--r-sm) 0 0; transition: color .18s;
+}
+.tab:hover { color: var(--dim); }
+.tab.on { color: var(--text); background: rgba(var(--tint), .08); }
+/* An underline in the live colour, so the active tab is unmistakable. */
+.tab.on::after {
+  content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px;
+  background: var(--live); box-shadow: 0 0 14px rgba(var(--tint), .8);
+}
 .panes { flex: 1; overflow-y: auto; padding: 16px; }
 .pane { display: none; flex-direction: column; gap: 9px; }
 .pane.on { display: flex; }
@@ -440,12 +521,23 @@ body.panel-open #panel { transform: none; }
 .stat span:last-child { text-align: right; overflow-wrap: anywhere; }
 .head { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--dimmer);
         margin-top: 10px; }
-.bar { height: 3px; border-radius: 3px; background: rgba(125, 165, 225, .14); overflow: hidden; }
-.bar i { display: block; height: 100%; background: var(--listen); transition: width .4s; }
-#toolSearch { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line);
-              background: rgba(3, 6, 12, .8); outline: none; font-size: 13px; }
-.tool { border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; text-align: left; width: 100%; }
-.tool:hover { border-color: rgba(34, 211, 238, .4); background: rgba(34, 211, 238, .06); }
+.bar { height: 3px; border-radius: 3px; background: rgba(var(--tint), .14); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--live);
+         box-shadow: 0 0 12px rgba(var(--tint), .7); transition: width .4s var(--ease); }
+#toolSearch {
+  width: 100%; padding: 10px 13px; border-radius: var(--r-md); border: 1px solid var(--line);
+  background: rgba(3, 6, 12, .8); outline: none; font-size: 13px;
+  transition: border-color .18s, box-shadow .18s;
+}
+#toolSearch:focus { border-color: rgba(var(--tint), .5); box-shadow: 0 0 24px rgba(var(--tint), .18); }
+.tool {
+  border: 1px solid var(--line); border-radius: var(--r-md); padding: 9px 12px;
+  text-align: left; width: 100%; transition: all .16s var(--ease);
+}
+.tool:hover {
+  border-color: rgba(var(--tint), .45); background: rgba(var(--tint), .08);
+  transform: translateX(3px);
+}
 .tool b { display: block; font-size: 12.5px; font-weight: 500; }
 .tool span { font-size: 11.5px; color: var(--dimmer); }
 .audit { display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; }
@@ -455,7 +547,8 @@ body.panel-open #panel { transform: none; }
 .switch { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 6px 0; }
 .switch button { border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px;
                  font-size: 11.5px; color: var(--dimmer); }
-.switch button.on { color: var(--listen); border-color: rgba(34, 211, 238, .45); }
+.switch button.on { color: var(--live); border-color: rgba(var(--tint), .5);
+                    background: rgba(var(--tint), .1); }
 
 /* ----------------------------------------------------------- overlays */
 #keys {
@@ -464,22 +557,28 @@ body.panel-open #panel { transform: none; }
 }
 #keys.show { display: flex; }
 .keys-box {
-  border: 1px solid var(--line-warm); border-radius: 18px; padding: 26px 30px;
-  background: rgba(8, 14, 26, .97); display: grid; grid-template-columns: auto auto; gap: 12px 26px;
-  font-size: 13.5px;
+  border: 1px solid var(--line-warm); border-radius: var(--r-lg); padding: 28px 32px;
+  background: var(--surface-solid); display: grid; grid-template-columns: auto auto; gap: 13px 28px;
+  font-size: 13.5px; box-shadow: var(--shadow-lg), 0 0 80px rgba(var(--tint), .1);
+  animation: drop .34s var(--ease);
 }
 .keys-box h2 { grid-column: 1 / -1; margin: 0 0 6px; font-size: 11px; letter-spacing: .3em;
                text-transform: uppercase; color: var(--dimmer); font-weight: 500; }
 .keys-box kbd {
-  font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px;
-  color: var(--listen); font-size: 12px;
+  font: inherit; border: 1px solid rgba(var(--tint), .3); border-radius: var(--r-sm);
+  padding: 3px 10px; color: var(--live); font-size: 12px;
+  background: rgba(var(--tint), .08); text-align: center;
 }
 #toasts { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 40;
           display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .toast {
-  background: rgba(8, 14, 26, .96); border: 1px solid var(--line); border-left: 2px solid var(--listen);
-  border-radius: 10px; padding: 9px 15px; font-size: 13px; animation: slide .2s ease-out;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, .5);
+  background: var(--surface-solid); border: 1px solid var(--line);
+  border-left: 2px solid var(--live); border-radius: var(--r-md);
+  padding: 10px 16px; font-size: 13px; animation: toastIn .34s var(--ease);
+  box-shadow: var(--shadow-md), 0 0 30px rgba(var(--tint), .12);
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-14px) scale(.94); filter: blur(4px); }
 }
 .toast.bad { border-left-color: var(--bad); }
 
@@ -522,16 +621,28 @@ body.panel-open #panel { transform: none; }
   body, .toast, .line, #palette { animation: none !important; transition: none !important; }
   /* No slide-up assembly, and never leave the chrome stranded invisible if
      the ignition is skipped. */
-  #tiles, #brand, #stage, #dock, #rail {
+  #tiles, #brand, #stage, #rail {
     opacity: 1 !important; transform: none !important; transition: none !important;
+  }
+  /* The dock is centred with a translate — clearing its transform would
+     fling it to the top-left corner, so it keeps the centring offset. */
+  #dock, body.awake #dock {
+    opacity: 1 !important; transform: translate(-50%, -50%) !important;
+    transition: none !important;
   }
   /* The new entrances animate blur and transform, which is exactly the kind
      of motion this setting exists to suppress. The reactive glows stay —
      they are colour changes, not movement. */
-  .card, .line, .palette-box, #state { animation: none !important; }
-  .card:hover, #mic:hover, #mic:active { transform: none !important; }
+  .card, .line, .palette-box, .keys-box, .toast, .entry, #state {
+    animation: none !important;
+  }
+  .card:hover, #mic:hover, #mic:active, .tool:hover, .option.on,
+  .ghost:hover, .round:hover, .round:active, #typed button:hover {
+    transform: none !important;
+  }
   #stage, #doing, #caption { transition: none !important; }
   #doing { transform: none !important; }
+  #link.on { animation: none !important; }
   #scan { display: none; }
 }
 </style>

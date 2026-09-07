@@ -453,3 +453,46 @@ def test_the_page_trusts_the_servers_turn_count(web):
 
     page = TestClient(web.app).get("/", params={"token": web.token}).text
     assert "data.turns > turns" in page
+
+
+# ------------------------------------------------------------ design system
+# The page accumulated thirteen corner radii and four ways of writing the
+# same border before these were consolidated. These guard the consolidation.
+
+
+def test_the_page_defines_one_radius_and_surface_scale(web):
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    for token in ("--r-sm:", "--r-md:", "--r-lg:", "--surface:", "--shadow-md:", "--ease:"):
+        assert token in page, f"missing design token {token}"
+
+
+def test_chrome_follows_the_orb_colour_rather_than_a_fixed_cyan(web):
+    """Surfaces read from --tint so they shift with the orb's mood.
+
+    A hardcoded cyan left the interface visually detached from the sphere it
+    was supposed to belong to.
+    """
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    style = page.split("<style>", 1)[1].split("</style>", 1)[0]
+    # The old literal cyan must not appear as a surface colour any more.
+    assert "34, 211, 238" not in style
+    # And the live tint must be doing real work across the chrome.
+    assert style.count("rgba(var(--tint)") > 25
+
+
+def test_the_centred_dock_keeps_its_offset_under_reduced_motion(web):
+    """#dock is centred with a translate.
+
+    Clearing its transform — as the other chrome does — would fling it to the
+    top-left corner, so it has to keep the centring offset in every state.
+    """
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    style = page.split("<style>", 1)[1].split("</style>", 1)[0]
+    reduced = style.split("prefers-reduced-motion", 1)[1]
+    assert "translate(-50%, -50%) !important" in reduced
