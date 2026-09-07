@@ -415,6 +415,23 @@ class WebInterface:
                 "clients": self.clients,
             })
 
+        @app.post("/api/operator/preview")
+        async def operator_preview(request: Request, token: str = Query(default="")) -> Any:
+            """Preview a shell/operator command without executing it."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                payload: Dict[str, Any] = await request.json()
+            except Exception:
+                payload = {}
+            command = str(payload.get("command", "")).strip()
+            if not command:
+                raise HTTPException(status_code=400, detail="missing 'command'")
+            security = getattr(self.brain, "security", None)
+            if security is None or not hasattr(security, "preview"):
+                raise HTTPException(status_code=503, detail="operator security unavailable")
+            return JSONResponse(security.preview(command))
+
         @app.post("/api/ask")
         async def ask(request: Request, token: str = Query(default="")) -> Any:
             """Answer a single question over plain JSON (no streaming)."""
