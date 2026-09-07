@@ -167,10 +167,31 @@ class Jarvis:
         Args:
             server: The :class:`~interfaces.web.WebInterface` that is serving.
         """
+        import shutil
+        import subprocess
         import webbrowser
 
         await asyncio.sleep(0.8)   # give uvicorn a moment to bind
         url = server.url
+
+        # Prefer a real application window when a Chromium-family browser is
+        # installed.  This keeps the dramatic UI free of tabs and browser
+        # chrome, while retaining the portable browser fallback below.
+        app_browsers = (
+            "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+            "microsoft-edge", "brave-browser",
+        )
+        browser = next((shutil.which(name) for name in app_browsers if shutil.which(name)), None)
+        if browser:
+            try:
+                subprocess.Popen(
+                    [browser, f"--app={url}", "--new-window", "--disable-features=Translate"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                return
+            except OSError as exc:
+                logger.debug("Could not start app window: %s", exc)
+
         try:
             opened = await asyncio.get_running_loop().run_in_executor(
                 None, lambda: webbrowser.open(url)
