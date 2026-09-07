@@ -400,6 +400,21 @@ class WebInterface:
                 }
             )
 
+        @app.get("/api/health")
+        async def health(token: str = Query(default="")) -> Any:
+            """Return actionable component health for the startup screen."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            report = await self.brain.status_report()
+            voice = getattr(self.brain, "voice", None)
+            return JSONResponse({
+                "ok": True,
+                "llm": report.get("llm", {}),
+                "voice": bool(voice and getattr(voice, "available", False)),
+                "tts": bool(voice and getattr(getattr(voice, "tts", None), "available", False)),
+                "clients": self.clients,
+            })
+
         @app.post("/api/ask")
         async def ask(request: Request, token: str = Query(default="")) -> Any:
             """Answer a single question over plain JSON (no streaming)."""

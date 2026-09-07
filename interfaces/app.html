@@ -2289,11 +2289,18 @@ function bootDiagnostics() {
 }
 bootDiagnostics();
 
-function paintPerf() {
+let healthBusy = false;
+async function paintPerf() {
   const connected = !!socket && socket.readyState === 1;
-  const conn = $("pConn"), voice = $("pVoice");
+  const conn = $("pConn"), voice = $("pVoice"), mode = $("pMode");
   if (conn) { conn.className = connected ? "ok" : "warn"; conn.innerHTML = "LINK <b>" + (connected ? "READY" : "RETRY") + "</b>"; }
   if (voice) { const ready = settings.speech && (!!window.speechSynthesis || !!window.Audio); voice.className = ready ? "ok" : "warn"; voice.innerHTML = "VOICE <b>" + (ready ? "READY" : "OFF") + "</b>"; }
+  if (connected && !healthBusy) {
+    healthBusy = true;
+    fetch("/api/health" + auth, { cache: "no-store" }).then((r) => r.ok ? r.json() : null)
+      .then((h) => { if (!h || !mode) return; const ready = h.llm && h.llm.available !== false; mode.className = ready ? "ok" : "warn"; mode.innerHTML = "MODE <b>" + (ready ? "LOCAL READY" : "BRAIN OFFLINE") + "</b>"; })
+      .catch(() => {}).finally(() => { healthBusy = false; });
+  }
 }
 setInterval(paintPerf, 1000);
 
