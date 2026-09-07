@@ -179,9 +179,23 @@ class Jarvis:
         # chrome, while retaining the portable browser fallback below.
         app_browsers = (
             "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
-            "microsoft-edge", "brave-browser",
+            "microsoft-edge", "msedge", "brave-browser", "brave", "chrome",
         )
-        browser = next((shutil.which(name) for name in app_browsers if shutil.which(name)), None)
+        candidates = [shutil.which(name) for name in app_browsers]
+        # Windows normally exposes Edge/Chrome through their install paths,
+        # not PATH. Prefer those paths so --app works immediately after the
+        # one-click installer, even on a clean Windows machine.
+        if sys.platform == "win32":
+            local = os.environ.get("LOCALAPPDATA", "")
+            program = os.environ.get("PROGRAMFILES", "")
+            candidates += [
+                os.path.join(local, "Microsoft", "Edge", "Application", "msedge.exe"),
+                os.path.join(program, "Microsoft", "Edge", "Application", "msedge.exe"),
+                os.path.join(local, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(program, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(local, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+            ]
+        browser = next((path for path in candidates if path and os.path.isfile(path)), None)
         if browser:
             try:
                 subprocess.Popen(
