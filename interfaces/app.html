@@ -56,7 +56,12 @@ body.ready { opacity: 1; }
   transition: opacity .55s ease, transform .55s cubic-bezier(.2, .8, .2, 1);
 }
 body.awake #tiles, body.awake #brand, body.awake #stage,
-body.awake #dock, body.awake #rail { opacity: 1; transform: none; }
+body.awake #rail { opacity: 1; transform: none; }
+/* The dock is centred with a translate, so it cannot use `transform: none`
+   here — that would snap it back to the top-left corner. It carries its own
+   centring offset through both the hidden and revealed states. */
+#dock { transform: translate(-50%, calc(-50% + 6px)); }
+body.awake #dock { opacity: 1; transform: translate(-50%, -50%); }
 /* Staggered so the interface assembles piece by piece rather than popping
    in as one block. */
 body.awake #brand { transition-delay: .05s; }
@@ -77,10 +82,10 @@ button { cursor: pointer; border: 0; background: none; }
 #vignette {
   position: fixed; inset: 0; z-index: 1; pointer-events: none;
   background:
-    radial-gradient(circle at 50% 44%,
+    radial-gradient(circle at 50% var(--orb-y, 24%),
       transparent calc(20% + var(--energy) * 6%),
       rgba(3, 6, 12, .5) 70%, #03060c 100%),
-    radial-gradient(circle at 50% 44%,
+    radial-gradient(circle at 50% var(--orb-y, 24%),
       rgba(var(--tint), calc(var(--energy) * .09 + var(--burst) * .12)) 0%,
       transparent 62%);
 }
@@ -146,15 +151,15 @@ button { cursor: pointer; border: 0; background: none; }
 #tileLabel.show { opacity: 1; }
 
 /* ------------------------------------------------------------- caption */
+/* The console holds the middle of the frame, so the answer reads directly
+   beneath it: sphere on top, controls in the centre, text below. The stage
+   starts just under the dock and grows downward. */
 #stage {
-  position: fixed; inset: 0; z-index: 2; display: flex; flex-direction: column;
-  align-items: center; justify-content: flex-end; padding: 0 24px 208px; pointer-events: none;
-  transition: padding-bottom .6s cubic-bezier(.16, 1, .3, 1);
+  position: fixed; left: 0; right: 0; z-index: 2;
+  top: calc(50% + 62px); bottom: 0;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: flex-start; padding: 0 24px 34px; pointer-events: none;
 }
-/* When there is something to read, the orb shrinks and lifts (see orb.focus)
-   and the stage rises into the space it vacated, so the answer lands in the
-   optical centre of the frame rather than clinging to the bottom edge. */
-body.reading #stage { padding-bottom: 24vh; }
 #stateRow { display: flex; align-items: center; gap: 10px; height: 15px; }
 #state {
   font-size: 10.5px; letter-spacing: .48em; text-transform: uppercase; color: var(--live);
@@ -183,7 +188,7 @@ body[data-mood="think"] #state { animation: throb 1.4s ease-in-out infinite; }
 @keyframes throb { 50% { opacity: .45; } }
 #state.show { opacity: 1; }
 #caption {
-  max-width: 700px; text-align: center; font-size: 23px; line-height: 1.45; margin-top: 16px;
+  max-width: 700px; text-align: center; font-size: 23px; transition: font-size .4s ease; line-height: 1.45; margin-top: 16px;
   letter-spacing: -.01em;
   text-shadow: 0 2px 34px rgba(3, 6, 12, .96),
                0 0 calc(var(--energy) * 44px) rgba(var(--tint), calc(var(--energy) * .5));
@@ -191,6 +196,9 @@ body[data-mood="think"] #state { animation: throb 1.4s ease-in-out infinite; }
 }
 #caption::-webkit-scrollbar { display: none; }
 #caption.dim { color: var(--dim); font-size: 16.5px; }
+/* While an answer is up the sphere retreats (see orb.focus) and the text
+   steps forward to take the emphasis it gives up. */
+body.reading #caption { font-size: 25px; }
 #caption .cursor { color: var(--speak); animation: blink 1.05s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 #caption code { font-family: ui-monospace, monospace; font-size: 88%;
@@ -294,10 +302,12 @@ body.history-open #history { transform: none; }
 .line.err { color: var(--bad); }
 
 /* ------------------------------------------------------------- console */
+/* The console sits in the middle of the frame, not pinned to the bottom
+   edge. The orb is lifted above it and the caption reads below it, so the
+   page has one clear vertical spine: sphere, controls, answer. */
 #dock {
-  position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 5;
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5;
   display: flex; flex-direction: column; align-items: center; gap: 13px;
-  padding-bottom: env(safe-area-inset-bottom);
 }
 .controls {
   display: flex; align-items: center; gap: 10px; padding: 9px;
@@ -499,7 +509,10 @@ body.panel-open #panel { transform: none; }
 
 @media (max-width: 860px) {
   #rail { display: none; }
-  #stage { padding-bottom: 226px; }
+  /* Narrow screens need the console a little higher, so the answer below it
+     is not squeezed against the bottom edge. */
+  #dock { top: 44%; }
+  #stage { top: calc(44% + 62px); }
   #caption { font-size: 18px; }
   #top { padding: 14px 16px; }
   #tileLabel { top: 54px; left: 16px; }
@@ -517,7 +530,7 @@ body.panel-open #panel { transform: none; }
      they are colour changes, not movement. */
   .card, .line, .palette-box, #state { animation: none !important; }
   .card:hover, #mic:hover, #mic:active { transform: none !important; }
-  #stage, #doing { transition: none !important; }
+  #stage, #doing, #caption { transition: none !important; }
   #doing { transform: none !important; }
   #scan { display: none; }
 }
@@ -747,6 +760,14 @@ let frameTimes = [], lastFrame = performance.now(), fps = 60;
 //: Idle animation is slow and ambient, so 30fps is indistinguishable from
 //: unthrottled — and roughly a sixth of the GPU work.
 const IDLE_FRAME_MS = 1000 / 30;
+//: The centred console's footprint, used to work out how much room is left
+//: above it for the sphere. Kept in sync with #dock: the 60px control row,
+//: a 13px gap and the ~20px keyboard hint.
+const DOCK_HEIGHT = 93;
+//: Breathing room between the orb's lowest crest and the controls.
+const DOCK_GAP = 28;
+//: Clearance below the top bar (module tiles and wordmark).
+const TOP_MARGIN = 62;
 let lastPaint = 0;
 
 /* ------------------------------------------------------------- ignition
@@ -890,9 +911,29 @@ function draw(now) {
   // the page with no hierarchy at all — the decoration outranked the content.
   orb.focus += ((contentful ? 1 : 0) - orb.focus) * 0.06;
   const yield_ = orb.focus;
-  const centreY = height * ((width < 760 ? 0.40 : 0.44) - yield_ * 0.13);
-  const base = Math.min(width, height)
-    * (width < 760 ? 0.29 : 0.25) * (1 - yield_ * 0.42);
+  // The console sits in the middle of the frame, so the sphere occupies the
+  // band above it. That band is what is actually available, so the orb is
+  // sized from it rather than from a fixed fraction of the viewport — a
+  // percentage that clears the dock on a 900px screen overlaps it on a 720px
+  // laptop. Centre the sphere in the band and let its widest crest (1.26x)
+  // stop DOCK_GAP short of the controls.
+  // TOP_MARGIN keeps the sphere clear of the tiles and wordmark in the top
+  // bar; without it the band maths pushes the crest flush to y=0.
+  const bandTop = TOP_MARGIN;
+  // Must track the #dock rule, including the narrow-screen override that
+  // lifts it to 44% — otherwise the sphere and the console disagree about
+  // where the middle of the page is.
+  const dockCentre = height * (width <= 860 ? 0.44 : 0.5);
+  const bandBottom = dockCentre - DOCK_HEIGHT / 2 - DOCK_GAP;
+  const centreY = (bandTop + bandBottom) / 2;
+  // Fill the band rather than merely fitting inside it. The 1.26 divisor
+  // reserves room for the widest noise crest, but only a handful of points
+  // ever reach that far, so sizing strictly to it leaves the sphere looking
+  // shrunken on short viewports. 1.14 is the measured limit: it fills the
+  // band as fully as possible while the widest crest still clears the
+  // controls everywhere tested, down to 7px on a 1080p screen.
+  const fit = (bandBottom - bandTop) / 2 / 1.14;
+  const base = Math.min(fit, Math.min(width, height) * 0.3) * (1 - yield_ * 0.22);
 
   orb.time += 0.016;
   // Energy snaps up fast and falls away slowly, so reactions hit hard and
@@ -1173,7 +1214,7 @@ function draw(now) {
     ctx.fillRect(0, 0, width, height);
   }
 
-  publish();
+  publish((centreY / height) * 100);
 }
 requestAnimationFrame(draw);
 
@@ -1185,8 +1226,8 @@ requestAnimationFrame(draw);
    Writing a CSS variable on the root is cheap, but doing it four times a
    frame at 60fps is not free, so values are quantised and only written when
    they actually change. */
-const cssState = { energy: -1, pulse: -1, tint: "" };
-function publish() {
+const cssState = { energy: -1, pulse: -1, tint: "", orbY: -1 };
+function publish(orbY) {
   const energy = Math.round(orb.energy * 20) / 20;
   const burst = Math.round(orb.pulse * 20) / 20;
   const [r, g, b] = paint.map(Math.round);
@@ -1195,6 +1236,10 @@ function publish() {
   if (energy !== cssState.energy) { root.setProperty("--energy", energy); cssState.energy = energy; }
   if (burst !== cssState.pulse) { root.setProperty("--burst", burst); cssState.pulse = burst; }
   if (tint !== cssState.tint) { root.setProperty("--tint", tint); cssState.tint = tint; }
+  // The vignette centres on the sphere, which no longer sits at a fixed
+  // fraction of the viewport — it is derived from the space above the dock.
+  const y = Math.round(orbY * 2) / 2;
+  if (y !== cssState.orbY) { root.setProperty("--orb-y", y + "%"); cssState.orbY = y; }
 }
 
 function mood(hue, energy) {
