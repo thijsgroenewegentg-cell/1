@@ -3329,6 +3329,15 @@ addEventListener("keydown", (event) => {
   }
   const sheetOpen = ["palette", "panel", "history", "keys"]
     .some((id) => $(id).classList.contains("show"));
+  /* Emergency stop: always available, even when a sheet or text field has focus. */
+  if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "escape") {
+    event.preventDefault();
+    if (recording) cancelRecording();
+    stopSpeech();
+    if (busy) cancelTurn();
+    toast("Emergency stop — active speech and work cancelled.");
+    return;
+  }
   if (event.key === "Escape") {
     if (recording) cancelRecording();
     else if (busy && !sheetOpen && !typing) cancelTurn();
