@@ -131,16 +131,31 @@ button { cursor: pointer; border: 0; background: none; }
   padding-top: calc(18px + env(safe-area-inset-top));
   display: flex; align-items: flex-start; gap: 18px; pointer-events: none;
 }
-#tiles { display: grid; grid-template-columns: repeat(4, 14px); gap: 6px; pointer-events: auto; }
+/* One row of slim bars, not a 3x4 grid of anonymous squares. The grid read
+   as a block of dead pixels in the corner; a single row of ticks reads as
+   instrumentation, and each one grows into a labelled pill on hover. */
+#tiles { display: flex; gap: 4px; pointer-events: auto; align-items: center; }
 .tile {
-  width: 14px; height: 14px; border-radius: 4px; background: rgba(var(--tint), .1);
-  border: 1px solid var(--line); transition: background .3s, box-shadow .3s, transform .3s, border-color .3s;
+  width: 5px; height: 16px; border-radius: var(--r-full);
+  background: rgba(var(--tint), .22); border: 0; position: relative;
+  transition: all .26s var(--ease);
 }
+.tile::after {
+  content: attr(data-name); position: absolute; top: 22px; left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--live); white-space: nowrap; opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s var(--ease);
+}
+.tile:hover { background: rgba(var(--tint), .6); height: 20px; }
+.tile:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
 .tile.lit {
-  background: var(--live); border-color: var(--live); transform: scale(1.45);
-  box-shadow: 0 0 26px rgba(var(--tint), .95), 0 0 60px rgba(var(--tint), .5);
+  background: var(--live); height: 24px;
+  box-shadow: 0 0 20px rgba(var(--tint), .95), 0 0 46px rgba(var(--tint), .5);
 }
-.tile.off { opacity: .28; }
+/* A module that is not loaded is a faint tick rather than a missing one, so
+   the row's width stays stable and you can still see what could be there. */
+.tile.off { background: rgba(var(--tint), .09); height: 10px; }
 #brand {
   margin: 0 auto; text-align: center; font-size: 11px;
   letter-spacing: calc(.42em + var(--energy) * .16em);
@@ -184,11 +199,14 @@ button { cursor: pointer; border: 0; background: none; }
 /* The console holds the middle of the frame, so the answer reads directly
    beneath it: sphere on top, controls in the centre, text below. The stage
    starts just under the dock and grows downward. */
+/* The answer is centred in the space below the console rather than hugging
+   it. Anchored to the top edge it left roughly a third of a tall screen
+   empty underneath, with the text stranded against the controls. */
 #stage {
   position: fixed; left: 0; right: 0; z-index: 2;
   top: calc(50% + 62px); bottom: 0;
   display: flex; flex-direction: column; align-items: center;
-  justify-content: flex-start; padding: 0 24px 34px; pointer-events: none;
+  justify-content: center; padding: 24px 24px 40px; pointer-events: none;
 }
 #stateRow { display: flex; align-items: center; gap: 10px; height: 15px; }
 #state {
@@ -569,8 +587,12 @@ body.panel-open #panel { transform: none; }
   padding: 3px 10px; color: var(--live); font-size: 12px;
   background: rgba(var(--tint), .08); text-align: center;
 }
-#toasts { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 40;
-          display: flex; flex-direction: column; gap: 8px; align-items: center; }
+/* Below the top bar, and pushed further down when the degraded banner is
+   showing so the two never stack on top of each other. */
+#toasts { position: fixed; top: 62px; left: 50%; transform: translateX(-50%); z-index: 40;
+          display: flex; flex-direction: column; gap: 8px; align-items: center;
+          transition: top .3s var(--ease); }
+body.degraded-open #toasts { top: 118px; }
 .toast {
   background: var(--surface-solid); border: 1px solid var(--line);
   border-left: 2px solid var(--live); border-radius: var(--r-md);
@@ -585,13 +607,16 @@ body.panel-open #panel { transform: none; }
 /* Degraded-mode banner: with Ollama down JARVIS still answers reflex
    commands, so this explains the limit instead of letting replies look
    mysteriously stupid. Amber, not red: it is a limitation, not a fault. */
+/* Sits below the top bar, not on top of it. At top:14px this banner landed
+   squarely over the centred wordmark and blanked it out. */
 #degraded {
-  position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 39;
+  position: fixed; top: 62px; left: 50%; transform: translateX(-50%); z-index: 39;
   display: flex; align-items: center; gap: 10px; max-width: min(92vw, 620px);
-  background: rgba(8, 14, 26, .96); border: 1px solid var(--line);
-  border-left: 2px solid #fbbf24; border-radius: 10px;
-  padding: 8px 10px 8px 14px; font-size: 13px; color: var(--text);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, .5);
+  background: var(--surface-solid); border: 1px solid var(--line);
+  border-left: 2px solid #fbbf24; border-radius: var(--r-md);
+  padding: 9px 11px 9px 15px; font-size: 13px; color: var(--text);
+  box-shadow: var(--shadow-md), 0 0 40px rgba(251, 191, 36, .1);
+  animation: toastIn .4s var(--ease);
 }
 #degraded[hidden] { display: none; }
 #degraded .dot {
@@ -1589,7 +1614,9 @@ const tiles = {};
 MODULES.forEach((name) => {
   const tile = document.createElement("div");
   tile.className = "tile off";
-  tile.title = name.replace(/_/g, " ");
+  const pretty = name.replace(/_/g, " ");
+  tile.title = pretty;
+  tile.dataset.name = pretty;
   $("tiles").appendChild(tile);
   tiles[name] = tile;
 });
@@ -1897,13 +1924,14 @@ let degradedDismissed = false;
 function showDegraded(on, host) {
   const banner = $("degraded");
   if (!banner) return;
-  if (on && !degradedDismissed) {
+  const showing = Boolean(on) && !degradedDismissed;
+  if (showing) {
     $("degradedText").textContent =
       "No language model at " + (host || "Ollama") + " — reflex commands only.";
-    banner.hidden = false;
-  } else {
-    banner.hidden = true;
   }
+  banner.hidden = !showing;
+  // Toasts move down out of the banner's way rather than landing on it.
+  document.body.classList.toggle("degraded-open", showing);
 }
 
 async function loadStatus() {

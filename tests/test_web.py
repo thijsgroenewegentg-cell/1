@@ -496,3 +496,55 @@ def test_the_centred_dock_keeps_its_offset_under_reduced_motion(web):
     style = page.split("<style>", 1)[1].split("</style>", 1)[0]
     reduced = style.split("prefers-reduced-motion", 1)[1]
     assert "translate(-50%, -50%) !important" in reduced
+
+
+# ------------------------------------------------------- layout collisions
+# All three of these were only visible in a screenshot. They cost nothing to
+# assert on and would otherwise silently return.
+
+
+def test_the_degraded_banner_clears_the_top_bar(web):
+    """At top:14px the banner landed squarely over the centred wordmark.
+
+    Degraded mode is exactly when you most want to read what the thing is,
+    so blanking the title in that state is the worst possible time.
+    """
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    style = page.split("<style>", 1)[1].split("</style>", 1)[0]
+    banner = style.split("#degraded {", 1)[1].split("}", 1)[0]
+    top = int(banner.split("top:", 1)[1].split("px", 1)[0].strip())
+    # The top bar is 18px of padding plus a ~20px row.
+    assert top >= 50, f"#degraded at top:{top}px overlaps the top bar"
+
+
+def test_toasts_move_out_of_the_banners_way(web):
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert "degraded-open" in page
+    style = page.split("<style>", 1)[1].split("</style>", 1)[0]
+    assert "body.degraded-open #toasts" in style
+
+
+def test_module_tiles_are_labelled(web):
+    """A 3x4 grid of anonymous squares read as dead pixels, not status."""
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert "tile.dataset.name" in page
+    style = page.split("<style>", 1)[1].split("</style>", 1)[0]
+    assert "content: attr(data-name)" in style
+
+
+def test_the_answer_is_centred_below_the_console(web):
+    """Anchored to the top of the stage it stranded text against the dock."""
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    style = page.split("<style>", 1)[1].split("</style>", 1)[0]
+    # Split on the newline-anchored rule: "body.awake #stage {" also contains
+    # the substring "#stage {" and matched first.
+    stage = style.split("\n#stage {", 1)[1].split("}", 1)[0]
+    assert "justify-content: center" in stage
