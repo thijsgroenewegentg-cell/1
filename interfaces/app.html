@@ -155,6 +155,9 @@ button:focus-visible, input:focus-visible {
   color:rgba(145,170,210,.55); font:8px var(--mono); letter-spacing:.22em; white-space:nowrap;
   opacity:0; animation:bootMeta 1.1s ease-out .62s forwards; }
 #boot .bootmeta::after { content:"  /  CORE ONLINE  /  AUDIO STANDBY"; color:rgba(110,168,255,.72); }
+#boot .bootsteps { position:absolute; left:50%; top:calc(50% + 70px); transform:translateX(-50%); display:flex; gap:18px; color:rgba(130,155,195,.42); font:7px var(--mono); letter-spacing:.12em; white-space:nowrap; opacity:0; animation:bootMeta 1s ease-out .95s forwards; }
+#boot .bootsteps span.on { color:#8fdcff; text-shadow:0 0 10px rgba(100,190,255,.7); }
+@media (max-width:650px) { #boot .bootsteps { gap:8px; font-size:6px; } }
 @keyframes bootMark { 0% { opacity:0; filter:blur(14px); transform:translate(-50%,-50%) scale(1.3); } 35% { opacity:1; filter:blur(0); } 100% { opacity:.72; transform:translate(-50%,-50%) scale(1); } }
 @keyframes bootMeta { from { opacity:0; letter-spacing:.5em; } to { opacity:1; letter-spacing:.22em; } }
 #boot i {
@@ -592,6 +595,7 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
   #wordmark { display: none; }
   #boot { display: none; }
   #boot .bootmark, #boot .bootmeta { animation:none; }
+  #boot .bootsteps { display:none; }
   #sweep { display: none; }
   #grain { animation: none; opacity: .04; }
   #act { transition: none; }
@@ -610,7 +614,7 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
 <div id="aperture" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <div id="perf" aria-label="System status"><span id="pConn" class="warn">LINK <b>…</b></span><span id="pVoice" class="warn">VOICE <b>…</b></span><span id="pLang" class="ok">LANG <b>NL</b></span><span id="pMode" class="ok">MODE <b>LOCAL</b></span></div>
 <div id="sweep" aria-hidden="true"></div>
-<div id="boot" aria-hidden="true"><i></i><div class="bootmark">JARVIS</div><div class="bootmeta">INITIALISING  /  NEURAL LATTICE</div></div>
+<div id="boot" aria-hidden="true"><i></i><div class="bootmark">JARVIS</div><div class="bootmeta">INITIALISING  /  NEURAL LATTICE</div><div class="bootsteps"><span id="bootLink">LINK&nbsp;&nbsp; WAITING</span><span id="bootVoice">VOICE&nbsp; STANDBY</span><span id="bootInput">INPUT&nbsp; READY</span></div></div>
 <div id="wordmark" aria-hidden="true">JARVIS</div>
 <div id="act" aria-hidden="true"></div>
 
@@ -2274,6 +2278,17 @@ setTimeout(dropHint, 11000);
 /* =======================================================================
    Socket.
    ===================================================================== */
+function bootStep(id, on) {
+  const node = $(id); if (!node) return;
+  node.classList.toggle("on", !!on);
+  if (on) node.textContent = node.textContent.replace(/WAITING|STANDBY|READY/, "READY");
+}
+function bootDiagnostics() {
+  bootStep("bootInput", !!window.MediaRecorder && !!navigator.mediaDevices);
+  bootStep("bootVoice", !!window.speechSynthesis || !!window.Audio);
+}
+bootDiagnostics();
+
 function paintPerf() {
   const connected = !!socket && socket.readyState === 1;
   const conn = $("pConn"), voice = $("pVoice");
@@ -2301,7 +2316,7 @@ function connect() {
   socket.onopen = () => {
     if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     const wasDown = retry > 0;
-    retry = 0; status(""); pulse(0.6);
+    retry = 0; status(""); pulse(0.6); bootStep("bootLink", true);
     /* a turn in flight when the link died will never finish: stand down */
     if (busy) { endStream(); setBusy(false); }
     if (wasDown) toast("Back online.");
@@ -2313,6 +2328,7 @@ function connect() {
   };
   socket.onclose = () => {
     socket = null;
+    const bootLink = $("bootLink"); if (bootLink) bootLink.textContent = "LINK  RETRYING";
     status("offline");
     scheduleReconnect();
   };
