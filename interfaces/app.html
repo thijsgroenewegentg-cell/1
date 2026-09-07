@@ -615,22 +615,37 @@ const IDLE_FRAME_MS = 1000 / 30;
 let lastPaint = 0;
 
 /* ------------------------------------------------------------- ignition
-   The startup sequence. The shell begins scattered far out in the dark,
-   rushes inward under acceleration, collapses through a hard flash, then
-   rebounds and settles into its idle billow. Four phases over ~3.4s, each
-   easing into the next so it reads as one continuous event.
+   The startup sequence, in seven phases over ~6s:
 
-   `boot` runs 0 -> 1 across the whole sequence. Everything below is driven
-   from it, so the animation is a pure function of elapsed time and cannot
-   drift out of sync with itself. */
-const BOOT_MS = 3400;
+     spark    a single point of light in an empty void
+     bloom    it flares, and the starfield streaks past as the camera falls
+     rush     the shell hurtles in from 40x out, spiralling as it comes
+     silence  everything stops dead, an instant of held breath
+     collapse implosion, whiteout, three blast rings, hard camera shake
+     rebound  the shell recoils, overshoots, spires tear outward
+     settle   noise fades in and it eases into the idle billow
+
+   `boot` runs 0 -> 1 across the whole sequence. Everything is a pure
+   function of it, so the phases cannot drift out of sync with each other.
+   Phase boundaries live in BEATS and are used directly by the code below --
+   they are not duplicated as magic numbers. */
+const BOOT_MS = 6000;
+const BEATS = {
+  spark: 0.10, bloom: 0.22, rush: 0.62, silence: 0.68,
+  collapse: 0.74, rebound: 0.88,
+};
+//: Maps an absolute boot position onto a 0->1 progress within one phase.
+function phase(from, to) {
+  return Math.min(1, Math.max(0, (boot - from) / (to - from)));
+}
 let bootStart = 0;
 let boot = 0;
 //: Honours prefers-reduced-motion: the sequence is a large amount of
 //: unexpected movement, which is exactly what that setting exists to stop.
 const CALM = matchMedia("(prefers-reduced-motion: reduce)").matches;
-//: Each point gets a random start position far out in the dark and its own
-//: slight delay, so the shell arrives as a swarm rather than a rigid wall.
+//: Each point gets a random start position out in the dark, its own delay and
+//: its own tangential swirl, so the shell arrives as a spiralling swarm rather
+//: than a rigid wall.
 let scatter = [];
 function buildScatter(count) {
   scatter = [];
@@ -641,15 +656,19 @@ function buildScatter(count) {
   };
   for (let i = 0; i < count; i++) {
     scatter.push({
-      dist: 6 + rnd() * 22,      // how far out it starts
-      lag: rnd() * 0.32,          // stagger, so they don't land in unison
+      dist: 5 + rnd() * 9,        // how far out it starts
+      lag: rnd() * 0.45,          // stagger, so they don't land in unison
+      swirl: (rnd() - 0.5) * 9,   // tangential spiral as it falls inward
       spinOff: rnd() * 6.2832,    // its own angle in the incoming swarm
     });
   }
 }
-//: Smooth, then violent. Cubic ease-in for the inward rush so the swarm
-//: accelerates the whole way and slams home rather than coasting in.
-function easeInCubic(t) { return t * t * t; }
+//: The inward rush. A pure ease-in looks dramatic on paper but leaves the
+//: shell off-screen for ~95% of the phase — two dead seconds of empty black.
+//: Measured across candidate curves, this profile keeps the swarm visible for
+//: 55% of the rush: it decelerates hard into frame, hangs there filling the
+//: screen, then snaps home. Returns remaining distance, 1 -> 0.
+function inbound(t) { return (1 - t ** 0.35) * (1 - t * 0.15); }
 function easeOutBack(t) {
   const c = 2.2;
   return 1 + (c + 1) * (t - 1) ** 3 + c * (t - 1) ** 2;
@@ -741,20 +760,35 @@ function draw(now) {
   orb.pulse *= 0.965;
 
   // -- ignition phases -----------------------------------------------------
-  // 0.00-0.55  rush:     the swarm accelerates inward out of the dark
-  // 0.55-0.62  collapse: everything arrives at once and the core detonates
-  // 0.62-0.80  rebound:  the shell overshoots outward past its resting size
-  // 0.80-1.00  settle:   noise fades in and it eases into the idle billow
-  const rush = Math.min(1, boot / 0.55);
-  const flash = boot < 0.55 ? 0
-    : Math.max(0, 1 - Math.abs(boot - 0.58) / 0.16) ** 2;
-  const rebound = boot < 0.62 ? 0 : Math.min(1, (boot - 0.62) / 0.38);
+  // See BEATS above for the boundaries. Each term is zero outside its phase,
+  // and every one of them reaches exactly zero by boot=1 so the idle state is
+  // completely untouched once the sequence finishes.
+  const spark = phase(0, BEATS.spark);
+  const bloom = phase(BEATS.spark, BEATS.bloom);
+  // The rush stalls almost to a halt just before the end (the quintic), which
+  // is what makes the collapse feel like something snapping.
+  const rushT = phase(BEATS.bloom, BEATS.rush);
+  const rush = 1 - inbound(rushT);   // 0 -> 1 as the swarm arrives
+  // A held beat where absolutely nothing moves. The stillness is what gives
+  // the detonation its weight -- without it the collapse is just more motion.
+  const held = boot >= BEATS.rush && boot < BEATS.silence;
+  const collapse = phase(BEATS.silence, BEATS.collapse);
+  // Whiteout: a near-instant spike that decays fast.
+  const flash = boot < BEATS.silence ? 0 : Math.max(0, 1 - collapse * 1.35) ** 2;
+  const rebound = phase(BEATS.collapse, 1);
   // Noise is held back until after the collapse: during the rush the shell
   // must read as a clean sphere forming, not as a cloud of mush.
-  const noiseGate = boot < 0.62 ? 0 : easeOutBack(Math.min(1, (boot - 0.62) / 0.3));
-  // Spin screams during the rush and brakes hard into the resting rate.
-  const bootSpin = (1 - rush) * 0.22 + flash * 0.12;
-  orb.spin += 0.0022 + orb.energy * 0.028 + orb.pulse * 0.02 + bootSpin;
+  const noiseGate = easeOutBack(phase(BEATS.collapse, BEATS.rebound));
+  // Camera shake, hard on impact, gone within a beat. Deterministic jitter
+  // rather than Math.random so it cannot flicker differently frame to frame
+  // at low framerates.
+  const shakeAmp = flash * 26;
+  const shakeX = Math.sin(orb.time * 97.3) * shakeAmp;
+  const shakeY = Math.cos(orb.time * 113.7) * shakeAmp;
+  // Spin screams during the rush, freezes in the silence, brakes after.
+  const bootSpin = held ? 0 : (1 - rush) * 0.34 * (boot < BEATS.rush ? 1 : 0) + flash * 0.3;
+  orb.spin += held ? 0
+    : 0.0022 + orb.energy * 0.028 + orb.pulse * 0.02 + bootSpin;
 
   const wanted = COLOURS[orb.hue] || COLOURS.idle;
   for (let i = 0; i < 3; i++) paint[i] += (wanted[i] - paint[i]) * 0.14;
@@ -763,7 +797,7 @@ function draw(now) {
 
   camera.x += (camera.targetX - camera.x) * 0.045;
   camera.y += (camera.targetY - camera.y) * 0.045;
-  const driftX = camera.x * 16, driftY = camera.y * 10;
+  const driftX = camera.x * 16 + shakeX, driftY = camera.y * 10 + shakeY;
 
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = "#03060c";
@@ -773,12 +807,46 @@ function draw(now) {
   ctx.globalCompositeOperation = "lighter";
 
   // -- starfield ---------------------------------------------------------
+  // During the fall the stars stretch into radial streaks pointing away from
+  // the centre, so the field reads as the camera plunging toward the orb
+  // rather than as flat drifting dust.
+  const warp = boot < BEATS.rush ? (bloom * (1 - rush)) : 0;
   for (const star of stars) {
     const y = (star.y + orb.time * 0.004 * star.drift) % 1;
     const twinkle = star.alpha * (0.55 + Math.sin(orb.time * 2.2 + star.x * 30) * 0.45);
-    const streak = 1 + (orb.pulse + (1 - rush) * 1.4) * 14 * star.drift;
-    ctx.fillStyle = `rgba(190,220,255,${Math.min(1, twinkle * (1 + orb.pulse * 2) + flash * 0.6)})`;
-    ctx.fillRect(star.x * width, y * height, star.size, star.size * streak);
+    const sx = star.x * width, sy = y * height;
+    const alpha = Math.min(1, twinkle * (1 + orb.pulse * 2) + flash * 0.6 + warp * 0.5);
+    if (warp > 0.01) {
+      const dx = sx - centreX, dy = sy - centreY;
+      const len = Math.hypot(dx, dy) || 1;
+      const tail = warp * 260 * star.drift;
+      ctx.strokeStyle = `rgba(200,225,255,${alpha})`;
+      ctx.lineWidth = star.size;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + (dx / len) * tail, sy + (dy / len) * tail);
+      ctx.stroke();
+    } else {
+      const streak = 1 + orb.pulse * 14 * star.drift;
+      ctx.fillStyle = `rgba(190,220,255,${alpha})`;
+      ctx.fillRect(sx, sy, star.size, star.size * streak);
+    }
+  }
+
+  // -- the spark ----------------------------------------------------------
+  // Before anything else exists: one point of light in an empty void, which
+  // swells and then flares into the sequence proper.
+  if (boot < BEATS.bloom) {
+    const sparkR = base * (0.006 + spark * 0.05 + bloom * bloom * 0.9);
+    const sparkA = Math.min(1, 0.3 + spark * 0.7) * (1 - bloom * 0.35);
+    const halo = ctx.createRadialGradient(centreX, centreY, 0, centreX, centreY, sparkR * 6);
+    halo.addColorStop(0, `rgba(255,255,255,${sparkA})`);
+    halo.addColorStop(0.25, rgb((sparkA * 0.5).toFixed(3)));
+    halo.addColorStop(1, "rgba(3,6,12,0)");
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(centreX, centreY, sparkR * 6, 0, 6.2832);
+    ctx.fill();
   }
 
   // -- the glow behind everything ----------------------------------------
@@ -858,16 +926,21 @@ function draw(now) {
     // `arrive` is its own 0->1 progress, staggered by its lag so the swarm
     // lands raggedly rather than as one wall.
     let radius = base * breathe * (1 + n * swell * noiseGate + shock);
+    let swirl = 0;
     if (boot < 1) {
       const own = scatter[i % scatter.length];
-      const arrive = Math.min(1, Math.max(0, (rush - own.lag) / (1 - own.lag)));
-      const far = own.dist * (1 - easeInCubic(arrive));
+      const arrive = Math.min(1, Math.max(0, (rushT - own.lag) / (1 - own.lag)));
+      const out = inbound(arrive);
+      const far = own.dist * out;
+      // Spiral inward rather than falling straight: the swarm winds around
+      // the centre as it comes, so the rush has rotation as well as speed.
+      swirl = own.swirl * out * out;
       // Overshoot inward past the surface at the moment of collapse, then
       // spring back out — the shell recoils off its own detonation.
-      const recoil = rebound > 0 ? (1 - easeOutBack(rebound)) * 0.55 : 0;
+      const recoil = rebound > 0 ? (1 - easeOutBack(rebound)) * 0.78 : 0;
       radius *= 1 + far - recoil;
     }
-    const spot = project(point, radius, 1);
+    const spot = project(point, radius, 1 + swirl);
     const rim = (1 - Math.abs(spot.z)) ** 3;
     // Crests catch the light hard. Raised to a steep power so only the true
     // peaks blow out — around 5% of points — which is what gives the spires
@@ -926,14 +999,19 @@ function draw(now) {
   // -- the shockwave ring --------------------------------------------------
   // The visible edge of the same front that is deforming the shell, so the
   // detonation reads as one event rather than two unrelated effects.
-  if (flash > 0.01) {
-    // The blast ring from ignition: expands and thins as it races outward.
-    const spread = Math.min(1, Math.max(0, (boot - 0.56) / 0.34));
-    ctx.strokeStyle = `rgba(255,255,255,${((1 - spread) * 0.8).toFixed(3)})`;
-    ctx.lineWidth = 1 + (1 - spread) * 9;
-    ctx.beginPath();
-    ctx.arc(centreX + driftX, centreY + driftY, base * (0.3 + spread * 3.4), 0, 6.2832);
-    ctx.stroke();
+  // Three blast rings from the ignition, staggered so the shockwave reads as
+  // a train of fronts rather than one lonely circle.
+  if (boot > BEATS.silence && boot < 1) {
+    for (let ring = 0; ring < 3; ring++) {
+      const spread = phase(BEATS.silence + ring * 0.05, BEATS.silence + 0.42 + ring * 0.05);
+      if (spread <= 0 || spread >= 1) continue;
+      const fade = (1 - spread) ** 1.6;
+      ctx.strokeStyle = `rgba(255,255,255,${(fade * 0.85).toFixed(3)})`;
+      ctx.lineWidth = 1 + fade * 14;
+      ctx.beginPath();
+      ctx.arc(centreX + driftX, centreY + driftY, base * (0.2 + spread * 4.6), 0, 6.2832);
+      ctx.stroke();
+    }
   }
   if (orb.pulse > 0.02) {
     const ring = base * (0.6 + (1 - orb.pulse) * 2.2);
@@ -942,6 +1020,15 @@ function draw(now) {
     ctx.beginPath();
     ctx.arc(centreX + driftX, centreY + driftY, ring, 0, 6.2832);
     ctx.stroke();
+  }
+
+  // -- whiteout -------------------------------------------------------------
+  // The screen blows out to white at the instant of collapse and falls away
+  // fast. Drawn last, over everything, so it genuinely obliterates the frame.
+  if (flash > 0.01) {
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = `rgba(255,255,255,${Math.min(0.92, flash * 1.1).toFixed(3)})`;
+    ctx.fillRect(0, 0, width, height);
   }
 }
 requestAnimationFrame(draw);
@@ -1644,7 +1731,7 @@ fetch("/api/status" + auth).then((response) => response.json())
     // Hold the greeting until the chrome has assembled, so it doesn't appear
     // on a caption that is still invisible. The pulse rides the settle, which
     // makes the greeting feel like the reason the orb flared.
-    const wait = Math.max(0, bootStart ? BOOT_MS * 0.72 - (performance.now() - bootStart) : 0);
+    const wait = Math.max(0, bootStart ? BOOT_MS * 0.92 - (performance.now() - bootStart) : 0);
     setTimeout(() => { say(data.greeting, { fade: 20000 }); pulse(true); }, CALM ? 0 : wait);
   })
   .catch(() => {});
@@ -1654,7 +1741,7 @@ requestAnimationFrame(() => document.body.classList.add("ready"));
 // Unconditional setTimeout rather than a callback from the draw loop: if the
 // tab is backgrounded rAF stops firing, and the chrome must never be left
 // invisible because the animation never ran.
-setTimeout(() => document.body.classList.add("awake"), CALM ? 0 : BOOT_MS * 0.66);
+setTimeout(() => document.body.classList.add("awake"), CALM ? 0 : BOOT_MS * BEATS.rebound);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 </script>
 </body>
