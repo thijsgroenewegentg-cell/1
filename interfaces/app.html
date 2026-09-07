@@ -689,7 +689,7 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
     <div class="pane scroll" id="pane-functions">
       <h2>function center <span id="healthBadge" class="hint">live tools</span></h2>
       <div class="function-grid">
-        <button class="function-card" data-action="Run a full system check"><b>diagnostics</b><small>mic · voice · model · GPU</small></button>
+        <button class="function-card" data-action="__health__"><b>diagnostics</b><small>mic · voice · model · GPU</small></button>
         <button class="function-card" data-action="What is using my GPU?"><b>performance</b><small>GPU · VRAM · speed</small></button>
         <button class="function-card" data-action="Summarize my clipboard"><b>clipboard</b><small>summarize · rewrite · translate</small></button>
         <button class="function-card" data-action="Start a focus session"><b>focus mode</b><small>timer · quiet work</small></button>
@@ -3297,8 +3297,24 @@ $("setClear").addEventListener("click", () => {
 });
 $("exportMd").addEventListener("click", () => exportSession("md"));
 $("exportJson").addEventListener("click", () => exportSession("json"));
+async function runFunction(action) {
+  closeSheets();
+  if (action === "__health__") {
+    try {
+      const response = await fetch("/api/health" + auth, { cache: "no-store" });
+      const data = await response.json();
+      const llm = data.llm && data.llm.available !== false ? "ready" : "offline";
+      const voice = data.voice ? "ready" : "offline";
+      const tts = data.tts ? "ready" : "fallback";
+      line("sys", `• diagnostics · brain ${llm} · voice ${voice} · speech ${tts}`);
+      toast(`Diagnostics: brain ${llm}, voice ${voice}, speech ${tts}.`, llm === "offline");
+    } catch (err) { toast("Diagnostics unavailable while offline.", true); }
+    return;
+  }
+  send(action);
+}
 for (const card of document.querySelectorAll(".function-card")) {
-  card.addEventListener("click", () => { closeSheets(); send(card.dataset.action || ""); });
+  card.addEventListener("click", () => runFunction(card.dataset.action || ""));
 }
 for (const tab of document.querySelectorAll(".tabs button")) {
   tab.addEventListener("click", () => selectTab(tab.dataset.tab));
