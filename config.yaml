@@ -13,13 +13,13 @@ user:
 
 assistant:
   name: "JARVIS"
-  language: "en"                          # en, nl, de, fr, es, it, pt, pl, sv, …
+  language: "nl"                         # en, nl, de, fr, es, it, pt, pl, sv, …
                                           #   picks the Whisper model, the TTS
                                           #   voice and the reply language
-  personality: "witty"     # witty | professional | minimal
-  sarcasm: 0.35            # 0.0 (dry) .. 1.0 (insufferable)
+  personality: "professional" # witty | professional | minimal
+  sarcasm: 0.0             # calm, direct responses
   greet_on_start: true
-  proactive: true          # offer follow-up suggestions when useful
+  proactive: false         # avoid unsolicited or surprising replies
 
 llm:
   provider: "ollama"
@@ -91,7 +91,7 @@ voice:
     inference_framework: "onnx"
 
   stt:
-    model: "base.en"                       # tiny.en | base.en | small.en | medium
+    model: "base"                          # multilingual Whisper model; supports Dutch and English
                                            #   the .en models are English-only; a
                                            #   non-English assistant.language drops
                                            #   the suffix automatically

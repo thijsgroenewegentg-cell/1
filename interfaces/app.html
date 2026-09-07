@@ -2565,7 +2565,7 @@ function startLiveStt() {
   if (!SR) return;
   try {
     recognition = new SR();
-    recognition.lang = navigator.language || "en-US";
+    recognition.lang = /^nl/i.test(navigator.language || "") ? navigator.language : "nl-NL";
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
