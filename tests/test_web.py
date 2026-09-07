@@ -548,7 +548,9 @@ def test_the_answer_is_centred_below_the_console(web):
     # It hugs the dock (flex-end) rather than floating in the middle, and
     # its bottom tracks the dock so the caption stays just above the controls.
     assert "justify-content: flex-end" in stage
-    assert "bottom: calc(50%" in stage
+    assert "bottom: calc(" in stage
+    # Dock is now lower (around 62%/55%), so the 50% anchor moved.
+    assert "flex-end" in stage
 
 
 # ---------------------------------------------------------- atmosphere

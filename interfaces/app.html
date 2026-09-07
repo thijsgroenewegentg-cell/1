@@ -260,7 +260,7 @@ button { cursor: pointer; border: 0; background: none; }
    than floating at the bottom of the screen. */
 #stage {
   position: fixed; left: 0; right: 0; z-index: 2;
-  bottom: calc(50% + 66.5px); display: flex; flex-direction: column;
+  bottom: calc(38% + 66.5px); display: flex; flex-direction: column;
   align-items: center; justify-content: flex-end; padding: 0 24px 12px;
   pointer-events: none;
 }
@@ -443,7 +443,7 @@ body.history-open #history { transform: none; }
    edge. The orb is lifted above it and the caption reads below it, so the
    page has one clear vertical spine: sphere, controls, answer. */
 #dock {
-  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5;
+  position: fixed; left: 50%; top: 62%; transform: translate(-50%, -50%); z-index: 5;
   display: flex; flex-direction: column; align-items: center; gap: 13px;
 }
 .controls {
@@ -720,8 +720,8 @@ body.degraded-open #toasts { top: 118px; }
   #rail { display: none; }
   /* Narrow screens need the console a little higher, so the caption above
      it is not squeezed against the orb. */
-  #dock { top: 44%; }
-  #stage { bottom: calc(56% + 66.5px); }
+  #dock { top: 55%; }
+  #stage { bottom: calc(45% + 66.5px); }
   #caption { font-size: 18px; }
   #top { padding: 14px 16px; }
   #tileLabel { top: 54px; left: 16px; }
@@ -1150,7 +1150,7 @@ function draw(now) {
   // Must track the #dock rule, including the narrow-screen override that
   // lifts it to 44% — otherwise the sphere and the console disagree about
   // where the middle of the page is.
-  const dockCentre = height * (width <= 860 ? 0.44 : 0.5);
+  const dockCentre = height * (width <= 860 ? 0.55 : 0.62);
   const bandBottom = dockCentre - DOCK_HEIGHT / 2 - DOCK_GAP;
   const centreY = (bandTop + bandBottom) / 2;
   // Fill the band rather than merely fitting inside it. The 1.26 divisor
