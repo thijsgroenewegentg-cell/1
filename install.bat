@@ -42,7 +42,7 @@ if not defined PY (
 )
 
 REM --- Hand over to the real installer ---------------------------------------
-%PY% install.py %*
+%PY% install.py --everything --yes %*
 set "STATUS=%ERRORLEVEL%"
 
 if not "%STATUS%"=="0" (

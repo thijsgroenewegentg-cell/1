@@ -69,4 +69,4 @@ fi
 ok "using $("$PYTHON" -V 2>&1) at $(command -v "$PYTHON")"
 
 # --- 3. Hand over to the real installer -------------------------------------
-exec "$PYTHON" install.py "$@"
+exec "$PYTHON" install.py --everything --yes "$@"

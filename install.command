@@ -2,7 +2,7 @@
 # /install.command
 # Double-clickable installer for macOS: opens in Terminal and runs install.sh.
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
-bash ./install.sh "$@"
+bash ./install.sh --everything --yes "$@"
 status=$?
 echo
 if [ "$status" -eq 0 ]; then
