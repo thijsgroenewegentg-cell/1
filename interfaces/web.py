@@ -350,12 +350,26 @@ class WebInterface:
                 from interfaces.voice import TextToSpeech
 
                 engine = TextToSpeech(self.config)
-                if await engine.initialize():
+                # The browser plays the audio, so a server-side command-line
+                # player is irrelevant here. Requiring one meant a machine with
+                # edge-tts installed but no ffmpeg reported "tts unavailable".
+                if await engine.initialize(require_player=False):
                     self._tts = engine
             except Exception as exc:
                 logger.debug("Web TTS unavailable: %s", exc)
                 self._tts = None
         return self._tts
+
+    async def speech_available(self) -> bool:
+        """Whether ``/api/tts`` can actually return audio.
+
+        The page uses this to decide if the "read replies aloud" control is
+        meaningful. Without it the toggle happily showed "on" while every
+        request to ``/api/tts`` failed with a 503.
+        """
+        if not self.allow_tts:
+            return False
+        return await self._tts_engine() is not None
 
     # -------------------------------------------------------------------- app
     def _build_app(self) -> Any:
@@ -425,6 +439,9 @@ class WebInterface:
                     "uptime": _format_uptime(report.get("uptime_seconds", 0)),
                     "turns": report.get("turns", 0),
                     "clients": self.clients,
+                    # So the page can disable the "read replies aloud" control
+                    # instead of offering speech that cannot be delivered.
+                    "speech": await self.speech_available(),
                 }
             )
 

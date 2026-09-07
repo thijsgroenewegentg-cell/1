@@ -105,8 +105,16 @@ class TextToSpeech:
         self.speaking: bool = False
 
     # -- setup --------------------------------------------------------------
-    async def initialize(self) -> bool:
-        """Pick a speech engine and an audio player.
+    async def initialize(self, require_player: bool = True) -> bool:
+        """Pick a speech engine and, when playing locally, an audio player.
+
+        Args:
+            require_player: When True (the desktop voice loop) a command-line
+                audio player is mandatory, because JARVIS plays the audio
+                itself. The web interface passes False: it only needs
+                :meth:`synthesize` to write a file, and the *browser* plays it.
+                Demanding ffmpeg on the server in that case disabled speech for
+                web users who had a perfectly good engine installed.
 
         Returns:
             True when JARVIS can speak.
@@ -129,7 +137,7 @@ class TextToSpeech:
             return False
 
         self._player = self._find_player()
-        if self._player is None:
+        if self._player is None and require_player:
             logger.warning(
                 "No audio player found. Install ffmpeg (ffplay) or mpv, "
                 "or on Linux: sudo apt install ffmpeg"
@@ -144,7 +152,8 @@ class TextToSpeech:
             else f"edge voice={self.voice}"
         )
         logger.info("TTS ready — engine=%s %s player=%s",
-                    self.active_engine, detail, self._player[0])
+                    self.active_engine, detail,
+                    self._player[0] if self._player else "none (synthesis only)")
         return True
 
     def _find_piper(self) -> bool:

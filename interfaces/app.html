@@ -290,6 +290,15 @@ body.history-open #history { transform: none; }
 .round:hover { color: var(--text); background: rgba(125, 165, 225, .1); }
 .round.on { color: var(--live); border-color: rgba(var(--tint), .5);
             background: rgba(var(--tint), .12); box-shadow: 0 0 22px rgba(var(--tint), .35); }
+/* A control that cannot do anything should look like it. Struck through
+   rather than merely dimmed, so it reads as "missing" not "off". */
+.round.unavailable { opacity: .3; cursor: not-allowed; position: relative; }
+.round.unavailable::after {
+  content: ""; position: absolute; left: 22%; right: 22%; top: 50%; height: 1px;
+  background: var(--dim); transform: rotate(-38deg);
+}
+.round.unavailable:hover { color: var(--dim); background: none; }
+#setSpeech.unavailable { color: var(--dimmer); text-decoration: line-through; }
 .round svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7;
              stroke-linecap: round; stroke-linejoin: round; }
 #mic {
@@ -1460,9 +1469,14 @@ function send(text) {
 }
 
 function speakAloud(text) {
+  if (!speechSupported) return;
   const audio = new Audio("/api/tts?text=" + encodeURIComponent(text.slice(0, 900)) +
     (token ? "&token=" + encodeURIComponent(token) : ""));
-  audio.play().catch(() => toast("No speech engine on the server.", true));
+  // A 503 from /api/tts means the engine went away since the last status
+  // poll. Fold that back into the control rather than toasting on every
+  // single reply for the rest of the session.
+  audio.addEventListener("error", () => applySpeechSupport(false));
+  audio.play().catch(() => applySpeechSupport(false));
 }
 
 /* -------------------------------------------------------- hold to talk */
@@ -1689,6 +1703,16 @@ async function loadStatus() {
     $("statusList").innerHTML = rows.map(([key, value]) =>
       '<div class="stat"><span>' + escapeHtml(key) + "</span><span>" +
       escapeHtml(String(value)) + "</span></div>").join("");
+
+    // The brain counts every turn, however it arrived. This tab only sees the
+    // ones that came over its own socket, so asking by voice on the desktop or
+    // posting to /api/ask left the counter reading zero. Trust the server's
+    // number whenever it is ahead of ours.
+    if (typeof data.turns === "number" && data.turns > turns) {
+      turns = data.turns;
+      $("statTurns").textContent = turns;
+    }
+    applySpeechSupport(data.speech !== false);
   } catch (err) { /* the panel simply stays empty */ }
 }
 
@@ -1819,12 +1843,40 @@ document.querySelectorAll(".tab").forEach((tab) =>
     if (tab.dataset.pane === "tools") loadTools().then(drawTools);
   }));
 
+//: Whether the server can actually synthesise audio. Assumed true until
+//: /api/status says otherwise, so the control does not flicker on load.
+let speechSupported = true;
+function applySpeechSupport(supported) {
+  if (supported === speechSupported) return;
+  speechSupported = supported;
+  paintSpeech();
+  if (!supported && settings.speech) {
+    // It was switched on against a server that cannot deliver. Turn it off
+    // rather than silently swallowing every reply's audio.
+    settings.speech = false;
+    localStorage.setItem("jarvis.speech", "0");
+    paintSpeech();
+    toast("No speech engine on the server — reading aloud is off.", true);
+  }
+}
+
 function paintSpeech() {
-  $("speech").classList.toggle("on", settings.speech);
-  $("setSpeech").textContent = settings.speech ? "on" : "off";
-  $("setSpeech").classList.toggle("on", settings.speech);
+  const on = settings.speech && speechSupported;
+  $("speech").classList.toggle("on", on);
+  $("speech").classList.toggle("unavailable", !speechSupported);
+  $("speech").disabled = !speechSupported;
+  $("speech").title = speechSupported
+    ? "Read replies aloud (S)"
+    : "No speech engine installed on the server";
+  $("setSpeech").textContent = speechSupported ? (settings.speech ? "on" : "off") : "unavailable";
+  $("setSpeech").classList.toggle("on", on);
+  $("setSpeech").classList.toggle("unavailable", !speechSupported);
 }
 function toggleSpeech() {
+  if (!speechSupported) {
+    toast("No speech engine installed on the server.", true);
+    return;
+  }
   settings.speech = !settings.speech;
   localStorage.setItem("jarvis.speech", settings.speech ? "1" : "0");
   paintSpeech();

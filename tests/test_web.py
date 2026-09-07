@@ -373,3 +373,83 @@ def test_the_page_explains_degraded_mode(web):
     assert 'id="degraded"' in page
     assert "reflex commands only" in page
     assert "degradedClose" in page
+
+
+# --------------------------------------------------------- honest controls
+# Two ways the UI used to lie about itself: it offered speech on servers that
+# could not produce any, and it reported "0 turns" for work it had not
+# personally witnessed.
+
+
+def test_status_reports_whether_speech_is_possible(web):
+    """The page needs to know, or it offers a button that cannot work."""
+    from fastapi.testclient import TestClient
+
+    payload = TestClient(web.app).get("/api/status", params={"token": web.token}).json()
+    assert "speech" in payload
+    assert isinstance(payload["speech"], bool)
+
+
+def test_speech_is_unavailable_when_tts_is_switched_off(web):
+    """allow_tts: false must be reported, not just enforced at /api/tts."""
+    import asyncio
+
+    web.allow_tts = False
+    assert asyncio.run(web.speech_available()) is False
+
+
+def test_web_tts_does_not_need_a_server_side_audio_player(monkeypatch):
+    """The browser plays the audio; ffmpeg on the server is irrelevant.
+
+    Requiring a command-line player meant a machine with a working engine but
+    no ffmpeg reported "tts unavailable" for the web interface.
+    """
+    import asyncio
+    import importlib.util
+
+    from core.config import Config
+    from interfaces import voice as voice_module
+
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        voice_module.importlib.util,
+        "find_spec",
+        lambda name, *a, **k: object() if name == "edge_tts" else real_find_spec(name, *a, **k),
+    )
+    # No audio player anywhere on this machine.
+    monkeypatch.setattr(voice_module.TextToSpeech, "_find_player", classmethod(lambda cls: None))
+
+    config = Config()
+    strict = voice_module.TextToSpeech(config)
+    relaxed = voice_module.TextToSpeech(config)
+
+    assert asyncio.run(strict.initialize(require_player=True)) is False
+    assert asyncio.run(relaxed.initialize(require_player=False)) is True
+    assert relaxed.available is True
+
+
+def test_the_page_disables_speech_when_the_server_cannot_speak(web):
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert "applySpeechSupport" in page
+    assert "speechSupported" in page
+    # The control must be genuinely disabled, not merely styled differently.
+    assert '$("speech").disabled = !speechSupported' in page
+
+
+def test_status_carries_the_brains_turn_count(web):
+    """Turns counted anywhere — voice, CLI, /api/ask — must reach the page."""
+    from fastapi.testclient import TestClient
+
+    payload = TestClient(web.app).get("/api/status", params={"token": web.token}).json()
+    assert "turns" in payload
+    assert isinstance(payload["turns"], int)
+
+
+def test_the_page_trusts_the_servers_turn_count(web):
+    """The tab only sees its own socket, so it must defer to the server."""
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert "data.turns > turns" in page
