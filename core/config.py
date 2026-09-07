@@ -88,11 +88,21 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             "vad_filter": True,
         },
         "tts": {
+            "engine": "auto",          # auto | piper | edge | elevenlabs
+            "piper_voice": "",
+            "piper_speed": 1.0,
             "voice": "",               # blank = the default voice for the language
             "rate": "+8%",
             "volume": "+0%",
             "pitch": "+0Hz",
             "cache": True,
+            "elevenlabs_api_key": "",
+            "elevenlabs_voice_id": "21m00Tcm4TlvDq8ikWAM",
+            "elevenlabs_model": "eleven_turbo_v2",
+            "elevenlabs_stability": 0.5,
+            "elevenlabs_similarity_boost": 0.75,
+            "elevenlabs_style": 0.0,
+            "elevenlabs_use_speaker_boost": True,
         },
         "vad": {
             "sample_rate": 16000,

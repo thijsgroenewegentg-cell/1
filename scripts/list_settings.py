@@ -141,11 +141,30 @@ DESCRIPTIONS: Dict[str, str] = {
     "voice.stt.language": "Force a transcription language, or 'auto' to detect.",
     "voice.stt.beam_size": "Whisper beam search width. 1 is fastest.",
     "voice.stt.vad_filter": "Let Whisper drop silence before transcribing.",
+    "voice.tts.engine": (
+        "TTS engine: 'auto' (Piper if a local voice is installed else ElevenLabs if a key is set else edge-tts), "
+        "'piper' (offline), 'edge' (free online) or 'elevenlabs'/'eleven' (premium, needs a key)."
+    ),
+    "voice.tts.piper_voice": "Piper voice name or .onnx path in data/piper. Blank auto-discovers one.",
+    "voice.tts.piper_speed": "Piper speaking speed. 1.0 is normal, >1 faster, <1 slower.",
     "voice.tts.voice": "Edge-TTS voice name. Blank picks one to match the language.",
     "voice.tts.rate": "Speaking rate, e.g. '+8%' or '-10%'.",
     "voice.tts.volume": "Speech volume offset, e.g. '+0%'.",
     "voice.tts.pitch": "Pitch offset, e.g. '+0Hz'.",
     "voice.tts.cache": "Cache synthesised audio so repeated phrases are instant.",
+    "voice.tts.elevenlabs_api_key": (
+        "ElevenLabs API key (https://elevenlabs.io/app/settings/api-keys). Blank uses env ELEVENLABS_API_KEY."
+    ),
+    "voice.tts.elevenlabs_voice_id": (
+        "ElevenLabs voice ID (https://elevenlabs.io/app/voice-library), e.g. '21m00Tcm4TlvDq8ikWAM' for Rachel."
+    ),
+    "voice.tts.elevenlabs_model": (
+        "ElevenLabs model: 'eleven_turbo_v2' (fast), 'eleven_multilingual_v2' (best) or 'eleven_monolingual_v1'."
+    ),
+    "voice.tts.elevenlabs_stability": "ElevenLabs stability 0.0-1.0. Lower is more expressive, higher is more stable.",
+    "voice.tts.elevenlabs_similarity_boost": "ElevenLabs similarity to the original voice, 0.0-1.0.",
+    "voice.tts.elevenlabs_style": "ElevenLabs style exaggeration 0.0-1.0 (only for v2 models).",
+    "voice.tts.elevenlabs_use_speaker_boost": "Boost ElevenLabs similarity at the cost of a little latency.",
     "voice.vad.sample_rate": "Microphone sample rate in hertz.",
     "voice.vad.frame_ms": "Audio frame size for voice detection.",
     "voice.vad.energy_threshold": (

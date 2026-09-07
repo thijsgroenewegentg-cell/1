@@ -102,9 +102,11 @@ voice:
     vad_filter: true
 
   tts:
-    # auto  -> Piper if a local voice model is installed, else edge-tts
-    # piper -> fully offline neural speech (nothing leaves the machine)
-    # edge  -> Microsoft's free online voices (nicer prosody, needs internet)
+    # auto       -> Piper if a local voice model is installed, else ElevenLabs
+    #               if an API key is set, else edge-tts (auto fallback, best first)
+    # piper      -> fully offline neural speech (nothing leaves the machine)
+    # edge       -> Microsoft's free online voices (nicer prosody, needs internet)
+    # elevenlabs -> ElevenLabs premium voices (most natural, needs API key)
     engine: "auto"
     piper_voice: ""                        # name or path of a .onnx voice in data/piper
     piper_speed: 1.0                       # >1 faster, <1 slower
@@ -115,6 +117,16 @@ voice:
     volume: "+0%"
     pitch: "+0Hz"
     cache: true
+    # ElevenLabs — https://elevenlabs.io/app/settings/api-keys
+    # Get an API key, put it here or in the env var ELEVENLABS_API_KEY.
+    # Find voice IDs at https://elevenlabs.io/app/voice-library
+    elevenlabs_api_key: ""                 # or env ELEVENLABS_API_KEY
+    elevenlabs_voice_id: "21m00Tcm4TlvDq8ikWAM"  # Rachel — natural female, multilingual
+    elevenlabs_model: "eleven_turbo_v2"    # eleven_turbo_v2 (fast), eleven_multilingual_v2 (best), eleven_monolingual_v1
+    elevenlabs_stability: 0.5              # 0.0-1.0  lower = more expressive, higher = more stable
+    elevenlabs_similarity_boost: 0.75      # 0.0-1.0  how close to the original voice
+    elevenlabs_style: 0.0                  # 0.0-1.0  style exaggeration (only for v2 models)
+    elevenlabs_use_speaker_boost: true     # boost similarity at cost of a little latency
 
   vad:
     sample_rate: 16000

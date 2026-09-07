@@ -57,17 +57,20 @@ CommandHandler = Callable[..., Awaitable[str]]
 
 
 class TextToSpeech:
-    """Free neural speech with interruptible playback.
+    """Free or premium neural speech with interruptible playback.
 
-    Two engines, both free:
+    Three engines:
 
     * **piper** — fully offline neural TTS. Nothing leaves the machine, so this
       is the default when a Piper voice model is present.
     * **edge-tts** — Microsoft's public neural voices. Better prosody, but it
       is a network call, which breaks the "everything is local" promise.
+    * **elevenlabs** — ElevenLabs premium voices (Rachel etc). The most natural,
+      but needs an API key and internet (https://elevenlabs.io/app/settings/api-keys).
 
     ``voice.tts.engine`` picks between them: ``auto`` (Piper when available,
-    otherwise edge-tts), ``piper``, or ``edge``.
+    otherwise ElevenLabs if a key is set, otherwise edge-tts), ``piper``,
+    ``edge``, or ``elevenlabs``/``eleven``.
     """
 
     def __init__(self, config: Any) -> None:
@@ -99,6 +102,33 @@ class TextToSpeech:
         self.cache_enabled: bool = bool(config.get("voice.tts.cache", True))
         self.cache_dir: Path = config.path_for("tts_cache")
         ensure_dir(self.cache_dir)
+        # ElevenLabs — premium, needs an API key. The key can live in the
+        # config or in the env var ELEVENLABS_API_KEY so it never has to be
+        # committed. Voice IDs are at https://elevenlabs.io/app/voice-library
+        import os as _os
+
+        self.elevenlabs_api_key: str = (
+            str(config.get("voice.tts.elevenlabs_api_key", "") or "").strip()
+            or _os.getenv("ELEVENLABS_API_KEY", "").strip()
+        )
+        self.elevenlabs_voice_id: str = str(
+            config.get("voice.tts.elevenlabs_voice_id", "21m00Tcm4TlvDq8ikWAM") or "21m00Tcm4TlvDq8ikWAM"
+        ).strip()
+        self.elevenlabs_model: str = str(
+            config.get("voice.tts.elevenlabs_model", "eleven_turbo_v2") or "eleven_turbo_v2"
+        ).strip()
+        self.elevenlabs_stability: float = float(
+            config.get("voice.tts.elevenlabs_stability", 0.5) or 0.5
+        )
+        self.elevenlabs_similarity_boost: float = float(
+            config.get("voice.tts.elevenlabs_similarity_boost", 0.75) or 0.75
+        )
+        self.elevenlabs_style: float = float(
+            config.get("voice.tts.elevenlabs_style", 0.0) or 0.0
+        )
+        self.elevenlabs_use_speaker_boost: bool = bool(
+            config.get("voice.tts.elevenlabs_use_speaker_boost", True)
+        )
         self._process: Optional[subprocess.Popen] = None
         self._player: Optional[List[str]] = None
         self.available: bool = False
@@ -122,17 +152,31 @@ class TextToSpeech:
         engines: List[str] = []
         if self.engine in ("auto", "piper") and self._find_piper():
             engines.append("piper")
+        # ElevenLabs — when an API key is set it is a real option. For
+        # ``auto`` it sits between Piper (free offline) and edge-tts
+        # (free online) so a machine with no Piper voice but an ElevenLabs
+        # key gets the premium voice automatically.
+        if self.engine in ("auto", "elevenlabs", "eleven", "eleven_labs"):
+            if self._has_elevenlabs():
+                engines.append("elevenlabs")
+            elif self.engine in ("elevenlabs", "eleven", "eleven_labs"):
+                logger.warning(
+                    "ElevenLabs requested but no API key is set — "
+                    "set voice.tts.elevenlabs_api_key or ELEVENLABS_API_KEY"
+                )
         if self.engine in ("auto", "edge") and importlib.util.find_spec("edge_tts"):
             engines.append("edge")
 
         if not engines:
-            if self.engine == "piper":
+            if self.engine in ("elevenlabs", "eleven", "eleven_labs"):
+                logger.warning("No speech engine available (ElevenLabs: missing API key?) — speech output disabled.")
+            elif self.engine == "piper":
                 logger.warning(
                     "Piper is not installed — pip install piper-tts and download a voice "
                     "from https://huggingface.co/rhasspy/piper-voices (free)."
                 )
             else:
-                logger.warning("No speech engine available (edge-tts / piper) — "
+                logger.warning("No speech engine available (edge-tts / piper / elevenlabs) — "
                                "speech output disabled.")
             return False
 
@@ -146,11 +190,13 @@ class TextToSpeech:
 
         self.active_engine = engines[0]
         self.available = True
-        detail = (
-            f"piper model={self._piper_model.name if self._piper_model else '?'}"
-            if self.active_engine == "piper"
-            else f"edge voice={self.voice}"
-        )
+        if self.active_engine == "piper":
+            detail = f"piper model={self._piper_model.name if self._piper_model else '?'}"
+        elif self.active_engine == "elevenlabs":
+            # Don't log the full API key.
+            detail = f"elevenlabs voice={self.elevenlabs_voice_id} model={self.elevenlabs_model}"
+        else:
+            detail = f"edge voice={self.voice}"
         logger.info("TTS ready — engine=%s %s player=%s",
                     self.active_engine, detail,
                     self._player[0] if self._player else "none (synthesis only)")
@@ -199,6 +245,10 @@ class TextToSpeech:
                 self._piper_model = model
                 return True
         return False
+
+    def _has_elevenlabs(self) -> bool:
+        """Whether ElevenLabs can be used (API key + voice ID present)."""
+        return bool(self.elevenlabs_api_key and self.elevenlabs_voice_id)
 
     #: Players that can only handle one container, keyed by file suffix.
     _FORMAT_ONLY: ClassVar[Dict[str, Set[str]]] = {
@@ -255,8 +305,9 @@ class TextToSpeech:
     def _cache_path(self, text: str) -> Path:
         """Deterministic cache filename for a phrase."""
         model = self._piper_model.name if self._piper_model else ""
+        eleven = f"{self.elevenlabs_voice_id}|{self.elevenlabs_model}" if self.active_engine == "elevenlabs" else ""
         digest = hashlib.sha1(
-            f"{self.active_engine}|{model}|{self.voice}|{self.rate}|{self.pitch}|{text}"
+            f"{self.active_engine}|{model}|{eleven}|{self.voice}|{self.rate}|{self.pitch}|{text}"
             .encode()
         ).hexdigest()[:20]
         suffix = "wav" if self.active_engine == "piper" else "mp3"
@@ -274,6 +325,8 @@ class TextToSpeech:
 
         if self.active_engine == "piper":
             return await self._synthesize_piper(clean, target)
+        if self.active_engine == "elevenlabs":
+            return await self._synthesize_elevenlabs(clean, target)
 
         try:
             import edge_tts
@@ -335,6 +388,75 @@ class TextToSpeech:
         if not self.cache_enabled:
             self._prune_cache(keep=0)
         return target
+
+    async def _synthesize_elevenlabs(self, text: str, target: Path) -> Optional[Path]:
+        """Render speech with ElevenLabs.
+
+        Uses ``https://api.elevenlabs.io/v1/text-to-speech/{voice_id}``.
+        See https://elevenlabs.io/docs/api-reference/text-to-speech
+
+        Args:
+            text: Clean text to speak.
+            target: Where to write the MP3 file.
+
+        Returns:
+            The written path, or ``None`` on failure.
+        """
+        if not self.elevenlabs_api_key:
+            logger.warning("ElevenLabs API key not set — cannot synthesize.")
+            return None
+        temporary = target.with_suffix(".part")
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.elevenlabs_voice_id}"
+        # output_format controls quality/latency.  mp3_44100_128 is the
+        # standard high-quality MP3; it plays everywhere a browser or ffplay
+        # can handle MP3 (which is everywhere).
+        params = {"output_format": "mp3_44100_128", "optimize_streaming_latency": "0"}
+        payload: Dict[str, Any] = {
+            "text": text,
+            "model_id": self.elevenlabs_model,
+            "voice_settings": {
+                "stability": max(0.0, min(1.0, self.elevenlabs_stability)),
+                "similarity_boost": max(0.0, min(1.0, self.elevenlabs_similarity_boost)),
+                "style": max(0.0, min(1.0, self.elevenlabs_style)),
+                "use_speaker_boost": bool(self.elevenlabs_use_speaker_boost),
+            },
+        }
+        headers = {
+            "xi-api-key": self.elevenlabs_api_key,
+            "Content-Type": "application/json",
+            "Accept": "audio/mpeg",
+        }
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=payload, headers=headers, params=params)
+                if response.status_code != 200:
+                    body = response.text[:400] if hasattr(response, "text") else str(response.content[:200])
+                    logger.warning("ElevenLabs TTS failed (%s): %s", response.status_code, truncate(body, 300))
+                    return None
+                # Write atomically via .part then rename, same pattern as edge-tts/piper.
+                def _write() -> bool:
+                    try:
+                        temporary.write_bytes(response.content)
+                        return temporary.exists() and temporary.stat().st_size > 1024
+                    except Exception as exc:
+                        logger.warning("ElevenLabs write failed: %s", truncate(str(exc), 160))
+                        return False
+
+                if not await run_blocking(_write):
+                    with contextlib.suppress(Exception):
+                        temporary.unlink(missing_ok=True)
+                    return None
+                temporary.replace(target)
+                if not self.cache_enabled:
+                    self._prune_cache(keep=0)
+                return target
+        except Exception as exc:
+            logger.warning("ElevenLabs synthesis failed: %s", truncate(str(exc), 300))
+            with contextlib.suppress(Exception):
+                temporary.unlink(missing_ok=True)
+            return None
 
     def _prune_cache(self, keep: int = 200) -> None:
         """Keep the TTS cache from growing without bound."""
