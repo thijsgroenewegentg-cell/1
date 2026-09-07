@@ -32,6 +32,12 @@
   --bad: #f87171;
   --good: #34d399;
   --glass: rgba(8, 14, 26, .72);
+  /* Live state, rewritten every frame from the draw loop. --tint is the
+     orb's current colour as raw "r,g,b" so it can be used at any alpha. */
+  --energy: 0;
+  --burst: 0;
+  --tint: 150, 190, 255;
+  --live: rgb(var(--tint));
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg); }
@@ -66,9 +72,33 @@ button { cursor: pointer; border: 0; background: none; }
 ::-webkit-scrollbar-thumb { background: rgba(125, 165, 225, .18); border-radius: 8px; }
 
 #orb { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+/* The vignette breathes with the orb: it tightens and takes on the orb's
+   colour as energy rises, so the whole frame closes in when JARVIS reacts. */
 #vignette {
   position: fixed; inset: 0; z-index: 1; pointer-events: none;
-  background: radial-gradient(circle at 50% 44%, transparent 26%, rgba(3, 6, 12, .5) 70%, #03060c 100%);
+  background:
+    radial-gradient(circle at 50% 44%,
+      transparent calc(20% + var(--energy) * 6%),
+      rgba(3, 6, 12, .5) 70%, #03060c 100%),
+    radial-gradient(circle at 50% 44%,
+      rgba(var(--tint), calc(var(--energy) * .09 + var(--burst) * .12)) 0%,
+      transparent 62%);
+}
+/* A hairline of the orb's colour around the whole viewport — the frame
+   itself glows when JARVIS is active. */
+#edge {
+  position: fixed; inset: 0; z-index: 6; pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--tint), calc(var(--energy) * .22 + var(--burst) * .3)),
+    inset 0 0 calc(60px + var(--energy) * 90px) rgba(var(--tint), calc(var(--energy) * .13 + var(--burst) * .22));
+}
+/* Scanlines: barely there at rest, visible when thinking. Cheap, and it
+   makes the whole surface feel like a display rather than a web page. */
+#scan {
+  position: fixed; inset: 0; z-index: 5; pointer-events: none;
+  opacity: calc(.03 + var(--energy) * .05);
+  background: repeating-linear-gradient(180deg,
+    rgba(var(--tint), .5) 0 1px, transparent 1px 3px);
 }
 
 /* ------------------------------------------------------------- top bar */
@@ -83,15 +113,20 @@ button { cursor: pointer; border: 0; background: none; }
   border: 1px solid var(--line); transition: background .3s, box-shadow .3s, transform .3s, border-color .3s;
 }
 .tile.lit {
-  background: var(--listen); border-color: var(--listen); transform: scale(1.2);
-  box-shadow: 0 0 16px rgba(34, 211, 238, .85);
+  background: var(--live); border-color: var(--live); transform: scale(1.45);
+  box-shadow: 0 0 26px rgba(var(--tint), .95), 0 0 60px rgba(var(--tint), .5);
 }
 .tile.off { opacity: .28; }
 #brand {
-  margin: 0 auto; text-align: center; font-size: 11px; letter-spacing: .42em;
+  margin: 0 auto; text-align: center; font-size: 11px;
+  letter-spacing: calc(.42em + var(--energy) * .16em);
   text-transform: uppercase; color: var(--dimmer); display: flex; align-items: center; gap: 9px;
+  transition: letter-spacing .3s ease;
 }
-#brand b { color: var(--text); font-weight: 500; letter-spacing: .42em; }
+#brand b {
+  color: var(--text); font-weight: 500; letter-spacing: inherit;
+  text-shadow: 0 0 calc(var(--energy) * 26px) rgba(var(--tint), var(--energy));
+}
 #link { width: 6px; height: 6px; border-radius: 50%; background: var(--bad); transition: background .3s; }
 #link.on { background: var(--good); box-shadow: 0 0 10px rgba(52, 211, 153, .8); }
 #topRight { display: flex; gap: 8px; pointer-events: auto; }
@@ -116,14 +151,19 @@ button { cursor: pointer; border: 0; background: none; }
   align-items: center; justify-content: flex-end; padding: 0 24px 208px; pointer-events: none;
 }
 #state {
-  font-size: 10.5px; letter-spacing: .4em; text-transform: uppercase; color: var(--listen);
+  font-size: 10.5px; letter-spacing: .48em; text-transform: uppercase; color: var(--live);
   height: 15px; opacity: 0; transition: opacity .3s;
+  text-shadow: 0 0 20px rgba(var(--tint), .8);
 }
+body[data-mood="think"] #state { animation: throb 1.4s ease-in-out infinite; }
+@keyframes throb { 50% { opacity: .45; } }
 #state.show { opacity: 1; }
 #caption {
-  max-width: 700px; text-align: center; font-size: 21px; line-height: 1.5; margin-top: 16px;
-  text-shadow: 0 2px 34px rgba(3, 6, 12, .96); pointer-events: auto;
-  max-height: 32vh; overflow-y: auto; scrollbar-width: none;
+  max-width: 700px; text-align: center; font-size: 23px; line-height: 1.45; margin-top: 16px;
+  letter-spacing: -.01em;
+  text-shadow: 0 2px 34px rgba(3, 6, 12, .96),
+               0 0 calc(var(--energy) * 44px) rgba(var(--tint), calc(var(--energy) * .5));
+  pointer-events: auto; max-height: 32vh; overflow-y: auto; scrollbar-width: none;
 }
 #caption::-webkit-scrollbar { display: none; }
 #caption.dim { color: var(--dim); font-size: 16.5px; }
@@ -147,12 +187,28 @@ button { cursor: pointer; border: 0; background: none; }
   pointer-events: auto; max-width: 760px;
 }
 .card {
-  border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+  position: relative; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
   background: rgba(8, 14, 26, .82); backdrop-filter: blur(14px); text-align: left;
-  min-width: 190px; max-width: 340px; animation: rise .28s ease-out;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, .5);
+  min-width: 190px; max-width: 340px;
+  animation: rise .5s cubic-bezier(.16, 1, .3, 1);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .5),
+              0 0 0 1px rgba(var(--tint), calc(var(--energy) * .18));
+  transition: transform .22s cubic-bezier(.16, 1, .3, 1), box-shadow .22s;
 }
-@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+/* A bright seam along the top edge, brightest at the centre — the card looks
+   lit by the orb rather than pasted on top of it. */
+.card::before {
+  content: ""; position: absolute; top: -1px; left: 12%; right: 12%; height: 1px;
+  background: linear-gradient(90deg, transparent,
+              rgba(var(--tint), calc(.35 + var(--energy) * .5)), transparent);
+}
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, .62), 0 0 0 1px rgba(var(--tint), .3);
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(26px) scale(.94); filter: blur(6px); }
+}
 .card h4 {
   margin: 0 0 8px; font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase;
   color: var(--dimmer); font-weight: 500;
@@ -197,12 +253,18 @@ body.history-open #history { transform: none; }
   gap: 7px; pointer-events: none;
   mask-image: linear-gradient(180deg, transparent, #000 20%, #000 86%, transparent);
 }
-.line { font-size: 11.5px; line-height: 1.5; text-align: right; animation: slide .3s ease-out; }
-@keyframes slide { from { opacity: 0; transform: translateX(12px); } }
+.line {
+  font-size: 11.5px; line-height: 1.5; text-align: right;
+  animation: slide .42s cubic-bezier(.16, 1, .3, 1);
+}
+@keyframes slide {
+  from { opacity: 0; transform: translateX(34px); filter: blur(4px); }
+}
 .line.me { color: var(--text); }
 .line.ai { color: var(--dim); }
 .line.trace { color: var(--dimmer); font-family: ui-monospace, monospace; font-size: 10.5px; }
-.line.trace b { color: var(--listen); font-weight: 400; }
+.line.trace b { color: var(--live); font-weight: 400;
+                text-shadow: 0 0 14px rgba(var(--tint), .6); }
 .line.trace i { color: var(--dimmer); font-style: normal; opacity: .7; }
 .line.sys { color: var(--dimmer); font-style: italic; }
 .line.err { color: var(--bad); }
@@ -216,26 +278,37 @@ body.history-open #history { transform: none; }
 .controls {
   display: flex; align-items: center; gap: 10px; padding: 9px;
   border: 1px solid var(--line); border-radius: 999px; background: var(--glass);
-  backdrop-filter: blur(18px); box-shadow: 0 22px 60px rgba(0, 0, 0, .65);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, .65),
+              0 0 calc(var(--energy) * 60px) rgba(var(--tint), calc(var(--energy) * .3)),
+              inset 0 0 0 1px rgba(var(--tint), calc(var(--energy) * .2));
 }
 .round {
   width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
   color: var(--dim); border: 1px solid transparent; transition: all .18s;
 }
 .round:hover { color: var(--text); background: rgba(125, 165, 225, .1); }
-.round.on { color: var(--listen); border-color: rgba(34, 211, 238, .45); background: rgba(34, 211, 238, .1); }
+.round.on { color: var(--live); border-color: rgba(var(--tint), .5);
+            background: rgba(var(--tint), .12); box-shadow: 0 0 22px rgba(var(--tint), .35); }
 .round svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7;
              stroke-linecap: round; stroke-linejoin: round; }
 #mic {
-  width: 60px; height: 60px; color: var(--text); position: relative;
-  background: radial-gradient(circle at 50% 34%, rgba(59, 86, 216, .5), rgba(8, 14, 26, .92));
-  border: 1px solid rgba(125, 165, 225, .28);
+  width: 62px; height: 62px; color: var(--text); position: relative;
+  background: radial-gradient(circle at 50% 34%, rgba(var(--tint), .35), rgba(8, 14, 26, .92));
+  border: 1px solid rgba(var(--tint), .3);
+  transition: transform .2s cubic-bezier(.16, 1, .3, 1), box-shadow .2s, border-color .2s;
 }
+#mic:hover { transform: scale(1.06); }
+#mic:active { transform: scale(.96); }
 #mic svg { width: 23px; height: 23px; }
 #mic.recording {
-  color: #fff; border-color: var(--listen);
-  background: radial-gradient(circle at 50% 34%, rgba(34, 211, 238, .5), rgba(8, 14, 26, .92));
-  box-shadow: 0 0 0 5px rgba(34, 211, 238, .1), 0 0 38px rgba(34, 211, 238, .45);
+  color: #fff; border-color: var(--live);
+  background: radial-gradient(circle at 50% 34%, rgba(var(--tint), .6), rgba(8, 14, 26, .92));
+  /* The halo scales with your actual voice level, so the button itself is a
+     level meter rather than a static "recording" state. */
+  box-shadow:
+    0 0 0 calc(4px + var(--energy) * 16px) rgba(var(--tint), calc(.16 - var(--energy) * .08)),
+    0 0 calc(30px + var(--energy) * 70px) rgba(var(--tint), calc(.4 + var(--energy) * .5));
 }
 #mic.busy { opacity: .45; }
 #micRing { position: absolute; inset: -4px; transform: rotate(-90deg); pointer-events: none; }
@@ -262,8 +335,12 @@ body.history-open #history { transform: none; }
   justify-content: center; padding-top: 14vh; background: rgba(3, 6, 12, .72);
   backdrop-filter: blur(6px);
 }
-#palette.show { display: flex; animation: fade .16s ease-out; }
+#palette.show { display: flex; animation: fade .18s ease-out; }
 @keyframes fade { from { opacity: 0; } }
+#palette.show .palette-box { animation: drop .34s cubic-bezier(.16, 1, .3, 1); }
+@keyframes drop {
+  from { opacity: 0; transform: translateY(-22px) scale(.96); filter: blur(8px); }
+}
 .palette-box {
   width: min(620px, 92vw); border: 1px solid var(--line-warm); border-radius: 18px;
   background: rgba(8, 14, 26, .97); box-shadow: 0 40px 90px rgba(0, 0, 0, .7); overflow: hidden;
@@ -278,7 +355,8 @@ body.history-open #history { transform: none; }
   display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
   padding: 10px 12px; border-radius: 11px; transition: background .12s;
 }
-.option.on { background: rgba(34, 211, 238, .12); }
+.option.on { background: rgba(var(--tint), .14);
+             box-shadow: inset 2px 0 0 var(--live); }
 .option .badge {
   font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--dimmer);
   border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; flex: none;
@@ -298,6 +376,15 @@ body.history-open #history { transform: none; }
   display: flex; flex-direction: column;
 }
 body.panel-open #panel { transform: none; }
+#panel, #history { box-shadow: 0 0 90px rgba(0, 0, 0, .8); }
+/* A vertical seam of the orb's colour down the panel's inner edge. */
+#panel::before, #history::before {
+  content: ""; position: absolute; top: 0; bottom: 0; width: 1px;
+  background: linear-gradient(180deg, transparent,
+              rgba(var(--tint), calc(.3 + var(--energy) * .5)), transparent);
+}
+#panel::before { left: 0; }
+#history::before { right: 0; }
 .tabs { display: flex; gap: 4px; padding: 16px 12px 0; border-bottom: 1px solid var(--line); }
 .tab { padding: 9px 13px; font-size: 12.5px; color: var(--dimmer); border-radius: 9px 9px 0 0; }
 .tab.on { color: var(--text); background: rgba(125, 165, 225, .1); }
@@ -392,12 +479,20 @@ body.panel-open #panel { transform: none; }
   #tiles, #brand, #stage, #dock, #rail {
     opacity: 1 !important; transform: none !important; transition: none !important;
   }
+  /* The new entrances animate blur and transform, which is exactly the kind
+     of motion this setting exists to suppress. The reactive glows stay —
+     they are colour changes, not movement. */
+  .card, .line, .palette-box, #state { animation: none !important; }
+  .card:hover, #mic:hover, #mic:active { transform: none !important; }
+  #scan { display: none; }
 }
 </style>
 </head>
 <body>
 <canvas id="orb"></canvas>
 <div id="vignette"></div>
+<div id="scan" aria-hidden="true"></div>
+<div id="edge" aria-hidden="true"></div>
 
 <div id="top">
   <div id="tiles" title="Modules — each lights up when it does something"></div>
@@ -1030,10 +1125,37 @@ function draw(now) {
     ctx.fillStyle = `rgba(255,255,255,${Math.min(0.92, flash * 1.1).toFixed(3)})`;
     ctx.fillRect(0, 0, width, height);
   }
+
+  publish();
 }
 requestAnimationFrame(draw);
 
-function mood(hue, energy) { orb.hue = hue; orb.target = energy; }
+/* The orb's live state is published to CSS custom properties every frame, so
+   the entire interface can react to it — borders brighten, glows swell, the
+   vignette pulls in. Previously the chrome was completely inert while the
+   sphere was the only thing alive on the page.
+
+   Writing a CSS variable on the root is cheap, but doing it four times a
+   frame at 60fps is not free, so values are quantised and only written when
+   they actually change. */
+const cssState = { energy: -1, pulse: -1, tint: "" };
+function publish() {
+  const energy = Math.round(orb.energy * 20) / 20;
+  const burst = Math.round(orb.pulse * 20) / 20;
+  const [r, g, b] = paint.map(Math.round);
+  const tint = r + "," + g + "," + b;
+  const root = document.documentElement.style;
+  if (energy !== cssState.energy) { root.setProperty("--energy", energy); cssState.energy = energy; }
+  if (burst !== cssState.pulse) { root.setProperty("--burst", burst); cssState.pulse = burst; }
+  if (tint !== cssState.tint) { root.setProperty("--tint", tint); cssState.tint = tint; }
+}
+
+function mood(hue, energy) {
+  orb.hue = hue; orb.target = energy;
+  // Drive a body class too, so CSS can style discrete states rather than
+  // only reacting to the continuous energy value.
+  document.body.dataset.mood = hue;
+}
 function pulse(burst) {
   // A swell through the shell rather than a shower of comets: the sphere
   // itself reacts, which is the whole idea of the new look.
