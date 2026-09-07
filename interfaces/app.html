@@ -149,12 +149,36 @@ button { cursor: pointer; border: 0; background: none; }
 #stage {
   position: fixed; inset: 0; z-index: 2; display: flex; flex-direction: column;
   align-items: center; justify-content: flex-end; padding: 0 24px 208px; pointer-events: none;
+  transition: padding-bottom .6s cubic-bezier(.16, 1, .3, 1);
 }
+/* When there is something to read, the orb shrinks and lifts (see orb.focus)
+   and the stage rises into the space it vacated, so the answer lands in the
+   optical centre of the frame rather than clinging to the bottom edge. */
+body.reading #stage { padding-bottom: 24vh; }
+#stateRow { display: flex; align-items: center; gap: 10px; height: 15px; }
 #state {
   font-size: 10.5px; letter-spacing: .48em; text-transform: uppercase; color: var(--live);
-  height: 15px; opacity: 0; transition: opacity .3s;
+  opacity: 0; transition: opacity .3s;
   text-shadow: 0 0 20px rgba(var(--tint), .8);
 }
+/* Elapsed time, so a slow tool looks busy rather than hung. */
+#stateClock {
+  font-size: 10.5px; color: var(--dimmer); font-variant-numeric: tabular-nums;
+  min-width: 34px; text-align: left;
+}
+/* Names the tool actually executing right now. The rail already logged this,
+   but as scrolling history off to one side — never as "here is what is
+   happening at this instant". */
+#doing {
+  margin-top: 10px; font-size: 11.5px; color: var(--dim);
+  border: 1px solid rgba(var(--tint), .28); border-radius: 999px;
+  padding: 4px 13px; background: rgba(var(--tint), .07);
+  opacity: 0; transform: translateY(4px);
+  transition: opacity .25s, transform .25s cubic-bezier(.16, 1, .3, 1);
+  box-shadow: 0 0 26px rgba(var(--tint), calc(var(--energy) * .3));
+}
+#doing.show { opacity: 1; transform: none; }
+#doing b { color: var(--live); font-weight: 500; }
 body[data-mood="think"] #state { animation: throb 1.4s ease-in-out infinite; }
 @keyframes throb { 50% { opacity: .45; } }
 #state.show { opacity: 1; }
@@ -493,6 +517,8 @@ body.panel-open #panel { transform: none; }
      they are colour changes, not movement. */
   .card, .line, .palette-box, #state { animation: none !important; }
   .card:hover, #mic:hover, #mic:active { transform: none !important; }
+  #stage, #doing { transition: none !important; }
+  #doing { transform: none !important; }
   #scan { display: none; }
 }
 </style>
@@ -521,7 +547,8 @@ body.panel-open #panel { transform: none; }
 <div id="tileLabel"></div>
 
 <div id="stage">
-  <div id="state"></div>
+  <div id="stateRow"><div id="state"></div><div id="stateClock" class="mono"></div></div>
+  <div id="doing" class="mono"></div>
   <div id="caption" class="dim" aria-live="polite">Hold <b>space</b> and speak, or press <b>K</b> for anything.</div>
   <div id="cards"></div>
 </div>
@@ -642,7 +669,11 @@ const canvas = $("orb"), ctx = canvas.getContext("2d", { alpha: false });
 
 const orb = {
   energy: 0, target: 0, hue: "idle", spin: 0, time: 0, pulse: 0,
+  //: 0 = the orb owns the frame, 1 = it has stepped back for content.
+  focus: 0,
 };
+//: True while there is a real reply or cards on screen. Drives orb.focus.
+let contentful = false;
 // A single cool-white palette. The sphere is made of light, so the mood
 // shifts the *tint* of white rather than repainting it a different colour:
 // a wash of blue when idle, cooler and brighter when listening, violet while
@@ -853,8 +884,15 @@ function draw(now) {
 
   const width = innerWidth, height = innerHeight;
   const centreX = width / 2;
-  const centreY = height * (width < 760 ? 0.40 : 0.44);
-  const base = Math.min(width, height) * (width < 760 ? 0.29 : 0.25);
+  // The orb yields to content. At rest it owns the screen; once there is a
+  // reply to read it shrinks and lifts, handing the centre of the frame to
+  // the words. Previously it sat at full size behind every answer, which left
+  // the page with no hierarchy at all — the decoration outranked the content.
+  orb.focus += ((contentful ? 1 : 0) - orb.focus) * 0.06;
+  const yield_ = orb.focus;
+  const centreY = height * ((width < 760 ? 0.40 : 0.44) - yield_ * 0.13);
+  const base = Math.min(width, height)
+    * (width < 760 ? 0.29 : 0.25) * (1 - yield_ * 0.42);
 
   orb.time += 0.016;
   // Energy snaps up fast and falls away slowly, so reactions hit hard and
@@ -1196,17 +1234,56 @@ function say(text, options = {}) {
   caption.classList.toggle("dim", Boolean(options.dim));
   caption.innerHTML = light(text) + (options.cursor ? '<span class="cursor">▍</span>' : "");
   caption.scrollTop = caption.scrollHeight;
+  // A real answer on screen makes the orb step back; the idle prompt does not.
+  setContentful(!options.dim);
   if (options.fade) {
     captionTimer = setTimeout(() => {
       caption.classList.add("dim");
       caption.innerHTML = "Hold <b>space</b> and speak, or press <b>K</b> for anything.";
+      setContentful(false);
     }, options.fade);
   }
 }
 
+//: Content presence drives both the orb's retreat and the stage's rise, so
+//: the two move as one gesture instead of drifting apart.
+function setContentful(on) {
+  if (on === contentful) return;
+  contentful = on;
+  document.body.classList.toggle("reading", on);
+}
+
+//: A live elapsed-time readout beside the state label. A tool that takes
+//: eight seconds used to show the word "working" and nothing else, which is
+//: indistinguishable from being hung.
+let statusTimer = null;
 function status(text) {
   $("state").textContent = text;
   $("state").classList.toggle("show", Boolean(text));
+  clearInterval(statusTimer);
+  const clock = $("stateClock");
+  if (!text) { clock.textContent = ""; return; }
+  const began = turnStarted || performance.now();
+  const tick = () => {
+    const seconds = (performance.now() - began) / 1000;
+    // Stay quiet for the first moment: a flickering 0.1s on every fast reply
+    // is noise, not information.
+    clock.textContent = seconds > 0.6 ? seconds.toFixed(1) + "s" : "";
+  };
+  tick();
+  statusTimer = setInterval(tick, 100);
+}
+
+//: Show which tool is running. Cleared when the reply lands.
+function showDoing(tool) {
+  const box = $("doing");
+  if (!tool) { box.classList.remove("show"); return; }
+  const parts = String(tool).split(".");
+  const module = parts.shift() || tool;
+  const action = parts.join(".") || "running";
+  box.innerHTML = escapeHtml(module.replace(/_/g, " ")) + " · <b>" +
+    escapeHtml(action.replace(/_/g, " ")) + "</b>";
+  box.classList.add("show");
 }
 
 function trace(kind, html) {
@@ -1386,7 +1463,7 @@ function connect() {
   };
   socket.onclose = () => {
     $("link").classList.remove("on"); $("topState").textContent = "reconnecting";
-    setBusy(false); mood("lost", 0.05);
+    setBusy(false); mood("lost", 0.05); showDoing("");
     retry = Math.min(retry + 1, 6);
     setTimeout(connect, 400 * retry);
   };
@@ -1410,6 +1487,7 @@ function handle(data) {
     remember("ai", replyText);
     pulse(true);
     setBusy(false);
+    showDoing("");
     turns += 1; $("statTurns").textContent = turns;
     const summary = (data.intent || "answer") + " · " + (data.seconds || 0).toFixed(1) + "s";
     $("statLast").textContent = summary;
@@ -1422,6 +1500,7 @@ function handle(data) {
       status("routing");
     } else if (data.name === "tool.called") {
       const tool = String(data.data.tool || "");
+      showDoing(tool);
       lightTile(tool.split(".")[0]);
       trace("trace", "<b>tool</b> " + escapeHtml(tool.split(".").slice(1).join(".") || tool) +
         " <i>" + since() + "</i>");
@@ -1444,13 +1523,16 @@ function handle(data) {
       try { new Notification("JARVIS", { body: data.text }); } catch (err) { /* denied */ }
     }
   } else if (data.type === "error") {
-    toast(data.text, true); trace("err", escapeHtml(data.text)); setBusy(false);
+    toast(data.text, true); trace("err", escapeHtml(data.text));
+    setBusy(false); showDoing("");
   }
 }
 
 function setBusy(value) {
   busy = value;
-  if (value) { mood("think", 0.5); status("thinking"); turnStarted = performance.now(); }
+  // turnStarted must be set *before* status(), which reads it to seed the
+  // elapsed clock — otherwise the readout counts from the previous turn.
+  if (value) { turnStarted = performance.now(); mood("think", 0.5); status("thinking"); }
   else { mood("idle", 0); status(""); }
 }
 
