@@ -539,15 +539,16 @@ def test_module_tiles_are_labelled(web):
 
 
 def test_the_answer_is_centred_below_the_console(web):
-    """Anchored to the top of the stage it stranded text against the dock."""
+    """The stage sits just above the dock so the text hugs the controls."""
     from fastapi.testclient import TestClient
 
     page = TestClient(web.app).get("/", params={"token": web.token}).text
     style = page.split("<style>", 1)[1].split("</style>", 1)[0]
-    # Split on the newline-anchored rule: "body.awake #stage {" also contains
-    # the substring "#stage {" and matched first.
     stage = style.split("\n#stage {", 1)[1].split("}", 1)[0]
-    assert "justify-content: center" in stage
+    # It hugs the dock (flex-end) rather than floating in the middle, and
+    # its bottom tracks the dock so the caption stays just above the controls.
+    assert "justify-content: flex-end" in stage
+    assert "bottom: calc(50%" in stage
 
 
 # ---------------------------------------------------------- atmosphere

@@ -254,14 +254,15 @@ button { cursor: pointer; border: 0; background: none; }
 /* The console holds the middle of the frame, so the answer reads directly
    beneath it: sphere on top, controls in the centre, text below. The stage
    starts just under the dock and grows downward. */
-/* The answer is centred in the space below the console rather than hugging
-   it. Anchored to the top edge it left roughly a third of a tall screen
-   empty underneath, with the text stranded against the controls. */
+/* The console holds the middle of the frame. The answer now reads *above*
+   it, not below — sphere on top, caption in the middle, controls beneath.
+   The stage sits just above the dock so the text hugs the controls rather
+   than floating at the bottom of the screen. */
 #stage {
   position: fixed; left: 0; right: 0; z-index: 2;
-  top: calc(50% + 62px); bottom: 0;
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center; padding: 24px 24px 40px; pointer-events: none;
+  bottom: calc(50% + 66.5px); display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end; padding: 0 24px 12px;
+  pointer-events: none;
 }
 #stateRow { display: flex; align-items: center; gap: 10px; height: 15px; }
 #state {
@@ -297,11 +298,11 @@ body[data-mood="think"] #state { animation: throb 1.4s ease-in-out infinite; }
                0 1px 0 rgba(255,255,255,.04),
                0 0 calc(var(--energy) * 56px) rgba(var(--tint), calc(var(--energy) * .6));
   pointer-events: auto; max-height: 32vh; overflow-y: auto; scrollbar-width: none;
-  /* A soft backdrop so the text lifts off the background even when the
-     grid and halo are busy behind it. */
-  padding: 10px 18px; border-radius: var(--r-lg);
-  background: radial-gradient(ellipse 90% 100% at 50% 50%,
-              rgba(3, 6, 12, .62) 0%, transparent 72%);
+  /* Now floating over the orb's lower edge, so it needs a stronger lift. */
+  padding: 12px 20px; border-radius: var(--r-lg);
+  background: radial-gradient(ellipse 92% 105% at 50% 50%,
+              rgba(3, 6, 12, .82) 0%, rgba(3, 6, 12, .48) 58%, transparent 78%);
+  backdrop-filter: blur(6px);
 }
 #caption::-webkit-scrollbar { display: none; }
 #caption.dim { color: var(--dim); font-size: 16.5px; }
@@ -717,10 +718,10 @@ body.degraded-open #toasts { top: 118px; }
 
 @media (max-width: 860px) {
   #rail { display: none; }
-  /* Narrow screens need the console a little higher, so the answer below it
-     is not squeezed against the bottom edge. */
+  /* Narrow screens need the console a little higher, so the caption above
+     it is not squeezed against the orb. */
   #dock { top: 44%; }
-  #stage { top: calc(44% + 62px); }
+  #stage { bottom: calc(56% + 66.5px); }
   #caption { font-size: 18px; }
   #top { padding: 14px 16px; }
   #tileLabel { top: 54px; left: 16px; }
