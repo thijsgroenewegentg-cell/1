@@ -412,6 +412,7 @@ class WebInterface:
                 "llm": report.get("llm", {}),
                 "voice": bool(voice and getattr(voice, "available", False)),
                 "tts": bool(voice and getattr(getattr(voice, "tts", None), "available", False)),
+                "operator_profile": getattr(getattr(self.brain, "security", None), "permission_profile", "standard"),
                 "clients": self.clients,
             })
 
