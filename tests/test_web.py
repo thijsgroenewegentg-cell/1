@@ -548,3 +548,32 @@ def test_the_answer_is_centred_below_the_console(web):
     # the substring "#stage {" and matched first.
     stage = style.split("\n#stage {", 1)[1].split("}", 1)[0]
     assert "justify-content: center" in stage
+
+
+# ---------------------------------------------------------- atmosphere
+# The flat black void was the most common "not dramatic" complaint. These
+# guard the layers that give it depth.
+
+
+def test_the_page_has_a_reactive_halo_and_horizon_grid(web):
+    from fastapi.testclient import TestClient
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert 'id="halo"' in page
+    assert 'id="grid"' in page
+    assert 'id="grain"' in page
+    style = page.split("<style>", 1)[1].split("</style>", 1)[0]
+    # Halo must be tied to the orb's live state, not a static colour.
+    assert "rgba(var(--tint)" in style
+    # Grid must be perspective, not a flat box.
+    assert "rotateX(" in style
+    assert "perspective(" in style
+
+
+def test_reduced_motion_suppresses_the_new_atmosphere(web):
+    from fastapi.testclient import TestClient
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    style = page.split("<style>", 1)[1].split("</style>", 1)[0]
+    reduced = style.split("prefers-reduced-motion", 1)[1]
+    assert "#halo" in reduced
+    assert "#grid" in reduced
+    assert "#grain" in reduced

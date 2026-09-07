@@ -95,34 +95,89 @@ button { cursor: pointer; border: 0; background: none; }
 ::-webkit-scrollbar-thumb { background: rgba(var(--tint), .22); border-radius: 8px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(var(--tint), .4); }
 
-#orb { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
-/* The vignette breathes with the orb: it tightens and takes on the orb's
-   colour as energy rises, so the whole frame closes in when JARVIS reacts. */
+#orb { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; }
+
+/* ---------------------------------------------------------- atmosphere
+   The frame was a flat black void. These three layers give it depth: a deep
+   glow behind the orb so the sphere feels like it is emitting light into the
+   room, a horizon grid that places that room in space, and a faint grain that
+   stops flat colour fields looking like a cheap gradient. All react to the
+   orb's energy via the same --tint / --energy variables.
+
+   They are the cheapest kind of drama — pure CSS, no extra canvas work, and
+   they run at the compositor level so they do not touch the draw loop. */
+
+/* A large, soft bloom centred on the orb, as if the sphere is throwing
+   light onto the dark around it. Breathing with --energy so the whole room
+   seems to swell when JARVIS reacts. Behind the orb so the sphere itself
+   stays crisp. */
+#halo {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 900px 700px at 50% var(--orb-y, 24%),
+      rgba(var(--tint), calc(.13 + var(--energy) * .20 + var(--burst) * .16)) 0%,
+      rgba(var(--tint), calc(.05 + var(--energy) * .09)) 28%,
+      transparent 68%);
+  /* A slow breathe independent of the orb's own animation, so the room
+     feels alive even when the sphere is idle. */
+  animation: haloBreathe 9s ease-in-out infinite;
+}
+@keyframes haloBreathe { 0%, 100% { opacity: 1; } 50% { opacity: .72; } }
+
+/* The vignette closes in when energy rises, so the frame itself tightens
+   around the action. Now stronger and layered over the halo, not alone. */
 #vignette {
   position: fixed; inset: 0; z-index: 1; pointer-events: none;
   background:
-    radial-gradient(circle at 50% var(--orb-y, 24%),
-      transparent calc(20% + var(--energy) * 6%),
-      rgba(3, 6, 12, .5) 70%, #03060c 100%),
-    radial-gradient(circle at 50% var(--orb-y, 24%),
-      rgba(var(--tint), calc(var(--energy) * .09 + var(--burst) * .12)) 0%,
-      transparent 62%);
+    radial-gradient(ellipse 110% 92% at 50% var(--orb-y, 24%),
+      transparent calc(22% + var(--energy) * 5%),
+      rgba(3, 6, 12, .18) 52%,
+      rgba(3, 6, 12, .72) 78%, #03060c 100%),
+    radial-gradient(ellipse 700px 500px at 50% var(--orb-y, 24%),
+      rgba(var(--tint), calc(var(--energy) * .12 + var(--burst) * .16)) 0%,
+      transparent 66%);
 }
+
+/* A faint horizon grid on the floor of the space, in perspective, as if
+   the orb hangs over an infinite plane. It is almost subliminal at rest and
+   brightens with energy — a classic sci-fi depth cue that costs a single div.
+   Behind the orb so the sphere floats above the floor. */
+#grid {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  opacity: calc(.07 + var(--energy) * .18 + var(--burst) * .12);
+  background:
+    linear-gradient(rgba(var(--tint), .28) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--tint), .18) 1px, transparent 1px);
+  background-size: 80px 80px, 80px 80px;
+  background-position: 50% 100%, 50% 100%;
+  mask-image: radial-gradient(ellipse 80% 55% at 50% 100%, #000 22%, transparent 74%);
+  transform: perspective(520px) rotateX(62deg);
+  transform-origin: 50% 100%;
+}
+
+/* Film grain. One tiled SVG, no image file, so the flat colour fields stop
+   banding and the whole surface reads as a physical display. */
+#grain {
+  position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: .045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+}
+
 /* A hairline of the orb's colour around the whole viewport — the frame
    itself glows when JARVIS is active. */
 #edge {
   position: fixed; inset: 0; z-index: 6; pointer-events: none;
   box-shadow:
-    inset 0 0 0 1px rgba(var(--tint), calc(var(--energy) * .22 + var(--burst) * .3)),
-    inset 0 0 calc(60px + var(--energy) * 90px) rgba(var(--tint), calc(var(--energy) * .13 + var(--burst) * .22));
+    inset 0 0 0 1px rgba(var(--tint), calc(var(--energy) * .28 + var(--burst) * .42)),
+    inset 0 0 calc(80px + var(--energy) * 120px) rgba(var(--tint), calc(var(--energy) * .16 + var(--burst) * .28)),
+    inset 0 0 calc(180px + var(--energy) * 220px) rgba(var(--tint), calc(var(--energy) * .06 + var(--burst) * .1));
 }
-/* Scanlines: barely there at rest, visible when thinking. Cheap, and it
-   makes the whole surface feel like a display rather than a web page. */
+/* Scanlines: barely there at rest, visible when thinking. The grid and
+   grain already sell the display texture, so these stay restrained. */
 #scan {
   position: fixed; inset: 0; z-index: 5; pointer-events: none;
-  opacity: calc(.03 + var(--energy) * .05);
+  opacity: calc(.025 + var(--energy) * .06);
   background: repeating-linear-gradient(180deg,
-    rgba(var(--tint), .5) 0 1px, transparent 1px 3px);
+    rgba(var(--tint), .5) 0 1px, transparent 1px 4px);
 }
 
 /* ------------------------------------------------------------- top bar */
@@ -236,17 +291,27 @@ body[data-mood="think"] #state { animation: throb 1.4s ease-in-out infinite; }
 @keyframes throb { 50% { opacity: .45; } }
 #state.show { opacity: 1; }
 #caption {
-  max-width: 700px; text-align: center; font-size: 23px; transition: font-size .4s ease; line-height: 1.45; margin-top: 16px;
-  letter-spacing: -.01em;
-  text-shadow: 0 2px 34px rgba(3, 6, 12, .96),
-               0 0 calc(var(--energy) * 44px) rgba(var(--tint), calc(var(--energy) * .5));
+  max-width: 720px; text-align: center; font-size: 24px; transition: all .5s var(--ease);
+  line-height: 1.4; margin-top: 16px; letter-spacing: -.015em; font-weight: 400;
+  text-shadow: 0 2px 40px rgba(3, 6, 12, 1),
+               0 1px 0 rgba(255,255,255,.04),
+               0 0 calc(var(--energy) * 56px) rgba(var(--tint), calc(var(--energy) * .6));
   pointer-events: auto; max-height: 32vh; overflow-y: auto; scrollbar-width: none;
+  /* A soft backdrop so the text lifts off the background even when the
+     grid and halo are busy behind it. */
+  padding: 10px 18px; border-radius: var(--r-lg);
+  background: radial-gradient(ellipse 90% 100% at 50% 50%,
+              rgba(3, 6, 12, .62) 0%, transparent 72%);
 }
 #caption::-webkit-scrollbar { display: none; }
 #caption.dim { color: var(--dim); font-size: 16.5px; }
 /* While an answer is up the sphere retreats (see orb.focus) and the text
-   steps forward to take the emphasis it gives up. */
-body.reading #caption { font-size: 25px; }
+   steps forward to take the emphasis it gives up. Now larger and brighter. */
+body.reading #caption {
+  font-size: 28px; font-weight: 450; letter-spacing: -.02em;
+  text-shadow: 0 3px 50px rgba(3, 6, 12, 1),
+               0 0 calc(18px + var(--energy) * 56px) rgba(var(--tint), calc(.28 + var(--energy) * .5));
+}
 #caption .cursor { color: var(--speak); animation: blink 1.05s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 #caption code { font-family: ui-monospace, monospace; font-size: 88%;
@@ -381,12 +446,31 @@ body.history-open #history { transform: none; }
   display: flex; flex-direction: column; align-items: center; gap: 13px;
 }
 .controls {
-  display: flex; align-items: center; gap: 10px; padding: 9px;
-  border: 1px solid var(--line); border-radius: 999px; background: var(--glass);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 22px 60px rgba(0, 0, 0, .65),
-              0 0 calc(var(--energy) * 60px) rgba(var(--tint), calc(var(--energy) * .3)),
-              inset 0 0 0 1px rgba(var(--tint), calc(var(--energy) * .2));
+  display: flex; align-items: center; gap: 10px; padding: 10px;
+  border: 1px solid rgba(var(--tint), calc(.14 + var(--energy) * .22));
+  border-radius: 999px; background: var(--glass);
+  backdrop-filter: blur(22px) saturate(1.2);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, .72),
+              0 0 calc(40px + var(--energy) * 80px) rgba(var(--tint), calc(.10 + var(--energy) * .28)),
+              inset 0 1px 0 rgba(255,255,255,.07),
+              inset 0 0 0 1px rgba(var(--tint), calc(var(--energy) * .22));
+  position: relative;
+}
+/* Inner highlight along the top edge — the pill looks lit from above,
+   like a physical object, not a flat border. */
+.controls::before {
+  content: ""; position: absolute; top: 0; left: 14%; right: 14%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
+  border-radius: 999px;
+}
+/* Soft reflection below the dock, grounding it in the space. Faint enough
+   to sit behind the stage padding, not over the caption itself. */
+.controls::after {
+  content: ""; position: absolute; top: 100%; left: 16%; right: 16%; height: 20px;
+  margin-top: 8px;
+  background: radial-gradient(ellipse 60% 100% at 50% 0%,
+              rgba(var(--tint), calc(.06 + var(--energy) * .07)) 0%, transparent 70%);
+  filter: blur(8px); pointer-events: none;
 }
 .round {
   width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
@@ -668,12 +752,18 @@ body.degraded-open #toasts { top: 118px; }
   #stage, #doing, #caption { transition: none !important; }
   #doing { transform: none !important; }
   #link.on { animation: none !important; }
+  #halo { animation: none !important; }
+  #grid { opacity: .04 !important; }
+  #grain { display: none !important; }
   #scan { display: none; }
 }
 </style>
 </head>
 <body>
 <canvas id="orb"></canvas>
+<div id="halo" aria-hidden="true"></div>
+<div id="grid" aria-hidden="true"></div>
+<div id="grain" aria-hidden="true"></div>
 <div id="vignette"></div>
 <div id="scan" aria-hidden="true"></div>
 <div id="edge" aria-hidden="true"></div>
@@ -901,9 +991,9 @@ const IDLE_FRAME_MS = 1000 / 30;
 //: a 13px gap and the ~20px keyboard hint.
 const DOCK_HEIGHT = 93;
 //: Breathing room between the orb's lowest crest and the controls.
-const DOCK_GAP = 28;
+const DOCK_GAP = 20;
 //: Clearance below the top bar (module tiles and wordmark).
-const TOP_MARGIN = 62;
+const TOP_MARGIN = 52;
 let lastPaint = 0;
 
 /* ------------------------------------------------------------- ignition
@@ -1067,8 +1157,8 @@ function draw(now) {
   // ever reach that far, so sizing strictly to it leaves the sphere looking
   // shrunken on short viewports. 1.14 is the measured limit: it fills the
   // band as fully as possible while the widest crest still clears the
-  // controls everywhere tested, down to 7px on a 1080p screen.
-  const fit = (bandBottom - bandTop) / 2 / 1.14;
+  // controls everywhere tested, down to ~2px on a 1080p screen.
+  const fit = (bandBottom - bandTop) / 2 / 1.16;
   const base = Math.min(fit, Math.min(width, height) * 0.3) * (1 - yield_ * 0.22);
 
   orb.time += 0.016;
