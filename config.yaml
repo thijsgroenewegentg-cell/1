@@ -214,6 +214,9 @@ web_ui:
   title: "JARVIS"
 
 security:
+  # safe blocks writes/network shell commands; standard asks when needed;
+  # operator still confirms dangerous actions but permits approved automation.
+  permission_profile: "standard"
   confirm_dangerous: true
   allow_shell: true
   shell_timeout: 60

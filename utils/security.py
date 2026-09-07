@@ -158,6 +158,7 @@ class SecurityGuard:
 
     confirm_dangerous: bool = True
     allow_shell: bool = True
+    permission_profile: str = "standard"  # safe | standard | operator
     extra_blocked: Sequence[str] = field(default_factory=list)
     allowed_roots: Sequence[str] = field(default_factory=list)
     #: Where the audit trail is appended, one JSON object per line. Empty
@@ -175,6 +176,7 @@ class SecurityGuard:
         return cls(
             confirm_dangerous=bool(section.get("confirm_dangerous", True)),
             allow_shell=bool(section.get("allow_shell", True)),
+            permission_profile=str(section.get("permission_profile", "standard") or "standard").lower(),
             # ``shell_blacklist`` is the spec-sheet spelling; both are honoured
             # and the entries are treated as literal text, not regex, so a
             # blacklist of "rm -rf /" cannot accidentally match everything.
@@ -219,6 +221,11 @@ class SecurityGuard:
                 return RiskAssessment(
                     RiskLevel.DANGEROUS, "Potentially destructive command", pattern
                 )
+
+        if self.permission_profile == "safe":
+            for pattern in _CAUTION_PATTERNS:
+                if re.search(pattern, text, re.IGNORECASE):
+                    return RiskAssessment(RiskLevel.BLOCKED, "Blocked by safe permission profile", pattern)
 
         for pattern in _CAUTION_PATTERNS:
             if re.search(pattern, text, re.IGNORECASE):
