@@ -93,6 +93,13 @@ body.alert #perf { color:rgba(255,210,170,.72); }
 #aperture i:nth-child(3), #aperture i:nth-child(4) { width: 13vw; height: 1px; bottom:0; }
 #aperture i:nth-child(1), #aperture i:nth-child(3) { left:0; }
 #aperture i:nth-child(2), #aperture i:nth-child(4) { right:0; }
+#aperture::before, #aperture::after { content:""; position:absolute; pointer-events:none;
+  left:50%; top:50%; transform:translate(-50%,-50%); border:1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius:50%; opacity:.35; }
+#aperture::before { width:min(64vw,760px); height:min(64vw,760px); animation:orbitPulse 9s linear infinite; }
+#aperture::after { width:min(42vw,500px); height:min(42vw,500px); border-style:dashed; opacity:.2; animation:orbitPulse 14s linear reverse infinite; }
+@keyframes orbitPulse { from { transform:translate(-50%,-50%) rotate(0deg) scale(.96); } to { transform:translate(-50%,-50%) rotate(360deg) scale(1.04); } }
+@media (prefers-reduced-motion: reduce) { #aperture::before, #aperture::after { animation:none; } }
 #aperture i:nth-child(1), #aperture i:nth-child(3) { transform-origin:left; }
 #aperture i:nth-child(2), #aperture i:nth-child(4) { transform-origin:right; }
 body[data-mood="think"] #aperture { inset: 4vh 2.2vw; opacity: .46; }
@@ -172,6 +179,7 @@ button:focus-visible, input:focus-visible {
   text-shadow: 0 0 22px rgba(110, 168, 255, .35);
 }
 #act.on { opacity: .3; }
+body[data-mood="think"] #act, body[data-mood="speak"] #act { opacity:.62; text-shadow:0 0 30px var(--accent); }
 #act.hit { animation: actIn 1s cubic-bezier(.2, .7, .3, 1); }
 @keyframes actIn {
   from { opacity: 0; letter-spacing: 1em; filter: blur(6px); }
