@@ -708,6 +708,7 @@ const recents = (() => {
 
 let socket = null, retry = 0, busy = false, replyText = "", turns = 0, turnStarted = 0;
 let queuedText = ""; // preserve a palette click while the WebSocket reconnects
+let reconnectTimer = null; // one retry loop only — never multiply sockets
 let transcript = [];                     // {who, text} for the history sheet
 let streamNode = null;                   // the .line.ai node tokens land in
 
@@ -2240,10 +2241,24 @@ setTimeout(dropHint, 11000);
 /* =======================================================================
    Socket.
    ===================================================================== */
+function scheduleReconnect() {
+  if (reconnectTimer !== null) return;
+  retry = Math.min(retry + 1, 6);
+  const delay = Math.min(8000, 400 * Math.max(1, retry));
+  reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, delay);
+}
+
 function connect() {
+  /* Browsers throw synchronously when WebSocket is unavailable (or when a
+     static preview is being used). Treat that exactly like a closed socket and
+     keep one bounded retry loop alive instead of leaving the UI saying
+     “reconnecting” forever with no next attempt. */
+  if (socket && (socket.readyState === 0 || socket.readyState === 1)) return;
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  socket = new WebSocket(scheme + "://" + location.host + "/ws" + auth);
+  try { socket = new WebSocket(scheme + "://" + location.host + "/ws" + auth); }
+  catch (err) { socket = null; scheduleReconnect(); return; }
   socket.onopen = () => {
+    if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     const wasDown = retry > 0;
     retry = 0; status(""); pulse(0.6);
     /* a turn in flight when the link died will never finish: stand down */
@@ -2256,11 +2271,11 @@ function connect() {
     }
   };
   socket.onclose = () => {
+    socket = null;
     status("offline");
-    retry = Math.min(retry + 1, 6);
-    setTimeout(connect, 400 * retry);
+    scheduleReconnect();
   };
-  socket.onerror = () => status("offline");
+  socket.onerror = () => { status("offline"); scheduleReconnect(); };
   socket.onmessage = (event) => {
     let data; try { data = JSON.parse(event.data); } catch (err) { return; }
     handle(data);
