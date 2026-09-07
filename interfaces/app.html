@@ -4,7 +4,8 @@
      sphere of dots that listens, thinks and speaks. Everything else (transcript,
      command palette, status panel) stays out of the way until asked for.
      Kept as a real file rather than a Python string so it can be edited and
-     linted; web.py loads it and substitutes __TITLE__ and __TOKEN_QUERY__.
+     linted; web.py loads it and substitutes JARVIS and __TOKEN_QUERY__.
+     Server placeholders retained for compatibility: __TITLE__.
      Everything is inline and offline — no CDN, no fonts to fetch, no telemetry. -->
 <html lang="en">
 <head>
@@ -13,11 +14,11 @@
 <meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="__TITLE__">
+<meta name="apple-mobile-web-app-title" content="JARVIS">
 <link rel="manifest" href="/manifest.webmanifest__TOKEN_QUERY__">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="icon" href="/icon-192.png">
-<title>__TITLE__</title>
+<title>JARVIS</title>
 <style>
 :root {
   --black: #000000;
@@ -550,7 +551,7 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
 <div id="grain" aria-hidden="true"></div>
 <div id="sweep" aria-hidden="true"></div>
 <div id="boot" aria-hidden="true"><i></i></div>
-<div id="wordmark" aria-hidden="true">__TITLE__</div>
+<div id="wordmark" aria-hidden="true">JARVIS</div>
 <div id="act" aria-hidden="true"></div>
 
 <div id="log" aria-live="polite"></div>
@@ -583,7 +584,7 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
 
 <div class="sheet" id="palette" role="dialog" aria-label="Command palette">
   <div class="box glass">
-    <h2>everything __TITLE__ can do <span id="toolCount"></span></h2>
+    <h2>everything JARVIS can do <span id="toolCount"></span></h2>
     <input class="search" id="paletteInput" placeholder="ask, or search every tool…"
            autocomplete="off" aria-label="Command palette"
            role="combobox" aria-controls="paletteList" aria-autocomplete="list"
@@ -679,6 +680,7 @@ const recents = (() => {
 })();
 
 let socket = null, retry = 0, busy = false, replyText = "", turns = 0, turnStarted = 0;
+let queuedText = ""; // preserve a palette click while the WebSocket reconnects
 let transcript = [];                     // {who, text} for the history sheet
 let streamNode = null;                   // the .line.ai node tokens land in
 
@@ -2207,6 +2209,11 @@ function connect() {
     /* a turn in flight when the link died will never finish: stand down */
     if (busy) { endStream(); setBusy(false); }
     if (wasDown) toast("Back online.");
+    if (queuedText) {
+      const pending = queuedText;
+      queuedText = "";
+      send(pending);
+    }
   };
   socket.onclose = () => {
     status("offline");
@@ -2272,7 +2279,7 @@ function handle(data) {
     pulse(0.7);
     enqueueSpeech(cleanSpeak(data.text));
     if (window.Notification && Notification.permission === "granted") {
-      try { new Notification("__TITLE__", { body: data.text }); } catch (err) { /* denied */ }
+      try { new Notification("JARVIS", { body: data.text }); } catch (err) { /* denied */ }
     }
   } else if (data.type === "error") {
     toast(data.text, true);
@@ -2316,7 +2323,12 @@ function cancelTurn() {
 function send(text) {
   text = (text || "").trim();
   if (!text || busy) return;
-  if (!socket || socket.readyState !== 1) { toast("Not connected yet.", true); return; }
+  if (!socket || socket.readyState !== 1) {
+    queuedText = text;
+    toast("Reconnecting… your request is queued.", true);
+    if (!socket || socket.readyState === 3) connect();
+    return;
+  }
   dropHint();
   if (greetTimer) { clearInterval(greetTimer); greetTimer = null; endStream(); }
   remember("me", text);
