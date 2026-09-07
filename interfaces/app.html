@@ -553,6 +553,12 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
             font: 10.5px/1.5 var(--mono); color: var(--dim); }
 .auditrow .ok { color: var(--good); } .auditrow .no { color: var(--bad); }
 .auditrow .ask { color: var(--cyan); }
+.function-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin:12px 0 18px; }
+.function-card { text-align:left; border:1px solid var(--line); border-radius:10px; padding:13px; background:rgba(255,255,255,.025); transition: border-color .25s, background .25s, transform .25s; }
+.function-card:hover { border-color:var(--accent); background:rgba(110,168,255,.08); transform:translateY(-1px); }
+.function-card b { display:block; color:var(--ink); font:11px var(--mono); text-transform:uppercase; letter-spacing:.08em; }
+.function-card small { display:block; color:var(--dim); margin-top:5px; font:10px var(--mono); }
+@media (max-width:500px) { .function-grid { grid-template-columns:1fr; } }
 .switch { display: flex; justify-content: space-between; align-items: center;
           padding: 7px 2px; font: 11.5px var(--mono); color: var(--dim); }
 .switch button { border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px;
@@ -671,6 +677,7 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
   <div class="box glass">
     <div class="tabs">
       <button data-tab="status" class="on">status</button>
+      <button data-tab="functions">functions</button>
       <button data-tab="memory">memory</button>
       <button data-tab="tools">tools</button>
       <button data-tab="audit">audit</button>
@@ -678,6 +685,17 @@ body[data-mood="speak"] #readout { animation: speakGlow 1.4s ease-in-out infinit
     <div class="pane scroll" id="pane-memory">
       <div id="memorySummary"></div>
       <div id="memoryList"></div>
+    </div>
+    <div class="pane scroll" id="pane-functions">
+      <h2>function center <span id="healthBadge" class="hint">live tools</span></h2>
+      <div class="function-grid">
+        <button class="function-card" data-action="Run a full system check"><b>diagnostics</b><small>mic · voice · model · GPU</small></button>
+        <button class="function-card" data-action="What is using my GPU?"><b>performance</b><small>GPU · VRAM · speed</small></button>
+        <button class="function-card" data-action="Summarize my clipboard"><b>clipboard</b><small>summarize · rewrite · translate</small></button>
+        <button class="function-card" data-action="Start a focus session"><b>focus mode</b><small>timer · quiet work</small></button>
+        <button class="function-card" data-action="Switch to Dutch"><b>Nederlands</b><small>voice · replies · STT</small></button>
+        <button class="function-card" data-action="Switch to English"><b>English</b><small>voice · replies · STT</small></button>
+      </div>
     </div>
     <div class="pane on scroll" id="pane-status">
       <div id="statusList"></div>
@@ -3279,6 +3297,9 @@ $("setClear").addEventListener("click", () => {
 });
 $("exportMd").addEventListener("click", () => exportSession("md"));
 $("exportJson").addEventListener("click", () => exportSession("json"));
+for (const card of document.querySelectorAll(".function-card")) {
+  card.addEventListener("click", () => { closeSheets(); send(card.dataset.action || ""); });
+}
 for (const tab of document.querySelectorAll(".tabs button")) {
   tab.addEventListener("click", () => selectTab(tab.dataset.tab));
 }
