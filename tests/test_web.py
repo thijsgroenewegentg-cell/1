@@ -294,3 +294,82 @@ def test_the_page_is_compressed(web):
     assert plain.status_code == packed.status_code == 200
     assert packed.headers.get("content-encoding") == "gzip"
     assert int(packed.headers["content-length"]) < len(plain.content) / 2
+
+
+# --------------------------------------------------------- the status panel
+def test_status_reports_uptime_for_the_panel(web):
+    """The panel has always had an Uptime row; nothing ever filled it."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    payload = client.get(f"/api/status?token={web.token}").json()
+    assert "uptime" in payload
+    assert payload["uptime"]
+
+
+def test_status_still_reports_the_llm_state_the_page_reads(web):
+    """The page keys off llm.online; renaming it would blank the banner."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    llm = client.get(f"/api/status?token={web.token}").json()["llm"]
+    assert "online" in llm
+    assert isinstance(llm["online"], bool)
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [
+        (0, "just started"),
+        (59, "just started"),
+        (60, "1m"),
+        (3661, "1h 1m"),
+        (90000, "1d 1h"),
+    ],
+)
+def test_uptime_is_rendered_for_humans(seconds, expected):
+    from interfaces.web import _format_uptime
+
+    assert _format_uptime(seconds) == expected
+
+
+@pytest.mark.parametrize("rubbish", ["", None, "abc", object()])
+def test_uptime_never_raises_on_rubbish(rubbish):
+    from interfaces.web import _format_uptime
+
+    assert _format_uptime(rubbish) == ""
+
+
+def test_the_page_handles_the_status_shape_the_server_sends(web):
+    """The modules field is an object; the page used to call .map() on it.
+
+    That threw a TypeError into an empty catch, so the entire Status pane —
+    every row, plus the module tiles — silently rendered nothing.
+    """
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert "Array.isArray(raw)" in page
+    assert "Object.keys(raw)" in page
+    # The old, broken expression must be gone.
+    assert "(data.modules || []).map" not in page
+
+
+def test_the_page_reads_the_llm_key_the_server_actually_sends(web):
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert "llm.online === false" in page
+    # The old key must not be read anywhere (a comment naming it is fine).
+    assert "llm.available ===" not in page
+    assert "(llm.available" not in page
+
+
+def test_the_page_explains_degraded_mode(web):
+    """With no model, replies are reflex-only — the UI has to say so."""
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert 'id="degraded"' in page
+    assert "reflex commands only" in page
+    assert "degradedClose" in page

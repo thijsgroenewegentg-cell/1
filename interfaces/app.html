@@ -335,6 +335,30 @@ body.panel-open #panel { transform: none; }
 }
 .toast.bad { border-left-color: var(--bad); }
 
+/* Degraded-mode banner: with Ollama down JARVIS still answers reflex
+   commands, so this explains the limit instead of letting replies look
+   mysteriously stupid. Amber, not red: it is a limitation, not a fault. */
+#degraded {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 39;
+  display: flex; align-items: center; gap: 10px; max-width: min(92vw, 620px);
+  background: rgba(8, 14, 26, .96); border: 1px solid var(--line);
+  border-left: 2px solid #fbbf24; border-radius: 10px;
+  padding: 8px 10px 8px 14px; font-size: 13px; color: var(--text);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .5);
+}
+#degraded[hidden] { display: none; }
+#degraded .dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #fbbf24; flex: none;
+  box-shadow: 0 0 8px rgba(251, 191, 36, .8);
+}
+#degraded code {
+  font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: #fbbf24;
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; flex: none;
+}
+#degraded button { padding: 2px 6px; font-size: 13px; flex: none; }
+#topState.degraded { color: #fbbf24; }
+@media (max-width: 620px) { #degraded code { display: none; } }
+
 @media (max-width: 860px) {
   #rail { display: none; }
   #stage { padding-bottom: 226px; }
@@ -456,6 +480,13 @@ body.panel-open #panel { transform: none; }
   <div id="historyList"></div>
 </div>
 
+<div id="degraded" role="status" hidden>
+  <span class="dot"></span>
+  <span id="degradedText">No language model — reflex commands only.</span>
+  <code id="degradedFix">ollama serve</code>
+  <button class="ghost" id="degradedClose" aria-label="Dismiss">✕</button>
+</div>
+
 <div id="toasts" aria-live="assertive"></div>
 
 <script>
@@ -466,6 +497,8 @@ const $ = (id) => document.getElementById(id);
 const rail = $("rail"), caption = $("caption"), input = $("input");
 
 let socket = null, busy = false, replyText = "", turns = 0, retry = 0;
+// null until /api/status answers; false means Ollama is not running.
+let llmOnline = null;
 let captionTimer = null, turnStarted = 0;
 const settings = { speech: localStorage.getItem("jarvis.speech") === "1" };
 
@@ -963,7 +996,11 @@ function connect() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
   socket = new WebSocket(scheme + "://" + location.host + "/ws" + auth);
   socket.onopen = () => {
-    $("link").classList.add("on"); $("topState").textContent = "online";
+    $("link").classList.add("on");
+    // "online" describes the socket, not the assistant. With Ollama down
+    // JARVIS answers only reflex commands, so say which of the two it is.
+    $("topState").textContent = llmOnline === false ? "no model" : "online";
+    $("topState").classList.toggle("degraded", llmOnline === false);
     retry = 0; mood("idle", 0); pulse();
   };
   socket.onclose = () => {
@@ -1237,17 +1274,51 @@ function togglePanel(force) {
   if (open) { loadStatus(); loadTools().then(drawTools); }
 }
 
+/* Show or hide the degraded-mode banner. Dismissal lasts for the session
+   only: a new tab after starting Ollama should not stay silent about it. */
+let degradedDismissed = false;
+function showDegraded(on, host) {
+  const banner = $("degraded");
+  if (!banner) return;
+  if (on && !degradedDismissed) {
+    $("degradedText").textContent =
+      "No language model at " + (host || "Ollama") + " — reflex commands only.";
+    banner.hidden = false;
+  } else {
+    banner.hidden = true;
+  }
+}
+
 async function loadStatus() {
   try {
     const data = await (await fetch("/api/status" + auth)).json();
     const llm = data.llm || {}, memory = data.memory || {};
-    const loaded = (data.modules || []).map((entry) => (typeof entry === "string" ? entry : entry.name));
-    MODULES.forEach((name) => tiles[name].classList.toggle("off", !loaded.includes(name)));
+    // /api/status reports modules as {name: tool_count}. Calling .map() on that
+    // object threw a TypeError straight into the empty catch below, so the
+    // whole Status pane — every row, and the module tiles — silently rendered
+    // nothing. Accept an object, an array of names, or an array of records.
+    const raw = data.modules || [];
+    const loaded = Array.isArray(raw)
+      ? raw.map((entry) => (typeof entry === "string" ? entry : entry.name))
+      : Object.keys(raw);
+    const toolCounts = Array.isArray(raw) ? {} : raw;
+    MODULES.forEach((name) => {
+      if (tiles[name]) tiles[name].classList.toggle("off", !loaded.includes(name));
+    });
+    const totalTools = Object.values(toolCounts).reduce((sum, n) => sum + (Number(n) || 0), 0);
+    llmOnline = llm.online !== false;
+    if ($("topState").textContent !== "reconnecting") {
+      $("topState").textContent = llmOnline ? "online" : "no model";
+      $("topState").classList.toggle("degraded", !llmOnline);
+    }
+    showDegraded(!llmOnline, llm.host || "");
     const rows = [
-      ["Model", (llm.model || "not running") + (llm.available === false ? " · offline" : "")],
+      // The server sends llm.online; llm.available never existed, so the
+      // "offline" suffix never appeared and a dead model looked healthy.
+      ["Model", (llm.model || "not running") + (llm.online === false ? " · offline" : "")],
       ["Host", llm.host || "—"],
       ["Memory", (memory.backend || "—") + " · " + (memory.long_term ?? memory.entries ?? 0) + " facts"],
-      ["Modules", loaded.length + " loaded"],
+      ["Modules", loaded.length + " loaded" + (totalTools ? " · " + totalTools + " tools" : "")],
       ["Uptime", data.uptime || "—"],
     ];
     $("statusList").innerHTML = rows.map(([key, value]) =>
@@ -1370,6 +1441,10 @@ addEventListener("keyup", (event) => {
 $("panelBtn").addEventListener("click", () => togglePanel());
 $("toolSearch").addEventListener("input", drawTools);
 $("auditRefresh").addEventListener("click", loadAudit);
+$("degradedClose").addEventListener("click", () => {
+  degradedDismissed = true;
+  $("degraded").hidden = true;
+});
 document.querySelectorAll(".tab").forEach((tab) =>
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach((other) => other.classList.remove("on"));

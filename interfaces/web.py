@@ -194,6 +194,30 @@ def load_page() -> str:
 MAX_MESSAGE_CHARS = 8000
 
 
+def _format_uptime(seconds: Any) -> str:
+    """Render an uptime in seconds as a short human string.
+
+    Args:
+        seconds: Elapsed seconds, as reported by the brain.
+
+    Returns:
+        Something like ``"3m"``, ``"2h 14m"`` or ``"1d 3h"``; ``"just started"``
+        below a minute.
+    """
+    try:
+        total = int(seconds)
+    except (TypeError, ValueError):
+        return ""
+    if total < 60:
+        return "just started"
+    minutes, hours = (total // 60) % 60, total // 3600
+    if hours >= 24:
+        return f"{hours // 24}d {hours % 24}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
 class WebInterface:
     """FastAPI + WebSocket front-end that runs alongside the CLI."""
 
@@ -395,6 +419,11 @@ class WebInterface:
                     "llm": report.get("llm", {}),
                     "modules": report.get("modules", []),
                     "memory": report.get("memory", {}),
+                    # The panel has always had an "Uptime" row with nothing to
+                    # put in it, so it read "—" forever: the brain reports
+                    # uptime_seconds, which was never passed through.
+                    "uptime": _format_uptime(report.get("uptime_seconds", 0)),
+                    "turns": report.get("turns", 0),
                     "clients": self.clients,
                 }
             )
