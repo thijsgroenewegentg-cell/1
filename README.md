@@ -39,7 +39,7 @@ intelligence — built entirely from free and open-source parts.
 | Phone / LAN UI | **FastAPI** + WebSockets, served from your own machine | free |
 | Self-improvement | **GitHub search API** (keyless) + `git clone` + its own LLM | free, no key |
 
-Eleven capability modules, 120 callable tools:
+Twelve capability modules, 130 callable tools:
 
 * **system_control** — open/close apps, screenshots, CPU/RAM/disk/battery, volume, lock screen, clipboard, keyboard & mouse automation, shell commands (guarded), time/date
 * **web_search** — DuckDuckGo search, page scraping + summarising, weather, news, Wikipedia, geocoding

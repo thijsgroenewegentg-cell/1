@@ -106,3 +106,16 @@ def test_rate_limiting_is_named(web):
 
 def test_an_unexpected_failure_still_says_something(web):
     assert "failed" in web._search_failure(RuntimeError("something odd")).lower()
+
+
+def test_weather_is_a_registered_tool(web):
+    # The @tool decorator once sat on the private _locate_by_ip helper directly
+    # above it, so `weather` was never registered and every routed weather
+    # request died with "Unknown tool 'weather'".
+    assert "weather" in web.tools
+    assert "_locate_by_ip" not in web.tools
+    assert web.tools["weather"].params.keys() == {"location"}
+
+
+def test_no_private_helper_is_exposed_as_a_tool(web):
+    assert not [name for name in web.tools if name.startswith("_")]
