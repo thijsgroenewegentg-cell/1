@@ -521,18 +521,18 @@ const orb = {
 // a wash of blue when idle, cooler and brighter when listening, violet while
 // thinking. Only "lost" departs, because a dead socket should look wrong.
 const COLOURS = {
-  idle:   [176, 202, 255],
-  listen: [198, 232, 255],
-  think:  [186, 190, 255],
-  speak:  [206, 226, 255],
-  lost:   [248, 145, 145],
+  idle:   [150, 190, 255],
+  listen: [120, 245, 255],
+  think:  [170, 130, 255],
+  speak:  [255, 255, 255],
+  lost:   [255, 60, 60],
 };
 
 /* ---------------------------------------------------------------- noise
    Cheap 3D value noise. The shell's radius is displaced by it, which is
    what turns a rigid lattice of dots into something that billows and folds
-   like cloth. Two octaves is enough to read as organic; a third costs
-   frames for detail nobody sees at this point size.
+   like cloth. Three octaves, ridged, so the folds sharpen into spires
+   instead of settling into gentle hills.
    ==================================================================== */
 const PERM = new Uint8Array(512);
 (() => {
@@ -574,9 +574,14 @@ let shell = [], stars = [];
 //: most expensive thing on the page.
 //: How far the noise pushes each point off the sphere, and how tightly the
 //: noise field is packed. Larger NOISE_SCALE means more, smaller folds.
-const NOISE_AMOUNT = 0.26;
-const NOISE_SCALE = 1.35;
-const BUCKETS = 9;
+//: These are deliberately violent: the shell tears into spires rather than
+//: rippling politely.
+const NOISE_AMOUNT = 0.62;
+const NOISE_SCALE = 1.9;
+//: Ridged noise folds the field at zero, turning smooth hills into sharp
+//: crests. This is what separates "billowing" from "dramatic".
+const RIDGE = 0.72;
+const BUCKETS = 14;
 const buckets = Array.from({ length: BUCKETS }, () => ({ x: [], y: [], r: [] }));
 const camera = { x: 0, y: 0, targetX: 0, targetY: 0 };
 let quality = 1;                       // scaled down if frames get expensive
@@ -661,12 +666,15 @@ function draw(now) {
   const base = Math.min(width, height) * (width < 760 ? 0.29 : 0.25);
 
   orb.time += 0.016;
-  orb.energy += (orb.target - orb.energy) * 0.11;
-  orb.pulse *= 0.94;
-  orb.spin += 0.0015 + orb.energy * 0.006;
+  // Energy snaps up fast and falls away slowly, so reactions hit hard and
+  // then linger rather than easing symmetrically in and out.
+  const chase = orb.target > orb.energy ? 0.3 : 0.045;
+  orb.energy += (orb.target - orb.energy) * chase;
+  orb.pulse *= 0.965;
+  orb.spin += 0.0022 + orb.energy * 0.028 + orb.pulse * 0.02;
 
   const wanted = COLOURS[orb.hue] || COLOURS.idle;
-  for (let i = 0; i < 3; i++) paint[i] += (wanted[i] - paint[i]) * 0.05;
+  for (let i = 0; i < 3; i++) paint[i] += (wanted[i] - paint[i]) * 0.14;
   const [red, green, blue] = paint.map(Math.round);
   const rgb = (alpha) => `rgba(${red},${green},${blue},${alpha})`;
 
@@ -684,18 +692,26 @@ function draw(now) {
   // -- starfield ---------------------------------------------------------
   for (const star of stars) {
     const y = (star.y + orb.time * 0.004 * star.drift) % 1;
-    ctx.fillStyle = `rgba(150,190,240,${star.alpha * (0.55 + Math.sin(orb.time + star.x * 30) * 0.45)})`;
-    ctx.fillRect(star.x * width, y * height, star.size, star.size);
+    const twinkle = star.alpha * (0.55 + Math.sin(orb.time * 2.2 + star.x * 30) * 0.45);
+    const streak = 1 + orb.pulse * 14 * star.drift;
+    ctx.fillStyle = `rgba(190,220,255,${Math.min(1, twinkle * (1 + orb.pulse * 2))})`;
+    ctx.fillRect(star.x * width, y * height, star.size, star.size * streak);
   }
 
   // -- the glow behind everything ----------------------------------------
-  const glow = ctx.createRadialGradient(centreX, centreY, base * 0.1, centreX, centreY, base * 2.2);
-  glow.addColorStop(0, rgb(0.08 + orb.energy * 0.12 + orb.pulse * 0.16));
+  const glow = ctx.createRadialGradient(centreX, centreY, base * 0.1, centreX, centreY, base * 2.6);
+  glow.addColorStop(0, rgb(0.1 + orb.energy * 0.4 + orb.pulse * 0.5));
+  glow.addColorStop(0.35, rgb(0.05 + orb.energy * 0.16 + orb.pulse * 0.2));
   glow.addColorStop(1, "rgba(3,6,12,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, width, height);
 
-  const breathe = 1 + Math.sin(orb.time * 1.1) * 0.012 + orb.energy * 0.07 + orb.pulse * 0.05;
+  // Deep, uneven breathing — two detuned sines so it never settles into an
+  // obvious loop, plus a hard kick on pulse.
+  const breathe = 1
+    + Math.sin(orb.time * 1.1) * 0.05
+    + Math.sin(orb.time * 0.37) * 0.035
+    + orb.energy * 0.22 + orb.pulse * 0.3;
   const project = (point, radiusScale, spinScale) => {
     const spinNow = orb.spin * spinScale;
     const cosNow = Math.cos(spinNow), sinNow = Math.sin(spinNow);
@@ -722,27 +738,50 @@ function draw(now) {
     buckets[b].x.length = 0; buckets[b].y.length = 0; buckets[b].r.length = 0;
   }
   let brightest = 0;
-  const flow = orb.time * 0.09;
-  const swell = NOISE_AMOUNT + orb.energy * 0.09 + orb.pulse * 0.05;
+  const flow = orb.time * 0.26;
+  const swell = NOISE_AMOUNT + orb.energy * 0.55 + orb.pulse * 0.45;
+  // A shockwave front sweeping outward from the core after every pulse. It
+  // travels through the shell as a ring of displacement, so a reply visibly
+  // detonates instead of merely brightening.
+  const waveFront = (1 - orb.pulse) * 2.4;
   for (let i = 0; i < shell.length; i++) {
     const point = shell[i];
-    const n =
+    const raw =
       noise3(point.x * NOISE_SCALE + flow,
              point.y * NOISE_SCALE - flow * 0.6,
              point.z * NOISE_SCALE) +
       noise3(point.x * NOISE_SCALE * 2.3,
              point.y * NOISE_SCALE * 2.3 + flow * 1.3,
-             point.z * NOISE_SCALE * 2.3) * 0.5;
-    const wobble = 1 + n * swell;
+             point.z * NOISE_SCALE * 2.3) * 0.5 +
+      noise3(point.x * NOISE_SCALE * 4.7 - flow * 2.1,
+             point.y * NOISE_SCALE * 4.7,
+             point.z * NOISE_SCALE * 4.7 + flow * 1.7) * 0.25;
+    // Ridge the field: fold it at zero and invert, so smooth hills become
+    // knife-edged spires. Blended, not absolute, to keep some soft valleys.
+    // The -0.42 re-centres it: folding is biased positive, and without the
+    // correction the whole shell inflates into a bloated ball whose spires
+    // have nothing to rise above.
+    const ridged = (1 - Math.abs(raw) * 1.14) - 0.42;
+    const n = raw * (1 - RIDGE) + ridged * RIDGE;
+
+    // Distance of this point from the shockwave front, along the axis the
+    // wave travels (its height on the tilted sphere).
+    const along = point.y * 0.5 + 0.5;
+    const shock = orb.pulse > 0.01
+      ? Math.exp(-((along * 2.4 - waveFront) ** 2) * 9) * orb.pulse * 0.55
+      : 0;
+
+    const wobble = 1 + n * swell + shock;
     const spot = project(point, base * breathe * wobble, 1);
     const rim = (1 - Math.abs(spot.z)) ** 3;
-    // Crests catch the light: points pushed outward read brighter, which is
-    // what gives the folds their shape instead of a uniform speckle.
-    const crest = Math.max(0, n) * 0.5;
-    const alpha = 0.04 + spot.depth * spot.depth * (0.3 + orb.energy * 0.24)
-                + rim * 0.2 + crest * 0.3;
-    const size = (0.45 + spot.depth * 1.05 + rim * 0.4 + crest * 0.5)
-               * (1 + orb.energy * 0.2);
+    // Crests catch the light hard. Raised to a steep power so only the true
+    // peaks blow out — around 5% of points — which is what gives the spires
+    // glinting edges instead of washing the whole shell out.
+    const crest = Math.max(0, n * 2) ** 3;
+    const alpha = 0.03 + spot.depth * spot.depth * (0.26 + orb.energy * 0.5)
+                + rim * 0.24 + crest * 0.72 + shock * 1.6;
+    const size = (0.4 + spot.depth * 1.0 + rim * 0.45 + crest * 1.5 + shock * 3)
+               * (1 + orb.energy * 0.55);
     const slot = Math.min(BUCKETS - 1, (alpha * BUCKETS) | 0);
     if (slot > brightest) brightest = slot;
     buckets[slot].x.push(spot.x);
@@ -752,26 +791,54 @@ function draw(now) {
   for (let b = 0; b <= brightest; b++) {
     const bucket = buckets[b];
     if (!bucket.x.length) continue;
-    ctx.fillStyle = rgb(((b + 0.5) / BUCKETS).toFixed(3));
+    const level = (b + 0.5) / BUCKETS;
+    // Gamma-curve the buckets so the dim majority falls away to near-black
+    // and the bright minority slams to full white. Flat linear shading is
+    // what made the old sphere read as an even grey fuzz.
+    ctx.fillStyle = rgb(Math.min(1, level ** 1.7 * 1.5).toFixed(3));
     ctx.beginPath();
     for (let i = 0; i < bucket.x.length; i++) {
       ctx.moveTo(bucket.x[i] + bucket.r[i], bucket.y[i]);
       ctx.arc(bucket.x[i], bucket.y[i], bucket.r[i], 0, 6.2832);
     }
     ctx.fill();
+    // The top buckets get a second, wider, fainter pass — a cheap bloom that
+    // makes the crests bleed light into the space around them.
+    if (b >= BUCKETS - 3) {
+      ctx.fillStyle = rgb((0.1 + level * 0.14).toFixed(3));
+      ctx.beginPath();
+      for (let i = 0; i < bucket.x.length; i++) {
+        const halo = bucket.r[i] * 3.4;
+        ctx.moveTo(bucket.x[i] + halo, bucket.y[i]);
+        ctx.arc(bucket.x[i], bucket.y[i], halo, 0, 6.2832);
+      }
+      ctx.fill();
+    }
   }
 
   // -- the core -----------------------------------------------------------
-  // Kept faint: the sphere should read as a hollow shell of points, not a
-  // lamp with a bright bulb inside it.
-  const core = ctx.createRadialGradient(centreX, centreY, 0, centreX, centreY, base * 0.45);
-  core.addColorStop(0, `rgba(255,255,255,${0.02 + orb.energy * 0.08 + orb.pulse * 0.18})`);
-  core.addColorStop(0.5, rgb(0.03 + orb.energy * 0.06));
+  // Still a shell rather than a bulb at rest, but it detonates on a pulse.
+  const coreSize = base * (0.45 + orb.pulse * 0.5);
+  const core = ctx.createRadialGradient(centreX, centreY, 0, centreX, centreY, coreSize);
+  core.addColorStop(0, `rgba(255,255,255,${Math.min(0.95, 0.03 + orb.energy * 0.3 + orb.pulse * 0.9)})`);
+  core.addColorStop(0.45, rgb(0.04 + orb.energy * 0.2 + orb.pulse * 0.35));
   core.addColorStop(1, "rgba(3,6,12,0)");
   ctx.fillStyle = core;
   ctx.beginPath();
-  ctx.arc(centreX, centreY, base * 0.45, 0, 6.2832);
+  ctx.arc(centreX, centreY, coreSize, 0, 6.2832);
   ctx.fill();
+
+  // -- the shockwave ring --------------------------------------------------
+  // The visible edge of the same front that is deforming the shell, so the
+  // detonation reads as one event rather than two unrelated effects.
+  if (orb.pulse > 0.02) {
+    const ring = base * (0.6 + (1 - orb.pulse) * 2.2);
+    ctx.strokeStyle = rgb((orb.pulse * 0.5).toFixed(3));
+    ctx.lineWidth = 1 + orb.pulse * 5;
+    ctx.beginPath();
+    ctx.arc(centreX + driftX, centreY + driftY, ring, 0, 6.2832);
+    ctx.stroke();
+  }
 }
 requestAnimationFrame(draw);
 
