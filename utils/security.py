@@ -193,6 +193,21 @@ class SecurityGuard:
         """Install the coroutine used to ask the user for approval."""
         self._confirm_hook = hook
 
+    def preview(self, command: str) -> Dict[str, str]:
+        """Return a safe, display-ready dry-run assessment without executing.
+
+        This is intentionally side-effect free so UIs can show a command
+        preview before asking for confirmation or dispatching it.
+        """
+        assessment = self.assess(command)
+        return {
+            "command": str(command or "").strip(),
+            "profile": self.permission_profile,
+            "level": assessment.level.value,
+            "reason": assessment.reason,
+            "allowed": "true" if assessment.level is not RiskLevel.BLOCKED else "false",
+        }
+
     # -- assessment ---------------------------------------------------------
     def assess(self, command: str) -> RiskAssessment:
         """Classify a shell command string.
