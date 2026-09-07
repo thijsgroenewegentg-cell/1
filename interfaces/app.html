@@ -1484,6 +1484,19 @@ function draw(now) {
     ctx.fill();
     ctx.globalCompositeOperation = "source-over";
   }
+  /* A nova throws a horizontal anamorphic flare: brief, bright, and optically
+     imperfect, so the answer feels like an event rather than a text update. */
+  if (orb.nova > 0.06 && !reduced) {
+    const flare = Math.min(1, orb.nova * 1.6);
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    const fg = ctx.createLinearGradient(cxNow - R * 2.4, cyNow, cxNow + R * 2.4, cyNow);
+    fg.addColorStop(0, "rgba(0,0,0,0)");
+    fg.addColorStop(.5, `rgba(${glow[0]},${glow[1]},${glow[2]},${flare * .24})`);
+    fg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = fg;
+    ctx.fillRect(cxNow - R * 2.4, cyNow - Math.max(1, R * .006), R * 4.8, Math.max(2, R * .012));
+    ctx.restore();
+  }
   ctx.restore();
 
   /* ---------------------------------------------------------------- floor
