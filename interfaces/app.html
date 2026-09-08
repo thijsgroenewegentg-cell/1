@@ -19,24 +19,28 @@
 <title>__TITLE__</title>
 <style>
 :root {
-  --bg: #03060c;
-  --text: #dfe9f7;
-  --dim: #8395ab;
-  --dimmer: #4a5b70;
-  --line: rgba(125, 165, 225, .15);
-  --line-warm: rgba(125, 165, 225, .3);
-  --idle: #3b56d8;
-  --listen: #22d3ee;
-  --think: #8b5cf6;
-  --speak: #38bdf8;
-  --bad: #f87171;
-  --good: #34d399;
-  --glass: rgba(8, 14, 26, .72);
-  /* Live state, rewritten every frame from the draw loop. --tint is the
+  --bg: #060608;
+  --text: #f8f8f8;
+  --dim: #9aa0a6;
+  --dimmer: #5f6368;
+  --line: rgba(255,255,255,.08);
+  --line-warm: rgba(239,68,68,.22);
+  --idle: #9aa0a6;
+  --listen: #ef4444;
+  --think: #f87171;
+  --speak: #ef4444;
+  --bad: #ef4444;
+  --good: #22c55e;
+  --glass: rgba(12,12,12,.78);
+  /* Live state — now b/w+red. --tint is red 239,68,68 */
+  /* b/w red hints — black/white base, red only for live/active */
+  --red: 239,68,68;
+  --red-strong: #ef4444;
+  --red-glow: rgba(239,68,68,.45);
      orb's current colour as raw "r,g,b" so it can be used at any alpha. */
   --energy: 0;
   --burst: 0;
-  --tint: 150, 190, 255;
+  --tint: 239, 68, 68;
   --live: rgb(var(--tint));
 
   /* ---- the scale ----------------------------------------------------
@@ -48,8 +52,8 @@
   --r-lg: 18px;    /* cards, panels, dialogs        */
   --r-full: 999px;
   /* Every raised surface uses these three, so depth is consistent. */
-  --surface: rgba(10, 17, 30, .82);
-  --surface-solid: rgba(9, 15, 27, .98);
+  --surface: rgba(18,18,18,.88);
+  --surface-solid: rgba(10,10,10,.98);
   --shadow-sm: 0 8px 24px rgba(0, 0, 0, .45);
   --shadow-md: 0 20px 52px rgba(0, 0, 0, .6);
   --shadow-lg: 0 44px 100px rgba(0, 0, 0, .75);
@@ -112,7 +116,7 @@ button { cursor: pointer; border: 0; background: none; }
    seems to swell when JARVIS reacts. Behind the orb so the sphere itself
    stays crisp. */
 #halo {
-  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; /* b/w+red */ filter: saturate(1.05);
   background:
     radial-gradient(ellipse 900px 700px at 50% var(--orb-y, 24%),
       rgba(var(--tint), calc(.13 + var(--energy) * .20 + var(--burst) * .16)) 0%,
@@ -759,6 +763,19 @@ body.degraded-open #toasts { top: 118px; }
   #scan { display: none; }
 }
  .hl { background: rgba(56,189,248,0.22); outline: 1px solid rgba(56,189,248,0.45); border-radius: 4px; padding: 0 2px; }
+
+/* --- b/w + red theme overrides (user asked black/white with hints of red) --- */
+#brand{ border-color: rgba(255,255,255,.10) !important; }
+#brand span{ color:#fff !important; }
+#dock{ border-color: rgba(255,255,255,.08) !important; }
+#dock button.on{ background: rgba(239,68,68,.14) !important; border-color: rgba(239,68,68,.45) !important; box-shadow: 0 0 18px rgba(239,68,68,.28) !important; color:#fff !important; }
+#rail .bubble{ border-color: rgba(255,255,255,.06) !important; }
+#rail .bubble.user{ border-color: rgba(239,68,68,.22) !important; }
+#rail .bubble.assistant{ border-left-color: rgba(239,68,68,.5) !important; }
+#stage{ border-color: rgba(255,255,255,.08) !important; }
+#stage input:focus{ border-color: rgba(239,68,68,.45) !important; box-shadow: 0 0 0 3px rgba(239,68,68,.12) !important; }
+.hl{ background: rgba(239,68,68,.18) !important; outline: 1px solid rgba(239,68,68,.35) !important; }
+
 </style>
 </head>
 <body>
