@@ -3206,8 +3206,8 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
   } else {
     decode();
     typeLog(1250);
-    at(3550, () => startup.classList.add('over'));   // overdrive beat
-    at(4150, finish);                                // exit flash
+    at(3700, () => startup.classList.add('over'));   // overdrive beat
+    at(4400, finish);                                // exit flash
   }
 
   // Click, Enter or Space skips straight to the interface.
@@ -3215,8 +3215,8 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
   document.addEventListener('keydown', (e) => {
     if(e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') finish();
   });
-  // Returning visitors get the short cut: the drama plays, but they aren't held.
-  try{ if(localStorage.getItem('jarvis_startup_seen')) at(1500, finish); }catch(e){}
+  // No shortcut for returning visitors: the full sequence plays every load,
+  // and a click / Enter / Esc skips it instantly if they want straight in.
 })();
 
 </script>
