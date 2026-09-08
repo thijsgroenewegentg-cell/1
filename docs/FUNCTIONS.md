@@ -20,7 +20,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/planner.py`](#coreplannerpy) — 5
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
-- [`interfaces/web.py`](#interfaceswebpy) — 44
+- [`interfaces/web.py`](#interfaceswebpy) — 46
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 24
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
@@ -31,7 +31,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/productivity.py`](#modulesproductivitypy) — 72
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
 - [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 24
-- [`modules/system_control.py`](#modulessystem_controlpy) — 26
+- [`modules/system_control.py`](#modulessystem_controlpy) — 35
 - [`modules/vision.py`](#modulesvisionpy) — 15
 - [`modules/web_search.py`](#modulesweb_searchpy) — 20
 - [`plugins/plugin_loader.py`](#pluginsplugin_loaderpy) — 12
@@ -601,7 +601,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*44 functions*
+*46 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
@@ -634,6 +634,8 @@ and marked with `·`; methods the intent router can call are marked
   · `async def list_memory(token: str = Query(default=''), q: str = Query(default=''), limit: int = Query(default=20)) -> Any` — List or search long-term memory.
   · `async def manage_memory(request: Request, token: str = Query(default='')) -> Any` — Remember or forget a fact.
   · `async def doctor(token: str = Query(default='')) -> Any` — JSON doctor for the web panel (no shell).
+  · `async def system_status(token: str = Query(default='')) -> Any` — Whether system_control is paused (kill-switch).
+  · `async def system_pause(request: Request, token: str = Query(default='')) -> Any` — Kill-switch: pause/unpause system_control + vision + shell.
   · `async def piper_install(token: str = Query(default='')) -> Any` — Download the offline Piper voice (en_GB-alan-medium, ~65MB).
   · `async def tts(text: str = Query(...), token: str = Query(default=''), voice: str = Query(default=''), engine: str = Query(default='')) -> Any` — Render text to speech and return an audio file.
   · `async def manifest(token: str = Query(default='')) -> Any` — Serve the PWA manifest so the page installs to a home screen.
@@ -1078,7 +1080,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/system_control.py`
 
-*26 functions*
+*35 functions*
 
 > Control the host computer: apps, screenshots, stats, volume, input, shell.
 
@@ -1110,6 +1112,13 @@ and marked with `·`; methods the intent router can call are marked
 - `async def system_info(self) -> ModuleResult` **@tool** — Return static machine information.
 - `async def sleep_computer(self) -> ModuleResult` **@tool** — Suspend the machine.
 - `async def disk_free(self, path: str = '~') -> ModuleResult` **@tool** — Report free space for the volume containing ``path``.
+- `async def download(self, url: str, filename: str = '') -> ModuleResult` **@tool** — Download ``url`` to ``~/Downloads/jarvis`` and auto-unzip if it is an archive.
+- `async def list_windows(self, limit: int = 20) -> ModuleResult` **@tool** — List window titles via wmctrl/xdotool / AppleScript / tasklist, falling back to processes.
+- `async def focus_window(self, title: str) -> ModuleResult` **@tool** — Focus a window matching ``title``.
+- `async def minimize_window(self, title: str) -> ModuleResult` **@tool** — Minimize a window matching ``title``.
+- `async def list_apps(self, limit: int = 30) -> ModuleResult` **@tool** — List known apps from aliases plus a quick scan of common app dirs.
+- `async def clipboard_history(self, limit: int = 8) -> ModuleResult` **@tool** — Return recent clipboard copies made through JARVIS.
+- `async def drag_file(self, path: str, x: int = 600, y: int = 400, duration: float = 0.6) -> ModuleResult` **@tool** — Drag ``path`` to (x,y) with the mouse, falling back to a copy to ~/Downloads/jarvis/drop.
 
 ## `modules/vision.py`
 
@@ -2373,5 +2382,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1653 functions across 66 files.**
+**1664 functions across 66 files.**
 

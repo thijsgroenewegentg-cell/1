@@ -12,6 +12,10 @@ import os
 import re
 import shutil
 import time
+import tarfile
+import urllib.request
+import zipfile
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional
@@ -835,8 +839,18 @@ class SystemControl(BaseModule):
         try:
             if str(action).lower().startswith("s"):
                 pyperclip.copy(str(text))
+                try:
+                    if text:
+                        self._clip_history.appendleft({"text": truncate(str(text), 200), "when": datetime.now().isoformat(timespec="seconds")})
+                except Exception:
+                    pass
                 return ModuleResult.ok("Copied to clipboard.")
             content = pyperclip.paste() or ""
+            try:
+                if content:
+                    self._clip_history.appendleft({"text": truncate(content, 200), "when": datetime.now().isoformat(timespec="seconds")})
+            except Exception:
+                pass
             return ModuleResult.ok(
                 f"Clipboard contains: {truncate(content, 500)}"
                 if content else "Clipboard is empty.",
@@ -1022,6 +1036,287 @@ class SystemControl(BaseModule):
             )
         except Exception as exc:
             return ModuleResult.fail(f"Could not read disk usage: {exc}")
+
+
+
+    # ---------------------------------------------------------------- 1 download organizer
+    @tool(
+        description="Download any URL to ~/Downloads/jarvis/YYYY-MM-DD-name with progress and auto-unzip for zip/tar.gz.",
+        params={
+            "url": {"type": "string", "description": "https:// URL to download"},
+            "filename": {"type": "string", "description": "Optional override filename", "default": ""},
+        },
+        dangerous=True,
+        keywords=["download", "fetch file", "save url", "pull down"],
+    )
+    async def download(self, url: str, filename: str = "") -> ModuleResult:
+        """Download ``url`` to ``~/Downloads/jarvis`` and auto-unzip if it is an archive."""
+        if not url or not url.startswith(("http://", "https://")):
+            return ModuleResult.fail("Provide a http(s) URL, sir — e.g. download https://example.com/file.zip")
+        try:
+            base = Path.home() / "Downloads" / "jarvis"
+            base.mkdir(parents=True, exist_ok=True)
+            raw = filename.strip() or url.split("?")[0].rstrip("/").split("/")[-1] or "download"
+            raw = safe_filename(raw) or "download"
+            dated = datetime.now().strftime("%Y-%m-%d") + "-" + raw
+            dest = base / dated
+            c = 1
+            while dest.exists():
+                dest = base / f"{dated.rstrip('.' + dest.suffix.lstrip('.'))}-{c}{dest.suffix}"
+                c += 1
+            def _do():
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
+                    shutil.copyfileobj(r, f)
+                return dest.stat().st_size
+            size = await run_blocking(_do)
+            extra = ""
+            try:
+                if dest.suffix.lower() == ".zip" and zipfile.is_zipfile(dest):
+                    out = dest.with_suffix("")
+                    out.mkdir(exist_ok=True)
+                    with zipfile.ZipFile(dest) as z:
+                        z.extractall(out)
+                    extra = f" — unzipped to {out}"
+                elif dest.name.endswith((".tar.gz", ".tgz")) or dest.suffix.lower() in (".gz", ".tgz"):
+                    try:
+                        out = dest.with_suffix("").with_suffix("") if dest.name.endswith(".tar.gz") else dest.with_suffix("")
+                        out.mkdir(exist_ok=True)
+                        with tarfile.open(dest, "r:*") as t:
+                            t.extractall(out)
+                        extra = f" — extracted to {out}"
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            return ModuleResult.ok(f"Downloaded {human_bytes(size)} to {dest}{extra}", data={"path": str(dest), "bytes": size, "extra": extra})
+        except Exception as exc:
+            return ModuleResult.fail(f"Download failed: {exc}")
+
+    # -------------------------------------------------------------- 2 window / app manager
+    @tool(
+        description="List visible window titles (and app names where available).",
+        params={"limit": {"type": "integer", "description": "Max windows to return", "default": 20}},
+        keywords=["list windows", "show windows", "what is open", "window list"],
+    )
+    async def list_windows(self, limit: int = 20) -> ModuleResult:
+        """List window titles via wmctrl/xdotool / AppleScript / tasklist, falling back to processes."""
+        limit = max(1, min(50, int(limit or 20)))
+        titles: list[str] = []
+        try:
+            if IS_LINUX:
+                for cmd in ([ "wmctrl", "-l" ], [ "xdotool", "search", "--name", "" ]):
+                    if which(cmd[0]):
+                        code, out, _ = await run_command(cmd, timeout=8)
+                        if code == 0 and out.strip():
+                            if cmd[0] == "wmctrl":
+                                for line in out.splitlines()[:limit]:
+                                    parts = line.split(None, 3)
+                                    if len(parts) == 4:
+                                        titles.append(parts[3])
+                            else:
+                                for line in out.splitlines()[:limit]:
+                                    titles.append(f"window {line.strip()}")
+                            break
+            elif IS_MACOS:
+                if which("osascript"):
+                    code, out, _ = await run_command(["osascript", "-e", 'tell application "System Events" to get name of every process whose background only is false'], timeout=8)
+                    if code == 0:
+                        titles = [t.strip() for t in out.replace(",", "\n").splitlines() if t.strip()][:limit]
+            elif IS_WINDOWS:
+                try:
+                    import pygetwindow  # type: ignore
+                    titles = [t for t in pygetwindow.getAllTitles() if t.strip()][:limit]
+                except Exception:
+                    pass
+                if not titles and which("powershell"):
+                    code, out, _ = await run_command(["powershell", "-NoProfile", "-Command", "Get-Process | Where-Object {$_.MainWindowTitle} | Select-Object -ExpandProperty MainWindowTitle"], timeout=10)
+                    if code == 0:
+                        titles = [l.strip() for l in out.splitlines() if l.strip()][:limit]
+                if not titles:
+                    code, out, _ = await run_command(["tasklist", "/v", "/fo", "csv"], timeout=10)
+                    if code == 0:
+                        for line in out.splitlines()[1:limit+1]:
+                            titles.append(line.split(",")[-1].strip().strip('"'))
+        except Exception:
+            pass
+        if not titles:
+            res = await self.list_processes(limit=limit)
+            return ModuleResult(success=True, output=f"No window manager found — top processes:\n{res.output}", data={"windows": [], "fallback": res.data})
+        out = "\n".join(f"{i+1}. {t}" for i, t in enumerate(titles[:limit]))
+        return ModuleResult.ok(f"Windows ({len(titles[:limit])}):\n{out}", data={"windows": titles[:limit]})
+
+    @tool(
+        description="Focus / bring to front a window by substring of its title.",
+        params={"title": {"type": "string", "description": "Substring to match in window title"}},
+        keywords=["focus window", "bring to front", "activate window", "switch to"],
+    )
+    async def focus_window(self, title: str) -> ModuleResult:
+        """Focus a window matching ``title``."""
+        if not title.strip():
+            return ModuleResult.fail("Give me part of the window title to focus — e.g. focus window \"Spotify\"")
+        term = title.strip()
+        try:
+            if IS_LINUX:
+                if which("wmctrl"):
+                    await run_command(["wmctrl", "-r", term, "-b", "remove,hidden"], timeout=8)
+                    code2, _, err2 = await run_command(["wmctrl", "-a", term], timeout=8)
+                    if code2 == 0:
+                        return ModuleResult.ok(f"Focused window matching '{term}'.")
+                    return ModuleResult.fail(f"wmctrl: {truncate(err2, 120)}")
+                if which("xdotool"):
+                    code, out, err = await run_command(["xdotool", "search", "--name", term], timeout=8)
+                    if code == 0 and out.strip():
+                        wid = out.splitlines()[0].strip()
+                        await run_command(["xdotool", "windowactivate", wid], timeout=8)
+                        return ModuleResult.ok(f"Focused window '{term}' ({wid}).")
+            elif IS_MACOS and which("osascript"):
+                code, _, err = await run_command(["osascript", "-e", f'tell application "System Events" to set frontmost of first process whose name contains "{term}" to true'], timeout=8)
+                if code == 0:
+                    return ModuleResult.ok(f"Focused '{term}' on macOS.")
+                return ModuleResult.fail(f"AppleScript: {truncate(err, 120)}")
+            elif IS_WINDOWS:
+                try:
+                    import pygetwindow  # type: ignore
+                    wins = [w for w in pygetwindow.getAllWindows() if term.lower() in w.title.lower()]
+                    if wins:
+                        wins[0].activate()
+                        return ModuleResult.ok(f"Focused '{wins[0].title}'.")
+                except Exception:
+                    pass
+                if which("powershell"):
+                    code, _, err = await run_command(["powershell", "-NoProfile", "-Command", f'(New-Object -ComObject WScript.Shell).AppActivate("{term}")'], timeout=8)
+                    if code == 0:
+                        return ModuleResult.ok(f"Tried to focus '{term}' via WScript.")
+            return ModuleResult.fail(f"No window matching '{term}' found — try list windows.")
+        except Exception as exc:
+            return ModuleResult.fail(f"Focus failed: {exc}")
+
+    @tool(
+        description="Minimize a window by title substring.",
+        params={"title": {"type": "string", "description": "Substring to match"}},
+        keywords=["minimize window", "hide window", "minimise"],
+    )
+    async def minimize_window(self, title: str) -> ModuleResult:
+        """Minimize a window matching ``title``."""
+        if not title.strip():
+            return ModuleResult.fail("Give me part of the title to minimize.")
+        term = title.strip()
+        try:
+            if IS_LINUX and which("xdotool"):
+                code, out, _ = await run_command(["xdotool", "search", "--name", term], timeout=8)
+                if code == 0 and out.strip():
+                    wid = out.splitlines()[0].strip()
+                    await run_command(["xdotool", "windowminimize", wid], timeout=8)
+                    return ModuleResult.ok(f"Minimized '{term}'.")
+            elif IS_WINDOWS:
+                try:
+                    import pygetwindow  # type: ignore
+                    wins = [w for w in pygetwindow.getAllWindows() if term.lower() in w.title.lower()]
+                    if wins:
+                        wins[0].minimize()
+                        return ModuleResult.ok(f"Minimized '{wins[0].title}'.")
+                except Exception:
+                    pass
+            elif IS_MACOS and which("osascript"):
+                await run_command(["osascript", "-e", f'tell application "System Events" to set visible of process "{term}" to false'], timeout=8)
+                return ModuleResult.ok(f"Tried to hide '{term}' on macOS.")
+            return ModuleResult.fail(f"Could not minimize '{term}' — window not found or tool missing.")
+        except Exception as exc:
+            return ModuleResult.fail(f"Minimize failed: {exc}")
+
+    @tool(
+        description="List installed / runnable app names (from APP_ALIASES and Start Menu / Applications).",
+        params={"limit": {"type": "integer", "description": "Max apps to return", "default": 30}},
+        keywords=["list apps", "what apps", "installed apps", "app list"],
+    )
+    async def list_apps(self, limit: int = 30) -> ModuleResult:
+        """List known apps from aliases plus a quick scan of common app dirs."""
+        limit = max(1, min(80, int(limit or 30)))
+        names = sorted(APP_ALIASES.keys())
+        extra: list[str] = []
+        try:
+            if IS_LINUX:
+                for d in [Path("/usr/share/applications"), Path.home() / ".local/share/applications"]:
+                    if d.is_dir():
+                        for p in d.glob("*.desktop"):
+                            extra.append(p.stem)
+                            if len(extra) >= limit:
+                                break
+            elif IS_MACOS:
+                for d in [Path("/Applications"), Path("/System/Applications")]:
+                    if d.is_dir():
+                        for p in d.iterdir():
+                            if p.suffix == ".app":
+                                extra.append(p.stem)
+                                if len(extra) >= limit:
+                                    break
+            elif IS_WINDOWS:
+                for d in [Path(os.environ.get("ProgramData", "")) / "Microsoft/Windows/Start Menu/Programs", Path.home() / "AppData/Roaming/Microsoft/Windows/Start Menu/Programs"]:
+                    if d.is_dir():
+                        for p in d.rglob("*.lnk"):
+                            extra.append(p.stem)
+                            if len(extra) >= limit:
+                                break
+        except Exception:
+            pass
+        merged = names + [e for e in extra if e.lower() not in names][: max(0, limit - len(names))]
+        out = ", ".join(merged[:limit])
+        return ModuleResult.ok(f"Apps ({len(merged[:limit])}): {out}", data={"apps": merged[:limit]})
+
+    # ------------------------------------------------------------- 3 clipboard + drag
+    @tool(
+        description="Show recent clipboard history (last 20 copies you made via JARVIS).",
+        params={"limit": {"type": "integer", "description": "How many entries", "default": 8}},
+        keywords=["clipboard history", "show clipboard", "what did I copy", "paste history"],
+    )
+    async def clipboard_history(self, limit: int = 8) -> ModuleResult:
+        """Return recent clipboard copies made through JARVIS."""
+        limit = max(1, min(20, int(limit or 8)))
+        if not self._clip_history:
+            return ModuleResult.ok("Clipboard history is empty — copy something with clipboard set first.", data={"history": []})
+        items = list(self._clip_history)[:limit]
+        out = "\n".join(f"{i+1}. [{h['when']}] {h['text']}" for i, h in enumerate(items))
+        return ModuleResult.ok(f"Clipboard history ({len(items)}):\n{out}", data={"history": items})
+
+    @tool(
+        description="Drag a file from a path to screen coordinates (or copy it to ~/Downloads/jarvis/drop if no display).",
+        params={
+            "path": {"type": "string", "description": "File to drag (~/Downloads/... , /tmp/... )"},
+            "x": {"type": "integer", "description": "Drop X", "default": 600},
+            "y": {"type": "integer", "description": "Drop Y", "default": 400},
+            "duration": {"type": "number", "description": "Drag seconds", "default": 0.6},
+        },
+        keywords=["drag file", "drop file", "move file with mouse", "drag and drop"],
+    )
+    async def drag_file(self, path: str, x: int = 600, y: int = 400, duration: float = 0.6) -> ModuleResult:
+        """Drag ``path`` to (x,y) with the mouse, falling back to a copy to ~/Downloads/jarvis/drop."""
+        try:
+            src = resolve_user_path(path)
+            if not src.exists():
+                return ModuleResult.fail(f"File not found: {src}")
+            if has_display():
+                gui = self._gui()
+                if gui is not None:
+                    def _drag():
+                        try:
+                            gui.moveTo(100, 100, duration=0.2)
+                        except Exception:
+                            pass
+                        gui.dragTo(int(x), int(y), duration=max(0.2, float(duration)), button="left")
+                    await run_blocking(_drag)
+                    return ModuleResult.ok(f"Dragged {src.name} toward {x},{y} (display drag).", data={"src": str(src), "x": x, "y": y})
+            drop = Path.home() / "Downloads" / "jarvis" / "drop"
+            drop.mkdir(parents=True, exist_ok=True)
+            dst = drop / src.name
+            c = 1
+            while dst.exists():
+                dst = drop / f"{src.stem}-{c}{src.suffix}"
+                c += 1
+            await run_blocking(lambda: shutil.copy2(src, dst))
+            return ModuleResult.ok(f"No display — copied {src.name} to {dst} instead of dragging.", data={"src": str(src), "dst": str(dst)})
+        except Exception as exc:
+            return ModuleResult.fail(f"Drag failed: {exc}")
 
 
 __all__ = ["SystemControl"]
