@@ -65,76 +65,6 @@ body {
 }
 body.ready { opacity: 1; }
 
-/* --- DRAMATIC OVERDRIVE -------------------------------------------------
-   User asked way more dramatic. We keep the orbital calm but wrap the whole
-   frame in cinema: animated aurora, grid floor, scanlines, stronger glass
-   and neon. Pure CSS, no JS cost, still 60fps.
--------------------------------------------------------------------------- */
-body::before{
-  content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.55;
-  background:
-    radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(56,189,248,.22), transparent 60%),
-    radial-gradient(ellipse 900px 500px at 90% 100%, rgba(139,92,246,.18), transparent 60%),
-    radial-gradient(ellipse 800px 400px at 10% 100%, rgba(34,211,238,.14), transparent 60%),
-    linear-gradient(180deg, #03060c 0%, #070e1f 50%, #03060c 100%);
-  animation: auroraShift 18s ease-in-out infinite alternate;
-  filter: saturate(1.15);
-}
-@keyframes auroraShift{0%{transform:scale(1)}100%{transform:scale(1.04) translateY(-8px)}}
-#gridFloor{
-  position:fixed; left:-50%; right:-50%; bottom:-40%; height:60%; z-index:1; pointer-events:none; opacity:.18;
-  background:
-    linear-gradient(rgba(56,189,248,.35) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(56,189,248,.25) 1px, transparent 1px);
-  background-size: 60px 60px, 60px 60px;
-  transform: perspective(600px) rotateX(62deg) translateY(0);
-  mask: linear-gradient(transparent, black 40%, black);
-  animation: gridDrift 12s linear infinite;
-}
-@keyframes gridDrift{0%{background-position:0 0,0 0}100%{background-position:0 60px,0 0}}
-#scanlines{
-  position:fixed; inset:0; z-index:2; pointer-events:none; opacity:.06;
-  background: repeating-linear-gradient(transparent 0 2px, rgba(255,255,255,.6) 2px 3px);
-  mix-blend-mode: overlay;
-}
-#brand{
-  letter-spacing:.14em !important; font-weight:900 !important; font-size:13px !important;
-  text-transform:uppercase; color: #e6f0ff !important;
-  text-shadow: 0 0 18px rgba(56,189,248,.9), 0 0 42px rgba(139,92,246,.55), 0 2px 0 rgba(0,0,0,.8);
-  border:1px solid rgba(125,165,225,.2) !important; background: linear-gradient(180deg, rgba(14,22,38,.9), rgba(8,12,22,.6)) !important;
-  backdrop-filter: blur(14px) saturate(1.2);
-  box-shadow: 0 10px 40px rgba(0,0,0,.6), 0 0 30px rgba(56,189,248,.18) !important;
-}
-#dock{
-  background: linear-gradient(180deg, rgba(10,18,36,.92), rgba(6,12,26,.88)) !important;
-  border:1px solid rgba(125,165,225,.22) !important;
-  box-shadow: 0 24px 80px rgba(0,0,0,.8), 0 0 0 1px rgba(56,189,248,.08), 0 0 40px rgba(56,189,248,.18), inset 0 1px 0 rgba(255,255,255,.06) !important;
-  backdrop-filter: blur(22px) saturate(1.25);
-}
-#dock button{ transition: all .25s var(--ease) !important; }
-#dock button:hover{ transform: translateY(-1px) scale(1.04); filter: brightness(1.15); box-shadow: 0 8px 24px rgba(56,189,248,.3); }
-#dock button.on{ background: radial-gradient(ellipse at center, rgba(56,189,248,.22), transparent 70%) !important; box-shadow: 0 0 20px rgba(56,189,248,.45) !important; border-color: rgba(56,189,248,.5) !important; }
-#rail{ filter: drop-shadow(0 20px 60px rgba(0,0,0,.6)); }
-#rail .bubble{ 
-  background: linear-gradient(180deg, rgba(16,26,46,.92), rgba(10,18,34,.88)) !important;
-  border:1px solid rgba(125,165,225,.16) !important;
-  box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(56,189,248,.06), inset 0 1px 0 rgba(255,255,255,.04) !important;
-  backdrop-filter: blur(16px);
-}
-#rail .bubble.user{ background: linear-gradient(180deg, rgba(20,36,66,.95), rgba(14,28,52,.9)) !important; border-color: rgba(56,189,248,.28) !important; box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 0 24px rgba(56,189,248,.18) !important; }
-#rail .bubble.assistant{ border-left: 2px solid rgba(56,189,248,.5) !important; }
-#stage{ 
-  background: radial-gradient(ellipse 600px 400px at 50% 30%, rgba(56,189,248,.06), transparent 60%), var(--surface) !important;
-  border:1px solid rgba(125,165,225,.18) !important;
-  box-shadow: 0 20px 80px rgba(0,0,0,.7), 0 0 40px rgba(56,189,248,.08) !important;
-}
-#stage input{ font-size:16px !important; letter-spacing:.01em; }
-#halo{ opacity:.95 !important; filter: saturate(1.2) brightness(1.1); }
-#vignette{ opacity:.9 !important; }
-/* dramatic panel */
-#panel{ background: linear-gradient(180deg, rgba(7,13,26,.96), rgba(5,10,20,.98)) !important; border-left:1px solid rgba(125,165,225,.14) !important; box-shadow: -20px 0 80px rgba(0,0,0,.8), 0 0 40px rgba(56,189,248,.06) !important; backdrop-filter: blur(18px); }
-#panel .head{ color: #7dd3fc !important; letter-spacing:.12em; text-transform:uppercase; font-size:11px !important; text-shadow: 0 0 10px rgba(56,189,248,.5); }
-
 /* The canvas fades in immediately so the ignition is visible from frame one,
    but the surrounding chrome is held back until the shell has detonated and
    settled — the sequence should land on an empty field, then the interface
@@ -833,7 +763,7 @@ body.degraded-open #toasts { top: 118px; }
 </head>
 <body>
 <canvas id="orb"></canvas>
-<div id="gridFloor" aria-hidden="true"></div><div id="scanlines" aria-hidden="true"></div><div id="halo" aria-hidden="true"></div>
+<div id="halo" aria-hidden="true"></div>
 <div id="grid" aria-hidden="true"></div>
 <div id="grain" aria-hidden="true"></div>
 <div id="vignette"></div>
