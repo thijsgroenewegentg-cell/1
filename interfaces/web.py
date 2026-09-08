@@ -139,7 +139,7 @@ self.addEventListener("fetch", event => {
       .catch(() =>
         caches.match(request).then(hit =>
           hit || new Response(
-            "<!doctype html><meta charset=utf-8><style>body{background:#0b0f14;color:#7d8da1;"
+            "<!doctype html><meta charset=utf-8><style>body{background:#000;color:#a1a1aa;"
             + "font:16px system-ui;display:grid;place-items:center;height:100vh;margin:0}</style>"
             + "<p>JARVIS is not reachable. Is the machine awake, sir?</p>",
             { headers: { "Content-Type": "text/html" }, status: 503 }
@@ -1040,8 +1040,8 @@ class WebInterface:
                     "scope": "/",
                     "display": "standalone",
                     "orientation": "portrait",
-                    "background_color": "#0b0f14",
-                    "theme_color": "#0b0f14",
+                    "background_color": "#000000",
+                    "theme_color": "#000000",
                     "icons": [
                         {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png",
                          "purpose": "any"},

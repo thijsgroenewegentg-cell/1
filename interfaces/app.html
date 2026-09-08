@@ -9,7 +9,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#03060c">
+<meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="__TITLE__">
@@ -140,8 +140,8 @@ button { cursor: pointer; border: 0; background: none; }
   background:
     radial-gradient(ellipse 110% 92% at 50% var(--orb-y, 24%),
       transparent calc(22% + var(--energy) * 5%),
-      rgba(3, 6, 12, .18) 52%,
-      rgba(3, 6, 12, .72) 78%, #03060c 100%),
+      rgba(0, 0, 0, .18) 52%,
+      rgba(0, 0, 0, .72) 78%, #000 100%),
     radial-gradient(ellipse 700px 500px at 50% var(--orb-y, 24%),
       rgba(var(--tint), calc(var(--energy) * .12 + var(--burst) * .16)) 0%,
       transparent 66%);
@@ -303,14 +303,14 @@ body[data-mood="think"] #state { animation: throb 1.4s ease-in-out infinite; }
 #caption {
   max-width: 720px; text-align: center; font-size: 24px; transition: all .5s var(--ease);
   line-height: 1.4; margin-top: 16px; letter-spacing: -.015em; font-weight: 400;
-  text-shadow: 0 2px 40px rgba(3, 6, 12, 1),
+  text-shadow: 0 2px 40px rgba(0, 0, 0, 1),
                0 1px 0 rgba(255,255,255,.04),
                0 0 calc(var(--energy) * 56px) rgba(var(--tint), calc(var(--energy) * .6));
   pointer-events: auto; max-height: 32vh; overflow-y: auto; scrollbar-width: none;
   /* Now floating over the orb's lower edge, so it needs a stronger lift. */
   padding: 12px 20px; border-radius: var(--r-lg);
   background: radial-gradient(ellipse 92% 105% at 50% 50%,
-              rgba(3, 6, 12, .82) 0%, rgba(3, 6, 12, .48) 58%, transparent 78%);
+              rgba(0, 0, 0, .82) 0%, rgba(0, 0, 0, .48) 58%, transparent 78%);
   backdrop-filter: blur(6px);
 }
 #caption::-webkit-scrollbar { display: none; }
@@ -319,14 +319,14 @@ body[data-mood="think"] #state { animation: throb 1.4s ease-in-out infinite; }
    steps forward to take the emphasis it gives up. Now larger and brighter. */
 body.reading #caption {
   font-size: 28px; font-weight: 450; letter-spacing: -.02em;
-  text-shadow: 0 3px 50px rgba(3, 6, 12, 1),
+  text-shadow: 0 3px 50px rgba(0, 0, 0, 1),
                0 0 calc(18px + var(--energy) * 56px) rgba(var(--tint), calc(.28 + var(--energy) * .5));
 }
 #caption .cursor { color: var(--speak); animation: blink 1.05s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 #caption code { font-family: ui-monospace, monospace; font-size: 88%;
                 background: rgba(var(--tint), .14); padding: 2px 7px;
-                border-radius: var(--r-sm); color: #eaf2ff; }
+                border-radius: var(--r-sm); color: #f5f5f5; }
 #caption pre {
   text-align: left; font-size: 12.5px; background: rgba(6, 12, 22, .92);
   border: 1px solid var(--line); border-radius: var(--r-md);
@@ -549,7 +549,7 @@ body.history-open #history { transform: none; }
 /* --------------------------------------------------------- the palette */
 #palette {
   position: fixed; inset: 0; z-index: 30; display: none; align-items: flex-start;
-  justify-content: center; padding-top: 14vh; background: rgba(3, 6, 12, .72);
+  justify-content: center; padding-top: 14vh; background: rgba(0, 0, 0, .72);
   backdrop-filter: blur(6px);
 }
 #palette.show { display: flex; animation: fade .18s ease-out; }
@@ -638,7 +638,7 @@ body.panel-open #panel { transform: none; }
          box-shadow: 0 0 12px rgba(var(--tint), .7); transition: width .4s var(--ease); }
 #toolSearch {
   width: 100%; padding: 10px 13px; border-radius: var(--r-md); border: 1px solid var(--line);
-  background: rgba(3, 6, 12, .8); outline: none; font-size: 13px;
+  background: rgba(0, 0, 0, .8); outline: none; font-size: 13px;
   transition: border-color .18s, box-shadow .18s;
 }
 #toolSearch:focus { border-color: rgba(var(--tint), .5); box-shadow: 0 0 24px rgba(var(--tint), .18); }
@@ -665,7 +665,7 @@ body.panel-open #panel { transform: none; }
 /* ----------------------------------------------------------- overlays */
 #keys {
   position: fixed; inset: 0; z-index: 31; display: none; align-items: center; justify-content: center;
-  background: rgba(3, 6, 12, .82); backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, .82); backdrop-filter: blur(8px);
 }
 #keys.show { display: flex; }
 .keys-box {
@@ -767,7 +767,7 @@ body.degraded-open #toasts { top: 118px; }
   #grain { display: none !important; }
   #scan { display: none; }
 }
- .hl { background: rgba(56,189,248,0.22); outline: 1px solid rgba(56,189,248,0.45); border-radius: 4px; padding: 0 2px; }
+ .hl { background: rgba(239,68,68,0.18); outline: 1px solid rgba(239,68,68,0.40); border-radius: 4px; padding: 0 2px; }
 
 /* --- b/w + red theme overrides (user asked black/white with hints of red) --- */
 #brand{ border-color: rgba(255,255,255,.10) !important; }
@@ -782,505 +782,36 @@ body.degraded-open #toasts { top: 118px; }
 .hl{ background: rgba(239,68,68,.18) !important; outline: 1px solid rgba(239,68,68,.35) !important; }
 
 
-/* === TITLE SLAM — aggressive, not a loading screen.
-   The interface wakes up UNDERNEATH the intro at 0.95s, so nothing is ever
-   "waiting": this is a 3-second title card that hard-cuts away to a live UI.
-   0.00 blackout strobe + crack beam · 0.16 logo SLAMS from 3.4x with shockwave
-   0.66 impact flash + screen quake · 0.92 red slashes tear across · 0.95 UI wakes
-   1.20-2.70 random glitch tears · 1.80 + 2.32 red punches · 2.72 overdrive · 3.25 hard cut === */
-#startup{
-  position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center;
-  background:#000; overflow:hidden; cursor:pointer;
+/* --- one click buys the ignition score -----------------------------------
+   Browsers refuse to start audio on a page nobody has touched yet, and the
+   ignition begins on frame one. So the context is opened at load: if the
+   browser allows it, the score simply plays; if it comes up suspended, this
+   pill offers the one click that unlocks it, and the score joins the ignition
+   at whatever phase it has reached. */
+#soundPill{
+  position:fixed; right:18px; bottom:18px; z-index:9998; display:none; align-items:center; gap:9px;
+  padding:9px 15px; border:1px solid rgba(239,68,68,.55); border-radius:999px; cursor:pointer;
+  background:rgba(0,0,0,.82); color:#fff; box-shadow:0 0 22px rgba(239,68,68,.2), 0 8px 26px rgba(0,0,0,.65);
+  font:700 9.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.22em; text-transform:uppercase;
 }
-#startup.out{
-  opacity:0; visibility:hidden; pointer-events:none;
-  transition: opacity .3s ease .26s, visibility .3s ease .26s;
-}
-#startup.hit{ animation: quake .42s steps(4,end) 1; }
-@keyframes quake{
-  0%{transform:none} 12%{transform:translate(-9px,5px) scale(1.008)}
-  26%{transform:translate(8px,-6px) scale(.997)} 40%{transform:translate(-6px,-4px)}
-  56%{transform:translate(6px,4px) scale(1.004)} 74%{transform:translate(-3px,1px)} 100%{transform:none}
-}
-
-/* --- light weapons --- */
-#sStrobe{
-  position:absolute; inset:0; z-index:10; background:#fff; opacity:0; pointer-events:none;
-  animation: strobe 1.15s steps(1,end) 1 both;
-}
-@keyframes strobe{
-  0%{opacity:0} 1%{opacity:.9} 2%{opacity:0} 4%{opacity:.55} 5.5%{opacity:0}
-  15%{opacity:0} 16%{opacity:1} 17.5%{opacity:.06} 19%{opacity:.7} 21%{opacity:0}
-  57%{opacity:0} 58%{opacity:.28} 59%{opacity:0} 100%{opacity:0}
-}
-#sBeam{
-  position:absolute; left:0; right:0; top:50%; height:2px; margin-top:-1px; z-index:9; background:#fff;
-  box-shadow:0 0 30px 8px rgba(255,255,255,.6), 0 0 90px 22px rgba(239,68,68,.3);
-  transform:scaleX(0); transform-origin:50% 50%; animation: crack .72s cubic-bezier(.16,1,.3,1) 1 both;
-}
-@keyframes crack{
-  0%{transform:scaleX(0) scaleY(1); opacity:1}
-  24%{transform:scaleX(1) scaleY(1); opacity:1}
-  44%{transform:scaleX(1) scaleY(30); opacity:.6}
-  100%{transform:scaleX(1) scaleY(110); opacity:0}
-}
-#sSlash, #sSlash2{
-  position:absolute; left:-40%; top:50%; width:180%; height:2px; z-index:9; pointer-events:none; opacity:0;
-  background:linear-gradient(90deg, transparent, rgba(239,68,68,.25) 12%, #ef4444 40%, #fff 50%, #ef4444 60%, rgba(239,68,68,.25) 88%, transparent);
-  box-shadow:0 0 26px 5px rgba(239,68,68,.8), 0 0 80px 14px rgba(239,68,68,.32);
-  transform-origin:50% 50%;
-}
-#sSlash{ transform:rotate(-13deg) scaleX(0); animation: slashA .5s cubic-bezier(.16,1,.3,1) .92s 1 both; }
-#sSlash2{ top:38%; transform:rotate(16deg) scaleX(0); animation: slashB .55s cubic-bezier(.16,1,.3,1) 1.14s 1 both; }
-@keyframes slashA{0%{transform:rotate(-13deg) scaleX(0); opacity:0} 16%{opacity:1} 100%{transform:rotate(-13deg) scaleX(1); opacity:0}}
-@keyframes slashB{0%{transform:rotate(16deg) scaleX(0); opacity:0} 16%{opacity:1} 100%{transform:rotate(16deg) scaleX(1); opacity:0}}
-#sShock{
-  position:absolute; left:50%; top:50%; width:64px; height:64px; margin:-32px 0 0 -32px; z-index:7;
-  border:2px solid rgba(255,255,255,.95); border-radius:50%; opacity:0; pointer-events:none;
-  animation: shock .8s cubic-bezier(.16,1,.3,1) .17s 1 both;
-}
-#sShock::after{
-  content:""; position:absolute; inset:-3px; border:1px solid rgba(239,68,68,.9); border-radius:50%;
-  box-shadow:0 0 22px rgba(239,68,68,.6); animation: shock .95s cubic-bezier(.16,1,.3,1) .25s 1 both;
-}
-@keyframes shock{0%{transform:scale(.15); opacity:0} 10%{opacity:1} 100%{transform:scale(26); opacity:0}}
-
-/* --- ambience that reacts on every beat --- */
-#sGrid{
-  position:absolute; inset:0; z-index:1; pointer-events:none; opacity:.05;
-  background-image:
-    linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px);
-  background-size:72px 72px;
-  -webkit-mask-image: radial-gradient(ellipse 62% 58% at 50% 48%, #000 16%, transparent 80%);
-  mask-image: radial-gradient(ellipse 62% 58% at 50% 48%, #000 16%, transparent 80%);
-  animation: gridHit 3.1s ease-out both;
-}
-@keyframes gridHit{0%{opacity:0} 5%{opacity:.4} 7%{opacity:.05} 12%{opacity:.26} 21%{opacity:.05}
-  30%{opacity:.12} 58%{opacity:.06} 60%{opacity:.3} 63%{opacity:.05} 100%{opacity:.05}}
-#sVign{
-  position:absolute; inset:0; z-index:6; pointer-events:none;
-  background: radial-gradient(ellipse 66% 56% at 50% 47%, transparent 24%, rgba(0,0,0,.96) 100%);
-  animation: vignPulse 3.1s ease-in-out both;
-}
-@keyframes vignPulse{0%{opacity:.4} 5%{opacity:.95} 16%{opacity:.5} 18%{opacity:1} 58%{opacity:.85} 60%{opacity:1} 100%{opacity:.95}}
-#sVign::after{
-  content:""; position:absolute; inset:0; opacity:0;
-  background: radial-gradient(ellipse 95% 85% at 50% 50%, transparent 38%, rgba(239,68,68,.42) 100%);
-  animation: redAlert 3.1s steps(1,end) both;
-}
-@keyframes redAlert{0%{opacity:0} 4%{opacity:.75} 7%{opacity:0} 16%{opacity:1} 20%{opacity:0}
-  58%{opacity:.4} 61%{opacity:0} 88%{opacity:.85} 92%{opacity:.2} 95%{opacity:1} 100%{opacity:0}}
-#sBars{
-  position:absolute; inset:0; z-index:8; pointer-events:none; opacity:0;
-  background: repeating-linear-gradient(0deg, transparent 0 42px, rgba(255,255,255,.14) 42px 44px);
-  animation: barsFlash 3.1s steps(1,end) both;
-}
-@keyframes barsFlash{0%{opacity:0} 4.5%{opacity:.95; transform:translateY(-10px)} 6.5%{opacity:0}
-  16%{opacity:1; transform:translateY(8px)} 18.5%{opacity:0} 60%{opacity:.75; transform:translateY(-4px)}
-  62%{opacity:0} 89%{opacity:1; transform:translateY(12px)} 92%{opacity:0}}
-#sNoise{
-  position:absolute; inset:-40%; z-index:8; pointer-events:none; opacity:0; mix-blend-mode:screen;
-  background-size:320px 320px;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  animation: noiseBurst 3.1s steps(1,end) both;
-}
-@keyframes noiseBurst{0%{opacity:.55; transform:translate(0,0)} 2.5%{opacity:.1} 5%{opacity:.45; transform:translate(-3%,2%)}
-  7.5%{opacity:.05} 15%{opacity:0} 16.5%{opacity:.6; transform:translate(2%,-2%)} 19%{opacity:.08} 21%{opacity:0}
-  34%{opacity:.24; transform:translate(-2%,1%)} 36%{opacity:0} 55%{opacity:.32; transform:translate(1%,2%)}
-  57%{opacity:0} 72%{opacity:.22} 74%{opacity:0} 88%{opacity:.5} 91%{opacity:.14} 94%{opacity:.65} 100%{opacity:0}}
-#sScan{
-  position:absolute; inset:0; z-index:8; pointer-events:none; opacity:.1;
-  background: repeating-linear-gradient(transparent 0 2px, rgba(255,255,255,.95) 2px 3px);
-  animation: scanRun 3s linear infinite;
-}
-@keyframes scanRun{0%{transform:translateY(0)}100%{transform:translateY(12px)}}
-
-/* --- the title --- */
-#sInner{ position:relative; z-index:5; text-align:center; padding:30px 20px; }
-#sWord{ position:relative; display:inline-block; padding:30px 36px 18px; }
-#sLogo{
-  position:relative; z-index:3; display:inline-block; white-space:nowrap; color:#fff; text-transform:uppercase;
-  font: 900 78px/1 ui-sans-system, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
-  letter-spacing:.16em; margin-right:-.16em;
-  text-shadow: 0 0 24px rgba(255,255,255,.95), 0 0 78px rgba(255,255,255,.3), 0 2px 0 #000;
-  animation: slam .5s cubic-bezier(.18,1.5,.35,1) .16s both;
-}
-@keyframes slam{
-  0%{ transform:scale(3.4); opacity:0; filter:blur(24px) brightness(4.5) }
-  42%{ opacity:1; filter:blur(3px) brightness(2.4) }
-  62%{ transform:scale(.93); filter:blur(0) brightness(1.7) }
-  78%{ transform:scale(1.05); filter:brightness(1.2) }
-  100%{ transform:scale(1); opacity:1; filter:none }
-}
-#sLogo::after{
-  content:""; position:absolute; left:50%; bottom:-15px; height:3px; width:0; transform:translateX(-50%);
-  background:linear-gradient(90deg, #ef4444, #fff 18%, #fff 82%, #ef4444);
-  box-shadow:0 0 18px rgba(255,255,255,.9), 0 0 40px rgba(239,68,68,.65);
-  animation: barSlam .4s cubic-bezier(.16,1,.3,1) .6s forwards;
-}
-@keyframes barSlam{0%{width:0; opacity:0} 38%{width:118%; opacity:1} 100%{width:94%; opacity:1}}
-/* colour-split ghosts that rip off the title on every glitch */
-#sGhostR, #sGhostW{
-  position:absolute; left:36px; top:30px; z-index:2; white-space:nowrap; pointer-events:none; opacity:0;
-  font: 900 78px/1 ui-sans-system, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
-  letter-spacing:.16em; text-transform:uppercase; mix-blend-mode:screen;
-}
-#sGhostR{ color:#ef4444; animation: ghostR 2.9s steps(1,end) .7s infinite; }
-#sGhostW{ color:rgba(255,255,255,.9); animation: ghostW 2.9s steps(1,end) .7s infinite; }
-@keyframes ghostR{0%,78%,100%{opacity:0; transform:none}
-  80%{opacity:.9; transform:translate(-9px,3px)} 82%{opacity:.5; transform:translate(7px,-3px)}
-  84%{opacity:.95; transform:translate(-4px,0)} 86%{opacity:0; transform:none}}
-@keyframes ghostW{0%,78%,100%{opacity:0; transform:none}
-  81%{opacity:.6; transform:translate(8px,-2px)} 83%{opacity:.3; transform:translate(-7px,2px)}
-  85%{opacity:0; transform:none}}
-/* tear bands — driven from JS on random beats */
-#sTearTop, #sTearBot{
-  position:absolute; left:36px; top:30px; z-index:4; white-space:nowrap; pointer-events:none; opacity:0; color:#fff;
-  font: 900 78px/1 ui-sans-system, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
-  letter-spacing:.16em; text-transform:uppercase;
-}
-#sTearTop{ clip-path: inset(0 0 56% 0); }
-#sTearBot{ clip-path: inset(50% 0 0 0); }
-#startup.tear #sTearTop{ opacity:1; animation: tearT .17s steps(2,end) 1; }
-#startup.tear #sTearBot{ opacity:1; animation: tearB .17s steps(2,end) 1; }
-@keyframes tearT{0%{transform:translate(-16px,-3px) skewX(-7deg); color:#ef4444}
-  50%{transform:translate(10px,2px) skewX(2deg); color:#fff} 100%{transform:none}}
-@keyframes tearB{0%{transform:translate(15px,3px) skewX(6deg); color:#ef4444}
-  50%{transform:translate(-9px,-2px) skewX(-2deg); color:#fff} 100%{transform:none}}
-
-/* --- reactor: snaps shut, then whips --- */
-#sReactor{
-  position:absolute; left:50%; top:50%; width:430px; height:430px; z-index:1; overflow:visible;
-  transform: translate(-50%,-52%);
-}
-#sReactor .ring{ fill:none; stroke:#fff; transform-box:fill-box; transform-origin:center; }
-#sReactor .r1{ stroke-width:1; opacity:.22; stroke-dasharray:704; stroke-dashoffset:704;
-  animation: snapDraw .34s cubic-bezier(.16,1,.3,1) .17s forwards, rIn .3s ease .17s both, spin 20s linear .6s infinite; }
-#sReactor .r2{ stroke-width:9; opacity:.28; stroke-dasharray:2 15;
-  animation: rIn .25s ease .3s both, spinR 30s linear .3s infinite; }
-#sReactor .r3{ stroke-width:2; opacity:.45; stroke-dasharray:541; stroke-dashoffset:541;
-  animation: snapDraw .3s cubic-bezier(.16,1,.3,1) .23s forwards, rIn .25s ease .23s both, spinR 12s linear .6s infinite; }
-#sReactor .r4{ stroke:#ef4444; stroke-width:3; opacity:.95; stroke-dasharray:70 395;
-  filter:drop-shadow(0 0 10px rgba(239,68,68,.95));
-  animation: rIn .18s ease .6s both, spinF 1.5s linear .6s infinite; }
-#sReactor .r5{ stroke:#ef4444; stroke-width:1; opacity:.8; stroke-dasharray:16 449;
-  filter:drop-shadow(0 0 7px rgba(239,68,68,.85));
-  animation: rIn .18s ease .68s both, spinFR 1.05s linear .68s infinite; }
-#sReactor .cross line{ stroke:#fff; stroke-width:1; opacity:.28; }
-#sReactor .cross{ animation: rIn .3s ease .5s both; }
-@keyframes snapDraw{to{stroke-dashoffset:0}}
-@keyframes rIn{from{opacity:0}}
-@keyframes spin{to{transform:rotate(360deg)}}
-@keyframes spinR{to{transform:rotate(-360deg)}}
-@keyframes spinF{to{transform:rotate(360deg)}}
-@keyframes spinFR{to{transform:rotate(-360deg)}}
-
-#sSub{
-  font: 800 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.62em; margin-right:-.62em;
-  color:#fff; text-transform:uppercase; margin-top:28px; opacity:0;
-  text-shadow: 0 0 16px rgba(255,255,255,.5);
-  animation: subSlam .5s cubic-bezier(.16,1,.3,1) .76s both;
-}
-@keyframes subSlam{0%{opacity:0; letter-spacing:1.5em; filter:blur(12px)}
-  50%{opacity:1; filter:blur(0)} 72%{letter-spacing:.55em} 100%{opacity:.95; letter-spacing:.62em; filter:none}}
-#sSub::before{ content:"— "; color:#ef4444; } #sSub::after{ content:" —"; color:#ef4444; }
-
-/* --- impact punches: the title gets hit twice more, screen floods red --- */
-#sRed{
-  position:absolute; inset:0; z-index:10; background:#ef4444; opacity:0; pointer-events:none;
-  mix-blend-mode:screen;
-}
-#startup.punch #sRed{ animation: redFlash .36s steps(1,end) 1; }
-@keyframes redFlash{0%{opacity:0} 7%{opacity:.9} 16%{opacity:.08} 26%{opacity:.55} 40%{opacity:0} 100%{opacity:0}}
-#startup.punch #sLogo{ animation: punch .36s cubic-bezier(.2,1.7,.4,1) 1; }
-@keyframes punch{0%{transform:scale(1); filter:none}
-  26%{transform:scale(1.26); filter:brightness(2.6) contrast(1.25)}
-  52%{transform:scale(.95); filter:brightness(1.3)}
-  74%{transform:scale(1.04)} 100%{transform:scale(1); filter:none}}
-#startup.punch #sReactor{ animation: reactorFlare .45s cubic-bezier(.2,1.4,.4,1) 1; }
-@keyframes reactorFlare{
-  0%{transform:translate(-50%,-52%) scale(1)}
-  30%{transform:translate(-50%,-52%) scale(1.16)}
-  100%{transform:translate(-50%,-52%) scale(1)}}
-#startup.punch #sSub{ animation: subPunch .36s steps(2,end) 1; }
-@keyframes subPunch{0%,100%{opacity:.95; transform:none} 30%{opacity:.15; transform:translate(-5px,1px)} 60%{opacity:1; transform:translate(4px,-1px)}}
-
-/* --- overdrive: everything loses its temper before the cut --- */
-#startup.over #sReactor .r4{ animation: rIn .1s ease 0s both, spinF .5s linear infinite; }
-#startup.over #sReactor .r5{ animation: rIn .1s ease 0s both, spinFR .34s linear infinite; }
-#startup.over #sScan{ opacity:.22; }
-#startup.over #sGrid{ opacity:.16; }
-#startup.over #sLogo{ animation: rage .32s steps(2,end) infinite; }
-@keyframes rage{0%,100%{transform:none; filter:none}
-  28%{transform:translate(-4px,2px) skewX(-2.5deg); filter:brightness(1.7) contrast(1.35)}
-  58%{transform:translate(4px,-2px) skewX(2deg); filter:brightness(1.2)}
-  80%{transform:translate(-1px,0) scale(1.02)}}
-#startup.over #sSub{ animation: rage2 .32s steps(2,end) infinite; }
-@keyframes rage2{0%,100%{transform:none; opacity:.95} 30%{transform:translate(3px,-1px); opacity:.5} 60%{transform:translate(-3px,1px); opacity:1}}
-
-/* --- hard cut out --- */
-#startup.out #sInner{ animation: outZoom .3s cubic-bezier(.7,0,.3,1) forwards; }
-@keyframes outZoom{0%{transform:scale(1); opacity:1} 100%{transform:scale(1.55); opacity:0; filter:blur(9px) brightness(3.2)}}
-#startup.out #sStrobe{ animation: outFlash .34s steps(1,end) forwards; }
-@keyframes outFlash{0%{opacity:0} 6%{opacity:1} 24%{opacity:.08} 38%{opacity:.95} 60%{opacity:.2} 100%{opacity:0}}
-#startup.out #sVign, #startup.out #sVign::after{ animation:none; }
-
-/* --- phase 1: STANDBY gate. Browsers refuse to start audio until the page has
-   been touched, so the intro waits for one click and pays for it with drama.
-   Auto-ignites after 4s so nobody is ever trapped on a black screen. --- */
-#sGate{
-  position:absolute; inset:0; z-index:11; background:#000; cursor:pointer;
-  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px;
-}
-#startup:not(.standby) #sGate{ display:none; }
-#sGate::before{
-  content:""; position:absolute; left:50%; top:50%; width:520px; height:520px; margin:-260px 0 0 -260px;
-  border:1px solid rgba(255,255,255,.10); border-radius:50%;
-  border-top-color:rgba(239,68,68,.6); border-bottom-color:rgba(239,68,68,.22);
-  animation: spin 9s linear infinite;
-}
-#sGate::after{
-  content:""; position:absolute; left:50%; top:50%; width:352px; height:352px; margin:-176px 0 0 -176px;
-  border:1px dashed rgba(255,255,255,.12); border-radius:50%; animation: spinR 15s linear infinite;
-}
-#sCore{
-  position:relative; width:15px; height:15px; border-radius:50%; background:#ef4444;
-  box-shadow:0 0 24px 7px rgba(239,68,68,.7), 0 0 110px 30px rgba(239,68,68,.22);
-  animation: coreBreathe 1.85s ease-in-out infinite;
-}
-#sCore::before, #sCore::after{
-  content:""; position:absolute; left:50%; top:50%; width:15px; height:15px; margin:-7.5px 0 0 -7.5px;
-  border:1px solid rgba(255,255,255,.55); border-radius:50%; animation: coreRing 2.4s ease-out infinite;
-}
-#sCore::after{ border-color:rgba(239,68,68,.65); animation-delay:1.2s; }
-@keyframes coreBreathe{0%,100%{transform:scale(1); opacity:.8}50%{transform:scale(1.5); opacity:1}}
-@keyframes coreRing{0%{transform:scale(1); opacity:.9}100%{transform:scale(11); opacity:0}}
-#sGateText{
-  font: 900 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.66em; margin-right:-.66em;
-  color:#fff; text-transform:uppercase; animation: gateBlink 2.6s ease-in-out infinite;
-  text-shadow:0 0 18px rgba(255,255,255,.35);
-}
-#sGateHint{
-  font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.34em; margin-right:-.34em;
-  color:rgba(255,255,255,.55); text-transform:uppercase; animation: hintPulse 1.45s ease-in-out infinite;
-}
-#sGateHint .caret{
-  display:inline-block; width:7px; height:11px; margin-left:10px; vertical-align:-1px; background:#ef4444;
-  box-shadow:0 0 12px rgba(239,68,68,.9); animation: caretBlink .8s steps(1,end) infinite;
-}
-@keyframes caretBlink{0%,49%{opacity:1}50%,100%{opacity:0}}
-#sGateSound{
-  font: 700 9px/1 ui-monospace, monospace; letter-spacing:.3em; color:#ef4444; opacity:.85;
-}
-#sGateSound::before{ content:"\25B6"; margin-right:9px; font-size:8px; }
-#sGateSound.muted{ color:rgba(255,255,255,.4); }
-#sGateSound.muted::before{ content:"\2715"; }
-@keyframes gateBlink{0%,100%{opacity:.95}50%{opacity:.4}}
-@keyframes hintPulse{0%,100%{opacity:.3}50%{opacity:.9}}
-
-/* everything in phase 2 holds at frame zero until the gate releases it */
-#startup.standby #sStage, #startup.standby #sStage *{ animation-play-state: paused !important; }
-
-/* --- light rays fanning out behind the title --- */
-#sRays{
-  position:absolute; left:50%; top:50%; width:1500px; height:1500px; margin:-750px 0 0 -750px; z-index:2;
-  pointer-events:none; opacity:0; mix-blend-mode:screen;
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 10%, #000 32%, transparent 70%);
-  mask-image: radial-gradient(circle at 50% 50%, transparent 10%, #000 32%, transparent 70%);
-  animation: raysIn 3.3s ease-out both;
-}
-#sRays i{
-  display:block; width:100%; height:100%;
-  background: repeating-conic-gradient(from 0deg, rgba(255,255,255,.20) 0deg 1.1deg, transparent 1.1deg 8deg);
-  animation: spin 16s linear infinite;
-}
-@keyframes raysIn{0%{opacity:0; transform:scale(.5)} 10%{opacity:.9; transform:scale(.86)}
-  26%{opacity:.28} 52%{opacity:.5} 58%{opacity:1; transform:scale(1.04)} 86%{opacity:.34} 100%{opacity:0}}
-
-/* --- impact surge: a second, slower shockwave that washes the whole screen --- */
-#sSurge{
-  position:absolute; left:50%; top:50%; width:44px; height:44px; margin:-22px 0 0 -22px; z-index:6;
-  border:1px solid rgba(255,255,255,.75); border-radius:50%; opacity:0; pointer-events:none;
-  animation: surge 1.6s cubic-bezier(.16,1,.3,1) .17s 1 both;
-}
-#sSurge::after{
-  content:""; position:absolute; inset:-4px; border:1px solid rgba(239,68,68,.6); border-radius:50%;
-  animation: surge 1.9s cubic-bezier(.16,1,.3,1) .3s 1 both;
-}
-@keyframes surge{0%{transform:scale(.25); opacity:0} 7%{opacity:.95} 100%{transform:scale(46); opacity:0}}
-
-/* --- shatter: the screen breaks apart on the cut (shards built in JS) --- */
-#sShards{ position:absolute; inset:0; z-index:9; pointer-events:none; }
-#sShards i{
-  position:absolute; left:50%; top:50%; width:0; height:0; opacity:0;
-  border-left:8px solid transparent; border-right:8px solid transparent; border-bottom:32px solid #fff;
-  filter: drop-shadow(0 0 10px rgba(255,255,255,.75));
-  transform: translate(-50%,-50%) rotate(var(--rot,0deg)) translateY(0) scale(.4);
-}
-#sShards i:nth-child(3n){ border-bottom-color:#ef4444; filter:drop-shadow(0 0 13px rgba(239,68,68,.9)); }
-#sShards i:nth-child(4n){ border-bottom-width:52px; border-left-width:5px; border-right-width:5px; }
-#startup.out #sShards i{ animation: shardFly .8s cubic-bezier(.18,.72,.3,1) var(--d,0s) forwards; }
-@keyframes shardFly{
-  0%{ opacity:1; transform: translate(-50%,-50%) rotate(var(--rot,0deg)) translateY(0) scale(.45) }
-  100%{ opacity:0; transform: translate(-50%,-50%) rotate(calc(var(--rot,0deg) + 240deg)) translateY(var(--dy,-600px)) scale(1.7) }
-}
-
-/* --- cracks racing across the glass on the hard punch --- */
-#sCrack{ position:absolute; inset:0; z-index:8; width:100%; height:100%; pointer-events:none; opacity:0; }
-#sCrack path{
-  fill:none; stroke:#fff; stroke-width:1.3; stroke-dasharray:1500; stroke-dashoffset:1500;
-  filter: drop-shadow(0 0 7px rgba(255,255,255,.85));
-}
-#sCrack path:nth-child(even){ stroke:#ef4444; filter: drop-shadow(0 0 9px rgba(239,68,68,.9)); }
-#startup.crack #sCrack{ opacity:1; }
-#startup.crack #sCrack path{ animation: crackDraw .3s ease-out forwards, crackGone .45s ease-in .36s forwards; }
-@keyframes crackDraw{ to{ stroke-dashoffset:0 } }
-@keyframes crackGone{ to{ opacity:0 } }
-
-/* --- chromatic aberration on every tear --- */
-#sChroma{
-  position:absolute; inset:0; z-index:9; pointer-events:none; opacity:0; mix-blend-mode:screen;
-  background:
-    radial-gradient(circle at 47% 46%, rgba(239,68,68,.34), transparent 46%),
-    radial-gradient(circle at 53% 54%, rgba(255,255,255,.26), transparent 44%);
-}
-#startup.tear #sChroma{ animation: chroma .17s steps(2,end) 1; }
-@keyframes chroma{
-  0%{opacity:.95; transform:translate(-7px,2px) scale(1.012)}
-  50%{opacity:.55; transform:translate(7px,-2px) scale(.995)}
-  100%{opacity:0; transform:none}
-}
-
-/* --- red alert frame during punches and overdrive --- */
-#sAlert{
-  position:absolute; inset:0; z-index:9; pointer-events:none; opacity:0;
-  box-shadow: inset 0 0 95px 14px rgba(239,68,68,.55), inset 0 0 0 2px rgba(239,68,68,.55);
-}
-#startup.punch #sAlert{ animation: alertPulse .32s steps(1,end) 1; }
-#startup.over #sAlert{ animation: alertPulse .34s steps(2,end) infinite; }
-@keyframes alertPulse{0%,100%{opacity:0} 35%{opacity:1} 62%{opacity:.3}}
-
-/* --- a third tear band, straight through the middle of the title --- */
-#sTearMid{
-  position:absolute; left:36px; top:30px; z-index:5; white-space:nowrap; pointer-events:none; opacity:0; color:#fff;
-  font: 900 78px/1 ui-sans-system, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
-  letter-spacing:.16em; text-transform:uppercase; clip-path: inset(40% 0 42% 0);
-  mix-blend-mode:screen;
-}
-#startup.tear #sTearMid{ opacity:1; animation: tearM .17s steps(2,end) 1; }
-@keyframes tearM{0%{transform:translate(22px,0) scaleX(1.06); color:#ef4444}
-  50%{transform:translate(-18px,0) scaleX(.97); color:#fff} 100%{transform:none}}
-
-/* --- the full name, hammered in on the second punch --- */
-#sFull{
-  font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.42em; margin-right:-.42em;
-  color:#fff; text-transform:uppercase; margin-top:18px; opacity:0;
-}
-#startup.punch2 #sFull{ animation: fullFlash .62s steps(4,end) 1; }
-@keyframes fullFlash{
-  0%{opacity:0; letter-spacing:1em; filter:blur(7px)}
-  18%{opacity:1; color:#ef4444; letter-spacing:.6em}
-  46%{opacity:.95; color:#fff; letter-spacing:.42em; filter:none}
-  72%{opacity:.6; color:#ef4444} 100%{opacity:0}}
-
-@media (prefers-reduced-motion: reduce){
-  #sStrobe, #sBeam, #sSlash, #sSlash2, #sShock, #sBars, #sNoise, #sScan,
-  #sGhostR, #sGhostW, #sVign::after, #sReactor .r4, #sReactor .r5{ display:none !important; }
-  #startup, #startup.hit, #startup.out{ animation:none !important; }
-  #sGrid{ opacity:.05 !important; animation:none !important; }
-  #sVign{ opacity:1 !important; animation:none !important; }
-  #sLogo, #sSub{ animation:none !important; opacity:1 !important; transform:none !important; filter:none !important; }
-  #sLogo::after{ width:94% !important; animation:none !important; }
-  #sReactor .r1, #sReactor .r3{ stroke-dashoffset:0 !important; animation:none !important; }
-  #sReactor .r2, #sReactor .cross{ animation:none !important; }
-  #startup.out #sInner{ animation:none !important; opacity:0 !important; }
-  #sTearTop, #sTearBot{ display:none !important; }
-  #sRed, #sRays, #sSurge, #sShards, #sCrack, #sChroma, #sAlert, #sTearMid{ display:none !important; }
-  #sGate::before, #sGate::after, #sCore, #sCore::before, #sCore::after{ animation:none !important; }
-  #sCore{ transform:none !important; opacity:1 !important; }
-  #sGateText, #sGateHint{ animation:none !important; opacity:.9 !important; }
-  #startup.punch #sLogo, #startup.punch #sReactor, #startup.punch #sSub{ animation:none !important; }
-}
-
-/* More drama on main UI when startup done — everything assembles */
-#tiles, #brand, #stage, #dock, #rail{ will-change: transform, opacity; }
-body.startup-done #brand{ animation: brandReveal .7s var(--ease) .1s both; }
-@keyframes brandReveal{from{opacity:0; transform: translateY(10px) scale(.98)} to{opacity:1; transform:none}}
-body.startup-done #stage{ animation: stageReveal .8s var(--ease) .22s both; }
-@keyframes stageReveal{from{opacity:0; transform: translateY(14px)} to{opacity:1; transform:none}}
-body.startup-done #dock{ animation: dockReveal .9s var(--ease) .35s both; }
-@keyframes dockReveal{from{opacity:0; transform: translate(-50%, calc(-50% + 18px)) scale(.96)} to{opacity:1; transform: translate(-50%,-50%) scale(1)}}
-body.startup-done #rail{ animation: railReveal .7s var(--ease) .45s both; }
-@keyframes railReveal{from{opacity:0; transform: translateY(10px)} to{opacity:1; transform:none}}
-
-/* Extra effect layers for best — subtle grain + vignette boost */
-body::after{
-  content:""; position:fixed; inset:0; z-index:3; pointer-events:none; opacity:.035;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.45'/%3E%3C/svg%3E");
-  mix-blend-mode: overlay;
-}
-#halo{ opacity:1 !important; filter: saturate(1.15) brightness(1.08) !important; }
+#soundPill.show{ display:flex; animation: pillIn .5s var(--ease) both, pillPulse 1.9s ease-in-out .5s infinite; }
+#soundPill.gone{ animation: pillOut .35s ease forwards; pointer-events:none; }
+#soundPill .dot{ width:8px; height:8px; border-radius:50%; background:#ef4444; box-shadow:0 0 11px #ef4444; flex:0 0 auto; }
+#soundPill.blocked{ border-color:rgba(255,255,255,.35); }
+#soundPill.blocked .dot{ background:#fff; box-shadow:0 0 11px rgba(255,255,255,.8); }
+@keyframes pillIn{from{opacity:0; transform:translateY(9px)}to{opacity:1; transform:none}}
+@keyframes pillOut{to{opacity:0; transform:translateY(7px)}}
+@keyframes pillPulse{0%,100%{box-shadow:0 0 18px rgba(239,68,68,.16), 0 8px 26px rgba(0,0,0,.65)}
+  50%{box-shadow:0 0 32px rgba(239,68,68,.5), 0 8px 26px rgba(0,0,0,.65)}}
+@media (prefers-reduced-motion: reduce){ #soundPill.show{ animation:none !important; } }
 
 </style>
 </head>
 <body>
 <canvas id="orb"></canvas>
-<div id="startup" class="standby" aria-hidden="true">
-  <div id="sStage">
-    <div id="sGrid"></div>
-    <div id="sRays"><i></i></div>
-    <div id="sInner">
-      <div id="sWord">
-        <svg id="sReactor" viewBox="0 0 240 240" aria-hidden="true">
-          <circle class="ring r1" cx="120" cy="120" r="112"/>
-          <circle class="ring r2" cx="120" cy="120" r="100"/>
-          <circle class="ring r3" cx="120" cy="120" r="86"/>
-          <circle class="ring r4" cx="120" cy="120" r="74"/>
-          <circle class="ring r5" cx="120" cy="120" r="62"/>
-          <g class="cross">
-            <line x1="120" y1="0" x2="120" y2="20"/><line x1="120" y1="220" x2="120" y2="240"/>
-            <line x1="0" y1="120" x2="20" y2="120"/><line x1="220" y1="120" x2="240" y2="120"/>
-          </g>
-        </svg>
-        <div id="sGhostR" aria-hidden="true">JARVIS</div>
-        <div id="sGhostW" aria-hidden="true">JARVIS</div>
-        <div id="sTearTop" aria-hidden="true">JARVIS</div>
-        <div id="sTearBot" aria-hidden="true">JARVIS</div>
-        <div id="sTearMid" aria-hidden="true">JARVIS</div>
-        <div id="sLogo">JARVIS</div>
-      </div>
-      <div id="sSub">BLACK / WHITE / RED</div>
-      <div id="sFull">JUST &bull; A &bull; RATHER &bull; VERY &bull; INTELLIGENT &bull; SYSTEM</div>
-    </div>
-    <div id="sVign"></div>
-    <div id="sSurge"></div>
-    <div id="sShock"></div>
-    <div id="sBars"></div>
-    <div id="sNoise"></div>
-    <div id="sScan"></div>
-    <div id="sSlash"></div>
-    <div id="sSlash2"></div>
-    <div id="sBeam"></div>
-    <div id="sStrobe"></div>
-    <div id="sRed"></div>
-    <div id="sChroma"></div>
-    <div id="sAlert"></div>
-    <svg id="sCrack" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
-      <path d="M0 296 L168 286 L292 314 L420 264 L556 322 L694 280 L838 308 L1000 290"/>
-      <path d="M498 0 L486 138 L520 236 L468 356 L514 468 L492 600"/>
-      <path d="M112 52 L258 188 L236 298 L362 424 L340 560"/>
-      <path d="M888 44 L742 182 L792 296 L664 438 L700 566"/>
-    </svg>
-    <div id="sShards"></div>
-  </div>
-  <div id="sGate">
-    <div id="sCore"></div>
-    <div id="sGateText">STANDBY</div>
-    <div id="sGateHint">CLICK TO IGNITE<span class="caret"></span></div>
-    <div id="sGateSound">SOUND ON</div>
-  </div>
-</div>
+<button id="soundPill" type="button" title="Browsers need one click before they allow sound">
+  <span class="dot"></span><span>click for sound</span>
+</button>
 <div id="halo" aria-hidden="true"></div>
 <div id="grid" aria-hidden="true"></div>
 <div id="grain" aria-hidden="true"></div>
@@ -1328,7 +859,7 @@ body::after{
       <canvas id="micWave" width="68" height="68" style="position:absolute;inset:-4px;width:76px;height:76px;pointer-events:none;opacity:0;transition:opacity .18s"></canvas>
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
     </button>
-    <span id="micDb" style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);font:10px ui-monospace,monospace;color:#38bdf8;opacity:0;transition:opacity .18s;pointer-events:none;white-space:nowrap"></span>
+    <span id="micDb" style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);font:10px ui-monospace,monospace;color:#fff;opacity:0;transition:opacity .18s;pointer-events:none;white-space:nowrap"></span>
     <button class="round" id="speech" title="Read replies aloud (S)" aria-label="Read replies aloud">
       <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8a5 5 0 0 1 0 8"/></svg>
     </button>
@@ -1384,23 +915,23 @@ body::after{
       <div class="stat"><span>Engine</span><span id="voiceEngine">—</span></div>
       <div class="stat"><span>Voice</span><span id="voiceName">—</span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:2px">
-        <select id="voicePicker" aria-label="Voice" style="flex:1;min-width:150px;background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:10px;padding:7px 10px;font:14px ui-sans-system,system-ui">
+        <select id="voicePicker" aria-label="Voice" style="flex:1;min-width:150px;background:#0a0a0a;color:#f4f4f5;border:1px solid #262626;border-radius:10px;padding:7px 10px;font:14px ui-sans-system,system-ui">
           <option value="">Loading voices…</option>
         </select>
         <button class="tool" id="voicePreview" style="width:auto;white-space:nowrap;padding:6px 12px;border-radius:10px">preview</button>
         <button class="tool" id="voiceSave" style="width:auto;white-space:nowrap;padding:6px 12px;border-radius:10px" title="Save to config.yaml">save</button>
         <button class="ghost" id="voiceRefresh" style="width:auto;white-space:nowrap;padding:6px 8px;border-radius:10px;font:12px ui-sans-system" title="Refresh voice list">↻</button>
       </div>
-      <div id="voiceHint" style="font:12px/1.5 ui-sans-system;color:#7d8da1;min-height:14px"></div>
+      <div id="voiceHint" style="font:12px/1.5 ui-sans-system;color:#a1a1aa;min-height:14px"></div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
-        <span id="ttsCacheInfo" style="font:11px ui-sans-system;color:#5b6b82"></span>
-        <button class="ghost" id="ttsCacheClear" style="font:11px ui-sans-system;padding:2px 8px;border-radius:8px;border:1px solid #1b2533;color:#7d8da1">clear cache</button>
-        <span id="piperStatus" style="font:11px ui-sans-system;color:#5b6b82"></span>
-        <button class="ghost" id="piperInstall" style="font:11px ui-sans-system;padding:2px 8px;border-radius:8px;border:1px solid #1b2533;color:#7d8da1;display:none">install piper</button>
+        <span id="ttsCacheInfo" style="font:11px ui-sans-system;color:#71717a"></span>
+        <button class="ghost" id="ttsCacheClear" style="font:11px ui-sans-system;padding:2px 8px;border-radius:8px;border:1px solid #262626;color:#a1a1aa">clear cache</button>
+        <span id="piperStatus" style="font:11px ui-sans-system;color:#71717a"></span>
+        <button class="ghost" id="piperInstall" style="font:11px ui-sans-system;padding:2px 8px;border-radius:8px;border:1px solid #262626;color:#a1a1aa;display:none">install piper</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
-        <span style="font:12px ui-sans-system;color:#7d8da1">Language</span>
-        <select id="langPicker" aria-label="Language" style="flex:1;min-width:110px;background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:10px;padding:6px 8px;font:13px ui-sans-system">
+        <span style="font:12px ui-sans-system;color:#a1a1aa">Language</span>
+        <select id="langPicker" aria-label="Language" style="flex:1;min-width:110px;background:#0a0a0a;color:#f4f4f5;border:1px solid #262626;border-radius:10px;padding:6px 8px;font:13px ui-sans-system">
           <option value="en">English</option>
           <option value="nl">Nederlands</option>
           <option value="de">Deutsch</option>
@@ -1411,36 +942,36 @@ body::after{
           <option value="ja">日本語</option>
         </select>
         <button class="ghost" id="langSave" style="font:11px;padding:4px 8px;border-radius:8px">save</button>
-        <span id="langHint" style="font:11px;color:#5b6b82"></span>
+        <span id="langHint" style="font:11px;color:#71717a"></span>
       </div>
       <div class="head">Memory</div>
       <div style="display:flex;gap:6px;margin-bottom:6px">
-        <input id="memorySearch" placeholder="Search memory…" style="flex:1;background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:8px;padding:5px 8px;font:12px ui-sans-system">
+        <input id="memorySearch" placeholder="Search memory…" style="flex:1;background:#0a0a0a;color:#f4f4f5;border:1px solid #262626;border-radius:8px;padding:5px 8px;font:12px ui-sans-system">
         <button class="ghost" id="memoryRefresh" style="font:11px;padding:4px 8px;border-radius:8px">↻</button>
         <button class="ghost" id="memoryExport" style="font:11px;padding:4px 8px;border-radius:8px">export</button>
       </div>
-      <div id="memoryList" style="font:12px/1.5 ui-sans-system;color:#9bb0c8;display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto"></div>
-      <div id="memoryHint" style="font:11px/1.4 ui-sans-system;color:#5b6b82"></div>
+      <div id="memoryList" style="font:12px/1.5 ui-sans-system;color:#a1a1aa;display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto"></div>
+      <div id="memoryHint" style="font:11px/1.4 ui-sans-system;color:#71717a"></div>
       <div style="display:flex;gap:6px;margin-top:6px">
-        <select id="memoryCategory" style="background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:8px;padding:5px 6px;font:11px ui-sans-system">
+        <select id="memoryCategory" style="background:#0a0a0a;color:#f4f4f5;border:1px solid #262626;border-radius:8px;padding:5px 6px;font:11px ui-sans-system">
           <option value="fact">fact</option>
           <option value="preference">preference</option>
           <option value="todo">todo</option>
           <option value="project">project</option>
         </select>
-        <input id="memoryAdd" placeholder="Remember that …" style="flex:1;background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:8px;padding:5px 8px;font:12px ui-sans-system">
+        <input id="memoryAdd" placeholder="Remember that …" style="flex:1;background:#0a0a0a;color:#f4f4f5;border:1px solid #262626;border-radius:8px;padding:5px 8px;font:12px ui-sans-system">
         <button class="tool" id="memoryAddBtn" style="width:auto;padding:4px 10px;border-radius:8px;font:11px ui-sans-system">remember</button>
       </div>
       <div style="display:flex;gap:6px;margin-top:6px">
         <input type="file" id="memoryImportFile" accept=".json" style="display:none">
-        <button class="ghost" id="memoryImport" style="font:11px;padding:4px 8px;border-radius:8px;border:1px solid #1b2533">import JSON</button>
-        <span id="memoryImportHint" style="font:11px;color:#5b6b82"></span>
+        <button class="ghost" id="memoryImport" style="font:11px;padding:4px 8px;border-radius:8px;border:1px solid #262626">import JSON</button>
+        <span id="memoryImportHint" style="font:11px;color:#71717a"></span>
       </div>
       <div class="head">System</div>
       <div class="stat"><span>Control</span><span id="sysPaused">—</span></div>
       <div style="display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap">
         <button class="tool" id="sysPause" style="width:auto;padding:6px 12px;border-radius:10px;background:#991b1b;color:#fee2e2;border-color:#991b1b">⏸ pause system</button>
-        <span id="sysHint" style="font:11px;color:#7d8da1">B: no asks, allowed_roots ["/"]</span>
+        <span id="sysHint" style="font:11px;color:#a1a1aa">B: no asks, allowed_roots ["/"]</span>
       </div>
       <div id="sysBanner" style="display:none;margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.4);color:#fecaca;font:12px ui-sans-system">⏸ System control is PAUSED — open app / mouse / shell will be ignored until you resume.</div>
       <div class="switch" style="margin-top:8px"><span>Clear the transcript</span><button id="setClear">clear</button></div>
@@ -1475,7 +1006,7 @@ body::after{
 </div>
 
 <div id="toasts" aria-live="assertive"></div>
-<div id="dropOverlay" style="position:fixed;inset:0;background:rgba(56,189,248,0.08);backdrop-filter:blur(4px);border:2px dashed rgba(56,189,248,0.6);display:none;place-items:center;z-index:9999;color:#e8eef6;font:18px ui-sans-system"><div style="background:#0b1018;border:1px solid #38bdf8;border-radius:16px;padding:24px 32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6)"><div style="font-size:32px;margin-bottom:8px">🖼️</div><div>Drop image to describe</div><div style="font:12px ui-sans-system;color:#7d8da1;margin-top:4px">or paste (Ctrl+V) — llava / vision</div><input type="file" id="visionFile" accept="image/*" capture="environment" style="display:none"></div></div>
+<div id="dropOverlay" style="position:fixed;inset:0;background:rgba(239,68,68,0.07);backdrop-filter:blur(4px);border:2px dashed rgba(239,68,68,0.55);display:none;place-items:center;z-index:9999;color:#f4f4f5;font:18px ui-sans-system"><div style="background:#0a0a0a;border:1px solid #ef4444;border-radius:16px;padding:24px 32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6)"><div style="font-size:32px;margin-bottom:8px">🖼️</div><div>Drop image to describe</div><div style="font:12px ui-sans-system;color:#a1a1aa;margin-top:4px">or paste (Ctrl+V) — llava / vision</div><input type="file" id="visionFile" accept="image/*" capture="environment" style="display:none"></div></div>
 
 <script>
 "use strict";
@@ -1517,16 +1048,19 @@ const orb = {
 };
 //: True while there is a real reply or cards on screen. Drives orb.focus.
 let contentful = false;
-// A single cool-white palette. The sphere is made of light, so the mood
-// shifts the *tint* of white rather than repainting it a different colour:
-// a wash of blue when idle, cooler and brighter when listening, violet while
-// thinking. Only "lost" departs, because a dead socket should look wrong.
+// A single white palette with red as the only accent. The sphere is made of
+// light, so the mood shifts the *temperature* of white rather than repainting
+// it a different colour: cool white when idle, hard white when listening, a
+// dimmer white while thinking. Speaking is the one moment that leaves black
+// and white, because that is when JARVIS is actually alive -- the same red the
+// rest of the interface keeps as a hint. Only "lost" departs further, because
+// a dead socket should look wrong.
 const COLOURS = {
-  idle:   [150, 190, 255],
-  listen: [120, 245, 255],
-  think:  [170, 130, 255],
-  speak:  [255, 255, 255],
-  lost:   [255, 60, 60],
+  idle:   [226, 228, 233],
+  listen: [255, 255, 255],
+  think:  [206, 208, 214],
+  speak:  [239, 68, 68],
+  lost:   [220, 38, 38],
 };
 
 /* ---------------------------------------------------------------- noise
@@ -1813,7 +1347,7 @@ function draw(now) {
   const driftX = camera.x * 16 + shakeX, driftY = camera.y * 10 + shakeY;
 
   ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = "#03060c";
+  ctx.fillStyle = "#000";   // the void is true black now, not blue-black
   ctx.fillRect(0, 0, width, height);
   // Light adds up from here on, so overlapping points bloom instead of
   // flattening — the single biggest difference to how solid the shell looks.
@@ -1833,7 +1367,7 @@ function draw(now) {
       const dx = sx - centreX, dy = sy - centreY;
       const len = Math.hypot(dx, dy) || 1;
       const tail = warp * 260 * star.drift;
-      ctx.strokeStyle = `rgba(200,225,255,${alpha})`;
+      ctx.strokeStyle = `rgba(236,236,242,${alpha})`;
       ctx.lineWidth = star.size;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
@@ -1841,7 +1375,7 @@ function draw(now) {
       ctx.stroke();
     } else {
       const streak = 1 + orb.pulse * 14 * star.drift;
-      ctx.fillStyle = `rgba(190,220,255,${alpha})`;
+      ctx.fillStyle = `rgba(224,224,232,${alpha})`;
       ctx.fillRect(sx, sy, star.size, star.size * streak);
     }
   }
@@ -1855,7 +1389,7 @@ function draw(now) {
     const halo = ctx.createRadialGradient(centreX, centreY, 0, centreX, centreY, sparkR * 6);
     halo.addColorStop(0, `rgba(255,255,255,${sparkA})`);
     halo.addColorStop(0.25, rgb((sparkA * 0.5).toFixed(3)));
-    halo.addColorStop(1, "rgba(3,6,12,0)");
+    halo.addColorStop(1, "rgba(0, 0, 0, 0)");
     ctx.fillStyle = halo;
     ctx.beginPath();
     ctx.arc(centreX, centreY, sparkR * 6, 0, 6.2832);
@@ -1866,7 +1400,7 @@ function draw(now) {
   const glow = ctx.createRadialGradient(centreX, centreY, base * 0.1, centreX, centreY, base * 2.6);
   glow.addColorStop(0, rgb(Math.min(1, 0.1 + orb.energy * 0.4 + orb.pulse * 0.5 + flash * 0.9)));
   glow.addColorStop(0.35, rgb(0.05 + orb.energy * 0.16 + orb.pulse * 0.2));
-  glow.addColorStop(1, "rgba(3,6,12,0)");
+  glow.addColorStop(1, "rgba(0, 0, 0, 0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, width, height);
 
@@ -2003,7 +1537,7 @@ function draw(now) {
   const core = ctx.createRadialGradient(centreX, centreY, 0, centreX, centreY, coreSize);
   core.addColorStop(0, `rgba(255,255,255,${Math.min(1, 0.03 + orb.energy * 0.3 + orb.pulse * 0.9 + flash)})`);
   core.addColorStop(0.45, rgb(Math.min(1, 0.04 + orb.energy * 0.2 + orb.pulse * 0.35 + flash * 0.8)));
-  core.addColorStop(1, "rgba(3,6,12,0)");
+  core.addColorStop(1, "rgba(0, 0, 0, 0)");
   ctx.fillStyle = core;
   ctx.beginPath();
   ctx.arc(centreX, centreY, coreSize, 0, 6.2832);
@@ -2434,14 +1968,14 @@ function send(text) {
      2. this browser's own voices (window.speechSynthesis), which still work
         when the server has no TTS engine at all. That used to mean complete
         silence with the "read aloud" control greyed out as "unavailable".
-   Either way the browser needs one user gesture first, so the intro's
-   ignition click arms the audio and flushes anything that was waiting. */
+   Either way the browser needs one user gesture first, so the first click or
+   keystroke arms the audio and flushes anything that was waiting. */
 let serverSpeech = true;                      // /api/status says the engine works
 const browserVoice = !!window.speechSynthesis;
 let browserVoices = [];
 let armedAudio = false;
 let pendingGreeting = "";                     // spoken as soon as audio is legal
-let greetingHold = 260;                       // ms; the intro pushes this past its cut
+let greetingHold = 260;                       // ms before a held line is released
 
 function loadBrowserVoices() {
   if (!browserVoice) return;
@@ -2474,8 +2008,11 @@ function reportAudioBlocked() {
   audioBlocked = true;
   try {
     toast("This frame blocks audio — open the preview in its own tab for sound and speech.", true);
-    const tag = document.getElementById("sGateSound");
-    if (tag) { tag.textContent = "AUDIO BLOCKED — OPEN IN NEW TAB"; tag.classList.add("muted"); }
+    const pill = document.getElementById("soundPill");
+    if (pill) {
+      pill.classList.add("show", "blocked");
+      pill.querySelector("span:last-child").textContent = "AUDIO BLOCKED — OPEN IN ITS OWN TAB";
+    }
     const label = document.getElementById("setSpeech");
     if (label) label.textContent = "blocked by browser";
   } catch (_e) {}
@@ -2638,7 +2175,7 @@ function listenTo(stream) {
       if (waveCtx && waveCanvas) {
         waveCtx.clearRect(0,0,68,68);
         // subtle circle
-        waveCtx.strokeStyle = "rgba(56,189,248,0.95)";
+        waveCtx.strokeStyle = "rgba(255,255,255,0.95)";
         waveCtx.lineWidth = 1.6;
         waveCtx.beginPath();
         for (let i = 0; i < wave.length; i++) {
@@ -2654,7 +2191,7 @@ function listenTo(stream) {
         // energy dot at top indicates level
         const lvl = Math.min(1, (peak/128)*2.2);
         if (lvl > 0.15) {
-          waveCtx.fillStyle = "rgba(56,189,248," + (0.35 + lvl*0.55) + ")";
+          waveCtx.fillStyle = "rgba(239,68,68," + (0.35 + lvl*0.55) + ")";
           waveCtx.beginPath();
           waveCtx.arc(34, 4.5, 1.2 + lvl*1.8, 0, Math.PI*2);
           waveCtx.fill();
@@ -3083,7 +2620,7 @@ async function loadMemory() {
     list.innerHTML = facts.slice(0, 20).map(f => {
       const cat = f.category || f.label || "fact";
       const when = f.when || f.created || "";
-      return '<div style="display:flex;gap:6px;align-items:baseline;justify-content:space-between;border-bottom:1px solid #1b2533;padding:4px 0"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(f.text) + '"><span style="color:var(--tint)">•</span> ' + escapeHtml(f.text) + ' <span style="font:10px;color:#5b6b82">[' + escapeHtml(cat) + (when ? ' · ' + escapeHtml(String(when).slice(0,10)) : '') + ']</span></span><button class="ghost" data-forget="' + escapeHtml(f.text).replace(/"/g, '&quot;') + '" style="font:10px ui-sans-system;padding:2px 6px;border-radius:6px;border:1px solid #1b2533;color:#ff6b6b">forget</button></div>';
+      return '<div style="display:flex;gap:6px;align-items:baseline;justify-content:space-between;border-bottom:1px solid #262626;padding:4px 0"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(f.text) + '"><span style="color:var(--tint)">•</span> ' + escapeHtml(f.text) + ' <span style="font:10px;color:#71717a">[' + escapeHtml(cat) + (when ? ' · ' + escapeHtml(String(when).slice(0,10)) : '') + ']</span></span><button class="ghost" data-forget="' + escapeHtml(f.text).replace(/"/g, '&quot;') + '" style="font:10px ui-sans-system;padding:2px 6px;border-radius:6px;border:1px solid #262626;color:#ff6b6b">forget</button></div>';
     }).join("");
     list.querySelectorAll("[data-forget]").forEach(btn => btn.addEventListener("click", async () => {
       const t = btn.getAttribute("data-forget");
@@ -3117,7 +2654,7 @@ async function handleVisionFile(file, question) {
   // Thumbnail bubble before the description streams in
   try {
     const url = URL.createObjectURL(file);
-    const thumb = '<div class="bubble vision"><img src="' + url + '" style="max-width:280px;max-height:240px;border-radius:12px;border:1px solid #1b2533;display:block;margin-bottom:6px"><div style="font:11px ui-sans-system;color:#7d8da1">' + escapeHtml(file.name) + ' · ' + (file.size/1024).toFixed(0) + ' KB</div></div>';
+    const thumb = '<div class="bubble vision"><img src="' + url + '" style="max-width:280px;max-height:240px;border-radius:12px;border:1px solid #262626;display:block;margin-bottom:6px"><div style="font:11px ui-sans-system;color:#a1a1aa">' + escapeHtml(file.name) + ' · ' + (file.size/1024).toFixed(0) + ' KB</div></div>';
     // Insert as user bubble so history is clear
     const railEl = document.getElementById("rail");
     if (railEl) {
@@ -3396,7 +2933,7 @@ $("doctorRefresh").addEventListener("click", async () => {
   try {
     const data = await (await fetch("/api/doctor" + auth)).json();
     const findings = data.findings || [];
-    list.innerHTML = findings.map(f => '<div style="display:flex;gap:8px;align-items:baseline;border-bottom:1px solid #1b2533;padding:6px 0"><span style="color:' + (f.state==="ok"?"#22c55e":f.state==="warn"?"#eab308":"#ef4444") + '">' + escapeHtml(f.symbol||f.state) + '</span><span style="flex:1"><b>' + escapeHtml(f.name) + '</b> <span style="color:var(--dim)">' + escapeHtml(f.detail) + '</span>' + (f.fix ? '<div style="font:11px ui-monospace;color:#7d8da1">→ ' + escapeHtml(f.fix) + '</div>' : '') + '</span></div>').join("") || '<span style="color:var(--dimmer)">No findings.</span>';
+    list.innerHTML = findings.map(f => '<div style="display:flex;gap:8px;align-items:baseline;border-bottom:1px solid #262626;padding:6px 0"><span style="color:' + (f.state==="ok"?"#22c55e":f.state==="warn"?"#eab308":"#ef4444") + '">' + escapeHtml(f.symbol||f.state) + '</span><span style="flex:1"><b>' + escapeHtml(f.name) + '</b> <span style="color:var(--dim)">' + escapeHtml(f.detail) + '</span>' + (f.fix ? '<div style="font:11px ui-monospace;color:#a1a1aa">→ ' + escapeHtml(f.fix) + '</div>' : '') + '</span></div>').join("") || '<span style="color:var(--dimmer)">No findings.</span>';
   } catch(e){ list.innerHTML = '<span style="color:var(--dimmer)">Doctor unavailable.</span>'; }
 });
 
@@ -3481,377 +3018,266 @@ requestAnimationFrame(() => document.body.classList.add("ready"));
 setTimeout(() => document.body.classList.add("awake"), CALM ? 0 : BOOT_MS * BEATS.rebound);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
-// --- TITLE SLAM: standby gate -> ignition -> 3.25s of light and sound.
-// No loading screen, no progress, no status log: the real interface wakes up
-// UNDERNEATH at 0.95s (body.startup-done), so the cut lands on a live UI.
-// The gate exists because browsers refuse to start audio until the page has
-// been touched; one click buys the whole score. It auto-ignites after 4s
-// (silently) so nobody is ever trapped on a black screen.
-(function(){
-  const startup = document.getElementById('startup');
-  if(!startup) return;
-  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const soundTag = document.getElementById('sGateSound');
-  let done = false, ignited = false, timers = [], bursts = null;
-  let actx = null, scoreBuf = null, scoreMaster = null, scoreDrive = null;
-  let scoreOn = true;
-  try{ scoreOn = localStorage.getItem('jarvis.introSound') !== '0'; }catch(e){}
-  const at = (ms, fn) => timers.push(setTimeout(fn, ms));
-  // Whatever armAudio() releases (the boot greeting) should land after the cut,
-  // not on top of it — set before any gesture can reach armAudio().
-  if(!calm) greetingHold = 3600;
 
-  /* ============================ the score ================================
-     Everything below is synthesised at runtime — no audio files to ship, no
-     codec to install, nothing to download. Sub drops, distorted slams,
-     filtered noise, a 96 BPM dark-ambient bed in A minor and a delay throw. */
-  function noiseBuffer(ctx, seconds){
-    const len = Math.max(1, Math.floor(ctx.sampleRate * seconds));
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for(let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
-    return buf;
+
+/* ------------------------------------------------------------ ignition score
+   Sound for the seven-phase startup, written against the same BEATS map the
+   canvas draws from so picture and score cannot drift apart:
+
+     spark    0.00s  one point of light — a hairline tone and three ticks
+     bloom    0.60s  it flares — a lowpass opens, the shimmer climbs an octave
+     rush     1.32s  the shell hurtles in — riser plus ticks that tighten
+     silence  3.72s  everything stops dead — the master ducks to a breath
+     collapse 4.08s  implosion — braam, sub drop, whiteout, 31 Hz camera rumble
+     rebound  4.44s  three blast rings and spires tearing outward
+     settle   5.28s  the bed resolves into A minor and eases out by 9.6s
+
+   Synthesised at runtime: no audio files, no codec, nothing to download. */
+(function(){
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if(!Ctx) return;
+  const pill = document.getElementById('soundPill');
+  const BOOT_S = (typeof BOOT_MS === 'number' ? BOOT_MS : 6000) / 1000;
+  let ctx = null, begun = false, master = null, drive = null, delay = null, buf = null;
+
+  function makeNoise(c, seconds){
+    const len = Math.max(1, Math.floor(c.sampleRate * seconds));
+    const b = c.createBuffer(1, len, c.sampleRate);
+    const d = b.getChannelData(0);
+    for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    return b;
   }
-  function shaper(ctx, amount){
-    const ws = ctx.createWaveShaper();
+  function shaper(c, amount){
+    const ws = c.createWaveShaper();
     const n = 1024, curve = new Float32Array(n);
     for(let i = 0; i < n; i++){ const x = (i * 2 / n) - 1; curve[i] = ((1 + amount) * x) / (1 + amount * Math.abs(x)); }
     ws.curve = curve; ws.oversample = '2x';
     return ws;
   }
-  function env(ctx, t, peak, attack, decay){
-    const g = ctx.createGain();
+  function env(c, t, peak, attack, decay){
+    const g = c.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(Math.max(0.0002, peak), t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
     return g;
   }
-  function noiseHit(ctx, t, dur, type, f0, f1, peak, dest, q){
-    if(!scoreBuf) return;
-    const src = ctx.createBufferSource();
-    src.buffer = scoreBuf; src.playbackRate.value = 0.75 + Math.random() * 0.7;
-    const f = ctx.createBiquadFilter(); f.type = type; f.Q.value = q || 1;
+  function noiseHit(c, t, dur, type, f0, f1, peak, dest, q){
+    if(!buf || t < c.currentTime) return;
+    const src = c.createBufferSource();
+    src.buffer = buf; src.playbackRate.value = 0.78 + Math.random() * 0.6;
+    const f = c.createBiquadFilter(); f.type = type; f.Q.value = q || 1;
     f.frequency.setValueAtTime(Math.max(30, f0), t);
     f.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
-    const g = env(ctx, t, peak, Math.min(0.012, dur * 0.25), dur);
+    const g = env(c, t, peak, Math.min(0.012, dur * 0.25), dur);
     src.connect(f); f.connect(g); g.connect(dest);
     src.start(t); src.stop(t + dur + 0.06);
   }
-  function tone(ctx, t, type, f0, f1, dur, peak, dest){
-    const o = ctx.createOscillator(); o.type = type;
+  function tone(c, t, type, f0, f1, dur, peak, dest){
+    if(t < c.currentTime) return;
+    const o = c.createOscillator(); o.type = type;
     o.frequency.setValueAtTime(Math.max(20, f0), t);
     if(f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-    const g = env(ctx, t, peak, 0.008, dur);
+    const g = env(c, t, peak, 0.008, dur);
     o.connect(g); g.connect(dest);
     o.start(t); o.stop(t + dur + 0.06);
   }
 
-  function glitchSound(hard){
-    if(!actx || actx.state !== 'running' || !scoreMaster) return;
-    const t = actx.currentTime + 0.004;
-    noiseHit(actx, t, hard ? 0.17 : 0.09, 'bandpass',
-             900 + Math.random() * 2800, 280, hard ? 0.24 : 0.12, scoreDrive, hard ? 2 : 5);
-    tone(actx, t, 'square', hard ? 190 : 120, 58, 0.08, hard ? 0.3 : 0.15, scoreMaster);
+  // Master volume over the whole ignition. The duck at 3.72s is the point:
+  // "everything stops dead" only lands if the sound stops dead with it.
+  const CURVE = [
+    [0.00, 0.0001], [0.05, 0.03], [0.60, 0.30], [1.32, 0.42], [3.55, 0.60], [3.72, 0.60],
+    [3.80, 0.045], [4.07, 0.050], [4.10, 0.95], [4.44, 0.62], [5.28, 0.48],
+    [7.40, 0.22], [9.60, 0.0001],
+  ];
+  function levelAt(t){
+    if(t <= CURVE[0][0]) return CURVE[0][1];
+    for(let i = 1; i < CURVE.length; i++){
+      const t0 = CURVE[i-1][0], v0 = CURVE[i-1][1], t1 = CURVE[i][0], v1 = CURVE[i][1];
+      if(t <= t1) return v0 + (v1 - v0) * (t - t0) / (t1 - t0);
+    }
+    return CURVE[CURVE.length-1][1];
   }
 
-  function playScore(){
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if(!Ctx) return;
-    try{ actx = new Ctx(); }catch(e){ return; }
-    if(actx.state === 'suspended') actx.resume().catch(() => {});
-    const ctx = actx;
-    scoreBuf = noiseBuffer(ctx, 2.5);
-
-    scoreMaster = ctx.createGain(); scoreMaster.gain.value = 0.0001;
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18; comp.knee.value = 22; comp.ratio.value = 8;
-    comp.attack.value = 0.003; comp.release.value = 0.22;
-    scoreMaster.connect(comp); comp.connect(ctx.destination);
-
-    scoreDrive = shaper(ctx, 7); scoreDrive.connect(scoreMaster);
-    const delay = ctx.createDelay(1.0); delay.delayTime.value = 0.23;
-    const fb = ctx.createGain(); fb.gain.value = 0.34;
-    const dlp = ctx.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 2600;
-    delay.connect(fb); fb.connect(delay); delay.connect(dlp);
-    const wet = ctx.createGain(); wet.gain.value = 0.55; dlp.connect(wet); wet.connect(scoreMaster);
-
-    const T = ctx.currentTime + 0.05;
-    scoreMaster.gain.setValueAtTime(0.0001, T);
-    scoreMaster.gain.linearRampToValueAtTime(0.6, T + 0.07);
-    scoreMaster.gain.setValueAtTime(0.62, T + 3.3);
-    scoreMaster.gain.exponentialRampToValueAtTime(0.0001, T + 6.2);
-
-    // 0.00 — ignition: electrical zap, crackle, sub thump, riser into the slam
-    tone(ctx, T, 'sawtooth', 2700, 170, 0.3, 0.2, scoreDrive);
-    noiseHit(ctx, T, 0.24, 'highpass', 2200, 5400, 0.24, scoreDrive);
-    tone(ctx, T, 'sine', 92, 36, 0.55, 0.55, scoreMaster);
-    for(let i = 0; i < 8; i++){
-      noiseHit(ctx, T + 0.02 + i * 0.03 + Math.random() * 0.012, 0.03, 'bandpass',
-               1700 + Math.random() * 3400, 800, 0.16, scoreMaster, 7);
+  /* ------------------------------------------------------------- movements */
+  function spark(t){
+    tone(ctx, t, 'sine', 2480, 2480, 0.55, 0.045, delay);
+    tone(ctx, t + 0.02, 'sine', 62, 62, 0.5, 0.06, master);
+    for(let i = 0; i < 3; i++) noiseHit(ctx, t + 0.08 + i * 0.17, 0.02, 'bandpass', 3200 + i * 900, 1800, 0.05, master, 9);
+  }
+  function bloom(t){
+    noiseHit(ctx, t, 0.72, 'lowpass', 180, 3200, 0.2, master);
+    tone(ctx, t, 'sine', 55, 82, 0.7, 0.22, master);
+    tone(ctx, t, 'triangle', 880, 1760, 0.66, 0.07, delay);
+    tone(ctx, t + 0.1, 'sawtooth', 110, 220, 0.6, 0.06, drive);
+  }
+  function rush(t){
+    const span = 2.34;                                  // stalls just before the silence
+    const from = Math.max(t, ctx.currentTime + 0.01);
+    const dur = Math.max(0.2, (t + span) - from);
+    tone(ctx, from, 'sawtooth', 58, 940, dur, 0.16, drive);
+    tone(ctx, from, 'sine', 41, 165, dur, 0.2, master);
+    noiseHit(ctx, from, dur, 'bandpass', 260, 6400, 0.14, master, 1.6);
+    // Ticks that tighten as the shell comes in. The gap has a floor and the
+    // loop a cap: a pure geometric decay converges below `span` and never
+    // terminates, which would hang the tab on frame one.
+    let tick = 0, gap = 0.30, count = 0;
+    while(tick < span && count < 40){
+      tone(ctx, Math.max(t + tick, ctx.currentTime + 0.01), 'square', 1500, 900, 0.03, 0.06, master);
+      tick += gap; gap = Math.max(0.09, gap * 0.86); count++;
     }
-    tone(ctx, T + 0.02, 'sawtooth', 68, 640, 0.62, 0.13, scoreDrive);
-    noiseHit(ctx, T + 0.02, 0.64, 'bandpass', 380, 5400, 0.13, scoreMaster, 2);
-
-    // 0.16 — the slam: braam, sub drop, distorted noise crash, a crack of square
-    const I = T + 0.16;
-    // Braam: five detuned saws through a lowpass that opens then slams shut.
-    const braamFilter = ctx.createBiquadFilter();
-    braamFilter.type = 'lowpass'; braamFilter.Q.value = 9;
-    braamFilter.frequency.setValueAtTime(160, I);
-    braamFilter.frequency.exponentialRampToValueAtTime(2400, I + 0.34);
-    braamFilter.frequency.exponentialRampToValueAtTime(220, I + 1.7);
-    const braamGain = ctx.createGain();
-    braamGain.gain.setValueAtTime(0.0001, I);
-    braamGain.gain.linearRampToValueAtTime(0.42, I + 0.07);
-    braamGain.gain.exponentialRampToValueAtTime(0.0001, I + 1.9);
-    braamFilter.connect(braamGain); braamGain.connect(scoreMaster); braamGain.connect(delay);
-    [[55, 1], [55.6, .9], [82.4, .7], [110, .55], [164.8, .3]].forEach(([freq, level]) => {
+  }
+  function silence(t){
+    tone(ctx, t, 'sine', 3100, 3100, 0.34, 0.02, master);   // a hairline, held breath
+    noiseHit(ctx, t, 0.3, 'highpass', 5200, 7000, 0.02, master);
+  }
+  function collapse(t){
+    // braam: five detuned saws through a lowpass that opens then slams shut
+    const bf = ctx.createBiquadFilter(); bf.type = 'lowpass'; bf.Q.value = 9;
+    bf.frequency.setValueAtTime(150, t);
+    bf.frequency.exponentialRampToValueAtTime(2600, t + 0.3);
+    bf.frequency.exponentialRampToValueAtTime(210, t + 2.0);
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0.0001, t);
+    bg.gain.linearRampToValueAtTime(0.4, t + 0.06);
+    bg.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
+    bf.connect(bg); bg.connect(master); bg.connect(delay);
+    [[55, 1], [55.6, .9], [82.4, .7], [110, .55], [164.8, .3]].forEach((row) => {
       const o = ctx.createOscillator(); o.type = 'sawtooth';
-      o.frequency.setValueAtTime(freq, I);
-      o.frequency.exponentialRampToValueAtTime(freq * 0.985, I + 1.8);
-      const g = ctx.createGain(); g.gain.value = level * 0.5;
-      o.connect(g); g.connect(braamFilter); o.start(I); o.stop(I + 2.0);
+      o.frequency.setValueAtTime(row[0], t);
+      o.frequency.exponentialRampToValueAtTime(row[0] * 0.985, t + 1.8);
+      const g = ctx.createGain(); g.gain.value = row[1] * 0.5;
+      o.connect(g); g.connect(bf); o.start(t); o.stop(t + 2.0);
     });
-    tone(ctx, I, 'sine', 155, 30, 0.85, 0.9, scoreMaster);
-    tone(ctx, I, 'triangle', 330, 58, 0.42, 0.24, scoreDrive);
-    noiseHit(ctx, I, 0.55, 'lowpass', 4400, 150, 0.55, scoreDrive);
-    tone(ctx, I, 'square', 1250, 88, 0.13, 0.13, scoreDrive);
-    noiseHit(ctx, I, 0.9, 'highpass', 700, 5200, 0.1, scoreMaster);   // shockwave air
-
-    // 0.60 — the underline ignites: two detuned shimmer partials into the delay
-    tone(ctx, T + 0.60, 'triangle', 1568, 1568, 0.55, 0.075, delay);
-    tone(ctx, T + 0.60, 'triangle', 1574, 1574, 0.55, 0.06, delay);
-
-    // 0.92 / 1.14 — red slashes
-    const slash = (t) => {
-      noiseHit(ctx, t, 0.32, 'bandpass', 480, 7200, 0.3, scoreMaster, 3);
-      tone(ctx, t + 0.02, 'square', 1500, 290, 0.1, 0.11, scoreDrive);
-    };
-    slash(T + 0.92); slash(T + 1.14);
-
-    // 0.95 — the music bed: A-minor drone, filter LFO, 96 BPM pulse, bells
-    const M = T + 0.95;
-    const dg = ctx.createGain(); dg.gain.value = 0.0001; dg.connect(scoreMaster);
-    dg.gain.setValueAtTime(0.0001, M);
-    dg.gain.linearRampToValueAtTime(0.2, M + 0.5);
-    dg.gain.setValueAtTime(0.2, M + 2.1);
-    dg.gain.exponentialRampToValueAtTime(0.0001, M + 4.3);
+    tone(ctx, t, 'sine', 165, 27, 1.0, 0.95, master);       // implosion
+    tone(ctx, t, 'sine', 62, 19, 1.5, 0.8, master);         // sub drop
+    noiseHit(ctx, t, 0.6, 'lowpass', 5200, 140, 0.6, drive);// crash
+    tone(ctx, t, 'square', 1400, 80, 0.14, 0.16, drive);    // the snap
+    noiseHit(ctx, t, 0.18, 'highpass', 3000, 9000, 0.42, master);   // whiteout
+    // camera shake as sound: 31 Hz rumble under a 23 Hz tremolo
+    const rum = ctx.createOscillator(); rum.type = 'sine'; rum.frequency.value = 31;
+    const trem = ctx.createOscillator(); trem.type = 'sine'; trem.frequency.value = 23;
+    const tremGain = ctx.createGain(); tremGain.gain.value = 0.28;
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0.0001, t);
+    rg.gain.linearRampToValueAtTime(0.5, t + 0.03);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    trem.connect(tremGain); tremGain.connect(rg.gain);
+    rum.connect(rg); rg.connect(master);
+    rum.start(t); rum.stop(t + 0.75); trem.start(t); trem.stop(t + 0.75);
+  }
+  function rebound(t){
+    for(let r = 0; r < 3; r++){                            // three blast rings
+      noiseHit(ctx, t + r * 0.13, 0.75, 'bandpass', 6200 - r * 900, 190, 0.3 - r * 0.06, master, 1.1);
+      tone(ctx, t + r * 0.13, 'sine', 420 - r * 90, 60, 0.5, 0.16 - r * 0.04, master);
+    }
+    [[0.02, 880], [0.16, 1318.5], [0.30, 1760]].forEach((row) =>   // spires tearing out
+      tone(ctx, t + row[0], 'triangle', row[1], row[1], 1.1, 0.075, delay));
+    tone(ctx, t, 'triangle', 220, 96, 0.34, 0.14, master);          // recoil
+    tone(ctx, t + 0.3, 'triangle', 96, 250, 0.4, 0.1, master);      // overshoot
+  }
+  function settle(t){
+    // the idle billow, harmonically: an A-minor bed that eases out by ~9.6s
+    const dg = ctx.createGain(); dg.gain.value = 0.0001; dg.connect(master);
+    dg.gain.setValueAtTime(0.0001, t);
+    dg.gain.linearRampToValueAtTime(0.2, t + 0.7);
+    dg.gain.setValueAtTime(0.2, t + 2.4);
+    dg.gain.exponentialRampToValueAtTime(0.0001, t + 4.2);
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 250; lp.Q.value = 7;
     lp.connect(dg);
     [[55, 'sawtooth', .5], [55.5, 'sawtooth', .5], [82.4, 'triangle', .34], [110, 'sine', .18]]
-      .forEach(([freq, type, level]) => {
-        const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq;
-        const g = ctx.createGain(); g.gain.value = level;
-        o.connect(g); g.connect(lp); o.start(M); o.stop(M + 4.7);
+      .forEach((row) => {
+        const o = ctx.createOscillator(); o.type = row[1]; o.frequency.value = row[0];
+        const g = ctx.createGain(); g.gain.value = row[2];
+        o.connect(g); g.connect(lp); o.start(t); o.stop(t + 4.4);
       });
-    const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.5;
+    const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.45;
     const lfoGain = ctx.createGain(); lfoGain.gain.value = 150;
-    lfo.connect(lfoGain); lfoGain.connect(lp.frequency); lfo.start(M); lfo.stop(M + 4.7);
-    for(let i = 0; i < 9; i++){
-      const t = M + i * 0.3125;
-      if(t > T + 3.2) break;
-      tone(ctx, t, 'sine', (i % 4 === 0) ? 110 : 55, 40, 0.17, (i % 4 === 0) ? 0.36 : 0.22, scoreMaster);
-      if(i % 2 === 1) noiseHit(ctx, t, 0.05, 'highpass', 6200, 9000, 0.05, scoreMaster);
-    }
-    // 16th-note hats for drive
-    for(let i = 0; i < 18; i++){
-      const t = M + i * 0.15625;
-      if(t > T + 3.2) break;
-      noiseHit(ctx, t, 0.028, 'highpass', (i % 4 === 2) ? 9200 : 7400, 11000, (i % 4 === 0) ? 0.06 : 0.032, scoreMaster);
-    }
-    // A-minor add9 pad, slow attack, thrown into the delay for width
-    const padGain = ctx.createGain(); padGain.gain.value = 0.0001; padGain.connect(scoreMaster); padGain.connect(delay);
-    padGain.gain.setValueAtTime(0.0001, M);
-    padGain.gain.linearRampToValueAtTime(0.13, M + 0.85);
-    padGain.gain.setValueAtTime(0.13, M + 2.0);
-    padGain.gain.exponentialRampToValueAtTime(0.0001, M + 3.4);
-    const padFilter = ctx.createBiquadFilter(); padFilter.type = 'lowpass'; padFilter.frequency.value = 1900; padFilter.Q.value = 1.2;
-    padFilter.connect(padGain);
+    lfo.connect(lfoGain); lfoGain.connect(lp.frequency); lfo.start(t); lfo.stop(t + 4.4);
+    // pad: A minor add9, slow attack, thrown into the delay for width
+    const pg = ctx.createGain(); pg.gain.value = 0.0001; pg.connect(master); pg.connect(delay);
+    pg.gain.setValueAtTime(0.0001, t);
+    pg.gain.linearRampToValueAtTime(0.12, t + 0.95);
+    pg.gain.setValueAtTime(0.12, t + 2.2);
+    pg.gain.exponentialRampToValueAtTime(0.0001, t + 4.0);
+    const pf = ctx.createBiquadFilter(); pf.type = 'lowpass'; pf.frequency.value = 1900; pf.Q.value = 1.2;
+    pf.connect(pg);
     [220.0, 261.63, 329.63, 493.88].forEach((freq, idx) => {
       const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = freq;
       o.detune.value = (idx % 2 ? 6 : -6);
       const g = ctx.createGain(); g.gain.value = idx === 0 ? 0.5 : 0.34;
-      o.connect(g); g.connect(padFilter); o.start(M); o.stop(M + 3.6);
+      o.connect(g); g.connect(pf); o.start(t); o.stop(t + 4.2);
     });
-    [[0.0, 440.0], [0.62, 523.25], [1.25, 659.25], [1.87, 523.25], [2.2, 880.0]]
-      .forEach(([off, freq]) => {
-        const t = M + off; if(t > T + 3.25) return;
-        tone(ctx, t, 'triangle', freq, freq, 0.55, 0.085, delay);
-        tone(ctx, t, 'sine', freq * 2, freq * 2, 0.24, 0.035, scoreMaster);
-      });
+    // ready chime
+    tone(ctx, t + 0.72, 'triangle', 880.0, 880.0, 1.0, 0.085, delay);
+    tone(ctx, t + 0.9, 'triangle', 1318.5, 1318.5, 1.2, 0.065, delay);
+  }
+  const MOVES = [[0.00, spark], [0.60, bloom], [1.32, rush], [3.72, silence],
+                 [4.08, collapse], [4.44, rebound], [5.28, settle]];
 
-    // 1.80 / 2.32 — the punches: kick, crushed noise, red-alert blips
-    const punch = (t, hard) => {
-      tone(ctx, t, 'sine', hard ? 230 : 185, 42, hard ? 0.52 : 0.4, hard ? 0.95 : 0.72, scoreMaster);
-      noiseHit(ctx, t, hard ? 0.36 : 0.24, 'lowpass', 3200, 190, hard ? 0.46 : 0.3, scoreDrive);
-      tone(ctx, t, 'square', hard ? 880 : 740, hard ? 880 : 740, 0.07, 0.15, scoreMaster);
-      tone(ctx, t + 0.11, 'square', hard ? 880 : 740, hard ? 880 : 740, 0.07, 0.13, scoreMaster);
-      if(hard){
-        tone(ctx, t + 0.22, 'square', 1180, 1180, 0.09, 0.13, scoreMaster);
-        noiseHit(ctx, t, 0.55, 'bandpass', 190, 4400, 0.22, scoreMaster, 1.2);
-      }
-    };
-    punch(T + 1.80, false); punch(T + 2.32, true);
-
-    // 2.72 — overdrive: riser, siren and a machine-gun blip run
-    tone(ctx, T + 2.72, 'sawtooth', 120, 1500, 0.54, 0.17, scoreDrive);
-    noiseHit(ctx, T + 2.72, 0.54, 'bandpass', 900, 8200, 0.17, scoreMaster, 2);
-    for(let i = 0; i < 6; i++) tone(ctx, T + 2.72 + i * 0.085, 'square', 1320, 1320, 0.03, 0.07, scoreMaster);
-    const siren = ctx.createOscillator(); siren.type = 'square';
-    siren.frequency.setValueAtTime(620, T + 2.72);
-    siren.frequency.exponentialRampToValueAtTime(1520, T + 2.97);
-    siren.frequency.exponentialRampToValueAtTime(640, T + 3.22);
-    const sirenGain = ctx.createGain();
-    sirenGain.gain.setValueAtTime(0.0001, T + 2.72);
-    sirenGain.gain.linearRampToValueAtTime(0.085, T + 2.8);
-    sirenGain.gain.exponentialRampToValueAtTime(0.0001, T + 3.24);
-    const sirenFilter = ctx.createBiquadFilter(); sirenFilter.type = 'bandpass';
-    sirenFilter.frequency.value = 1200; sirenFilter.Q.value = 2.5;
-    siren.connect(sirenFilter); sirenFilter.connect(sirenGain); sirenGain.connect(scoreMaster);
-    siren.start(T + 2.72); siren.stop(T + 3.3);
-
-    // 3.25 — the cut: swell up, hard boom, then the "ready" chime rings out
-    const F = T + 3.25;
-    const swell = ctx.createBufferSource(); swell.buffer = scoreBuf;
-    const swellFilter = ctx.createBiquadFilter(); swellFilter.type = 'highpass';
-    swellFilter.frequency.setValueAtTime(280, F - 0.62);
-    swellFilter.frequency.exponentialRampToValueAtTime(7200, F - 0.01);
-    const swellGain = ctx.createGain();
-    swellGain.gain.setValueAtTime(0.0001, F - 0.62);
-    swellGain.gain.exponentialRampToValueAtTime(0.32, F - 0.02);
-    swellGain.gain.setValueAtTime(0.0001, F);
-    swell.connect(swellFilter); swellFilter.connect(swellGain); swellGain.connect(scoreMaster);
-    swell.start(F - 0.62); swell.stop(F + 0.05);
-    tone(ctx, F, 'sine', 125, 27, 1.2, 0.85, scoreMaster);
-    tone(ctx, F, 'sine', 62, 19, 1.6, 0.95, scoreMaster);          // sub drop under the boom
-    noiseHit(ctx, F, 0.75, 'lowpass', 2600, 85, 0.36, scoreDrive);
-    // second, brighter swell so the cut has teeth
-    const swell2 = ctx.createBufferSource(); swell2.buffer = scoreBuf;
-    const swell2Filter = ctx.createBiquadFilter(); swell2Filter.type = 'highpass';
-    swell2Filter.frequency.setValueAtTime(1200, F - 0.5);
-    swell2Filter.frequency.exponentialRampToValueAtTime(9500, F - 0.01);
-    const swell2Gain = ctx.createGain();
-    swell2Gain.gain.setValueAtTime(0.0001, F - 0.5);
-    swell2Gain.gain.exponentialRampToValueAtTime(0.2, F - 0.02);
-    swell2Gain.gain.setValueAtTime(0.0001, F);
-    swell2.connect(swell2Filter); swell2Filter.connect(swell2Gain); swell2Gain.connect(scoreMaster);
-    swell2.start(F - 0.5); swell2.stop(F + 0.05);
-    tone(ctx, F + 0.06, 'triangle', 880.0, 880.0, 1.0, 0.09, delay);
-    tone(ctx, F + 0.22, 'triangle', 1318.5, 1318.5, 1.2, 0.07, delay);
+  function buildBus(){
+    buf = makeNoise(ctx, 2.5);
+    master = ctx.createGain(); master.gain.value = 0.0001;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.knee.value = 22; comp.ratio.value = 8;
+    comp.attack.value = 0.003; comp.release.value = 0.22;
+    master.connect(comp); comp.connect(ctx.destination);
+    drive = shaper(ctx, 7); drive.connect(master);
+    delay = ctx.createDelay(1.0); delay.delayTime.value = 0.23;
+    const fb = ctx.createGain(); fb.gain.value = 0.34;
+    const dlp = ctx.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 2600;
+    delay.connect(fb); fb.connect(delay); delay.connect(dlp);
+    const wet = ctx.createGain(); wet.gain.value = 0.5; dlp.connect(wet); wet.connect(master);
   }
 
-  /* ============================ the visuals ============================== */
-  // Shatter shards, randomised per load: angle, distance, size and delay.
-  (function buildShards(){
-    const host = document.getElementById('sShards');
-    if(!host) return;
-    for(let i = 0; i < 16; i++){
-      const shard = document.createElement('i');
-      const angle = Math.random() * 360;
-      shard.style.setProperty('--rot', angle.toFixed(1) + 'deg');
-      shard.style.setProperty('--dy', '-' + (320 + Math.random() * 620).toFixed(0) + 'px');
-      shard.style.setProperty('--d', (Math.random() * 0.12).toFixed(3) + 's');
-      host.appendChild(shard);
-    }
-  })();
+  function begin(){
+    if(begun || !ctx) return;
+    begun = true;
+    if(pill) pill.classList.add('gone');
+    try{ if(ctx.state === 'suspended') ctx.resume().catch(() => {}); }catch(e){}
+    try{ armAudio(); }catch(e){}                  // the same gesture frees the voice
+    buildBus();
+    const offset = (typeof bootStart === 'number' && bootStart)
+      ? Math.max(0, (performance.now() - bootStart) / 1000) : BOOT_S;
 
-  function beat(){
-    if(done || !ignited) return;
-    startup.classList.add('tear', 'hit');
-    glitchSound(false);
-    at(170, () => startup.classList.remove('tear'));
-    at(430, () => startup.classList.remove('hit'));
-  }
-  function punch(hard){
-    if(done || !ignited) return;
-    startup.classList.remove('punch', 'punch2');
-    void startup.offsetWidth;                       // reflow so the animation restarts
-    startup.classList.add('punch', 'tear', 'hit');
-    if(hard){ startup.classList.add('punch2', 'crack'); at(900, () => startup.classList.remove('crack')); }
-    glitchSound(true);
-    at(190, () => startup.classList.remove('tear'));
-    at(420, () => startup.classList.remove('punch', 'hit'));
-  }
-  function finish(){
-    if(done) return; done = true;
-    timers.forEach(clearTimeout); timers = [];
-    if(bursts){ clearInterval(bursts); bursts = null; }
-    startup.classList.remove('over', 'tear', 'hit', 'punch', 'punch2', 'crack');
-    startup.classList.add('out');
-    document.body.classList.add('startup-done');    // in case it was cut short
-    setTimeout(() => { startup.style.display = 'none'; }, 560);
-  }
-
-  function ignite(silent){
-    if(ignited || done) return;
-    ignited = true;
-    timers.forEach(clearTimeout); timers = [];      // drop the auto-ignite timer
-    if(calm){
-      startup.classList.remove('standby');
-      document.body.classList.add('startup-done');
-      at(420, finish);
+    // Less than ~1.2s of ignition left (or already over) means the movements
+    // are all behind us and a click would buy nothing but a fading tail. Give
+    // it the detonation and the settle instead, so turning sound on is worth
+    // hearing whenever it happens.
+    if(offset >= BOOT_S - 1.2){
+      const t = ctx.currentTime + 0.03;
+      master.gain.setValueAtTime(0.0001, t);
+      master.gain.linearRampToValueAtTime(0.9, t + 0.04);
+      master.gain.setValueAtTime(0.9, t + 1.2);
+      master.gain.exponentialRampToValueAtTime(0.0001, t + 5.6);
+      collapse(t); rebound(t + 0.36); settle(t + 0.9);
       return;
     }
-    // The click that ignites is the gesture the browser needs for audio: arm
-    // the voice here and hold the greeting until the cut is over.
-    greetingHold = 3600;
-    if(!silent){
-      try{ armAudio(); }catch(e){}
-      if(scoreOn) { try{ playScore(); }catch(e){} }
-    }
-    startup.classList.remove('standby');
-    startup.classList.add('go');
-    at(660, beat);                                   // impact of the slam
-    // One spoken word over the score: it is the drama, and it proves out loud
-    // whether the voice pipeline works before the first reply ever arrives.
-    // Only when the ignition came from a real gesture — an auto-ignition has no
-    // audio permission, and trying anyway would just report a false "blocked".
-    if(!silent) at(760, () => { if(settings.speech && speechSupported) { try{ speakAloud('Online.'); }catch(e){} } });
-    at(950, () => document.body.classList.add('startup-done'));  // UI wakes underneath
-    bursts = setInterval(() => { if(Math.random() < 0.42) beat(); }, 210);
-    at(1800, () => punch(false));                    // first hit
-    at(2320, () => punch(true));                     // second, harder — full name
-    at(2720, () => { if(bursts){ clearInterval(bursts); bursts = null; } startup.classList.add('over'); });
-    at(2900, beat);
-    at(3250, finish);                                // hard cut
-    at(7200, () => { try{ if(actx) actx.close(); }catch(e){} actx = null; });
+
+    const T0 = ctx.currentTime - offset;          // where frame one of the ignition sits
+    master.gain.setValueAtTime(Math.max(0.0001, levelAt(offset)), ctx.currentTime);
+    CURVE.forEach((point) => {
+      if(point[0] > offset) master.gain.linearRampToValueAtTime(Math.max(0.0001, point[1]), T0 + point[0]);
+    });
+    MOVES.forEach((move) => {
+      if(move[0] + 0.06 < offset) return;         // that phase is already behind us
+      try{ move[1](Math.max(T0 + move[0], ctx.currentTime + 0.01)); }catch(e){}
+    });
   }
 
-  /* sound on/off, without igniting */
-  function paintSound(){
-    if(!soundTag) return;
-    soundTag.textContent = scoreOn ? 'SOUND ON' : 'SOUND OFF';
-    soundTag.classList.toggle('muted', !scoreOn);
-    soundTag.title = scoreOn ? 'Click to mute the boot score' : 'Click to unmute the boot score';
+  // Open the context at load. If this browser already allows it (it has learned
+  // this origin), the score plays from frame one with no click at all.
+  try{ ctx = new Ctx(); }catch(e){ ctx = null; }
+  if(!ctx) return;
+  if(ctx.state === 'running'){ begin(); }
+  else {
+    if(pill) pill.classList.add('show');
+    const unlock = () => begin();
+    if(pill) pill.addEventListener('click', unlock);
+    ['pointerdown', 'keydown', 'touchstart'].forEach((eventName) =>
+      document.addEventListener(eventName, unlock, { once: true, passive: true }));
+    // Never leave the offer hanging there for the rest of the session.
+    setTimeout(() => { if(!begun && pill) pill.classList.add('gone'); }, 60000);
   }
-  paintSound();
-  if(soundTag){
-    ['pointerdown', 'click'].forEach((eventName) => soundTag.addEventListener(eventName, (ev) => {
-      ev.stopPropagation();
-      if(eventName === 'click'){
-        scoreOn = !scoreOn;
-        try{ localStorage.setItem('jarvis.introSound', scoreOn ? '1' : '0'); }catch(e){}
-        paintSound();
-      }
-    }));
-  }
-
-  /* any input ignites; the intro never holds the interface hostage */
-  ['pointerdown', 'click', 'touchstart'].forEach((eventName) =>
-    startup.addEventListener(eventName, () => ignite(false), { passive: true }));
-  document.addEventListener('keydown', () => ignite(false));
-  // Backgrounded mid-intro: come back to a live UI, never to a black screen.
-  document.addEventListener('visibilitychange', () => {
-    if(!document.hidden) return;
-    if(!ignited) ignite(true);
-    finish();
-  });
-  // Safety nets: reduced motion skips the gate entirely, everyone else gets
-  // 4s to click for sound before it auto-ignites silently, and 9s is the
-  // absolute backstop so the overlay can never strand the interface.
-  if(calm) setTimeout(() => ignite(true), 200);
-  else setTimeout(() => ignite(true), 4000);
-  setTimeout(finish, 9000);
 })();
 
 </script>
