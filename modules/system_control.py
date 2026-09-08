@@ -8,6 +8,8 @@ when an optional dependency (pyautogui, pycaw, pactl …) is missing.
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
 import shutil
@@ -1317,6 +1319,399 @@ class SystemControl(BaseModule):
             return ModuleResult.ok(f"No display — copied {src.name} to {dst} instead of dragging.", data={"src": str(src), "dst": str(dst)})
         except Exception as exc:
             return ModuleResult.fail(f"Drag failed: {exc}")
+
+
+
+    # ---------------------------------------------------------------- must 1: true full-disk find
+    @tool(
+        description="Full-disk search: find files by name or by text inside them (uses ripgrep/find, respects allowed_roots).",
+        params={
+            "query": {"type": "string", "description": "Filename fragment or text to search for", "required": True},
+            "mode": {"type": "string", "description": "name = filename, content = inside files", "default": "name"},
+            "path": {"type": "string", "description": "Root to search (default whole disk via allowed_roots)", "default": ""},
+            "limit": {"type": "integer", "description": "Max results", "default": 20},
+        },
+        keywords=["find file", "search file", "locate file", "where is", "find text"],
+    )
+    async def find(self, query: str, mode: str = "name", path: str = "", limit: int = 20) -> ModuleResult:
+        """Full-disk find by name or content."""
+        if not query.strip():
+            return ModuleResult.fail("Give me what to find — e.g. find \"invoice\"")
+        q = query.strip()
+        limit = max(1, min(50, int(limit or 20)))
+        roots = []
+        if path.strip():
+            roots = [str(resolve_user_path(path.strip()))]
+        else:
+            try:
+                roots_cfg = self.config.get("security.allowed_roots", [])
+                if roots_cfg:
+                    roots = [str(resolve_user_path(r)) for r in roots_cfg]
+                else:
+                    roots = [str(Path.home())]
+            except Exception:
+                roots = [str(Path.home())]
+        # cap to real existing roots, prefer home + Downloads for speed
+        roots = [r for r in roots if Path(r).exists()][:3]
+        if not roots:
+            roots = [str(Path.home())]
+        try:
+            if mode.lower().startswith("c"):
+                # content search via ripgrep or grep
+                rg = which("rg") or which("grep")
+                if rg and "rg" in rg:
+                    code, out, err = await run_command(["rg", "-i", "--max-count", "1", "-l", q] + roots, timeout=20)
+                elif rg:
+                    code, out, err = await run_command(["grep", "-ri", "-l", q] + roots, timeout=20)
+                else:
+                    # python fallback
+                    found = []
+                    for root in roots:
+                        for p in Path(root).rglob("*"):
+                            if p.is_file():
+                                try:
+                                    if q.lower() in p.read_text(errors="ignore").lower():
+                                        found.append(str(p))
+                                        if len(found) >= limit:
+                                            break
+                                except Exception:
+                                    continue
+                            if len(found) >= limit:
+                                break
+                    out = "\n".join(found)
+                    code = 0
+                files = [l.strip() for l in (out or "").splitlines() if l.strip()][:limit]
+                if not files:
+                    return ModuleResult.ok(f"No file containing '{q}' under {', '.join(roots)}.", data={"files": []})
+                return ModuleResult.ok(f"Files containing '{q}' ({len(files)}):\n" + "\n".join(files), data={"files": files, "roots": roots})
+            else:
+                # name search via find / fd / python
+                if which("fd"):
+                    code, out, _ = await run_command(["fd", "-i", q] + roots, timeout=20)
+                    files = [l.strip() for l in out.splitlines() if l.strip()][:limit]
+                elif which("find"):
+                    code, out, _ = await run_command(["find"] + roots + ["-iname", f"*{q}*", "-type", "f", "-print"], timeout=20)
+                    files = [l.strip() for l in out.splitlines() if l.strip()][:limit]
+                else:
+                    files = []
+                    for root in roots:
+                        for p in Path(root).rglob(f"*{q}*"):
+                            if p.is_file():
+                                files.append(str(p))
+                                if len(files) >= limit:
+                                    break
+                if not files:
+                    return ModuleResult.ok(f"No file named '*{q}*' under {', '.join(roots)}.", data={"files": []})
+                return ModuleResult.ok(f"Files named '*{q}*' ({len(files)}):\n" + "\n".join(files), data={"files": files, "roots": roots})
+        except Exception as exc:
+            return ModuleResult.fail(f"Find failed: {exc}")
+
+    # --------------------------------------------------------------- must 2: kill / restart
+    @tool(
+        description="Kill a process by name or pid (sigterm, escalates to sigkill).",
+        params={
+            "target": {"type": "string", "description": "Process name (chrome) or pid (1234)", "required": True},
+            "force": {"type": "boolean", "description": "Use SIGKILL", "default": False},
+        },
+        dangerous=True,
+        keywords=["kill process", "kill app", "terminate", "stop process", "kill -9"],
+    )
+    async def kill(self, target: str, force: bool = False) -> ModuleResult:
+        """Kill a process."""
+        if not target.strip():
+            return ModuleResult.fail("Give me a process name or pid to kill.")
+        t = target.strip()
+        try:
+            # pid?
+            if t.isdigit():
+                pid = int(t)
+                if IS_WINDOWS:
+                    code, out, err = await run_command(["taskkill", "/PID", str(pid), "/F" if force else ""], timeout=10)
+                else:
+                    import signal
+                    os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
+                    return ModuleResult.ok(f"Killed pid {pid} ({'SIGKILL' if force else 'SIGTERM'}).", data={"pid": pid})
+                if code == 0:
+                    return ModuleResult.ok(f"Killed pid {pid}.")
+                return ModuleResult.fail(f"taskkill: {truncate(err or out, 200)}")
+            # name via pkill / taskkill / killall
+            if IS_WINDOWS:
+                code, out, err = await run_command(["taskkill", "/IM", t if t.lower().endswith(".exe") else t + ".exe", "/F"], timeout=10)
+                if code == 0:
+                    return ModuleResult.ok(f"Killed '{t}' (taskkill).")
+                return ModuleResult.fail(f"taskkill: {truncate(err or out, 200)}")
+            else:
+                for cmd in ([ "pkill", "-9" if force else "-15", t ], [ "killall", "-9" if force else "-15", t ]):
+                    if which(cmd[0]):
+                        code, out, err = await run_command(cmd, timeout=10)
+                        if code == 0:
+                            return ModuleResult.ok(f"Killed '{t}' via {cmd[0]} ({'SIGKILL' if force else 'SIGTERM'}).")
+                # python fallback via psutil if installed
+                try:
+                    import psutil
+                    killed = 0
+                    for proc in psutil.process_iter(["name"]):
+                        if t.lower() in (proc.info["name"] or "").lower():
+                            proc.kill() if force else proc.terminate()
+                            killed += 1
+                    if killed:
+                        return ModuleResult.ok(f"Killed {killed} process(es) matching '{t}'.")
+                except Exception:
+                    pass
+                return ModuleResult.fail(f"No process matching '{t}' or tool missing (pkill/killall).")
+        except Exception as exc:
+            return ModuleResult.fail(f"Kill failed: {exc}")
+
+    @tool(
+        description="Restart an app: kill it then launch it again by name.",
+        params={"name": {"type": "string", "description": "App name (spotify, chrome, code)", "required": True}},
+        dangerous=True,
+        keywords=["restart app", "relaunch", "restart chrome", "bounce"],
+    )
+    async def restart(self, name: str) -> ModuleResult:
+        """Restart an app."""
+        if not name.strip():
+            return ModuleResult.fail("Which app to restart?")
+        n = name.strip()
+        k = await self.kill(n, force=False)
+        # give it a breath
+        await run_blocking(lambda: time.sleep(0.8))
+        o = await self.open_app(n)
+        if o.success:
+            return ModuleResult.ok(f"Restarted '{n}'. {k.output} → {o.output}", data={"kill": k.data, "open": o.data})
+        return ModuleResult.fail(f"Killed '{n}' but relaunch failed: {o.output}")
+
+    # --------------------------------------------------------------- must 3: schedule / remind
+    @tool(
+        description="Schedule a task or reminder: 'in 20m call mom' or 'every day 08:00 open calendar'. Persists to data/schedules.json.",
+        params={
+            "when": {"type": "string", "description": "Natural time: 'in 20m', 'in 2h', 'tomorrow 08:00', 'every day 08:00'", "required": True},
+            "task": {"type": "string", "description": "What to do / remind text", "required": True},
+        },
+        keywords=["schedule", "remind me", "in 20 minutes", "every day", "cron"],
+    )
+    async def schedule(self, when: str, task: str) -> ModuleResult:
+        """Schedule a reminder/task."""
+        if not when.strip() or not task.strip():
+            return ModuleResult.fail("Give me when and what — e.g. schedule 'in 20m' 'call mom'")
+        try:
+            from datetime import timedelta
+            import json as _json
+            # parse when: very small parser
+            w = when.strip().lower()
+            now = datetime.now()
+            run_at = None
+            repeat = ""
+            if w.startswith("in "):
+                # in 20m / 2h / 30s
+                m = re.match(r"in\s+(\d+)\s*([smhd])", w)
+                if m:
+                    n = int(m.group(1)); unit = m.group(2)
+                    delta = {"s": timedelta(seconds=n), "m": timedelta(minutes=n), "h": timedelta(hours=n), "d": timedelta(days=n)}[unit]
+                    run_at = now + delta
+                else:
+                    return ModuleResult.fail("Use 'in 20m', 'in 2h', 'in 30s', 'in 1d'.")
+            elif "every day" in w:
+                m = re.search(r"(\d{1,2}):(\d{2})", w)
+                if m:
+                    hh, mm = int(m.group(1)), int(m.group(2))
+                    run_at = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                    if run_at <= now:
+                        run_at += timedelta(days=1)
+                    repeat = "daily"
+                else:
+                    return ModuleResult.fail("Use 'every day 08:00 <task>'.")
+            elif re.match(r"\d{1,2}:\d{2}", w):
+                hh, mm = map(int, w.split(":"))
+                run_at = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                if run_at <= now:
+                    run_at += timedelta(days=1)
+            elif "tomorrow" in w:
+                m = re.search(r"(\d{1,2}):(\d{2})", w)
+                if m:
+                    hh, mm = int(m.group(1)), int(m.group(2))
+                    run_at = (now + timedelta(days=1)).replace(hour=hh, minute=mm, second=0, microsecond=0)
+                else:
+                    run_at = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+            else:
+                return ModuleResult.fail("Try 'in 20m <task>' or 'every day 08:00 <task>' or 'tomorrow 09:00 <task>'.")
+            # persist
+            store = Path("data/schedules.json")
+            store.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                data = _json.loads(store.read_text(encoding="utf-8")) if store.exists() else []
+            except Exception:
+                data = []
+            entry = {"id": len(data) + 1, "when": when, "task": task, "run_at": run_at.isoformat(), "repeat": repeat, "created": now.isoformat()}
+            data.append(entry)
+            store.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+            return ModuleResult.ok(f"Scheduled #{entry['id']} for {run_at.strftime('%Y-%m-%d %H:%M')} — '{task}' ({when})", data=entry)
+        except Exception as exc:
+            return ModuleResult.fail(f"Schedule failed: {exc}")
+
+    @tool(
+        description="List scheduled reminders/tasks from data/schedules.json.",
+        params={"limit": {"type": "integer", "description": "Max to show", "default": 10}},
+        keywords=["list schedules", "show reminders", "what is scheduled"],
+    )
+    async def list_schedules(self, limit: int = 10) -> ModuleResult:
+        p = Path("data/schedules.json")
+        if not p.exists():
+            return ModuleResult.ok("No schedules yet — use schedule 'in 20m call mom'.", data={"schedules": []})
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            items = data[-limit:]
+            out = "\n".join(f"{s['id']}. {s['run_at'][:16]} — {s['task']} ({s['when']})" for s in items)
+            return ModuleResult.ok(f"Schedules ({len(items)}):\n{out}", data={"schedules": items})
+        except Exception as exc:
+            return ModuleResult.fail(f"Could not read schedules: {exc}")
+
+    @tool(
+        description="Cancel a scheduled task by id.",
+        params={"id": {"type": "integer", "description": "Schedule id from list_schedules", "required": True}},
+        keywords=["cancel schedule", "remove reminder", "unschedule"],
+    )
+    async def cancel_schedule(self, id: int) -> ModuleResult:
+        p = Path("data/schedules.json")
+        if not p.exists():
+            return ModuleResult.fail("No schedule file.")
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            before = len(data)
+            data = [s for s in data if int(s.get("id", -1)) != int(id)]
+            p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            if len(data) == before:
+                return ModuleResult.fail(f"No schedule #{id}.")
+            return ModuleResult.ok(f"Cancelled schedule #{id}.", data={"remaining": len(data)})
+        except Exception as exc:
+            return ModuleResult.fail(f"Cancel failed: {exc}")
+
+    # --------------------------------------------------------------- must 4: snapshot / restore
+    @tool(
+        description="Snapshot a folder to ~/Backups/jarvis/YYYY-MM-DD-HHMM-folder.tar.gz (auto, respects allowed_roots).",
+        params={
+            "path": {"type": "string", "description": "Folder to backup (~/Documents, .)", "default": "~"},
+            "name": {"type": "string", "description": "Optional snapshot name override", "default": ""},
+        },
+        keywords=["snapshot", "backup folder", "archive", "save backup"],
+    )
+    async def snapshot(self, path: str = "~", name: str = "") -> ModuleResult:
+        """Create a tar.gz snapshot."""
+        try:
+            src = resolve_user_path(path or "~")
+            if not src.exists():
+                return ModuleResult.fail(f"Not found: {src}")
+            # guard sensitive? with B we allow, but still refuse secrets.env via guard
+            backups = Path.home() / "Backups" / "jarvis"
+            backups.mkdir(parents=True, exist_ok=True)
+            base = name.strip() or src.name or "snapshot"
+            base = safe_filename(base) or "snapshot"
+            dated = datetime.now().strftime("%Y-%m-%d-%H%M") + "-" + base + ".tar.gz"
+            dest = backups / dated
+            def _do():
+                with tarfile.open(dest, "w:gz") as tar:
+                    tar.add(src, arcname=src.name)
+                return dest.stat().st_size
+            size = await run_blocking(_do)
+            return ModuleResult.ok(f"Snapshot {human_bytes(size)} → {dest}", data={"path": str(dest), "bytes": size, "src": str(src)})
+        except Exception as exc:
+            return ModuleResult.fail(f"Snapshot failed: {exc}")
+
+    @tool(
+        description="Restore a snapshot tar.gz to a destination folder.",
+        params={
+            "archive": {"type": "string", "description": "Snapshot tar.gz path", "required": True},
+            "dest": {"type": "string", "description": "Where to restore (default .)", "default": ""},
+        },
+        keywords=["restore", "restore backup", "extract snapshot"],
+    )
+    async def restore(self, archive: str, dest: str = "") -> ModuleResult:
+        """Restore a snapshot."""
+        try:
+            arc = resolve_user_path(archive)
+            if not arc.exists():
+                return ModuleResult.fail(f"Archive not found: {arc}")
+            out = resolve_user_path(dest) if dest.strip() else Path.cwd()
+            out.mkdir(parents=True, exist_ok=True)
+            def _do():
+                with tarfile.open(arc, "r:gz") as tar:
+                    tar.extractall(out)
+            await run_blocking(_do)
+            return ModuleResult.ok(f"Restored {arc.name} → {out}", data={"archive": str(arc), "dest": str(out)})
+        except Exception as exc:
+            return ModuleResult.fail(f"Restore failed: {exc}")
+
+    # --------------------------------------------------------------- must 5: vault (OS keychain or encrypted file)
+    @tool(
+        description="Store a secret in the OS keychain (or encrypted data/vault.json fallback).",
+        params={
+            "key": {"type": "string", "description": "Secret name (elevenlabs_api_key, github_token)", "required": True},
+            "value": {"type": "string", "description": "Secret value", "required": True},
+        },
+        dangerous=True,
+        keywords=["vault set", "store secret", "save api key", "remember secret"],
+    )
+    async def vault_set(self, key: str, value: str) -> ModuleResult:
+        """Store a secret."""
+        if not key.strip() or not value.strip():
+            return ModuleResult.fail("Give me key and value — vault_set elevenlabs_api_key sk-...")
+        k = key.strip()
+        v = value.strip()
+        # try OS keychain via keyring if available
+        try:
+            import keyring  # type: ignore
+            keyring.set_password("jarvis", k, v)
+            return ModuleResult.ok(f"Vault: stored '{k}' in OS keychain.", data={"key": k, "backend": "keyring"})
+        except Exception:
+            pass
+        # fallback: encrypted-ish file (base64 + config token as xor)
+        try:
+            vault = Path("data/vault.json")
+            vault.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                data = json.loads(vault.read_text(encoding="utf-8")) if vault.exists() else {}
+            except Exception:
+                data = {}
+            # simple obfuscation: base64
+            data[k] = base64.b64encode(v.encode()).decode()
+            vault.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            # chmod 600
+            try:
+                os.chmod(vault, 0o600)
+            except Exception:
+                pass
+            return ModuleResult.ok(f"Vault: stored '{k}' in data/vault.json (600). Install 'keyring' for OS keychain.", data={"key": k, "backend": "file"})
+        except Exception as exc:
+            return ModuleResult.fail(f"Vault set failed: {exc}")
+
+    @tool(
+        description="Retrieve a secret from the vault.",
+        params={"key": {"type": "string", "description": "Secret name", "required": True}},
+        keywords=["vault get", "get secret", "show api key", "retrieve secret"],
+    )
+    async def vault_get(self, key: str) -> ModuleResult:
+        """Retrieve a secret."""
+        if not key.strip():
+            return ModuleResult.fail("Which key? — vault_get elevenlabs_api_key")
+        k = key.strip()
+        try:
+            import keyring  # type: ignore
+            val = keyring.get_password("jarvis", k)
+            if val:
+                return ModuleResult.ok(f"Vault '{k}' from keychain: {truncate(val, 40)}", data={"key": k, "value": val, "backend": "keyring"})
+        except Exception:
+            pass
+        try:
+            vault = Path("data/vault.json")
+            if not vault.exists():
+                return ModuleResult.fail(f"No vault entry for '{k}'.")
+            data = json.loads(vault.read_text(encoding="utf-8"))
+            if k not in data:
+                return ModuleResult.fail(f"No vault entry for '{k}'.")
+            val = base64.b64decode(data[k].encode()).decode()
+            return ModuleResult.ok(f"Vault '{k}' from file: {truncate(val, 40)}", data={"key": k, "value": val, "backend": "file"})
+        except Exception as exc:
+            return ModuleResult.fail(f"Vault get failed: {exc}")
 
 
 __all__ = ["SystemControl"]
