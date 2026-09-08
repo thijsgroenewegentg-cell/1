@@ -122,10 +122,9 @@ def test_no_decisive_phrase_is_claimed_by_two_modules():
 
 
 def test_offline_turns_skip_the_memory_recall_round_trip(brain, monkeypatch):
-    """With the model offline nothing can use long-term context anyway, so a
-    turn must not wait on an embedding search before answering."""
+    """An offline turn must not wait on an embedding search to answer."""
 
-    def should_not_be_called(*args, **kwargs):
+    def should_not_be_called(*args: object, **kwargs: object) -> None:
         raise AssertionError("memory recall ran for an offline turn")
 
     monkeypatch.setattr(brain.memory, "build_context", should_not_be_called)

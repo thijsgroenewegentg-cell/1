@@ -110,8 +110,7 @@ def test_small_talk_is_not_hijacked_by_a_tool_keyword(brain: Any, utterance: str
 
 # ------------------------------------------------- latency: skip the router LLM
 def test_plain_chat_skips_the_classifier_model(brain: Any, monkeypatch: Any) -> None:
-    """With the model online, keyword-silent small talk must not spend a full
-    classifier round-trip before the reply — one model call is enough."""
+    """Small talk with the model online costs one model call, not two."""
 
     def should_not_be_called(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("the classifier model was consulted for small talk")
@@ -124,7 +123,7 @@ def test_plain_chat_skips_the_classifier_model(brain: Any, monkeypatch: Any) -> 
 
 
 def test_instant_chat_can_be_turned_back_off(brain: Any, monkeypatch: Any) -> None:
-    """``llm.instant_chat: false`` restores always asking the router model."""
+    """The old always-ask-the-router-model behaviour is one config away."""
     previous = brain.config.get("llm.instant_chat", True)
     brain.config.set("llm.instant_chat", False)
 
