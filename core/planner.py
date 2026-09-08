@@ -82,16 +82,20 @@ class Planner:
         if intent.module == "self_improve":
             direct = self._self_edit_request(text)
             if direct is not None:
+                if not direct.get("path"):
+                    # No file named. Asking for one beats attempting an edit of
+                    # the project root (an empty path resolved to the whole
+                    # directory, which Windows refuses to read as a file), so
+                    # list the candidates instead of running a doomed tool.
+                    listing = await self.brain.dispatch("self_improve.code_map", {})
+                    body = truncate(listing.output, 1800) if listing.success else ""
+                    ask = "Point me at the file, sir — name it and I will cut."
+                    return f"{ask}\n\n{body}" if body else ask
                 reference = "self_improve.edit_own_code"
                 await self._status_for_tool(reference, 1)
                 result = await self.brain.dispatch(reference, direct)
                 if result.success:
                     return result.speak or result.output or "Done, sir."
-                if not direct.get("path"):
-                    listing = await self.brain.dispatch("self_improve.code_map", {})
-                    body = truncate(listing.output, 1400) if listing.success else ""
-                    note = result.error or result.output or "That did not work."
-                    return f"{note}\n\n{body}" if body else note
                 return result.error or result.output or "That did not work."
 
         transcript: List[str] = []

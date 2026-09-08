@@ -234,6 +234,14 @@ def test_the_planner_recognises_explicit_self_edit_orders(
     assert params["instruction"] == requested
 
 
+def test_a_no_file_self_edit_asks_which_file(brain, monkeypatch):
+    """A no-file self-edit asks rather than editing the project root dir."""
+    brain.config.set("memory.enabled", False)
+    monkeypatch.setattr(brain.llm, "available", True)
+    reply = run(brain.process("edit your code to make replies snappier"))
+    assert "Point me at the file" in reply
+
+
 def test_an_intent_is_a_plain_data_object():
     intent = Intent(module="web_search", confidence=0.9, method="keyword")
     assert intent.module == "web_search"

@@ -1291,7 +1291,14 @@ Return ONLY the code in a single ```python block."""
 
     # ------------------------------------------------------------ self-coding
     def _resolve_source(self, path: str) -> Optional[Path]:
-        """Resolve a project-relative source path, refusing anything outside."""
+        """Resolve a project-relative source path, refusing anything outside.
+
+        An empty path must come back ``None`` — resolving it to the project
+        root used to hand ``edit_own_code`` the *directory* itself, which
+        Windows refuses to read as a file ([Errno 13] Permission denied).
+        """
+        if not (path or "").strip():
+            return None
         candidate = (self.root / path).resolve() if not Path(path).is_absolute() \
             else Path(path).resolve()
         try:
@@ -1495,7 +1502,9 @@ Return ONLY the code in a single ```python block."""
         # "start Ollama and ask again" is a misleading answer to "rewrite your
         # own security guard", and it hides the refusal that actually matters.
         target = self._resolve_source(path)
-        if target is None or not target.exists():
+        if target is None or not target.exists() or not target.is_file():
+            # A directory (or the project root when no file was named) is not a
+            # file to rewrite — on Windows reading one raises PermissionError.
             return ModuleResult.fail(f"I have no file at '{path}'. Run code_map first.")
         if self._is_protected(target):
             return ModuleResult.fail(
@@ -1507,7 +1516,14 @@ Return ONLY the code in a single ```python block."""
             return ModuleResult.fail(
                 "I need the language model for that. Start Ollama and ask again."
             )
-        original = await run_blocking(target.read_text, "utf-8", "replace")
+        try:
+            original = await run_blocking(target.read_text, "utf-8", "replace")
+        except Exception as exc:
+            # Windows refuses to read a directory as a file, but a locked or
+            # unreadable file can fail too — report it instead of crashing.
+            return ModuleResult.fail(f"Could not read {path}: {exc}")
+        if not original.strip():
+            return ModuleResult.fail(f"{path} is empty — nothing to edit.")
         if len(original.encode("utf-8")) > self.max_file_bytes:
             return ModuleResult.fail(f"{path} is too large for me to rewrite safely.")
 

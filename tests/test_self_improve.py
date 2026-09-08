@@ -143,6 +143,26 @@ def test_a_protected_file_is_refused_for_being_protected(self_improve):
     assert "protected" in result.error.lower()
 
 
+def test_editing_with_no_file_named_is_a_clean_refusal(self_improve):
+    """An empty edit path must never read the project root as a file."""
+    result = run(self_improve.call_tool(
+        "edit_own_code", {"path": "", "instruction": "make me snappier"}
+    ))
+    assert not result.success
+    assert "no file" in result.output.lower()
+
+
+def test_editing_a_directory_is_refused_not_read(self_improve):
+    """Pointing an edit at a folder ('.', 'core') is refused outright."""
+    for path in (".", "core"):
+        result = run(self_improve.call_tool(
+            "edit_own_code", {"path": path, "instruction": "rewrite me"}
+        ))
+        assert not result.success
+        assert "no file" in result.output.lower()
+    assert self_improve._resolve_source("") is None
+
+
 def test_a_broken_rewrite_is_rejected_by_the_syntax_gate(self_improve):
     original = (PROJECT_ROOT / "utils" / "helpers.py").read_text()
     complaint = self_improve._validate_edit(
