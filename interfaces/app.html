@@ -782,36 +782,11 @@ body.degraded-open #toasts { top: 118px; }
 .hl{ background: rgba(239,68,68,.18) !important; outline: 1px solid rgba(239,68,68,.35) !important; }
 
 
-/* --- one click buys the ignition score -----------------------------------
-   Browsers refuse to start audio on a page nobody has touched yet, and the
-   ignition begins on frame one. So the context is opened at load: if the
-   browser allows it, the score simply plays; if it comes up suspended, this
-   pill offers the one click that unlocks it, and the score joins the ignition
-   at whatever phase it has reached. */
-#soundPill{
-  position:fixed; right:18px; bottom:18px; z-index:9998; display:none; align-items:center; gap:9px;
-  padding:9px 15px; border:1px solid rgba(239,68,68,.55); border-radius:999px; cursor:pointer;
-  background:rgba(0,0,0,.82); color:#fff; box-shadow:0 0 22px rgba(239,68,68,.2), 0 8px 26px rgba(0,0,0,.65);
-  font:700 9.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.22em; text-transform:uppercase;
-}
-#soundPill.show{ display:flex; animation: pillIn .5s var(--ease) both, pillPulse 1.9s ease-in-out .5s infinite; }
-#soundPill.gone{ animation: pillOut .35s ease forwards; pointer-events:none; }
-#soundPill .dot{ width:8px; height:8px; border-radius:50%; background:#ef4444; box-shadow:0 0 11px #ef4444; flex:0 0 auto; }
-#soundPill.blocked{ border-color:rgba(255,255,255,.35); }
-#soundPill.blocked .dot{ background:#fff; box-shadow:0 0 11px rgba(255,255,255,.8); }
-@keyframes pillIn{from{opacity:0; transform:translateY(9px)}to{opacity:1; transform:none}}
-@keyframes pillOut{to{opacity:0; transform:translateY(7px)}}
-@keyframes pillPulse{0%,100%{box-shadow:0 0 18px rgba(239,68,68,.16), 0 8px 26px rgba(0,0,0,.65)}
-  50%{box-shadow:0 0 32px rgba(239,68,68,.5), 0 8px 26px rgba(0,0,0,.65)}}
-@media (prefers-reduced-motion: reduce){ #soundPill.show{ animation:none !important; } }
 
 </style>
 </head>
 <body>
 <canvas id="orb"></canvas>
-<button id="soundPill" type="button" title="Browsers need one click before they allow sound">
-  <span class="dot"></span><span>click for sound</span>
-</button>
 <div id="halo" aria-hidden="true"></div>
 <div id="grid" aria-hidden="true"></div>
 <div id="grain" aria-hidden="true"></div>
@@ -2008,11 +1983,6 @@ function reportAudioBlocked() {
   audioBlocked = true;
   try {
     toast("This frame blocks audio — open the preview in its own tab for sound and speech.", true);
-    const pill = document.getElementById("soundPill");
-    if (pill) {
-      pill.classList.add("show", "blocked");
-      pill.querySelector("span:last-child").textContent = "AUDIO BLOCKED — OPEN IN ITS OWN TAB";
-    }
     const label = document.getElementById("setSpeech");
     if (label) label.textContent = "blocked by browser";
   } catch (_e) {}
@@ -3020,25 +2990,27 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
 
 
 
-/* ------------------------------------------------------------ ignition score
-   Sound for the seven-phase startup, written against the same BEATS map the
-   canvas draws from so picture and score cannot drift apart:
+/* ----------------------------------------------------------- ignition music
+   A short piece in A minor for the seven-phase startup, written against the
+   same BEATS map the canvas draws from so the picture and the music cannot
+   drift apart. 88.2 BPM (one beat = 0.68s) is not an arbitrary tempo: it puts
+   the bloom on beat 2, the rush on beat 3, the held silence across beat 6 and
+   the collapse exactly on beat 7 -- the downhit lands on the whiteout.
 
-     spark    0.00s  one point of light — a hairline tone and three ticks
-     bloom    0.60s  it flares — a lowpass opens, the shimmer climbs an octave
-     rush     1.32s  the shell hurtles in — riser plus ticks that tighten
-     silence  3.72s  everything stops dead — the master ducks to a breath
-     collapse 4.08s  implosion — braam, sub drop, whiteout, 31 Hz camera rumble
-     rebound  4.44s  three blast rings and spires tearing outward
-     settle   5.28s  the bed resolves into A minor and eases out by 9.6s
+     bar 1  0.00-2.72  Am, sub swelling, motif climbing E5-G5-A5 as it rushes in
+     bar 2  2.72-5.44  the music stops dead at 3.40, a reverse cymbal inhales,
+                       beat 7 (4.08s) is the orchestral stab, then F major
+     bar 3  5.44-8.16  the payoff motif A5-C6-E6-A6 resolving home to Am add9
+     tail   8.16-11.2  the pad and the last A5 ease out
 
    Synthesised at runtime: no audio files, no codec, nothing to download. */
 (function(){
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if(!Ctx) return;
-  const pill = document.getElementById('soundPill');
   const BOOT_S = (typeof BOOT_MS === 'number' ? BOOT_MS : 6000) / 1000;
-  let ctx = null, begun = false, master = null, drive = null, delay = null, buf = null;
+  const BEAT = 0.68;                       // 88.2 BPM
+  const PIECE_S = 11.4;
+  let ctx = null, begun = false, master = null, delay = null, noiseBuf = null;
 
   function makeNoise(c, seconds){
     const len = Math.max(1, Math.floor(c.sampleRate * seconds));
@@ -3047,236 +3019,278 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
     for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     return b;
   }
-  function shaper(c, amount){
-    const ws = c.createWaveShaper();
-    const n = 1024, curve = new Float32Array(n);
-    for(let i = 0; i < n; i++){ const x = (i * 2 / n) - 1; curve[i] = ((1 + amount) * x) / (1 + amount * Math.abs(x)); }
-    ws.curve = curve; ws.oversample = '2x';
-    return ws;
-  }
-  function env(c, t, peak, attack, decay){
-    const g = c.createGain();
+
+  /* ------------------------------------------------------------ instruments */
+  function bell(t, freq, dur, gain){
+    // The melody voice: a triangle with a slightly detuned sine an octave up,
+    // plucked fast and thrown into the delay so it hangs in the void.
+    if(t < ctx.currentTime) return;
+    const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = freq;
+    const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = freq * 2.005;
+    const g2 = ctx.createGain(); g2.gain.value = 0.32;
+    const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(Math.max(0.0002, peak), t + attack);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
-    return g;
+    g.gain.linearRampToValueAtTime(gain, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); o2.connect(g2); g2.connect(g);
+    g.connect(master); g.connect(delay);
+    o.start(t); o.stop(t + dur + 0.05); o2.start(t); o2.stop(t + dur + 0.05);
   }
-  function noiseHit(c, t, dur, type, f0, f1, peak, dest, q){
-    if(!buf || t < c.currentTime) return;
-    const src = c.createBufferSource();
-    src.buffer = buf; src.playbackRate.value = 0.78 + Math.random() * 0.6;
-    const f = c.createBiquadFilter(); f.type = type; f.Q.value = q || 1;
-    f.frequency.setValueAtTime(Math.max(30, f0), t);
-    f.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
-    const g = env(c, t, peak, Math.min(0.012, dur * 0.25), dur);
-    src.connect(f); f.connect(g); g.connect(dest);
-    src.start(t); src.stop(t + dur + 0.06);
+  function voice(t, freqs, dur, gain, attack, cutoff){
+    // Sustained chord: detuned saws through one filter that opens as it plays.
+    if(t < ctx.currentTime) return;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(gain, t + attack);
+    g.gain.setValueAtTime(gain, t + Math.max(attack, dur * 0.55));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 1.1;
+    f.frequency.setValueAtTime(cutoff * 0.42, t);
+    f.frequency.linearRampToValueAtTime(cutoff, t + dur * 0.75);
+    f.connect(g); g.connect(master); g.connect(delay);
+    freqs.forEach((freq, i) => {
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.value = freq; o.detune.value = (i % 2 ? 7 : -7);
+      const og = ctx.createGain(); og.gain.value = 1.1 / freqs.length;
+      o.connect(og); og.connect(f); o.start(t); o.stop(t + dur + 0.1);
+    });
   }
-  function tone(c, t, type, f0, f1, dur, peak, dest){
-    if(t < c.currentTime) return;
-    const o = c.createOscillator(); o.type = type;
-    o.frequency.setValueAtTime(Math.max(20, f0), t);
-    if(f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
-    const g = env(c, t, peak, 0.008, dur);
-    o.connect(g); g.connect(dest);
-    o.start(t); o.stop(t + dur + 0.06);
+  function stab(t, freqs, dur, gain){
+    // The orchestral hit on beat 7: everything at once, bright, fast decay.
+    if(t < ctx.currentTime) return;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(gain, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.8;
+    f.frequency.setValueAtTime(5200, t);
+    f.frequency.exponentialRampToValueAtTime(600, t + dur);
+    f.connect(g); g.connect(master); g.connect(delay);
+    freqs.forEach((freq, i) => {
+      const o = ctx.createOscillator(); o.type = i % 2 ? 'sawtooth' : 'square';
+      o.frequency.value = freq; o.detune.value = (i % 3 ? 5 : -5);
+      const og = ctx.createGain(); og.gain.value = 1.2 / freqs.length;
+      o.connect(og); og.connect(f); o.start(t); o.stop(t + dur + 0.1);
+    });
+  }
+  function sub(t, freq, dur, gain){
+    if(t < ctx.currentTime) return;
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq;
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 130;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(gain, t + 0.35);
+    g.gain.setValueAtTime(gain, t + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f); f.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur + 0.1);
+  }
+  function boom(t, from, dur, gain){
+    // Timpani: the pitch falls as it decays, which is what makes it read as a
+    // drum rather than a sine sweep.
+    if(t < ctx.currentTime) return;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(from, t);
+    o.frequency.exponentialRampToValueAtTime(38, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(gain, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  function shaker(t, gain){
+    if(t < ctx.currentTime || !noiseBuf) return;
+    const src = ctx.createBufferSource(); src.buffer = noiseBuf;
+    const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 7600;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(t); src.stop(t + 0.06);
+  }
+  function inhale(t, dur, gain){
+    // Reverse cymbal: the classic musical lead-in to a downhit. Gain rises.
+    if(!noiseBuf) return;
+    const start = Math.max(t, ctx.currentTime + 0.01);
+    const left = Math.max(0.15, (t + dur) - start);
+    const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = 'highpass';
+    f.frequency.setValueAtTime(600, start);
+    f.frequency.exponentialRampToValueAtTime(7200, start + left);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(gain, start + left - 0.02);
+    g.gain.setValueAtTime(0.0001, start + left);
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(start); src.stop(start + left + 0.05);
+  }
+  function crash(t, dur, gain){
+    if(t < ctx.currentTime || !noiseBuf) return;
+    const src = ctx.createBufferSource(); src.buffer = noiseBuf;
+    const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 3800;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(gain, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(master); g.connect(delay);
+    src.start(t); src.stop(t + dur + 0.05);
   }
 
-  // Master volume over the whole ignition. The duck at 3.72s is the point:
-  // "everything stops dead" only lands if the sound stops dead with it.
-  const CURVE = [
-    [0.00, 0.0001], [0.05, 0.03], [0.60, 0.30], [1.32, 0.42], [3.55, 0.60], [3.72, 0.60],
-    [3.80, 0.045], [4.07, 0.050], [4.10, 0.95], [4.44, 0.62], [5.28, 0.48],
-    [7.40, 0.22], [9.60, 0.0001],
+  /* ------------------------------------------------------------------ score */
+  // A minor: A1 55, C2 65.41, E2 82.41, F1 43.65, G1 49
+  //          A2 110, C3 130.81, D3 146.83, E3 164.81, F3 174.61, G3 196,
+  //          A3 220, B3 246.94, C4 261.63, D4 293.66, E4 329.63, F4 349.23,
+  //          G4 392, A4 440, B4 493.88, C5 523.25, D5 587.33, E5 659.25,
+  //          G5 783.99, A5 880, C6 1046.5, E6 1318.5, A6 1760
+  const ENVELOPE = [
+    [0.00, 0.0001], [0.30, 0.55], [3.30, 0.55], [3.55, 0.20],   // the held silence
+    [4.06, 0.22], [4.09, 0.95], [4.60, 0.62], [5.44, 0.52],
+    [8.16, 0.42], [PIECE_S, 0.0001],
   ];
   function levelAt(t){
-    if(t <= CURVE[0][0]) return CURVE[0][1];
-    for(let i = 1; i < CURVE.length; i++){
-      const t0 = CURVE[i-1][0], v0 = CURVE[i-1][1], t1 = CURVE[i][0], v1 = CURVE[i][1];
+    if(t <= ENVELOPE[0][0]) return ENVELOPE[0][1];
+    for(let i = 1; i < ENVELOPE.length; i++){
+      const t0 = ENVELOPE[i-1][0], v0 = ENVELOPE[i-1][1], t1 = ENVELOPE[i][0], v1 = ENVELOPE[i][1];
       if(t <= t1) return v0 + (v1 - v0) * (t - t0) / (t1 - t0);
     }
-    return CURVE[CURVE.length-1][1];
+    return ENVELOPE[ENVELOPE.length-1][1];
   }
-
-  /* ------------------------------------------------------------- movements */
-  function spark(t){
-    tone(ctx, t, 'sine', 2480, 2480, 0.55, 0.045, delay);
-    tone(ctx, t + 0.02, 'sine', 62, 62, 0.5, 0.06, master);
-    for(let i = 0; i < 3; i++) noiseHit(ctx, t + 0.08 + i * 0.17, 0.02, 'bandpass', 3200 + i * 900, 1800, 0.05, master, 9);
-  }
-  function bloom(t){
-    noiseHit(ctx, t, 0.72, 'lowpass', 180, 3200, 0.2, master);
-    tone(ctx, t, 'sine', 55, 82, 0.7, 0.22, master);
-    tone(ctx, t, 'triangle', 880, 1760, 0.66, 0.07, delay);
-    tone(ctx, t + 0.1, 'sawtooth', 110, 220, 0.6, 0.06, drive);
-  }
-  function rush(t){
-    const span = 2.34;                                  // stalls just before the silence
-    const from = Math.max(t, ctx.currentTime + 0.01);
-    const dur = Math.max(0.2, (t + span) - from);
-    tone(ctx, from, 'sawtooth', 58, 940, dur, 0.16, drive);
-    tone(ctx, from, 'sine', 41, 165, dur, 0.2, master);
-    noiseHit(ctx, from, dur, 'bandpass', 260, 6400, 0.14, master, 1.6);
-    // Ticks that tighten as the shell comes in. The gap has a floor and the
-    // loop a cap: a pure geometric decay converges below `span` and never
-    // terminates, which would hang the tab on frame one.
-    let tick = 0, gap = 0.30, count = 0;
-    while(tick < span && count < 40){
-      tone(ctx, Math.max(t + tick, ctx.currentTime + 0.01), 'square', 1500, 900, 0.03, 0.06, master);
-      tick += gap; gap = Math.max(0.09, gap * 0.86); count++;
-    }
-  }
-  function silence(t){
-    tone(ctx, t, 'sine', 3100, 3100, 0.34, 0.02, master);   // a hairline, held breath
-    noiseHit(ctx, t, 0.3, 'highpass', 5200, 7000, 0.02, master);
-  }
-  function collapse(t){
-    // braam: five detuned saws through a lowpass that opens then slams shut
-    const bf = ctx.createBiquadFilter(); bf.type = 'lowpass'; bf.Q.value = 9;
-    bf.frequency.setValueAtTime(150, t);
-    bf.frequency.exponentialRampToValueAtTime(2600, t + 0.3);
-    bf.frequency.exponentialRampToValueAtTime(210, t + 2.0);
-    const bg = ctx.createGain();
-    bg.gain.setValueAtTime(0.0001, t);
-    bg.gain.linearRampToValueAtTime(0.4, t + 0.06);
-    bg.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
-    bf.connect(bg); bg.connect(master); bg.connect(delay);
-    [[55, 1], [55.6, .9], [82.4, .7], [110, .55], [164.8, .3]].forEach((row) => {
-      const o = ctx.createOscillator(); o.type = 'sawtooth';
-      o.frequency.setValueAtTime(row[0], t);
-      o.frequency.exponentialRampToValueAtTime(row[0] * 0.985, t + 1.8);
-      const g = ctx.createGain(); g.gain.value = row[1] * 0.5;
-      o.connect(g); g.connect(bf); o.start(t); o.stop(t + 2.0);
-    });
-    tone(ctx, t, 'sine', 165, 27, 1.0, 0.95, master);       // implosion
-    tone(ctx, t, 'sine', 62, 19, 1.5, 0.8, master);         // sub drop
-    noiseHit(ctx, t, 0.6, 'lowpass', 5200, 140, 0.6, drive);// crash
-    tone(ctx, t, 'square', 1400, 80, 0.14, 0.16, drive);    // the snap
-    noiseHit(ctx, t, 0.18, 'highpass', 3000, 9000, 0.42, master);   // whiteout
-    // camera shake as sound: 31 Hz rumble under a 23 Hz tremolo
-    const rum = ctx.createOscillator(); rum.type = 'sine'; rum.frequency.value = 31;
-    const trem = ctx.createOscillator(); trem.type = 'sine'; trem.frequency.value = 23;
-    const tremGain = ctx.createGain(); tremGain.gain.value = 0.28;
-    const rg = ctx.createGain();
-    rg.gain.setValueAtTime(0.0001, t);
-    rg.gain.linearRampToValueAtTime(0.5, t + 0.03);
-    rg.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
-    trem.connect(tremGain); tremGain.connect(rg.gain);
-    rum.connect(rg); rg.connect(master);
-    rum.start(t); rum.stop(t + 0.75); trem.start(t); trem.stop(t + 0.75);
-  }
-  function rebound(t){
-    for(let r = 0; r < 3; r++){                            // three blast rings
-      noiseHit(ctx, t + r * 0.13, 0.75, 'bandpass', 6200 - r * 900, 190, 0.3 - r * 0.06, master, 1.1);
-      tone(ctx, t + r * 0.13, 'sine', 420 - r * 90, 60, 0.5, 0.16 - r * 0.04, master);
-    }
-    [[0.02, 880], [0.16, 1318.5], [0.30, 1760]].forEach((row) =>   // spires tearing out
-      tone(ctx, t + row[0], 'triangle', row[1], row[1], 1.1, 0.075, delay));
-    tone(ctx, t, 'triangle', 220, 96, 0.34, 0.14, master);          // recoil
-    tone(ctx, t + 0.3, 'triangle', 96, 250, 0.4, 0.1, master);      // overshoot
-  }
-  function settle(t){
-    // the idle billow, harmonically: an A-minor bed that eases out by ~9.6s
-    const dg = ctx.createGain(); dg.gain.value = 0.0001; dg.connect(master);
-    dg.gain.setValueAtTime(0.0001, t);
-    dg.gain.linearRampToValueAtTime(0.2, t + 0.7);
-    dg.gain.setValueAtTime(0.2, t + 2.4);
-    dg.gain.exponentialRampToValueAtTime(0.0001, t + 4.2);
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 250; lp.Q.value = 7;
-    lp.connect(dg);
-    [[55, 'sawtooth', .5], [55.5, 'sawtooth', .5], [82.4, 'triangle', .34], [110, 'sine', .18]]
-      .forEach((row) => {
-        const o = ctx.createOscillator(); o.type = row[1]; o.frequency.value = row[0];
-        const g = ctx.createGain(); g.gain.value = row[2];
-        o.connect(g); g.connect(lp); o.start(t); o.stop(t + 4.4);
-      });
-    const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.45;
-    const lfoGain = ctx.createGain(); lfoGain.gain.value = 150;
-    lfo.connect(lfoGain); lfoGain.connect(lp.frequency); lfo.start(t); lfo.stop(t + 4.4);
-    // pad: A minor add9, slow attack, thrown into the delay for width
-    const pg = ctx.createGain(); pg.gain.value = 0.0001; pg.connect(master); pg.connect(delay);
-    pg.gain.setValueAtTime(0.0001, t);
-    pg.gain.linearRampToValueAtTime(0.12, t + 0.95);
-    pg.gain.setValueAtTime(0.12, t + 2.2);
-    pg.gain.exponentialRampToValueAtTime(0.0001, t + 4.0);
-    const pf = ctx.createBiquadFilter(); pf.type = 'lowpass'; pf.frequency.value = 1900; pf.Q.value = 1.2;
-    pf.connect(pg);
-    [220.0, 261.63, 329.63, 493.88].forEach((freq, idx) => {
-      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = freq;
-      o.detune.value = (idx % 2 ? 6 : -6);
-      const g = ctx.createGain(); g.gain.value = idx === 0 ? 0.5 : 0.34;
-      o.connect(g); g.connect(pf); o.start(t); o.stop(t + 4.2);
-    });
-    // ready chime
-    tone(ctx, t + 0.72, 'triangle', 880.0, 880.0, 1.0, 0.085, delay);
-    tone(ctx, t + 0.9, 'triangle', 1318.5, 1318.5, 1.2, 0.065, delay);
-  }
-  const MOVES = [[0.00, spark], [0.60, bloom], [1.32, rush], [3.72, silence],
-                 [4.08, collapse], [4.44, rebound], [5.28, settle]];
 
   function buildBus(){
-    buf = makeNoise(ctx, 2.5);
+    noiseBuf = makeNoise(ctx, 2.0);
     master = ctx.createGain(); master.gain.value = 0.0001;
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18; comp.knee.value = 22; comp.ratio.value = 8;
-    comp.attack.value = 0.003; comp.release.value = 0.22;
+    comp.threshold.value = -16; comp.knee.value = 24; comp.ratio.value = 6;
+    comp.attack.value = 0.004; comp.release.value = 0.25;
     master.connect(comp); comp.connect(ctx.destination);
-    drive = shaper(ctx, 7); drive.connect(master);
-    delay = ctx.createDelay(1.0); delay.delayTime.value = 0.23;
-    const fb = ctx.createGain(); fb.gain.value = 0.34;
-    const dlp = ctx.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 2600;
+    delay = ctx.createDelay(2.0); delay.delayTime.value = BEAT * 1.5;  // dotted quarter
+    const fb = ctx.createGain(); fb.gain.value = 0.33;
+    const dlp = ctx.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 2800;
     delay.connect(fb); fb.connect(delay); delay.connect(dlp);
-    const wet = ctx.createGain(); wet.gain.value = 0.5; dlp.connect(wet); wet.connect(master);
+    const wet = ctx.createGain(); wet.gain.value = 0.42; dlp.connect(wet); wet.connect(master);
   }
 
+  function play(startFrom){
+    const T0 = ctx.currentTime - startFrom;
+    // One note of the score, clamped so joining mid-ignition shortens the note
+    // instead of dropping it.
+    const note = (time, dur, build) => {
+      if(time + dur <= startFrom) return;
+      const from = Math.max(time, startFrom);
+      build(T0 + from, Math.max(0.09, dur - (from - time)));
+    };
+    const hit = (time, build) => { if(time >= startFrom) build(T0 + time); };
+
+    master.gain.setValueAtTime(Math.max(0.0001, levelAt(startFrom)), ctx.currentTime);
+    ENVELOPE.forEach((point) => {
+      if(point[0] > startFrom) master.gain.linearRampToValueAtTime(Math.max(0.0001, point[1]), T0 + point[0]);
+    });
+
+    /* ---- bar 1: spark and bloom. One note, then the chord breathes in ---- */
+    hit(0.00, (t) => bell(t, 659.25, 1.5, 0.10));                 // E5, alone in the void
+    note(0.00, 3.40, (t, d) => sub(t, 55, d, 0.42));               // A1 under everything
+    hit(0.00, (t) => boom(t, 110, 0.5, 0.22));
+    note(0.68, 2.72, (t, d) => voice(t, [220, 261.63, 329.63], d, 0.13, 0.95, 1500));   // Am
+    hit(0.68, (t) => bell(t, 523.25, 0.9, 0.07));                  // C5 answers
+
+    /* ---- the rush: motif climbs E5-G5-A5, strings tremolo, hats drive ---- */
+    note(1.36, 2.04, (t, d) => voice(t, [220, 261.63, 329.63, 392], d, 0.15, 0.5, 2400)); // Am add G
+    hit(1.36, (t) => bell(t, 659.25, 0.62, 0.15));                 // E5
+    hit(2.04, (t) => bell(t, 783.99, 0.62, 0.16));                 // G5
+    hit(2.72, (t) => bell(t, 880.00, 0.9, 0.17));                  // A5
+    hit(3.40, (t) => bell(t, 659.25, 0.6, 0.08));                  // E5, dying away
+    for(let b = 2; b <= 5; b++) hit(b * BEAT, (t) => boom(t, 120, 0.3, b === 2 ? 0.3 : 0.2));
+    for(let i = 4; i < 10; i++) hit(1.36 + i * (BEAT / 2), (t) => shaker(t, 0.05));   // 8ths
+    // tremolo strings: urgency without a noise riser
+    note(2.04, 1.36, (t, d) => {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 440;
+      const o2 = ctx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = 659.25;
+      const trem = ctx.createOscillator(); trem.type = 'sine'; trem.frequency.value = 13.1;  // 8ths at 88.2
+      const tremGain = ctx.createGain(); tremGain.gain.value = 0.42;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.11, t + 0.22);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2600;
+      trem.connect(tremGain); tremGain.connect(g.gain);
+      o.connect(f); o2.connect(f); f.connect(g); g.connect(master);
+      o.start(t); o.stop(t + d + 0.1); o2.start(t); o2.stop(t + d + 0.1);
+      trem.start(t); trem.stop(t + d + 0.1);
+    });
+
+    /* ---- the silence: the music stops dead, then inhales ---- */
+    hit(3.40, (t) => bell(t, 1318.5, 0.62, 0.035));                // E6 hairline, almost gone
+    hit(3.40, (t) => inhale(t, BEAT, 0.3));                        // reverse cymbal into beat 7
+
+    /* ---- beat 7 (4.08s): the collapse. Downhit exactly on the whiteout ---- */
+    hit(4.08, (t) => stab(t, [110, 220, 261.63, 329.63, 440, 659.25], 1.7, 0.5));
+    hit(4.08, (t) => boom(t, 160, 1.3, 0.9));                      // the implosion
+    hit(4.08, (t) => sub(t, 55, 3.4, 0.5));
+    hit(4.08, (t) => crash(t, 2.0, 0.17));
+    hit(4.76, (t) => boom(t, 120, 0.4, 0.42));                     // rebound
+
+    /* ---- bar 3: the payoff motif and the resolve to F, then home ---- */
+    hit(4.76, (t) => bell(t, 880.00, 0.7, 0.15));                  // A5
+    note(5.44, 2.72, (t, d) => voice(t, [174.61, 220, 261.63, 329.63], d, 0.15, 0.7, 1900));  // Fmaj7
+    hit(5.44, (t) => bell(t, 1046.5, 0.7, 0.16));                  // C6
+    hit(5.44, (t) => sub(t, 43.65, 1.4, 0.34));                    // F1
+    hit(6.12, (t) => bell(t, 1318.5, 0.8, 0.16));                  // E6
+    hit(6.80, (t) => bell(t, 1760.0, 1.7, 0.15));                  // A6 — the peak
+    note(6.80, 3.2, (t, d) => voice(t, [220, 261.63, 329.63, 493.88], d, 0.14, 0.8, 1700));  // Am add9
+    hit(6.80, (t) => sub(t, 55, 3.6, 0.34));
+    hit(7.48, (t) => bell(t, 1318.5, 0.9, 0.08));
+    hit(8.16, (t) => bell(t, 880.00, 2.4, 0.10));                  // A5, home
+    hit(8.16, (t) => boom(t, 110, 0.9, 0.2));
+    for(let i = 0; i < 6; i++) hit((5.44 + i) * 1 + 0.34, (t) => shaker(t, 0.028));
+  }
+
+  /* ------------------------------------------------------------------ start */
   function begin(){
-    if(begun || !ctx) return;
-    begun = true;
-    if(pill) pill.classList.add('gone');
+    if(begun || !ctx) return false;
     try{ if(ctx.state === 'suspended') ctx.resume().catch(() => {}); }catch(e){}
-    try{ armAudio(); }catch(e){}                  // the same gesture frees the voice
-    buildBus();
-    const offset = (typeof bootStart === 'number' && bootStart)
+    // A mouse move or a wheel tick is not an *activating* event, so the browser
+    // still refuses. Do not mark it begun: that would strand the music for the
+    // rest of the session on a gesture that was never going to work.
+    if(ctx.state !== 'running') return false;
+    begun = true;
+    try{ armAudio(); }catch(e){}                 // the same gesture frees the voice
+    const elapsed = (typeof bootStart === 'number' && bootStart)
       ? Math.max(0, (performance.now() - bootStart) / 1000) : BOOT_S;
-
-    // Less than ~1.2s of ignition left (or already over) means the movements
-    // are all behind us and a click would buy nothing but a fading tail. Give
-    // it the detonation and the settle instead, so turning sound on is worth
-    // hearing whenever it happens.
-    if(offset >= BOOT_S - 1.2){
-      const t = ctx.currentTime + 0.03;
-      master.gain.setValueAtTime(0.0001, t);
-      master.gain.linearRampToValueAtTime(0.9, t + 0.04);
-      master.gain.setValueAtTime(0.9, t + 1.2);
-      master.gain.exponentialRampToValueAtTime(0.0001, t + 5.6);
-      collapse(t); rebound(t + 0.36); settle(t + 0.9);
-      return;
-    }
-
-    const T0 = ctx.currentTime - offset;          // where frame one of the ignition sits
-    master.gain.setValueAtTime(Math.max(0.0001, levelAt(offset)), ctx.currentTime);
-    CURVE.forEach((point) => {
-      if(point[0] > offset) master.gain.linearRampToValueAtTime(Math.max(0.0001, point[1]), T0 + point[0]);
-    });
-    MOVES.forEach((move) => {
-      if(move[0] + 0.06 < offset) return;         // that phase is already behind us
-      try{ move[1](Math.max(T0 + move[0], ctx.currentTime + 0.01)); }catch(e){}
-    });
+    // Too late to sync with the ignition, so play the piece from the top
+    // rather than dropping in on its last two bars.
+    const startFrom = (elapsed >= BOOT_S - 1.2) ? 0 : elapsed;
+    buildBus();                                   // master, compressor, dotted-quarter delay
+    // Never let a scoring mistake take the interface with it — but do not
+    // swallow it silently either: a silent catch is how this went unnoticed.
+    try{ play(startFrom); }
+    catch(e){ try{ console.debug("boot music:", e && e.message); }catch(_e){} }
+    setTimeout(() => { try{ ctx.close(); }catch(e){} ctx = null; }, (PIECE_S - startFrom + 1.5) * 1000);
+    return true;
   }
 
-  // Open the context at load. If this browser already allows it (it has learned
-  // this origin), the score plays from frame one with no click at all.
+  // Always on: no button, no prompt. The context is opened at load and the
+  // piece starts the moment this browser allows it — immediately when it does,
+  // otherwise from the first touch anywhere on the page, which is invisible and
+  // happens before anyone reads the caption anyway.
   try{ ctx = new Ctx(); }catch(e){ ctx = null; }
   if(!ctx) return;
   if(ctx.state === 'running'){ begin(); }
   else {
-    if(pill) pill.classList.add('show');
-    const unlock = () => begin();
-    if(pill) pill.addEventListener('click', unlock);
-    ['pointerdown', 'keydown', 'touchstart'].forEach((eventName) =>
-      document.addEventListener(eventName, unlock, { once: true, passive: true }));
-    // Never leave the offer hanging there for the rest of the session.
-    setTimeout(() => { if(!begun && pill) pill.classList.add('gone'); }, 60000);
+    // Listeners stay attached until a start actually succeeds — `{once:true}`
+    // would let a mouse move consume the only chance the music ever gets.
+    const EVENTS = ['pointerdown', 'keydown', 'touchstart', 'wheel', 'pointermove'];
+    const tryBegin = () => {
+      if(begun) return;
+      if(begin()) EVENTS.forEach((name) => document.removeEventListener(name, tryBegin));
+    };
+    EVENTS.forEach((name) => document.addEventListener(name, tryBegin, { passive: true }));
+    // Some browsers change their mind a moment later; ask again without noise.
+    [1200, 4000, 9000].forEach((ms) => setTimeout(() => {
+      if(begun || !ctx) return;
+      try{ const woke = ctx.resume(); if(woke && woke.then) woke.then(tryBegin).catch(() => {}); else tryBegin(); }
+      catch(e){ tryBegin(); }
+    }, ms));
   }
 })();
 
