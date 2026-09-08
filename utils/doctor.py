@@ -555,7 +555,7 @@ def check_secrets(report: Report, config: Any) -> None:
             except Exception:
                 pass
         # Also check cwd/data/secrets.env for good measure
-        candidates.append(pathlib.Path.cwd() / "data" / "secrets.env")
+        candidates.append(Path.cwd() / "data" / "secrets.env")
         # Deduplicate
         seen = set()
         found = None

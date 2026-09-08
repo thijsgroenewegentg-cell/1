@@ -13,11 +13,10 @@ import json
 import os
 import re
 import shutil
-import time
 import tarfile
+import time
 import urllib.request
 import zipfile
-from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional
@@ -1495,8 +1494,8 @@ class SystemControl(BaseModule):
         if not when.strip() or not task.strip():
             return ModuleResult.fail("Give me when and what — e.g. schedule 'in 20m' 'call mom'")
         try:
-            from datetime import timedelta
             import json as _json
+            from datetime import timedelta
             # parse when: very small parser
             w = when.strip().lower()
             now = datetime.now()
@@ -1740,8 +1739,8 @@ class SystemControl(BaseModule):
                 src = Path(shot.data["path"])
             # try pytesseract
             try:
-                from PIL import Image  # type: ignore
                 import pytesseract  # type: ignore
+                from PIL import Image  # type: ignore
                 txt = await run_blocking(lambda: pytesseract.image_to_string(Image.open(src), lang=lang))
                 txt = (txt or "").strip()
                 if txt:
@@ -1786,7 +1785,9 @@ class SystemControl(BaseModule):
             pass
         # direct MyMemory fallback (no key)
         try:
-            import urllib.parse, urllib.request, json as _json
+            import json as _json
+            import urllib.parse
+            import urllib.request
             q = urllib.parse.quote(body[:500])
             url = f"https://api.mymemory.translated.net/get?q={q}&langpair=en|{urllib.parse.quote(tgt[:5])}"
             # auto-detect source via en|tgt may fail, try auto

@@ -454,8 +454,7 @@ class WebInterface:
             try:
                 eng = await self._tts_engine()
                 if eng is not None and hasattr(eng, "cache_dir"):
-                    cdir = getattr(eng, "cache_dir")
-                    import os as _os
+                    cdir = eng.cache_dir
                     files = list(cdir.glob("*.mp3")) + list(cdir.glob("*.wav")) if cdir.exists() else []
                     # Auto-prune if >200 files so the browser cache button is not the only relief
                     if len(files) > 200:
@@ -632,7 +631,6 @@ class WebInterface:
             # Piper status for the panel
             piper_installed = False
             try:
-                import pathlib as _pl2
                 piper_dir = self.config.resolve("data/piper")
                 piper_installed = any(piper_dir.glob("*.onnx")) if piper_dir.exists() else False
             except Exception:
@@ -717,7 +715,7 @@ class WebInterface:
             try:
                 tts = await self._tts_engine()
                 if tts is not None and hasattr(tts, "cache_dir"):
-                    cdir = getattr(tts, "cache_dir")
+                    cdir = tts.cache_dir
                     count = 0
                     if cdir.exists():
                         for f in list(cdir.glob("*.mp3")) + list(cdir.glob("*.wav")) + list(cdir.glob("*.part")):
@@ -752,14 +750,15 @@ class WebInterface:
                         if isinstance(data, (bytes, bytearray)) and len(data) > 0:
                             if len(data) > 25 * 1024 * 1024:
                                 raise HTTPException(status_code=413, detail="image too large (25 MB)")
-                            import secrets, tempfile
+                            import secrets
+                            import tempfile
                             suffix = ".png"
                             fname = getattr(file, "filename", "") or ""
                             if "." in fname:
                                 suffix = "." + fname.rsplit(".", 1)[-1][:4].lower()
                                 if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}:
                                     suffix = ".png"
-                            tmp = pathlib.Path(tempfile.gettempdir()) / f"jarvis-vision-{secrets.token_hex(6)}{suffix}"
+                            tmp = Path(tempfile.gettempdir()) / f"jarvis-vision-{secrets.token_hex(6)}{suffix}"
                             tmp.write_bytes(bytes(data))
                             tmp_path = tmp
                     if tmp_path is None:
@@ -772,7 +771,7 @@ class WebInterface:
                     question = str(payload.get("question", "") or payload.get("text", "") or "").strip()
                     path_str = str(payload.get("path", "") or "").strip()
                     if path_str:
-                        tmp_path = pathlib.Path(path_str).expanduser()
+                        tmp_path = Path(path_str).expanduser()
                         if not tmp_path.exists():
                             raise HTTPException(status_code=404, detail="file not found")
                     else:
@@ -807,7 +806,7 @@ class WebInterface:
                 raise HTTPException(status_code=500, detail="vision failed")
             finally:
                 try:
-                    if tmp_path and tmp_path.exists() and str(tmp_path).startswith(str(pathlib.Path(tempfile.gettempdir()))):
+                    if tmp_path and tmp_path.exists() and str(tmp_path).startswith(str(Path(tempfile.gettempdir()))):
                         tmp_path.unlink(missing_ok=True)
                 except Exception:
                     pass
@@ -932,7 +931,6 @@ class WebInterface:
             if self._rate_limited("piper_install"):
                 raise HTTPException(status_code=429, detail="install in progress, slow down")
             try:
-                import pathlib as _pl
                 piper_dir = self.config.resolve("data/piper")
                 if any(piper_dir.glob("*.onnx")) if piper_dir.exists() else False:
                     return JSONResponse({"ok": True, "already": True})
@@ -940,11 +938,12 @@ class WebInterface:
                 # We reuse the same URLs as install.py
                 PIPER_VOICE_NAME = "en_GB-alan-medium"
                 PIPER_VOICE_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/"
-                import urllib.request, tempfile, shutil
+                import shutil
+                import urllib.request
                 piper_dir.mkdir(parents=True, exist_ok=True)
                 model = piper_dir / f"{PIPER_VOICE_NAME}.onnx"
                 cfg = piper_dir / f"{PIPER_VOICE_NAME}.onnx.json"
-                def _dl(url: str, dest: pathlib.Path) -> bool:
+                def _dl(url: str, dest: Path) -> bool:
                     try:
                         with urllib.request.urlopen(url, timeout=60) as r, open(dest, "wb") as f:
                             shutil.copyfileobj(r, f)
