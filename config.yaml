@@ -169,6 +169,16 @@ vision:
   max_tokens: 400
   temperature: 0.2
 
+blender:
+  executable: "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Blender\\blender.exe"  # you gave C:\Program Files (x86)\Steam\steamapps\common\Blender — set for you
+  output_dir: "data/renders"
+  engine: ""
+  samples: 0
+  timeout: 300
+  render_timeout: 1800
+  memory_mb: 0
+  allow_scripts: true
+
 email:
   enabled: false           # set true and fill in the details below
   imap_host: ""            # e.g. imap.gmail.com
