@@ -231,6 +231,28 @@ def test_memory_endpoints(web):
     assert resp.status_code in {200, 503, 500}
 
 
+def test_doctor_and_piper_and_vision(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    # Doctor
+    resp = client.get("/api/doctor", params={"token": web.token})
+    assert resp.status_code == 200
+    assert "findings" in resp.json()
+    # Piper install - should be 200 or 429
+    resp = client.post("/api/piper/install", params={"token": web.token})
+    assert resp.status_code in {200, 429, 503}
+    # Vision without file should be 400
+    resp = client.post("/api/vision", params={"token": web.token}, json={})
+    assert resp.status_code in {400, 413, 422, 500}
+    # Voices refresh
+    resp = client.get("/api/voices", params={"token": web.token, "refresh": "1"})
+    assert resp.status_code == 200
+    assert "current" in resp.json()
+    assert "piper_installed" in resp.json()["current"]
+    assert "elevenlabs_source" in resp.json()["current"]
+
+
 
 def test_brain_events_reach_the_browser(web):
     """The interface shows which module answered and which tools ran."""

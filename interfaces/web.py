@@ -456,7 +456,22 @@ class WebInterface:
                     cdir = getattr(eng, "cache_dir")
                     import os as _os
                     files = list(cdir.glob("*.mp3")) + list(cdir.glob("*.wav")) if cdir.exists() else []
-                    tts_cache_info = {"files": len(files), "bytes": sum(f.stat().st_size for f in files if f.exists())}
+                    # Auto-prune if >200 files so the browser cache button is not the only relief
+                    if len(files) > 200:
+                        try:
+                            # Keep newest 180
+                            files_sorted = sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
+                            for old in files_sorted[180:]:
+                                try: old.unlink()
+                                except Exception: pass
+                            files = files_sorted[:180]
+                        except Exception:
+                            pass
+                    # Per-engine breakdown via suffix + mtime buckets (engine is in hash, not filename)
+                    # We approximate by counting mp3 (elevenlabs/edge) vs wav (piper)
+                    mp3 = [f for f in files if f.suffix == ".mp3"]
+                    wav = [f for f in files if f.suffix == ".wav"]
+                    tts_cache_info = {"files": len(files), "bytes": sum(f.stat().st_size for f in files if f.exists()), "mp3": len(mp3), "wav": len(wav)}
             except Exception:
                 tts_cache_info = {}
             return JSONResponse(
@@ -545,13 +560,50 @@ class WebInterface:
             return JSONResponse({"entries": entries})
 
         @app.get("/api/voices")
-        async def voices(token: str = Query(default="")) -> Any:
+        async def voices(token: str = Query(default=""), refresh: str = Query(default="")) -> Any:
             """List available TTS voices for the picker."""
             if not self._authorised(token):
                 raise HTTPException(status_code=401, detail="bad token")
             engine = await self._tts_engine()
+            # ?refresh=1 busts the 1h ElevenLabs cache
+            if refresh and refresh.strip().lower() in {"1", "true", "yes"} and engine is not None:
+                try:
+                    # Clear the class cache so the next call fetches fresh
+                    if hasattr(engine, "_ELEVEN_VOICES_CACHE"):
+                        engine._ELEVEN_VOICES_CACHE = None
+                        engine._ELEVEN_VOICES_AT = 0.0
+                except Exception:
+                    pass
             configured_engine = str(self.config.get("voice.tts.engine", "auto"))
             language = str(self.config.get("assistant.language", "en"))
+            # Redacted source of the key for the HUD
+            source = ""
+            try:
+                if getattr(engine, "elevenlabs_api_key", ""):
+                    # Could be from config or env — check which
+                    cfg_has = bool(str(self.config.get("voice.tts.elevenlabs_api_key", "") or "").strip())
+                    env_has = bool(__import__("os").getenv("ELEVENLABS_API_KEY", "").strip())
+                    if cfg_has and env_has:
+                        source = "config.yaml + env"
+                    elif cfg_has:
+                        source = "config.yaml"
+                    elif env_has:
+                        source = "env/secrets.env"
+                    else:
+                        source = "config"
+                elif self.config.get("voice.tts.elevenlabs_api_key", ""):
+                    source = "config.yaml"
+                elif __import__("os").getenv("ELEVENLABS_API_KEY"):
+                    # Distinguish data/secrets.env vs env
+                    import pathlib as _pl
+                    sec = None
+                    try:
+                        sec = self.config.resolve("data/secrets.env")
+                    except Exception:
+                        sec = _pl.Path("data/secrets.env")
+                    source = "data/secrets.env" if sec and sec.exists() else "env"
+            except Exception:
+                source = "env" if __import__("os").getenv("ELEVENLABS_API_KEY") else ""
             current = {
                 "engine": configured_engine,
                 "active_engine": getattr(engine, "active_engine", "") if engine else "",
@@ -560,6 +612,7 @@ class WebInterface:
                 "elevenlabs_voice_id": getattr(engine, "elevenlabs_voice_id", "") if engine else "",
                 "elevenlabs_model": getattr(engine, "elevenlabs_model", "") if engine else "",
                 "has_elevenlabs_key": bool(getattr(engine, "elevenlabs_api_key", "") if engine else self.config.get("voice.tts.elevenlabs_api_key", "")) or bool(__import__("os").getenv("ELEVENLABS_API_KEY")),
+                "elevenlabs_source": source,
             }
             edge_voices: List[str] = []
             eleven_voices: List[Dict[str, Any]] = []
@@ -575,6 +628,15 @@ class WebInterface:
                     except Exception as exc:
                         logger.debug("ElevenLabs voice list failed: %s", exc)
                         eleven_voices = []
+            # Piper status for the panel
+            piper_installed = False
+            try:
+                import pathlib as _pl2
+                piper_dir = self.config.resolve("data/piper")
+                piper_installed = any(piper_dir.glob("*.onnx")) if piper_dir.exists() else False
+            except Exception:
+                piper_installed = False
+            current["piper_installed"] = piper_installed
             return JSONResponse({
                 "current": current,
                 "edge_voices": edge_voices[:40],
@@ -673,6 +735,9 @@ class WebInterface:
             """Describe an image dropped onto the web UI (llava etc)."""
             if not self._authorised(token):
                 raise HTTPException(status_code=401, detail="bad token")
+            # Separate vision bucket so a 25MB drop does not starve /api/ask
+            if self._rate_limited("vision", cost=4):
+                raise HTTPException(status_code=429, detail="vision busy, try again")
             ctype = (request.headers.get("content-type", "") or "").lower()
             tmp_path = None
             question = ""
@@ -802,6 +867,65 @@ class WebInterface:
             except Exception as exc:
                 logger.warning("Memory manage failed: %s", exc)
                 raise HTTPException(status_code=500, detail="memory failed")
+
+        @app.get("/api/doctor")
+        async def doctor(token: str = Query(default="")) -> Any:
+            """JSON doctor for the web panel (no shell)."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                from utils.doctor import diagnose
+                report = await diagnose(self.config, root=self.config.root if hasattr(self.config, "root") else None)
+                return JSONResponse(report.as_dict())
+            except Exception as exc:
+                logger.warning("Doctor failed: %s", exc)
+                raise HTTPException(status_code=500, detail="doctor failed")
+
+        @app.post("/api/piper/install")
+        async def piper_install(token: str = Query(default="")) -> Any:
+            """Download the offline Piper voice (en_GB-alan-medium, ~65MB)."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            # Rate-limit: only one install at a time
+            if self._rate_limited("piper_install"):
+                raise HTTPException(status_code=429, detail="install in progress, slow down")
+            try:
+                import pathlib as _pl
+                piper_dir = self.config.resolve("data/piper")
+                if any(piper_dir.glob("*.onnx")) if piper_dir.exists() else False:
+                    return JSONResponse({"ok": True, "already": True})
+                # Lazy import the installer from install.py's logic
+                # We reuse the same URLs as install.py
+                PIPER_VOICE_NAME = "en_GB-alan-medium"
+                PIPER_VOICE_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/"
+                import urllib.request, tempfile, shutil
+                piper_dir.mkdir(parents=True, exist_ok=True)
+                model = piper_dir / f"{PIPER_VOICE_NAME}.onnx"
+                cfg = piper_dir / f"{PIPER_VOICE_NAME}.onnx.json"
+                def _dl(url: str, dest: pathlib.Path) -> bool:
+                    try:
+                        with urllib.request.urlopen(url, timeout=60) as r, open(dest, "wb") as f:
+                            shutil.copyfileobj(r, f)
+                        return dest.exists() and dest.stat().st_size > 1024
+                    except Exception as e:
+                        logger.warning("Piper download failed: %s", e)
+                        return False
+                ok1 = _dl(f"{PIPER_VOICE_BASE}{PIPER_VOICE_NAME}.onnx", model)
+                ok2 = _dl(f"{PIPER_VOICE_BASE}{PIPER_VOICE_NAME}.onnx.json", cfg)
+                if ok1 and ok2:
+                    return JSONResponse({"ok": True, "already": False, "voice": PIPER_VOICE_NAME})
+                # Cleanup partial
+                try:
+                    if not ok1: model.unlink(missing_ok=True)
+                    if not ok2: cfg.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                raise HTTPException(status_code=503, detail="download failed")
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.warning("Piper install failed: %s", exc)
+                raise HTTPException(status_code=500, detail="piper install failed")
 
         @app.get("/api/tts")
         async def tts(text: str = Query(...), token: str = Query(default=""), voice: str = Query(default=""), engine: str = Query(default="")) -> Any:

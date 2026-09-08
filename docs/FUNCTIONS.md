@@ -20,7 +20,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/planner.py`](#coreplannerpy) — 5
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
-- [`interfaces/web.py`](#interfaceswebpy) — 41
+- [`interfaces/web.py`](#interfaceswebpy) — 44
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 24
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
@@ -71,7 +71,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
-- [`tests/test_web.py`](#teststest_webpy) — 58
+- [`tests/test_web.py`](#teststest_webpy) — 59
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
@@ -601,7 +601,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*41 functions*
+*44 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
@@ -627,12 +627,14 @@ and marked with `·`; methods the intent router can call are marked
   · `async def ask(request: Request, token: str = Query(default='')) -> Any` — Answer a single question over plain JSON (no streaming).
   · `async def tools(token: str = Query(default='')) -> Any` — List every tool, so the interface can offer them for browsing.
   · `async def audit(token: str = Query(default=''), limit: int = Query(default=25)) -> Any` — Report what needed permission, for the audit tab.
-  · `async def voices(token: str = Query(default='')) -> Any` — List available TTS voices for the picker.
+  · `async def voices(token: str = Query(default=''), refresh: str = Query(default='')) -> Any` — List available TTS voices for the picker.
   · `async def save_voice(request: Request, token: str = Query(default='')) -> Any` — Persist the picker choice to config.yaml.
   · `async def clear_tts_cache(token: str = Query(default='')) -> Any` — Clear the TTS cache (mp3/wav files).
   · `async def vision(request: Request, token: str = Query(default='')) -> Any` — Describe an image dropped onto the web UI (llava etc).
   · `async def list_memory(token: str = Query(default=''), q: str = Query(default=''), limit: int = Query(default=20)) -> Any` — List or search long-term memory.
   · `async def manage_memory(request: Request, token: str = Query(default='')) -> Any` — Remember or forget a fact.
+  · `async def doctor(token: str = Query(default='')) -> Any` — JSON doctor for the web panel (no shell).
+  · `async def piper_install(token: str = Query(default='')) -> Any` — Download the offline Piper voice (en_GB-alan-medium, ~65MB).
   · `async def tts(text: str = Query(...), token: str = Query(default=''), voice: str = Query(default=''), engine: str = Query(default='')) -> Any` — Render text to speech and return an audio file.
   · `async def manifest(token: str = Query(default='')) -> Any` — Serve the PWA manifest so the page installs to a home screen.
   · `async def service_worker() -> Any` — Serve the offline shell worker (never behind the token gate).
@@ -2259,7 +2261,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*58 functions*
+*59 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -2286,6 +2288,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_voices_save_persists(web, tmp_path, monkeypatch)`
 - `def test_tts_cache_clear(web)`
 - `def test_memory_endpoints(web)`
+- `def test_doctor_and_piper_and_vision(web)`
 - `def test_brain_events_reach_the_browser(web)` — The interface shows which module answered and which tools ran.
   · `async def scenario() -> None`
 - `def test_uninteresting_events_are_not_relayed(web)`
@@ -2370,5 +2373,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1649 functions across 66 files.**
+**1653 functions across 66 files.**
 

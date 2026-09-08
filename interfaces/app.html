@@ -813,6 +813,9 @@ body.degraded-open #toasts { top: 118px; }
     <button class="round" id="speech" title="Read replies aloud (S)" aria-label="Read replies aloud">
       <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8a5 5 0 0 1 0 8"/></svg>
     </button>
+    <button class="round" id="visionBtn" title="Describe image (V)" aria-label="Describe image">
+      <svg viewBox="0 0 24 24"><path d="M4 16l4-4 4 4 6-6 4 4v4H4v-2z"/><circle cx="9" cy="9" r="2"/><rect x="3" y="4" width="18" height="14" rx="2"/></svg>
+    </button>
     <button class="round" id="paletteBtn" title="Everything JARVIS can do (K)" aria-label="Command palette">
       <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.5-4.5"/></svg>
     </button>
@@ -847,6 +850,7 @@ body.degraded-open #toasts { top: 118px; }
     <button class="tab on" data-pane="status">Status</button>
     <button class="tab" data-pane="tools">Tools</button>
     <button class="tab" data-pane="audit">Audit</button>
+    <button class="tab" data-pane="doctor">Doctor</button>
   </div>
   <div class="panes">
     <div class="pane on" id="pane-status">
@@ -866,12 +870,29 @@ body.degraded-open #toasts { top: 118px; }
         </select>
         <button class="tool" id="voicePreview" style="width:auto;white-space:nowrap;padding:6px 12px;border-radius:10px">preview</button>
         <button class="tool" id="voiceSave" style="width:auto;white-space:nowrap;padding:6px 12px;border-radius:10px" title="Save to config.yaml">save</button>
+        <button class="ghost" id="voiceRefresh" style="width:auto;white-space:nowrap;padding:6px 8px;border-radius:10px;font:12px ui-sans-system" title="Refresh voice list">↻</button>
       </div>
       <div id="voiceHint" style="font:12px/1.5 ui-sans-system;color:#7d8da1;min-height:14px"></div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
         <span id="ttsCacheInfo" style="font:11px ui-sans-system;color:#5b6b82"></span>
         <button class="ghost" id="ttsCacheClear" style="font:11px ui-sans-system;padding:2px 8px;border-radius:8px;border:1px solid #1b2533;color:#7d8da1">clear cache</button>
         <span id="piperStatus" style="font:11px ui-sans-system;color:#5b6b82"></span>
+        <button class="ghost" id="piperInstall" style="font:11px ui-sans-system;padding:2px 8px;border-radius:8px;border:1px solid #1b2533;color:#7d8da1;display:none">install piper</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+        <span style="font:12px ui-sans-system;color:#7d8da1">Language</span>
+        <select id="langPicker" aria-label="Language" style="flex:1;min-width:110px;background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:10px;padding:6px 8px;font:13px ui-sans-system">
+          <option value="en">English</option>
+          <option value="nl">Nederlands</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+          <option value="it">Italiano</option>
+          <option value="pt">Português</option>
+          <option value="ja">日本語</option>
+        </select>
+        <button class="ghost" id="langSave" style="font:11px;padding:4px 8px;border-radius:8px">save</button>
+        <span id="langHint" style="font:11px;color:#5b6b82"></span>
       </div>
       <div class="head">Memory</div>
       <div style="display:flex;gap:6px;margin-bottom:6px">
@@ -896,6 +917,11 @@ body.degraded-open #toasts { top: 118px; }
       <div class="audit" id="auditList"></div>
       <button class="tool" id="auditRefresh" style="width:auto;align-self:flex-start">refresh</button>
     </div>
+    <div class="pane" id="pane-doctor">
+      <div class="head">Diagnostics</div>
+      <div id="doctorList" style="display:flex;flex-direction:column;gap:6px"></div>
+      <button class="tool" id="doctorRefresh" style="width:auto;align-self:flex-start">run doctor</button>
+    </div>
   </div>
 </div>
 
@@ -912,7 +938,7 @@ body.degraded-open #toasts { top: 118px; }
 </div>
 
 <div id="toasts" aria-live="assertive"></div>
-<div id="dropOverlay" style="position:fixed;inset:0;background:rgba(56,189,248,0.08);backdrop-filter:blur(4px);border:2px dashed rgba(56,189,248,0.6);display:none;place-items:center;z-index:9999;color:#e8eef6;font:18px ui-sans-system"><div style="background:#0b1018;border:1px solid #38bdf8;border-radius:16px;padding:24px 32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6)"><div style="font-size:32px;margin-bottom:8px">🖼️</div><div>Drop image to describe</div><div style="font:12px ui-sans-system;color:#7d8da1;margin-top:4px">or paste (Ctrl+V) — llava / vision</div></div></div>
+<div id="dropOverlay" style="position:fixed;inset:0;background:rgba(56,189,248,0.08);backdrop-filter:blur(4px);border:2px dashed rgba(56,189,248,0.6);display:none;place-items:center;z-index:9999;color:#e8eef6;font:18px ui-sans-system"><div style="background:#0b1018;border:1px solid #38bdf8;border-radius:16px;padding:24px 32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6)"><div style="font-size:32px;margin-bottom:8px">🖼️</div><div>Drop image to describe</div><div style="font:12px ui-sans-system;color:#7d8da1;margin-top:4px">or paste (Ctrl+V) — llava / vision</div><input type="file" id="visionFile" accept="image/*" capture="environment" style="display:none"></div></div>
 
 <script>
 "use strict";
@@ -2194,10 +2220,11 @@ async function loadStatus() {
 }
 
 let voiceCache = null;
-async function loadVoices() {
+async function loadVoices(forceRefresh) {
   const picker = $("voicePicker"), engineEl = $("voiceEngine"), nameEl = $("voiceName"), hint = $("voiceHint");
   try {
-    const data = await (await fetch("/api/voices" + auth)).json();
+    const url = "/api/voices" + auth + (forceRefresh ? (auth ? "&" : "?") + "refresh=1" : "");
+    const data = await (await fetch(url)).json();
     voiceCache = data;
     const cur = data.current || {};
     if (engineEl) engineEl.textContent = cur.active_engine || cur.engine || "—";
@@ -2257,10 +2284,25 @@ async function loadVoices() {
     }
     try {
       const ps = document.getElementById("piperStatus");
+      const piBtn = document.getElementById("piperInstall");
       if (ps) {
         if (cur.active_engine === "piper") ps.textContent = "· piper offline ✓";
-        else if (data.edge_voices && data.edge_voices.length) ps.textContent = "· piper not installed — run install.py --full for offline";
+        else if (cur.piper_installed) ps.textContent = "· piper ready";
+        else if (data.edge_voices && data.edge_voices.length) ps.textContent = "· piper not installed";
         else ps.textContent = "";
+      }
+      if (piBtn) {
+        piBtn.style.display = cur.piper_installed ? "none" : "inline-block";
+        piBtn.textContent = cur.piper_installed ? "piper ready" : "install piper";
+      }
+      // language picker reflects current language
+      const lp = document.getElementById("langPicker");
+      if (lp && cur.language) lp.value = cur.language.slice(0,2);
+      const lh = document.getElementById("langHint");
+      if (lh) lh.textContent = cur.language ? cur.language : "";
+      // key source hint
+      if (hint && cur.elevenlabs_source) {
+        hint.textContent += " · " + cur.elevenlabs_source;
       }
     } catch(e) {}
   } catch (err) {
@@ -2379,6 +2421,19 @@ async function addMemoryFact() {
 async function handleVisionFile(file, question) {
   if (!file) return;
   if (file.size > 25 * 1024 * 1024) { toast("Image too large (25 MB)", true); return; }
+  // Thumbnail bubble before the description streams in
+  try {
+    const url = URL.createObjectURL(file);
+    const thumb = '<div class="bubble vision"><img src="' + url + '" style="max-width:280px;max-height:240px;border-radius:12px;border:1px solid #1b2533;display:block;margin-bottom:6px"><div style="font:11px ui-sans-system;color:#7d8da1">' + escapeHtml(file.name) + ' · ' + (file.size/1024).toFixed(0) + ' KB</div></div>';
+    // Insert as user bubble so history is clear
+    const railEl = document.getElementById("rail");
+    if (railEl) {
+      const wrap = document.createElement("div"); wrap.innerHTML = thumb;
+      railEl.appendChild(wrap.firstElementChild);
+      railEl.scrollTop = railEl.scrollHeight;
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch(e) {}
   const form = new FormData();
   form.append("file", file);
   if (question) form.append("question", question);
@@ -2390,6 +2445,8 @@ async function handleVisionFile(file, question) {
     if (!res.ok) throw new Error(data.detail || "vision failed");
     const text = data.text || "No description.";
     say(text); trace("vision", escapeHtml(text)); remember("vision", file.name + ": " + text.slice(0, 120));
+    // Also trace as assistant reply so it persists
+    say(text);
   } catch (err) {
     toast("Vision failed: " + err.message, true);
   } finally { status(""); }
@@ -2501,6 +2558,7 @@ addEventListener("keydown", (event) => {
   else if (event.key.toLowerCase() === "t") { event.preventDefault(); showTyped(true); }
   else if (event.key.toLowerCase() === "s") { event.preventDefault(); toggleSpeech(); }
   else if (event.key.toLowerCase() === "h") { event.preventDefault(); toggleHistory(); }
+  else if (event.key.toLowerCase() === "v") { event.preventDefault(); $("visionFile").click(); }
   else if (event.key === "/" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); togglePanel(); }
 });
 addEventListener("keyup", (event) => {
@@ -2569,7 +2627,17 @@ $("speech").addEventListener("click", toggleSpeech);
 $("setSpeech").addEventListener("click", toggleSpeech);
 $("voicePreview").addEventListener("click", previewVoice);
 $("voiceSave").addEventListener("click", saveVoice);
+$("voiceRefresh").addEventListener("click", () => { $("voicePicker").dataset.loaded=""; loadVoices(true); toast("Refreshing voices…"); });
 $("ttsCacheClear").addEventListener("click", clearTtsCache);
+$("piperInstall").addEventListener("click", async () => {
+  const btn = $("piperInstall"); if (btn) { btn.disabled=true; btn.textContent="…"; }
+  try { const res = await fetch("/api/piper/install" + auth, {method:"POST"}); const data = await res.json().catch(()=>({})); if (!res.ok) throw new Error(data.detail||"install failed"); toast(data.already ? "Piper already installed" : "Piper installed ✓"); loadVoices(true); } catch(e){ toast("Piper install failed: "+e.message, true); } finally { if(btn){btn.disabled=false; btn.textContent="install piper";} }
+});
+$("langSave").addEventListener("click", async () => {
+  const lp = $("langPicker"); const lang = lp ? lp.value : "";
+  if (!lang) return;
+  try { const res = await fetch("/api/voices" + auth, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({language: lang})}); if (!res.ok) throw new Error("save failed"); toast("Language saved: "+lang); loadVoices(); loadStatus(); } catch(e){ toast("Language save failed", true); }
+});
 $("voicePicker").addEventListener("change", () => {
   const v = $("voicePicker").value;
   if (v.startsWith("elevenlabs:")) $("voiceName").textContent = v.slice("elevenlabs:".length);
@@ -2591,6 +2659,17 @@ $("memoryExport").addEventListener("click", async () => {
 });
 $("memoryAddBtn").addEventListener("click", addMemoryFact);
 $("memoryAdd").addEventListener("keydown", (e) => { if (e.key === "Enter") addMemoryFact(); });
+$("doctorRefresh").addEventListener("click", async () => {
+  const list = $("doctorList"); if (!list) return; list.innerHTML = '<span style="color:var(--dimmer)">running…</span>';
+  try {
+    const data = await (await fetch("/api/doctor" + auth)).json();
+    const findings = data.findings || [];
+    list.innerHTML = findings.map(f => '<div style="display:flex;gap:8px;align-items:baseline;border-bottom:1px solid #1b2533;padding:6px 0"><span style="color:' + (f.state==="ok"?"#22c55e":f.state==="warn"?"#eab308":"#ef4444") + '">' + escapeHtml(f.symbol||f.state) + '</span><span style="flex:1"><b>' + escapeHtml(f.name) + '</b> <span style="color:var(--dim)">' + escapeHtml(f.detail) + '</span>' + (f.fix ? '<div style="font:11px ui-monospace;color:#7d8da1">→ ' + escapeHtml(f.fix) + '</div>' : '') + '</span></div>').join("") || '<span style="color:var(--dimmer)">No findings.</span>';
+  } catch(e){ list.innerHTML = '<span style="color:var(--dimmer)">Doctor unavailable.</span>'; }
+});
+document.querySelectorAll(".tab").forEach(tab => {
+  if (tab.dataset.pane === "doctor") tab.addEventListener("click", () => { const l=$("doctorList"); if(l && !l.dataset.loaded){ l.dataset.loaded="1"; $("doctorRefresh").click(); } });
+});
 // Vision drop + paste
 const drop = $("dropOverlay");
 ["dragenter","dragover"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (e.dataTransfer && e.dataTransfer.types.includes("Files")) drop.style.display = "grid"; }));
@@ -2601,6 +2680,9 @@ document.addEventListener("paste", e => {
   for (const it of items) if (it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) handleVisionFile(f); }
 });
 document.addEventListener("drop", e => e.preventDefault());
+$("visionBtn").addEventListener("click", () => $("visionFile").click());
+$("visionFile").addEventListener("change", e => { const f = e.target.files[0]; if (f) handleVisionFile(f); e.target.value=""; });
+$("dropOverlay").addEventListener("click", () => $("visionFile").click());
 // Refresh memory when panel opens
 const _origToggle = togglePanel;
 window.togglePanel = function(force) { _origToggle(force); if (document.body.classList.contains("panel-open") && $("pane-status").classList.contains("on")) loadMemory(); };
