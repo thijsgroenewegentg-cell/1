@@ -31,7 +31,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/productivity.py`](#modulesproductivitypy) — 72
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
 - [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 24
-- [`modules/system_control.py`](#modulessystem_controlpy) — 47
+- [`modules/system_control.py`](#modulessystem_controlpy) — 53
 - [`modules/vision.py`](#modulesvisionpy) — 15
 - [`modules/web_search.py`](#modulesweb_searchpy) — 20
 - [`plugins/plugin_loader.py`](#pluginsplugin_loaderpy) — 12
@@ -1080,7 +1080,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/system_control.py`
 
-*47 functions*
+*53 functions*
 
 > Control the host computer: apps, screenshots, stats, volume, input, shell.
 
@@ -1129,6 +1129,11 @@ and marked with `·`; methods the intent router can call are marked
 - `async def restore(self, archive: str, dest: str = '') -> ModuleResult` **@tool** — Restore a snapshot.
 - `async def vault_set(self, key: str, value: str) -> ModuleResult` **@tool** — Store a secret.
 - `async def vault_get(self, key: str) -> ModuleResult` **@tool** — Retrieve a secret.
+- `async def ocr(self, path: str = '', lang: str = 'eng') -> ModuleResult` **@tool** — Extract text from image via pytesseract, falling back to LLM vision.
+- `async def translate(self, text: str, target_language: str) -> ModuleResult` **@tool** — Translate via smart_assistant if available, else MyMemory.
+- `async def health(self) -> ModuleResult` **@tool** — Health dashboard.
+- `async def share(self, path: str, via: str = 'share') -> ModuleResult` **@tool** — Share a file.
+- `async def undo(self, operation: int = 0) -> ModuleResult` **@tool** — Undo last operation.
 
 ## `modules/vision.py`
 
@@ -2392,5 +2397,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1676 functions across 66 files.**
+**1682 functions across 66 files.**
 

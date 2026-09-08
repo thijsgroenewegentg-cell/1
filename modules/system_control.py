@@ -1714,4 +1714,208 @@ class SystemControl(BaseModule):
             return ModuleResult.fail(f"Vault get failed: {exc}")
 
 
+
+    # ---------------------------------------------------------------- must 2: ocr + read screen
+    @tool(
+        description="OCR text from an image file or the current screen screenshot.",
+        params={
+            "path": {"type": "string", "description": "Image file path, or empty for screen", "default": ""},
+            "lang": {"type": "string", "description": "OCR language (eng, nld, deu...)", "default": "eng"},
+        },
+        keywords=["ocr", "read image", "extract text", "read screen"],
+    )
+    async def ocr(self, path: str = "", lang: str = "eng") -> ModuleResult:
+        """Extract text from image via pytesseract, falling back to LLM vision."""
+        try:
+            src = None
+            if path.strip():
+                src = resolve_user_path(path.strip())
+                if not src.exists():
+                    return ModuleResult.fail(f"Image not found: {src}")
+            else:
+                # screenshot then ocr it
+                shot = await self.take_screenshot()
+                if not shot.success or not shot.data.get("path"):
+                    return ModuleResult.fail("Could not capture screen for OCR.")
+                src = Path(shot.data["path"])
+            # try pytesseract
+            try:
+                from PIL import Image  # type: ignore
+                import pytesseract  # type: ignore
+                txt = await run_blocking(lambda: pytesseract.image_to_string(Image.open(src), lang=lang))
+                txt = (txt or "").strip()
+                if txt:
+                    return ModuleResult.ok(f"OCR ({src.name}):\n{truncate(txt, 3000)}", data={"text": txt, "src": str(src), "engine": "tesseract"})
+            except Exception:
+                pass
+            # fallback: try LLM vision if available
+            if self.llm and hasattr(self.llm, "describe_image"):
+                try:
+                    desc = await self.llm.describe_image(str(src), prompt="Extract all text from this image verbatim, preserve layout.")
+                    if desc:
+                        return ModuleResult.ok(f"OCR via vision ({src.name}):\n{truncate(desc, 3000)}", data={"text": desc, "src": str(src), "engine": "vision"})
+                except Exception:
+                    pass
+            return ModuleResult.fail(f"OCR failed for {src} — install pytesseract + tesseract-ocr (apt/brew) or enable LLM vision. File is at {src}")
+        except Exception as exc:
+            return ModuleResult.fail(f"OCR failed: {exc}")
+
+    # --------------------------------------------------------------- must 3: translate wrapper (uses smart_assistant)
+    @tool(
+        description="Translate text to a target language (LLM or MyMemory fallback).",
+        params={
+            "text": {"type": "string", "description": "Text to translate", "required": True},
+            "target_language": {"type": "string", "description": "Target language (nl, de, fr, ja...)", "required": True},
+        },
+        keywords=["translate", "vertaal", "übersetzen", "traduire"],
+    )
+    async def translate(self, text: str, target_language: str) -> ModuleResult:
+        """Translate via smart_assistant if available, else MyMemory."""
+        body = (text or "").strip()
+        if not body:
+            return ModuleResult.fail("Translate what?")
+        tgt = (target_language or "").strip() or "en"
+        # try to delegate to smart_assistant module if loaded
+        try:
+            # look for sibling module in same brain
+            if hasattr(self, "brain") and self.brain:
+                for mod in getattr(self.brain, "modules", {}).values():
+                    if hasattr(mod, "translate") and mod.__class__.__name__ == "SmartAssistant":
+                        return await mod.translate(body, tgt)
+        except Exception:
+            pass
+        # direct MyMemory fallback (no key)
+        try:
+            import urllib.parse, urllib.request, json as _json
+            q = urllib.parse.quote(body[:500])
+            url = f"https://api.mymemory.translated.net/get?q={q}&langpair=en|{urllib.parse.quote(tgt[:5])}"
+            # auto-detect source via en|tgt may fail, try auto
+            def _fetch():
+                with urllib.request.urlopen(url, timeout=10) as r:
+                    return _json.loads(r.read().decode())
+            data = await run_blocking(_fetch)
+            trans = (data.get("responseData") or {}).get("translatedText")
+            if trans and trans.lower() != body.lower():
+                return ModuleResult.ok(trans, data={"target": tgt, "engine": "mymemory"})
+        except Exception:
+            pass
+        return ModuleResult.fail("Translate unavailable — LLM offline and MyMemory failed. Try again or start the model.")
+
+    # --------------------------------------------------------------- must 4: health dashboard + why slow
+    @tool(
+        description="Live health: CPU/RAM/disk/battery + why is it slow diagnosis with suggestions (kill, snapshot, reboot).",
+        params={},
+        keywords=["health", "why is it slow", "system health", "is it slow", "performance"],
+    )
+    async def health(self) -> ModuleResult:
+        """Health dashboard."""
+        try:
+            stats = await self.system_stats()
+            # add why-slow heuristic
+            rec = []
+            data = stats.data or {}
+            cpu = data.get("cpu_percent", 0)
+            mem = data.get("memory_percent", 0)
+            disk = data.get("disk_percent", 0)
+            if cpu and cpu > 85:
+                rec.append(f"CPU {cpu:.0f}% hot — try `kill <top process>` or `list_processes`")
+            if mem and mem > 85:
+                rec.append(f"RAM {mem:.0f}% full — close apps or `restart <app>`")
+            if disk and disk > 90:
+                rec.append(f"Disk {disk:.0f}% full — `snapshot ~/Downloads` then clean, or `largest_files`")
+            try:
+                import psutil  # type: ignore
+                if psutil.sensors_battery and psutil.sensors_battery():
+                    b = psutil.sensors_battery()
+                    if b and not b.power_plugged and b.percent < 20:
+                        rec.append(f"Battery {b.percent:.0f}% — plug in or `sleep_computer` soon")
+            except Exception:
+                pass
+            # top process
+            try:
+                top = await self.list_processes(limit=3)
+                rec.append("Top: " + top.output.splitlines()[0] if top.output else "")
+            except Exception:
+                pass
+            diag = "\n".join(f"• {r}" for r in rec) if rec else "• System looks healthy, sir."
+            out = stats.output + "\n\nWhy slow?\n" + diag
+            return ModuleResult.ok(out, data={**data, "diagnosis": rec})
+        except Exception as exc:
+            return ModuleResult.fail(f"Health failed: {exc}")
+
+    # --------------------------------------------------------------- must 5: share file
+    @tool(
+        description="Share a file: copy to ~/Downloads/jarvis/shared and return a file:// link (or email if configured).",
+        params={
+            "path": {"type": "string", "description": "File to share", "required": True},
+            "via": {"type": "string", "description": "share | email (optional email address in path)", "default": "share"},
+        },
+        keywords=["share file", "send file", "share this", "create link"],
+    )
+    async def share(self, path: str, via: str = "share") -> ModuleResult:
+        """Share a file."""
+        if not path.strip():
+            return ModuleResult.fail("Which file to share?")
+        src = resolve_user_path(path.strip())
+        if not src.exists():
+            return ModuleResult.fail(f"Not found: {src}")
+        try:
+            shared = Path.home() / "Downloads" / "jarvis" / "shared"
+            shared.mkdir(parents=True, exist_ok=True)
+            dst = shared / src.name
+            c = 1
+            while dst.exists():
+                dst = shared / f"{src.stem}-{c}{src.suffix}"
+                c += 1
+            await run_blocking(lambda: shutil.copy2(src, dst))
+            link = f"file://{dst}"
+            extra = f"Shared to {dst}\nLink: {link}"
+            # try email if via looks like email
+            if "@" in via:
+                try:
+                    if hasattr(self, "brain") and self.brain:
+                        for mod in getattr(self.brain, "modules", {}).values():
+                            if hasattr(mod, "send_email"):
+                                # best effort
+                                res = await mod.send_email(to=via, subject=f"JARVIS shared: {src.name}", body=extra, attachments=[str(dst)])
+                                if res.success:
+                                    return ModuleResult.ok(f"{extra}\nEmailed to {via}.", data={"path": str(dst), "link": link})
+                except Exception:
+                    pass
+            return ModuleResult.ok(extra, data={"path": str(dst), "link": link, "src": str(src)})
+        except Exception as exc:
+            return ModuleResult.fail(f"Share failed: {exc}")
+
+    # --------------------------------------------------------------- must 6: undo
+    @tool(
+        description="Undo last file or download operation (file_manager undo) and last shell if possible; auto-snapshot before dangerous writes already helps.",
+        params={"operation": {"type": "integer", "description": "Undo index (0=last)", "default": 0}},
+        keywords=["undo", "revert", "undo last", "go back"],
+    )
+    async def undo(self, operation: int = 0) -> ModuleResult:
+        """Undo last operation."""
+        # delegate to file_manager if available
+        try:
+            if hasattr(self, "brain") and self.brain:
+                for mod in getattr(self.brain, "modules", {}).values():
+                    if hasattr(mod, "undo_file_operation") and mod.__class__.__name__ == "FileManager":
+                        res = await mod.undo_file_operation(operation=int(operation))
+                        if res.success:
+                            return res
+                        # fall through to snapshot hint
+                        return ModuleResult.ok(res.output + "\nTip: `snapshot` before risky writes, `restore <archive>` to roll back.", data=res.data)
+        except Exception:
+            pass
+        # fallback: look for latest snapshot
+        try:
+            backups = Path.home() / "Backups" / "jarvis"
+            if backups.is_dir():
+                snaps = sorted(backups.glob("*.tar.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if snaps:
+                    return ModuleResult.ok(f"No file operation to undo, but latest snapshot is {snaps[0]} — use `restore \"{snaps[0]}\"` to roll back.", data={"snapshot": str(snaps[0])})
+        except Exception:
+            pass
+        return ModuleResult.fail("Nothing to undo — no recent file operation or snapshot.")
+
+
 __all__ = ["SystemControl"]
