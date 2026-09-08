@@ -28,6 +28,20 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from utils.helpers import human_bytes, run_blocking, ssl_verify, which
 
+# Never print a raw ElevenLabs key — the doctor is often pasted into issues.
+_SECRETS_RE = __import__("re").compile(r"(ELEVENLABS_API_KEY\s*[:=]\s*)(['\"]?)(sk_[a-zA-Z0-9_\-]+|[^\s'\"\n]+)(['\"]?)")
+
+def _redact(text: str) -> str:
+    """Replace any ElevenLabs key in free text with ***."""
+    if not text or "ELEVENLABS" not in text:
+        return text
+    # Also redact a raw sk_… value that happens to be the key itself.
+    key = __import__("os").getenv("ELEVENLABS_API_KEY", "")
+    if key and key in text:
+        text = text.replace(key, "sk-***")
+    return _SECRETS_RE.sub(r"\1***", text)
+
+
 #: The three states a check can end in.
 OK = "ok"
 WARN = "warn"
@@ -78,6 +92,9 @@ class Report:
         Returns:
             The stored :class:`Finding`.
         """
+        # Never store a raw secret — the report is printed, JSON'd and pasted.
+        detail = _redact(detail)
+        fix = _redact(fix)
         finding = Finding(name, state, detail, fix)
         self.findings.append(finding)
         return finding

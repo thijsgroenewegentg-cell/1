@@ -6,7 +6,7 @@
 # =============================================================================
 
 user:
-  name: Sir  # How JARVIS addresses you
+  name: "user"  # How JARVIS addresses you
   title: "sir"             # "sir" / "ma'am" / "boss" / "" to disable
   location: "auto"         # City name for weather, or "auto" for IP lookup
   units: "metric"          # metric | imperial

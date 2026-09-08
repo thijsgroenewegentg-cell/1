@@ -510,17 +510,89 @@ class WebInterface:
                 entries = []
             return JSONResponse({"entries": entries})
 
-        @app.get("/api/tts")
-        async def tts(text: str = Query(...), token: str = Query(default="")) -> Any:
-            """Render text to speech and return an audio file."""
+        @app.get("/api/voices")
+        async def voices(token: str = Query(default="")) -> Any:
+            """List available TTS voices for the picker."""
             if not self._authorised(token):
                 raise HTTPException(status_code=401, detail="bad token")
             engine = await self._tts_engine()
-            if engine is None:
+            configured_engine = str(self.config.get("voice.tts.engine", "auto"))
+            language = str(self.config.get("assistant.language", "en"))
+            current = {
+                "engine": configured_engine,
+                "active_engine": getattr(engine, "active_engine", "") if engine else "",
+                "language": language,
+                "edge_voice": getattr(engine, "voice", "") if engine else "",
+                "elevenlabs_voice_id": getattr(engine, "elevenlabs_voice_id", "") if engine else "",
+                "elevenlabs_model": getattr(engine, "elevenlabs_model", "") if engine else "",
+                "has_elevenlabs_key": bool(getattr(engine, "elevenlabs_api_key", "") if engine else self.config.get("voice.tts.elevenlabs_api_key", "")) or bool(__import__("os").getenv("ELEVENLABS_API_KEY")),
+            }
+            edge_voices: List[str] = []
+            eleven_voices: List[Dict[str, Any]] = []
+            if engine is not None:
+                try:
+                    edge_voices = await engine.list_voices(language=language)
+                except Exception:
+                    edge_voices = []
+                if getattr(engine, "_has_elevenlabs", lambda: False)():
+                    try:
+                        if hasattr(engine, "list_elevenlabs_voices"):
+                            eleven_voices = await engine.list_elevenlabs_voices()
+                    except Exception as exc:
+                        logger.debug("ElevenLabs voice list failed: %s", exc)
+                        eleven_voices = []
+            return JSONResponse({
+                "current": current,
+                "edge_voices": edge_voices[:40],
+                "elevenlabs_voices": eleven_voices[:30],
+                "speech": await self.speech_available(),
+            })
+
+        @app.get("/api/tts")
+        async def tts(text: str = Query(...), token: str = Query(default=""), voice: str = Query(default=""), engine: str = Query(default="")) -> Any:
+            """Render text to speech and return an audio file.
+
+            Optional ``voice`` and ``engine`` override the config for a preview
+            without persisting the change. ``voice`` is an ElevenLabs voice_id
+            when engine is elevenlabs, otherwise an edge-tts ShortName.
+            """
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            tts_engine = await self._tts_engine()
+            if tts_engine is None:
                 raise HTTPException(status_code=503, detail="tts unavailable")
             if self._rate_limited("tts"):
                 raise HTTPException(status_code=429, detail="too much speech")
-            path: Optional[Path] = await engine.synthesize(text[:1500])
+            # Preview overrides — temporary, does not write to config.yaml.
+            # Snapshot so a preview does not poison the next plain /api/tts call.
+            _orig_engine = getattr(tts_engine, "engine", "")
+            _orig_voice = getattr(tts_engine, "voice", "")
+            _orig_eid = getattr(tts_engine, "elevenlabs_voice_id", "")
+            _orig_active = getattr(tts_engine, "active_engine", "")
+            if engine or voice:
+                try:
+                    if engine:
+                        tts_engine.engine = engine.lower().strip()
+                        await tts_engine.initialize(require_player=False)
+                    if voice:
+                        if tts_engine.active_engine == "elevenlabs" or (engine and engine.lower().strip() in ("elevenlabs", "eleven", "eleven_labs")):
+                            tts_engine.elevenlabs_voice_id = voice.strip()
+                        else:
+                            tts_engine.voice = voice.strip()
+                except Exception as exc:
+                    logger.debug("TTS preview override failed: %s", exc)
+            path: Optional[Path] = await tts_engine.synthesize(text[:1500])
+            # Restore originals after preview so state does not drift.
+            if engine or voice:
+                try:
+                    tts_engine.engine = _orig_engine
+                    tts_engine.voice = _orig_voice
+                    tts_engine.elevenlabs_voice_id = _orig_eid
+                    # Re-initialise to the original engine if it changed.
+                    if getattr(tts_engine, "active_engine", "") != _orig_active:
+                        await tts_engine.initialize(require_player=False)
+                except Exception:
+                    pass
             if path is None or not path.exists():
                 raise HTTPException(status_code=503, detail="synthesis failed")
             media = "audio/wav" if path.suffix.lower() == ".wav" else "audio/mpeg"

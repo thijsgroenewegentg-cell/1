@@ -806,6 +806,7 @@ body.degraded-open #toasts { top: 118px; }
     </button>
     <button class="round" id="mic" title="Hold to talk (space)" aria-label="Hold to talk">
       <svg id="micRing" viewBox="0 0 68 68"><circle cx="34" cy="34" r="32"></circle></svg>
+      <canvas id="micWave" width="68" height="68" style="position:absolute;inset:-4px;width:76px;height:76px;pointer-events:none;opacity:0;transition:opacity .18s"></canvas>
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
     </button>
     <button class="round" id="speech" title="Read replies aloud (S)" aria-label="Read replies aloud">
@@ -855,7 +856,20 @@ body.degraded-open #toasts { top: 118px; }
       <div class="stat"><span>Rendering</span><span id="statFps">—</span></div>
       <div class="head">Settings</div>
       <div class="switch"><span>Read replies aloud</span><button id="setSpeech">off</button></div>
-      <div class="switch"><span>Clear the transcript</span><button id="setClear">clear</button></div>
+      <div class="head">Voice</div>
+      <div class="stat"><span>Engine</span><span id="voiceEngine">—</span></div>
+      <div class="stat"><span>Voice</span><span id="voiceName">—</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:2px">
+        <select id="voicePicker" aria-label="Voice" style="flex:1;min-width:150px;background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:10px;padding:7px 10px;font:14px ui-sans-system,system-ui">
+          <option value="">Loading voices…</option>
+        </select>
+        <button class="tool" id="voicePreview" style="width:auto;white-space:nowrap;padding:6px 12px;border-radius:10px">preview</button>
+      </div>
+      <div id="voiceHint" style="font:12px/1.5 ui-sans-system;color:#7d8da1;min-height:14px"></div>
+      <div class="head">Memory</div>
+      <div id="memoryList" style="font:12px/1.5 ui-sans-system;color:#9bb0c8;display:flex;flex-direction:column;gap:4px;max-height:120px;overflow:auto"></div>
+      <div id="memoryHint" style="font:11px/1.4 ui-sans-system;color:#5b6b82"></div>
+      <div class="switch" style="margin-top:8px"><span>Clear the transcript</span><button id="setClear">clear</button></div>
     </div>
     <div class="pane" id="pane-tools">
       <input id="toolSearch" placeholder="Search tools…" aria-label="Search tools">
@@ -1826,7 +1840,14 @@ function send(text) {
 
 function speakAloud(text) {
   if (!speechSupported) return;
-  const audio = new Audio("/api/tts?text=" + encodeURIComponent(text.slice(0, 900)) +
+  let extra = "";
+  try {
+    const picker = document.getElementById("voicePicker");
+    const val = picker ? picker.value : "";
+    if (val && val.startsWith("elevenlabs:")) extra = "&engine=elevenlabs&voice=" + encodeURIComponent(val.slice("elevenlabs:".length));
+    else if (val && val.startsWith("edge:")) extra = "&engine=edge&voice=" + encodeURIComponent(val.slice("edge:".length));
+  } catch (_e) {}
+  const audio = new Audio("/api/tts?text=" + encodeURIComponent(text.slice(0, 900)) + extra +
     (token ? "&token=" + encodeURIComponent(token) : ""));
   // A 503 from /api/tts means the engine went away since the last status
   // poll. Fold that back into the control rather than toasting on every
@@ -1875,6 +1896,9 @@ async function startRecording() {
 }
 
 function listenTo(stream) {
+  const waveCanvas = document.getElementById("micWave");
+  const waveCtx = waveCanvas ? waveCanvas.getContext("2d") : null;
+  if (waveCtx) { waveCanvas.style.opacity = "1"; waveCtx.clearRect(0,0,68,68); }
   try {
     context = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = context.createAnalyser();
@@ -1882,6 +1906,7 @@ function listenTo(stream) {
     analyser.smoothingTimeConstant = 0.72;
     context.createMediaStreamSource(stream).connect(analyser);
     const wave = new Uint8Array(analyser.fftSize);
+    const freq = new Uint8Array(analyser.frequencyBinCount);
     meter = setInterval(() => {
       analyser.getByteTimeDomainData(wave);
       // Your voice drives the swell directly: louder speech pushes the noise
@@ -1889,14 +1914,46 @@ function listenTo(stream) {
       let peak = 0;
       for (const value of wave) peak = Math.max(peak, Math.abs(value - 128));
       mood("listen", Math.min(1, (peak / 128) * 3.2));
+      // Waveform canvas — a thin oscilloscope ring around the mic so you *see*
+      // that the browser is hearing you, even when the orb is behind content.
+      if (waveCtx && waveCanvas) {
+        waveCtx.clearRect(0,0,68,68);
+        // subtle circle
+        waveCtx.strokeStyle = "rgba(56,189,248,0.95)";
+        waveCtx.lineWidth = 1.6;
+        waveCtx.beginPath();
+        for (let i = 0; i < wave.length; i++) {
+          const angle = (i / wave.length) * Math.PI * 2 - Math.PI/2;
+          const norm = (wave[i] - 128) / 128; // -1..1
+          const r = 28 + norm * 6 * Math.min(1, peak/30 + 0.3);
+          const x = 34 + Math.cos(angle) * r;
+          const y = 34 + Math.sin(angle) * r;
+          if (i === 0) waveCtx.moveTo(x,y); else waveCtx.lineTo(x,y);
+        }
+        waveCtx.closePath();
+        waveCtx.stroke();
+        // energy dot at top indicates level
+        const lvl = Math.min(1, (peak/128)*2.2);
+        if (lvl > 0.15) {
+          waveCtx.fillStyle = "rgba(56,189,248," + (0.35 + lvl*0.55) + ")";
+          waveCtx.beginPath();
+          waveCtx.arc(34, 4.5, 1.2 + lvl*1.8, 0, Math.PI*2);
+          waveCtx.fill();
+        }
+      }
     }, 45);
-  } catch (err) { /* the meter is a luxury, not a requirement */ }
+  } catch (err) {
+    if (waveCanvas) waveCanvas.style.opacity = "0";
+    /* the meter is a luxury, not a requirement */
+  }
 }
 
 async function finishRecording(stream) {
   stream.getTracks().forEach((track) => track.stop());
   clearInterval(meter); clearInterval(ringTimer);
   $("micRing").querySelector("circle").style.strokeDashoffset = RING;
+  const wc = $("micWave");
+  if (wc) { wc.style.opacity = "0"; const c = wc.getContext("2d"); if (c) c.clearRect(0,0,68,68); }
   if (context) { context.close().catch(() => {}); context = null; }
   $("mic").classList.remove("recording");
   if (!chunks.length) { mood("idle", 0); status(""); return; }
@@ -2006,7 +2063,23 @@ function togglePanel(force) {
   const open = force === undefined ? !document.body.classList.contains("panel-open") : force;
   document.body.classList.toggle("panel-open", open);
   $("panelBtn").classList.toggle("on", open);
-  if (open) { loadStatus(); loadTools().then(drawTools); }
+  if (open) { loadStatus(); loadTools().then(drawTools); loadVoices(); }
+}
+
+/* Show or hide the degraded-mode banner. Dismissal lasts for the session
+   only: a new tab after starting Ollama should not stay silent about it. */
+let degradedDismissed = false;
+function showDegraded(on, host) {
+  const banner = $("degraded");
+  if (!banner) return;
+  const showing = Boolean(on) && !degradedDismissed;
+  if (showing) {
+    $("degradedText").textContent =
+      "No language model at " + (host || "Ollama") + " — reflex commands only.";
+  }
+  banner.hidden = !showing;
+  // Toasts move down out of the banner's way rather than landing on it.
+  document.body.classList.toggle("degraded-open", showing);
 }
 
 /* Show or hide the degraded-mode banner. Dismissal lasts for the session
@@ -2061,6 +2134,30 @@ async function loadStatus() {
       '<div class="stat"><span>' + escapeHtml(key) + "</span><span>" +
       escapeHtml(String(value)) + "</span></div>").join("");
 
+    // Memory widget — show a preview of long-term facts so the HUD is not
+    // just a number. The memory backend already stores recent entries; we
+    // fetch them via /api/status's memory + a light /api/tools hint, but keep
+    // it to a few lines so the panel stays compact.
+    try {
+      const memo = data.memory || {};
+      const facts = memo.recent || memo.facts || memo.entries_list || [];
+      const count = memo.long_term ?? memo.entries ?? 0;
+      const list = $("memoryList");
+      if (list) {
+        if (Array.isArray(facts) && facts.length) {
+          list.innerHTML = facts.slice(0, 4).map((f) =>
+            '<div style="display:flex;gap:6px;align-items:baseline"><span style="color:var(--tint)">•</span><span>' + escapeHtml(String(f.text || f.fact || f)) + '</span></div>'
+          ).join("") + (count > 4 ? '<span style="color:var(--dimmer)">+' + (count - 4) + ' more…</span>' : '');
+        } else if (count) {
+          list.innerHTML = '<span style="color:var(--dimmer)">' + count + ' facts stored — ask “what do you remember about me?”</span>';
+        } else {
+          list.innerHTML = '<span style="color:var(--dimmer)">No facts yet — say “remember that …”</span>';
+        }
+      }
+      const hint = $("memoryHint");
+      if (hint) hint.textContent = memo.backend ? ('backend: ' + memo.backend) : '';
+    } catch (_e) {}
+
     // The brain counts every turn, however it arrived. This tab only sees the
     // ones that came over its own socket, so asking by voice on the desktop or
     // posting to /api/ask left the counter reading zero. Trust the server's
@@ -2070,7 +2167,100 @@ async function loadStatus() {
       $("statTurns").textContent = turns;
     }
     applySpeechSupport(data.speech !== false);
+    // Kick the voice picker in background — it is cheap and the panel may be open.
+    if (!$("voicePicker").dataset.loaded) loadVoices();
   } catch (err) { /* the panel simply stays empty */ }
+}
+
+let voiceCache = null;
+async function loadVoices() {
+  const picker = $("voicePicker"), engineEl = $("voiceEngine"), nameEl = $("voiceName"), hint = $("voiceHint");
+  try {
+    const data = await (await fetch("/api/voices" + auth)).json();
+    voiceCache = data;
+    const cur = data.current || {};
+    if (engineEl) engineEl.textContent = cur.active_engine || cur.engine || "—";
+    if (nameEl) {
+      const label = cur.active_engine === "elevenlabs" ? (cur.elevenlabs_voice_id || "—") : (cur.edge_voice || cur.elevenlabs_voice_id || "—");
+      nameEl.textContent = label;
+    }
+    if (picker) {
+      picker.innerHTML = "";
+      const edge = data.edge_voices || [];
+      const eleven = data.elevenlabs_voices || [];
+      const hasEleven = !!(cur.has_elevenlabs_key || eleven.length);
+      // Group: ElevenLabs first when key present, else edge.
+      if (hasEleven && eleven.length) {
+        const g = document.createElement("optgroup"); g.label = "ElevenLabs";
+        eleven.forEach((v) => {
+          const o = document.createElement("option");
+          o.value = "elevenlabs:" + v.voice_id;
+          o.textContent = v.name + (v.category ? " · " + v.category : "") + " — " + v.voice_id.slice(0, 8);
+          if (v.voice_id === cur.elevenlabs_voice_id) o.selected = true;
+          g.appendChild(o);
+        });
+        picker.appendChild(g);
+      } else if (hasEleven) {
+        const o = document.createElement("option");
+        o.value = "elevenlabs:" + cur.elevenlabs_voice_id;
+        o.textContent = "ElevenLabs " + (cur.elevenlabs_voice_id || "").slice(0, 8) + " (add key to list more)";
+        picker.appendChild(o);
+      }
+      const eg = document.createElement("optgroup"); eg.label = "Edge TTS (" + (cur.language || "en") + ")";
+      edge.forEach((name) => {
+        const o = document.createElement("option");
+        o.value = "edge:" + name; o.textContent = name;
+        if (name === cur.edge_voice && cur.active_engine !== "elevenlabs") o.selected = true;
+        eg.appendChild(o);
+      });
+      if (!edge.length) {
+        const o = document.createElement("option");
+        o.value = ""; o.textContent = "No edge voices found";
+        eg.appendChild(o);
+      }
+      picker.appendChild(eg);
+      // Engine override row
+      const engGroup = document.createElement("optgroup"); engGroup.label = "Engine";
+      ["auto", "elevenlabs", "edge", "piper"].forEach((eng) => {
+        const o = document.createElement("option");
+        o.value = "engine:" + eng;
+        o.textContent = eng + (cur.engine === eng ? " · current" : "");
+        engGroup.appendChild(o);
+      });
+      picker.appendChild(engGroup);
+      picker.dataset.loaded = "1";
+    }
+    if (hint) {
+      const a = cur.active_engine || cur.engine || "auto";
+      hint.textContent = data.speech ? ('active: ' + a + (hasEleven ? '' : ' · add ELEVENLABS_API_KEY for premium')) : 'speech unavailable';
+    }
+  } catch (err) {
+    if (picker && !picker.dataset.loaded) picker.innerHTML = '<option value="">voices unavailable</option>';
+  }
+}
+
+async function previewVoice() {
+  const picker = $("voicePicker");
+  const val = picker ? picker.value : "";
+  if (!val) { toast("Pick a voice first.", true); return; }
+  let voice = "", engine = "";
+  if (val.startsWith("elevenlabs:")) { engine = "elevenlabs"; voice = val.slice("elevenlabs:".length); }
+  else if (val.startsWith("edge:")) { engine = "edge"; voice = val.slice("edge:".length); }
+  else if (val.startsWith("engine:")) { toast("Engine set to " + val.slice(7) + " — preview a voice, not the engine.", false); return; }
+  const btn = $("voicePreview");
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try {
+    const sample = "Hello! I am JARVIS, your local assistant. This is how I would sound.";
+    const url = "/api/tts?text=" + encodeURIComponent(sample) + (engine ? "&engine=" + encodeURIComponent(engine) : "") + (voice ? "&voice=" + encodeURIComponent(voice) : "") + (token ? "&token=" + encodeURIComponent(token) : "");
+    const audio = new Audio(url);
+    audio.addEventListener("error", () => toast("Preview failed — check the voice and engine.", true));
+    await audio.play();
+    toast("Preview — " + (engine === "elevenlabs" ? voice.slice(0, 8) : voice));
+  } catch (err) {
+    toast("Preview failed: " + err.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "preview"; }
+  }
 }
 
 async function loadTools() {
@@ -2244,6 +2434,13 @@ function toggleSpeech() {
 }
 $("speech").addEventListener("click", toggleSpeech);
 $("setSpeech").addEventListener("click", toggleSpeech);
+$("voicePreview").addEventListener("click", previewVoice);
+$("voicePicker").addEventListener("change", () => {
+  const v = $("voicePicker").value;
+  if (v.startsWith("elevenlabs:")) $("voiceName").textContent = v.slice("elevenlabs:".length);
+  else if (v.startsWith("edge:")) $("voiceName").textContent = v.slice("edge:".length);
+  else if (v.startsWith("engine:")) $("voiceEngine").textContent = v.slice(7);
+});
 $("setClear").addEventListener("click", () => {
   rail.innerHTML = ""; turns = 0; $("statTurns").textContent = "0";
   clearCards(); conversation.length = 0; $("historyList").innerHTML = "";

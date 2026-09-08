@@ -12,15 +12,15 @@ and marked with `·`; methods the intent router can call are marked
 - [`main.py`](#mainpy) — 20
 - [`install.py`](#installpy) — 56
 - [`core/brain.py`](#corebrainpy) — 57
-- [`core/config.py`](#coreconfigpy) — 28
+- [`core/config.py`](#coreconfigpy) — 29
 - [`core/event_bus.py`](#coreevent_buspy) — 13
-- [`core/intent_router.py`](#coreintent_routerpy) — 5
+- [`core/intent_router.py`](#coreintent_routerpy) — 7
 - [`core/memory.py`](#corememorypy) — 69
 - [`core/personality.py`](#corepersonalitypy) — 5
 - [`core/planner.py`](#coreplannerpy) — 5
 - [`interfaces/cli.py`](#interfacesclipy) — 31
-- [`interfaces/voice.py`](#interfacesvoicepy) — 73
-- [`interfaces/web.py`](#interfaceswebpy) — 33
+- [`interfaces/voice.py`](#interfacesvoicepy) — 77
+- [`interfaces/web.py`](#interfaceswebpy) — 36
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 24
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
@@ -37,13 +37,13 @@ and marked with `·`; methods the intent router can call are marked
 - [`plugins/plugin_loader.py`](#pluginsplugin_loaderpy) — 12
 - [`utils/backup.py`](#utilsbackuppy) — 11
 - [`utils/cache.py`](#utilscachepy) — 12
-- [`utils/doctor.py`](#utilsdoctorpy) — 25
+- [`utils/doctor.py`](#utilsdoctorpy) — 26
 - [`utils/documents.py`](#utilsdocumentspy) — 8
 - [`utils/helpers.py`](#utilshelperspy) — 36
 - [`utils/language.py`](#utilslanguagepy) — 8
 - [`utils/logger.py`](#utilsloggerpy) — 3
 - [`utils/scheduler.py`](#utilsschedulerpy) — 26
-- [`utils/security.py`](#utilssecuritypy) — 16
+- [`utils/security.py`](#utilssecuritypy) — 18
 - [`tests/fake_blender.py`](#testsfake_blenderpy) — 22
 - [`tests/mock_ollama.py`](#testsmock_ollamapy) — 10
 - [`tests/test_blender.py`](#teststest_blenderpy) — 43
@@ -55,21 +55,24 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
 - [`tests/test_install.py`](#teststest_installpy) — 17
+- [`tests/test_intent_router.py`](#teststest_intent_routerpy) — 13
 - [`tests/test_knowledge.py`](#teststest_knowledgepy) — 15
 - [`tests/test_memory.py`](#teststest_memorypy) — 23
 - [`tests/test_models.py`](#teststest_modelspy) — 7
 - [`tests/test_plugins.py`](#teststest_pluginspy) — 18
 - [`tests/test_productivity.py`](#teststest_productivitypy) — 23
 - [`tests/test_self_improve.py`](#teststest_self_improvepy) — 18
+- [`tests/test_sensitive_paths.py`](#teststest_sensitive_pathspy) — 16
 - [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 16
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
 - [`tests/test_system_control.py`](#teststest_system_controlpy) — 16
+- [`tests/test_tool_registration.py`](#teststest_tool_registrationpy) — 6
 - [`tests/test_units.py`](#teststest_unitspy) — 96
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
-- [`tests/test_web.py`](#teststest_webpy) — 32
-- [`tests/test_web_search.py`](#teststest_web_searchpy) — 13
+- [`tests/test_web.py`](#teststest_webpy) — 54
+- [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
 
@@ -244,10 +247,11 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/config.py`
 
-*28 functions*
+*29 functions*
 
 > YAML configuration with sane defaults, dot-path access and hot reload.
 
+- `def _load_secrets_env(root: Path) -> None` — Load ``data/secrets.env`` into ``os.environ`` without overwriting.
 - `def _normalise_aliases(data: Dict[str, Any]) -> Dict[str, Any]` — Rewrite alias keys onto their canonical names.
 - `def _dig(data: Any, parts: List[str]) -> Any` — Read a nested key, returning :data:`_ABSENT` when it is not there.
 - `def _plant(data: Dict[str, Any], parts: List[str], value: Any) -> None` — Write a nested key, creating the intermediate dictionaries.
@@ -311,9 +315,11 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/intent_router.py`
 
-*5 functions*
+*7 functions*
 
 > LLM-based intent classification: which module should handle this?
+
+- `def _keyword_matches(keyword: str, padded_text: str) -> bool` — Test one tool keyword against an utterance already padded with spaces.
 
 ### `class Intent` — Classification result for one user utterance.
 
@@ -323,6 +329,7 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def __init__(self, brain: 'Brain') -> None` — Attach the router to a brain.
 - `async def classify(self, text: str) -> Intent` — Determine which module (if any) should handle ``text``.
+- `def _tool_keywords(self) -> Dict[str, List[str]]` — Collect every loaded tool's keywords, grouped by owning module.
 - `def _keyword_intent(self, text: str) -> Intent` — Score the utterance against the keyword tables.
 - `def _closest_module(self, name: str) -> Optional[str]` — Fuzzy-match a hallucinated category onto a loaded module.
 
@@ -492,15 +499,16 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/voice.py`
 
-*73 functions*
+*77 functions*
 
 > Complete local voice pipeline for JARVIS.
 
-### `class TextToSpeech` — Free neural speech with interruptible playback.
+### `class TextToSpeech` — Free or premium neural speech with interruptible playback.
 
 - `def __init__(self, config: Any) -> None` — Read the speech settings; engines are loaded on first use.
-- `async def initialize(self) -> bool` — Pick a speech engine and an audio player.
+- `async def initialize(self, require_player: bool = True) -> bool` — Pick a speech engine and, when playing locally, an audio player.
 - `def _find_piper(self) -> bool` — Locate the Piper binary (or module) and a voice model.
+- `def _has_elevenlabs(self) -> bool` — Whether ElevenLabs can be used (API key + voice ID present).
 - `def _player_for(self, path: Path) -> Optional[List[str]]` — Pick a player that can actually decode this file type.
 - `def _all_players() -> List[List[str]]` *staticmethod* — Every playback command JARVIS knows about, best first.
 - `def _find_player(cls) -> Optional[List[str]]` *classmethod* — Locate a command-line audio player.
@@ -508,12 +516,14 @@ and marked with `·`; methods the intent router can call are marked
 - `async def synthesize(self, text: str) -> Optional[Path]` — Render ``text`` to an MP3 file and return its path.
 - `async def _synthesize_piper(self, text: str, target: Path) -> Optional[Path]` — Render speech entirely offline with Piper.
   · `def _run() -> bool`
+- `async def _synthesize_elevenlabs(self, text: str, target: Path) -> Optional[Path]` — Render speech with ElevenLabs.
 - `def _prune_cache(self, keep: int = 200) -> None` — Keep the TTS cache from growing without bound.
 - `async def speak(self, text: str, interruptible: bool = True) -> bool` — Speak ``text`` aloud.
 - `async def play_file(self, path: Path, interruptible: bool = True) -> bool` — Play an audio file, optionally stopping on user speech.
 - `def _playback_command(self, path: Path) -> Optional[List[str]]` — Build the argv for a player that can handle this file.
 - `def stop(self) -> None` — Immediately stop any speech in progress (barge-in).
 - `async def list_voices(self, language: str = 'en') -> List[str]` — Return the free Edge voices available for a language.
+- `async def list_elevenlabs_voices(self) -> List[Dict[str, Any]]` — Return ElevenLabs voices when a key is set (cached 1h).
 
 ### `class StreamingSpeaker` — Speaks a reply while it is still being generated.
 
@@ -591,13 +601,14 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*33 functions*
+*36 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
 - `def render_icon(size: int) -> bytes` — Draw the app icon as a PNG, with no image library involved.
   · `def chunk(kind: bytes, payload: bytes) -> bytes` — Assemble one PNG chunk with its CRC.
 - `def load_page() -> str` — Read the interface from disk, falling back to a minimal page.
+- `def _format_uptime(seconds: Any) -> str` — Render an uptime in seconds as a short human string.
 - `def local_addresses(port: int) -> List[str]` — Best-effort list of URLs this machine can be reached on.
 
 ### `class WebInterface` — FastAPI + WebSocket front-end that runs alongside the CLI.
@@ -608,6 +619,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def url(self) -> str` *property* — The address to open in a browser.
 - `def _authorised(self, supplied: Optional[str]) -> bool` — Constant-time check of the shared secret.
 - `async def _tts_engine(self) -> Optional[Any]` — Lazily build a TTS engine for the ``/api/tts`` endpoint.
+- `async def speech_available(self) -> bool` — Whether ``/api/tts`` can actually return audio.
 - `def _build_app(self) -> Any` — Construct the FastAPI application.
   · `def rendered_page() -> str` — Return the interface with its placeholders filled in.
   · `async def index(token: str = Query(default='')) -> Any` — Serve the chat page.
@@ -615,7 +627,8 @@ and marked with `·`; methods the intent router can call are marked
   · `async def ask(request: Request, token: str = Query(default='')) -> Any` — Answer a single question over plain JSON (no streaming).
   · `async def tools(token: str = Query(default='')) -> Any` — List every tool, so the interface can offer them for browsing.
   · `async def audit(token: str = Query(default=''), limit: int = Query(default=25)) -> Any` — Report what needed permission, for the audit tab.
-  · `async def tts(text: str = Query(...), token: str = Query(default='')) -> Any` — Render text to speech and return an audio file.
+  · `async def voices(token: str = Query(default='')) -> Any` — List available TTS voices for the picker.
+  · `async def tts(text: str = Query(...), token: str = Query(default=''), voice: str = Query(default=''), engine: str = Query(default='')) -> Any` — Render text to speech and return an audio file.
   · `async def manifest(token: str = Query(default='')) -> Any` — Serve the PWA manifest so the page installs to a home screen.
   · `async def service_worker() -> Any` — Serve the offline shell worker (never behind the token gate).
   · `async def icon(size: int) -> Any` — Render an app icon at the requested size.
@@ -1136,8 +1149,8 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _fetch_text(self, url: str) -> str` — Download a page and return its readable text.
 - `def _html_to_text(self, markup: str) -> str` — Strip a page down to readable prose.
 - `async def read_page(self, url: str, question: str = '') -> ModuleResult` **@tool** — Scrape ``url`` and summarise it (optionally answering ``question``).
-- `async def _locate_by_ip(self) -> str` **@tool** — Guess the user's city from their IP address, for free.
-- `async def weather(self, location: str = '') -> ModuleResult` — Fetch weather from wttr.in (free, no key required).
+- `async def _locate_by_ip(self) -> str` — Guess the user's city from their IP address, for free.
+- `async def weather(self, location: str = '') -> ModuleResult` **@tool** — Fetch weather from wttr.in (free, no key required).
 - `async def news(self, topic: str = '', limit: int = 8) -> ModuleResult` **@tool** — Aggregate headlines from the configured RSS feeds.
 - `def _parse_feed(self, xml_text: str, source_url: str) -> List[Dict[str, str]]` — Parse an RSS/Atom document into simple dicts.
 - `async def wikipedia(self, topic: str, sentences: int = 5) -> ModuleResult` **@tool** — Fetch a Wikipedia extract via the open REST API.
@@ -1207,10 +1220,11 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `utils/doctor.py`
 
-*25 functions*
+*26 functions*
 
 > ``python main.py --doctor`` — find out why JARVIS is unhappy.
 
+- `def _redact(text: str) -> str` — Replace any ElevenLabs key in free text with ***.
 - `def _import_ok(module: str) -> bool` — Report whether a module imports, without letting it crash us.
 - `def check_python(report: Report) -> None` — Check the interpreter version and whether a venv is active.
 - `def check_packages(report: Report) -> None` — Check that the required and optional dependencies import.
@@ -1376,7 +1390,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `utils/security.py`
 
-*16 functions*
+*18 functions*
 
 > Safety layer for anything that can damage the machine.
 
@@ -1399,6 +1413,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def assess(self, command: str) -> RiskAssessment` — Classify a shell command string.
 - `def assess_code(self, code: str) -> RiskAssessment` — Classify a Python snippet destined for the sandbox.
 - `def is_path_allowed(self, path: str | Path, write: bool = False) -> RiskAssessment` — Check whether a path may be read from or written to.
+- `def is_sensitive_path(self, path: str | Path) -> bool` — Whether ``path`` looks like a credential file.
+- `def _sensitive_match(target: Path) -> str` *staticmethod* — Return the pattern naming ``target`` as a credential file, if any.
 - `def _is_within(child: Path, parent: Path) -> bool` *staticmethod* — Return True when ``child`` is inside ``parent``.
 - `async def confirm(self, prompt: str) -> bool` — Ask the user to approve an action.
 - `async def authorize(self, command: str, description: str = '') -> RiskAssessment` — Assess ``command`` and, if needed, obtain user confirmation.
@@ -1740,6 +1756,26 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_missing_icon_falls_back_to_a_stock_one(installer)`
 - `def test_shortcuts_land_in_the_right_places(installer, tmp_path, monkeypatch)`
 
+## `tests/test_intent_router.py`
+
+*13 functions*
+
+> Offline routing: the keyword layer that works when Ollama is not running.
+
+- `def brain(tmp_path_factory: pytest.TempPathFactory) -> Any` — A fully loaded brain, reused across the routing assertions.
+- `def route(brain: Any, text: str) -> str` — The module the offline keyword router picks for ``text``.
+- `def test_tool_keywords_reach_their_own_module(brain: Any, utterance: str, expected: str) -> None`
+- `def test_these_phrases_are_answerable_without_the_llm(brain: Any) -> None` — The whole point: no LLM, so falling back to conversation is a failure.
+- `def test_established_routes_still_hold(brain: Any, utterance: str, expected: str) -> None`
+- `def test_small_talk_is_not_hijacked_by_a_tool_keyword(brain: Any, utterance: str) -> None`
+- `def test_short_keywords_need_a_word_boundary() -> None`
+- `def test_generic_short_keywords_are_vetoed_outright(brain: Any) -> None`
+- `def test_long_keywords_may_match_as_substrings() -> None`
+- `def test_generic_keywords_never_route_on_their_own() -> None`
+- `def test_blank_keywords_are_ignored() -> None`
+- `def test_tool_keywords_are_grouped_by_owning_module(brain: Any) -> None`
+- `def test_the_keyword_cache_is_reused(brain: Any) -> None`
+
 ## `tests/test_knowledge.py`
 
 *15 functions*
@@ -1886,6 +1922,29 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_sound_rewrite_passes_the_syntax_gate(self_improve)`
 - `def test_the_source_tree_is_found_regardless_of_where_the_config_lives(tmp_path)` — Following config.root broke self-inspection for anyone using --config.
 
+## `tests/test_sensitive_paths.py`
+
+*16 functions*
+
+> Credential files are gated before they can be read out.
+
+- `def guard() -> SecurityGuard` — A guard built from the shipped configuration.
+- `def secrets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path` — A fake home containing the credential files worth stealing.
+- `def test_credential_files_need_confirmation(guard: SecurityGuard, secrets: Path, relative: str) -> None`
+- `def test_ordinary_files_are_untouched(guard: SecurityGuard, secrets: Path, relative: str) -> None`
+- `def test_reading_is_gated_not_only_writing(guard: SecurityGuard, secrets: Path) -> None`
+- `def test_keys_outside_home_are_recognised(guard: SecurityGuard) -> None`
+- `def test_the_helper_agrees_with_the_assessment(guard: SecurityGuard, secrets: Path) -> None`
+- `def test_the_helper_survives_nonsense(guard: SecurityGuard) -> None`
+- `def _manager(confirm: bool, answer: bool | None = None) -> FileManager` — A FileManager whose confirmation hook answers ``answer``.
+  · `async def hook(_prompt: str) -> bool`
+- `def test_read_file_refuses_a_key_when_nobody_can_be_asked(secrets: Path) -> None`
+- `def test_read_file_asks_and_honours_no(secrets: Path) -> None`
+- `def test_read_file_still_allows_an_explicit_yes(secrets: Path) -> None`
+- `def test_ordinary_reads_are_not_slowed_down(secrets: Path) -> None`
+- `def test_grep_skips_credentials_without_prompting(secrets: Path) -> None`
+- `def test_the_indexer_skips_credentials(secrets: Path) -> None`
+
 ## `tests/test_smart_assistant.py`
 
 *16 functions*
@@ -1963,6 +2022,19 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_an_empty_trail_reads_calmly(config)`
 - `def test_the_audit_filter_is_validated(system)`
 - `def test_reading_the_cpu_does_not_block_the_turn(system)` — psutil.cpu_percent(interval=0.4) sleeps; it was most of this answer.
+
+## `tests/test_tool_registration.py`
+
+*6 functions*
+
+> Static guards on how ``@tool`` is attached to methods.
+
+- `def _decorated_tools() -> Iterator[Tuple[pathlib.Path, ast.AST, ast.Call]]` — Yield every ``(file, function, @tool call)`` triple in the source tree.
+- `def _keyword(decorator: ast.Call, name: str) -> ast.expr | None` — Return the value node of a keyword argument, when it is present.
+- `def _tool_name(function: ast.AST, decorator: ast.Call) -> str` — The registered tool name: the explicit ``name=`` or the method name.
+- `def test_no_private_method_is_decorated_as_a_tool() -> None`
+- `def test_examples_name_the_tool_they_document() -> None` — An example calling a different tool means the decorator drifted.
+- `def test_declared_parameters_exist_on_the_signature() -> None` — Every declared param must be a real argument of the decorated method.
 
 ## `tests/test_units.py`
 
@@ -2181,7 +2253,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*32 functions*
+*54 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -2214,10 +2286,32 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_tool_results_reach_the_browser(web)` — The interface draws cards from these, so they must be relayed.
   · `async def scenario() -> None`
 - `def test_the_page_is_compressed(web)` — 61 KB of markup over Wi-Fi is a visible load; 18 KB is not.
+- `def test_status_reports_uptime_for_the_panel(web)` — The panel has always had an Uptime row; nothing ever filled it.
+- `def test_status_still_reports_the_llm_state_the_page_reads(web)` — The page keys off llm.online; renaming it would blank the banner.
+- `def test_uptime_is_rendered_for_humans(seconds, expected)`
+- `def test_uptime_never_raises_on_rubbish(rubbish)`
+- `def test_the_page_handles_the_status_shape_the_server_sends(web)` — The modules field is an object; the page used to call .map() on it.
+- `def test_the_page_reads_the_llm_key_the_server_actually_sends(web)`
+- `def test_the_page_explains_degraded_mode(web)` — With no model, replies are reflex-only — the UI has to say so.
+- `def test_status_reports_whether_speech_is_possible(web)` — The page needs to know, or it offers a button that cannot work.
+- `def test_speech_is_unavailable_when_tts_is_switched_off(web)` — allow_tts: false must be reported, not just enforced at /api/tts.
+- `def test_web_tts_does_not_need_a_server_side_audio_player(monkeypatch)` — The browser plays the audio; ffmpeg on the server is irrelevant.
+- `def test_the_page_disables_speech_when_the_server_cannot_speak(web)`
+- `def test_status_carries_the_brains_turn_count(web)` — Turns counted anywhere — voice, CLI, /api/ask — must reach the page.
+- `def test_the_page_trusts_the_servers_turn_count(web)` — The tab only sees its own socket, so it must defer to the server.
+- `def test_the_page_defines_one_radius_and_surface_scale(web)`
+- `def test_chrome_follows_the_orb_colour_rather_than_a_fixed_cyan(web)` — Surfaces read from --tint so they shift with the orb's mood.
+- `def test_the_centred_dock_keeps_its_offset_under_reduced_motion(web)` — #dock is centred with a translate.
+- `def test_the_degraded_banner_clears_the_top_bar(web)` — At top:14px the banner landed squarely over the centred wordmark.
+- `def test_toasts_move_out_of_the_banners_way(web)`
+- `def test_module_tiles_are_labelled(web)` — A 3x4 grid of anonymous squares read as dead pixels, not status.
+- `def test_the_answer_is_centred_below_the_console(web)` — The stage sits just above the dock so the text hugs the controls.
+- `def test_the_page_has_a_reactive_halo_and_horizon_grid(web)`
+- `def test_reduced_motion_suppresses_the_new_atmosphere(web)`
 
 ## `tests/test_web_search.py`
 
-*13 functions*
+*15 functions*
 
 > Unit tests for modules/web_search.py.
 
@@ -2234,6 +2328,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_network_failure_reads_like_a_sentence(web)`
 - `def test_rate_limiting_is_named(web)`
 - `def test_an_unexpected_failure_still_says_something(web)`
+- `def test_weather_is_a_registered_tool(web)`
+- `def test_no_private_helper_is_exposed_as_a_tool(web)`
 
 ## `scripts/list_functions.py`
 
@@ -2264,5 +2360,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1567 functions across 63 files.**
+**1639 functions across 66 files.**
 

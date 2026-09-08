@@ -565,6 +565,58 @@ class TextToSpeech:
             logger.debug("Voice listing failed: %s", exc)
             return []
 
+    _ELEVEN_VOICES_CACHE: ClassVar[Optional[List[Dict[str, Any]]]] = None
+    _ELEVEN_VOICES_AT: ClassVar[float] = 0.0
+
+    async def list_elevenlabs_voices(self) -> List[Dict[str, Any]]:
+        """Return ElevenLabs voices when a key is set (cached 1h).
+
+        Calls ``https://api.elevenlabs.io/v1/voices`` so the picker can show
+        every voice in the account, not just the one in config.yaml. The
+        result is cached for an hour; the library rarely changes and the
+        endpoint is rate-limited.
+        """
+        if not self._has_elevenlabs():
+            return []
+        now = time.time()
+        if self._ELEVEN_VOICES_CACHE is not None and now - self._ELEVEN_VOICES_AT < 3600:
+            return self._ELEVEN_VOICES_CACHE
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    "https://api.elevenlabs.io/v1/voices",
+                    headers={"xi-api-key": self.elevenlabs_api_key, "Accept": "application/json"},
+                )
+                if resp.status_code != 200:
+                    logger.debug("ElevenLabs voice list failed (%s): %s", resp.status_code, truncate(resp.text[:300], 200))
+                    return []
+                data = resp.json()
+                raw = data.get("voices", []) if isinstance(data, dict) else []
+                voices: List[Dict[str, Any]] = []
+                for v in raw:
+                    if not isinstance(v, dict):
+                        continue
+                    voices.append({
+                        "voice_id": str(v.get("voice_id", "")),
+                        "name": str(v.get("name", "")),
+                        "category": str(v.get("category", "")),
+                        "labels": v.get("labels", {}) if isinstance(v.get("labels"), dict) else {},
+                        "preview_url": str(v.get("preview_url", "")),
+                    })
+                # Guarantee the configured voice is at least visible when the API is empty.
+                if not voices and self.elevenlabs_voice_id:
+                    voices = [{"voice_id": self.elevenlabs_voice_id, "name": "Current", "category": "custom", "labels": {}, "preview_url": ""}]
+                else:
+                    voices = [v for v in voices if v["voice_id"]]
+                self._ELEVEN_VOICES_CACHE = voices
+                self._ELEVEN_VOICES_AT = now
+                return voices
+        except Exception as exc:
+            logger.debug("ElevenLabs voice listing failed: %s", exc)
+            return []
+
 
 # ---------------------------------------------------------------------------
 # Microphone + VAD

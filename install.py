@@ -1594,12 +1594,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if arguments.no_ollama:
         info("skipped (--no-ollama)")
     else:
-        wants_vision = bool(arguments.vision) or everything or (
-            profile == "full"
-            and not arguments.no_model
-            and ask_yes_no("Also download the vision model (llava, ~4 GB)?",
-                           default=False, assume_yes=assume_yes)
-        )
+        # --everything and --vision always pull vision; --full now also pulls
+        # vision automatically (previously it asked default N), so a full
+        # install is truly full. --minimal/--standard do not unless --vision is
+        # passed. --no-model still skips everything.
+        wants_vision = bool(arguments.vision) or everything or profile == "full"
         if setup_ollama(
             assume_yes=assume_yes,
             model="" if arguments.no_model else model,

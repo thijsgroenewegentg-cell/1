@@ -265,6 +265,34 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 # Environment overrides: JARVIS_<SECTION>_<KEY> (double underscore for nesting)
 _ENV_PREFIX = "JARVIS_"
 
+def _load_secrets_env(root: Path) -> None:
+    """Load ``data/secrets.env`` into ``os.environ`` without overwriting."""
+    candidates = [root / "data" / "secrets.env", Path.cwd() / "data" / "secrets.env"]
+    seen: set[Path] = set()
+    for cand in candidates:
+        try:
+            cand = cand.resolve()
+        except Exception:
+            continue
+        if cand in seen or not cand.is_file():
+            continue
+        seen.add(cand)
+        try:
+            for raw in cand.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if not key or key in os.environ:
+                    continue
+                # Only allow the known secret keys so a stray file cannot inject arbitrary env.
+                if key in {"ELEVENLABS_API_KEY", "GITHUB_TOKEN", "JARVIS_EMAIL_PASSWORD"} or key.startswith("JARVIS_"):
+                    os.environ[key] = value
+        except Exception:
+            continue
+
 
 
 #: Older / alternative spellings mapped onto the keys JARVIS actually reads.
@@ -592,6 +620,12 @@ class Config:
         self._data: Dict[str, Any] = _deep_merge(
             DEFAULT_CONFIG, _normalise_aliases(data or {})
         )
+        _load_secrets_env(self.root)
+        # Mirror ELEVENLABS_API_KEY from env/secrets.env into the config view so
+        # callers that only read config.get("voice.tts.elevenlabs_api_key") see it.
+        _eleven = os.getenv("ELEVENLABS_API_KEY", "").strip()
+        if _eleven and not str(self.get("voice.tts.elevenlabs_api_key", "") or "").strip():
+            self.set("voice.tts.elevenlabs_api_key", _eleven)
         self._apply_env_overrides()
 
     # -- construction -------------------------------------------------------
@@ -631,6 +665,10 @@ class Config:
             try:
                 loaded = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
                 self._data = _deep_merge(DEFAULT_CONFIG, _normalise_aliases(loaded))
+                _load_secrets_env(self.root)
+                _eleven = os.getenv("ELEVENLABS_API_KEY", "").strip()
+                if _eleven and not str(self.get("voice.tts.elevenlabs_api_key", "") or "").strip():
+                    self.set("voice.tts.elevenlabs_api_key", _eleven)
                 self._apply_env_overrides()
             except Exception:
                 pass

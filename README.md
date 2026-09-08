@@ -494,7 +494,10 @@ voice:
   stt: { model: "base.en" }      # tiny.en is faster, small.en is sharper
                                  #   (the .en suffix drops itself when
                                  #    assistant.language is not English)
-  tts: { voice: "", rate: "+8%" }  # blank = the best free voice for the language
+  tts: { engine: "auto", voice: "", rate: "+8%" }  # engine: auto|piper|edge|elevenlabs — blank voice = best for language
+                                 #   ElevenLabs: set voice.tts.elevenlabs_api_key or env ELEVENLABS_API_KEY
+                                 #   (https://elevenlabs.io/app/settings/api-keys) and voice_id from
+                                 #   https://elevenlabs.io/app/voice-library — auto picks piper > elevenlabs > edge
 
 memory:
   summarize: true            # compress old turns into a running briefing
