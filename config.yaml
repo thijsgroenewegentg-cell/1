@@ -229,7 +229,7 @@ web_ui:
   host: "0.0.0.0"
   port: 8765
   token: ""                # shared secret; blank = one is generated for you
-  require_token: true      # false = deliberately open (only on a trusted LAN)
+  require_token: false  # preview: no token needed (you said yes)      # false = deliberately open (only on a trusted LAN)
   rate_limit_per_minute: 40
   allow_tts: true
   max_audio_mb: 25         # largest hold-to-talk recording accepted
