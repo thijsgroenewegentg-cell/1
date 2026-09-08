@@ -196,7 +196,7 @@ self_improve:
   allow_code_edit: true      # let him modify files in this project
   allow_plugin_install: true # let him clone repos and generate adapters
   review_plugins: true       # generated plugins wait in plugins/pending until you approve
-  allow_pip_install: false   # let him install packages into the venv (off by default)
+  allow_pip_install: true   # A: full control — a,b,c so pip installs allowed   # let him install packages into the venv (off by default)
   run_tests_after_edit: true # keep an edit only if tests/test_smoke.py still passes
   test_command: "tests/test_smoke.py"
   test_timeout: 900
@@ -215,7 +215,7 @@ self_improve:
     - "config.yaml"
 
 web_ui:
-  enabled: false  # phone/browser access on your LAN
+  enabled: true  # C: full control — you said a,b,c so phone/browser always on LAN
   host: "0.0.0.0"
   port: 8765
   token: ""                # shared secret; blank = one is generated for you
