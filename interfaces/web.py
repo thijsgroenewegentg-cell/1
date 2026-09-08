@@ -822,7 +822,13 @@ class WebInterface:
                     return JSONResponse({"facts": [], "total": 0})
                 if q.strip():
                     hits = await mem.recall(q.strip(), k=max(1, min(50, int(limit))))
-                    facts = [{"text": getattr(h, "text", str(h)), "score": getattr(h, "score", 0), "id": getattr(h, "id", "")} for h in hits]
+                    facts = []
+                    for h in hits:
+                        # h may be dict, object with .text/.score/.category, or plain string
+                        if isinstance(h, dict):
+                            facts.append({"text": str(h.get("text", h.get("fact", str(h)))), "score": float(h.get("score", 0) or 0), "id": str(h.get("id", "")), "category": str(h.get("category", h.get("label", "fact"))), "when": str(h.get("when", h.get("created", "")))})
+                        else:
+                            facts.append({"text": getattr(h, "text", str(h)), "score": float(getattr(h, "score", 0) or 0), "id": str(getattr(h, "id", "")), "category": str(getattr(h, "category", getattr(h, "label", "fact"))), "when": str(getattr(h, "when", getattr(h, "created", ""))) })
                     return JSONResponse({"facts": facts, "total": len(facts)})
                 stats = {}
                 try:
@@ -833,7 +839,11 @@ class WebInterface:
                 try:
                     if hasattr(mem, "recall"):
                         hits = await mem.recall("user", k=max(1, min(50, int(limit))))
-                        facts = [{"text": getattr(h, "text", str(h)), "score": getattr(h, "score", 0)} for h in hits]
+                        for h in hits:
+                            if isinstance(h, dict):
+                                facts.append({"text": str(h.get("text", h.get("fact", str(h)))), "score": float(h.get("score", 0) or 0), "category": str(h.get("category", h.get("label", "fact"))), "when": str(h.get("when", h.get("created", "")))})
+                            else:
+                                facts.append({"text": getattr(h, "text", str(h)), "score": float(getattr(h, "score", 0) or 0), "category": str(getattr(h, "category", getattr(h, "label", "fact"))), "when": str(getattr(h, "when", getattr(h, "created", ""))) })
                 except Exception:
                     facts = []
                 return JSONResponse({"facts": facts[:limit], "total": stats.get("long_term", stats.get("entries", len(facts))) if isinstance(stats, dict) else len(facts), "backend": stats.get("backend", "") if isinstance(stats, dict) else ""})

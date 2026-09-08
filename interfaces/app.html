@@ -758,6 +758,7 @@ body.degraded-open #toasts { top: 118px; }
   #grain { display: none !important; }
   #scan { display: none; }
 }
+ .hl { background: rgba(56,189,248,0.22); outline: 1px solid rgba(56,189,248,0.45); border-radius: 4px; padding: 0 2px; }
 </style>
 </head>
 <body>
@@ -903,8 +904,19 @@ body.degraded-open #toasts { top: 118px; }
       <div id="memoryList" style="font:12px/1.5 ui-sans-system;color:#9bb0c8;display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto"></div>
       <div id="memoryHint" style="font:11px/1.4 ui-sans-system;color:#5b6b82"></div>
       <div style="display:flex;gap:6px;margin-top:6px">
+        <select id="memoryCategory" style="background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:8px;padding:5px 6px;font:11px ui-sans-system">
+          <option value="fact">fact</option>
+          <option value="preference">preference</option>
+          <option value="todo">todo</option>
+          <option value="project">project</option>
+        </select>
         <input id="memoryAdd" placeholder="Remember that …" style="flex:1;background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:8px;padding:5px 8px;font:12px ui-sans-system">
         <button class="tool" id="memoryAddBtn" style="width:auto;padding:4px 10px;border-radius:8px;font:11px ui-sans-system">remember</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <input type="file" id="memoryImportFile" accept=".json" style="display:none">
+        <button class="ghost" id="memoryImport" style="font:11px;padding:4px 8px;border-radius:8px;border:1px solid #1b2533">import JSON</button>
+        <span id="memoryImportHint" style="font:11px;color:#5b6b82"></span>
       </div>
       <div class="switch" style="margin-top:8px"><span>Clear the transcript</span><button id="setClear">clear</button></div>
     </div>
@@ -2390,9 +2402,26 @@ async function loadMemory() {
       list.innerHTML = '<span style="color:var(--dimmer)">' + (q ? 'No matches.' : 'No facts yet — say “remember that …”') + '</span>';
       return;
     }
-    list.innerHTML = facts.slice(0, 20).map(f =>
-      '<div style="display:flex;gap:6px;align-items:baseline;justify-content:space-between;border-bottom:1px solid #1b2533;padding:4px 0"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(f.text) + '"><span style="color:var(--tint)">•</span> ' + escapeHtml(f.text) + '</span><button class="ghost" data-forget="' + escapeHtml(f.text).replace(/"/g, '&quot;') + '" style="font:10px ui-sans-system;padding:2px 6px;border-radius:6px;border:1px solid #1b2533;color:#ff6b6b">forget</button></div>'
-    ).join("");
+    // Highlight matches in chat rail for "what do you remember about X?" feel
+    try {
+      const rail = document.getElementById("rail");
+      if (rail && q) {
+        const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+        rail.querySelectorAll(".bubble").forEach(b => {
+          const txt = b.textContent.toLowerCase();
+          const hit = terms.some(t => txt.includes(t));
+          b.classList.toggle("hl", hit);
+          if (hit) b.scrollIntoView({behavior:"smooth", block:"center"});
+        });
+      } else if (rail) {
+        rail.querySelectorAll(".bubble.hl").forEach(b => b.classList.remove("hl"));
+      }
+    } catch(e) {}
+    list.innerHTML = facts.slice(0, 20).map(f => {
+      const cat = f.category || f.label || "fact";
+      const when = f.when || f.created || "";
+      return '<div style="display:flex;gap:6px;align-items:baseline;justify-content:space-between;border-bottom:1px solid #1b2533;padding:4px 0"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(f.text) + '"><span style="color:var(--tint)">•</span> ' + escapeHtml(f.text) + ' <span style="font:10px;color:#5b6b82">[' + escapeHtml(cat) + (when ? ' · ' + escapeHtml(String(when).slice(0,10)) : '') + ']</span></span><button class="ghost" data-forget="' + escapeHtml(f.text).replace(/"/g, '&quot;') + '" style="font:10px ui-sans-system;padding:2px 6px;border-radius:6px;border:1px solid #1b2533;color:#ff6b6b">forget</button></div>';
+    }).join("");
     list.querySelectorAll("[data-forget]").forEach(btn => btn.addEventListener("click", async () => {
       const t = btn.getAttribute("data-forget");
       try {
@@ -2408,11 +2437,12 @@ async function loadMemory() {
 
 async function addMemoryFact() {
   const inp = $("memoryAdd");
+  const cat = $("memoryCategory") ? $("memoryCategory").value : "fact";
   const text = inp ? inp.value.trim() : "";
   if (!text) return;
   try {
-    await fetch("/api/memory" + auth, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remember", text }) });
-    toast("Remembered");
+    await fetch("/api/memory" + auth, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remember", text, category: cat }) });
+    toast("Remembered as " + cat);
     inp.value = "";
     loadMemory();
   } catch (err) { toast("Remember failed", true); }
@@ -2659,6 +2689,32 @@ $("memoryExport").addEventListener("click", async () => {
 });
 $("memoryAddBtn").addEventListener("click", addMemoryFact);
 $("memoryAdd").addEventListener("keydown", (e) => { if (e.key === "Enter") addMemoryFact(); });
+$("memoryImport").addEventListener("click", () => $("memoryImportFile").click());
+$("memoryImportFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const hint = $("memoryImportHint"); if (hint) hint.textContent = "importing…";
+  try {
+    const txt = await file.text();
+    const arr = JSON.parse(txt);
+    const facts = Array.isArray(arr) ? arr : (arr.facts || []);
+    let ok = 0;
+    for (const item of facts.slice(0, 200)) {
+      const text = typeof item === "string" ? item : (item.text || item.fact || "");
+      const cat = (typeof item === "object" && item.category) ? item.category : "fact";
+      if (!text) continue;
+      try {
+        const res = await fetch("/api/memory" + auth, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remember", text, category: cat }) });
+        if (res.ok) ok++;
+      } catch(err) {}
+    }
+    toast("Imported " + ok + "/" + facts.length + " facts");
+    if (hint) hint.textContent = "imported " + ok;
+    loadMemory();
+  } catch(err) {
+    toast("Import failed: " + err.message, true);
+    if (hint) hint.textContent = "failed";
+  } finally { e.target.value = ""; setTimeout(() => { if(hint) hint.textContent=""; }, 4000); }
+});
 $("doctorRefresh").addEventListener("click", async () => {
   const list = $("doctorList"); if (!list) return; list.innerHTML = '<span style="color:var(--dimmer)">running…</span>';
   try {
