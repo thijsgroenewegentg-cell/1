@@ -253,6 +253,16 @@ class IntentRouter:
         if keyword_intent.confidence >= DECISIVE_CONFIDENCE:
             return keyword_intent
 
+        # No module keyword fired at all — "hello", "tell me a joke", "thanks".
+        # Nothing in the curated tables or the tool catalog hinted at a tool,
+        # so asking the router model to re-read the whole module catalogue would
+        # only add a full round-trip before the reply that almost always comes
+        # back "conversation" anyway. Skip it (``llm.instant_chat: false``
+        # restores the old always-consult-the-model behaviour).
+        if (keyword_intent.module == "conversation"
+                and self.brain.config.get("llm.instant_chat", True)):
+            return keyword_intent
+
         if not self.brain.llm.available:
             return keyword_intent
 

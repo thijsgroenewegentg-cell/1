@@ -19,6 +19,7 @@ import pytest
 from core.brain import Brain
 from core.config import Config
 from core.intent_router import GENERIC_TOOL_KEYWORDS, _keyword_matches
+from tests.conftest import run
 
 
 @pytest.fixture(scope="module")
@@ -105,6 +106,38 @@ def test_established_routes_still_hold(brain: Any, utterance: str, expected: str
 )
 def test_small_talk_is_not_hijacked_by_a_tool_keyword(brain: Any, utterance: str) -> None:
     assert route(brain, utterance) == "conversation"
+
+
+# ------------------------------------------------- latency: skip the router LLM
+def test_plain_chat_skips_the_classifier_model(brain: Any, monkeypatch: Any) -> None:
+    """With the model online, keyword-silent small talk must not spend a full
+    classifier round-trip before the reply — one model call is enough."""
+
+    def should_not_be_called(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the classifier model was consulted for small talk")
+
+    monkeypatch.setattr(brain.llm, "available", True)
+    monkeypatch.setattr(brain.llm, "complete", should_not_be_called)
+    intent = run(brain.router.classify("hello, how are you?"))
+    assert intent.module == "conversation"
+    assert intent.method == "keyword"
+
+
+def test_instant_chat_can_be_turned_back_off(brain: Any, monkeypatch: Any) -> None:
+    """``llm.instant_chat: false`` restores always asking the router model."""
+    previous = brain.config.get("llm.instant_chat", True)
+    brain.config.set("llm.instant_chat", False)
+
+    def consulted(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("consulted (expected)")
+
+    try:
+        monkeypatch.setattr(brain.llm, "available", True)
+        monkeypatch.setattr(brain.llm, "complete", consulted)
+        with pytest.raises(AssertionError, match="consulted"):
+            run(brain.router.classify("good morning"))
+    finally:
+        brain.config.set("llm.instant_chat", previous)
 
 
 # ----------------------------------------------------- the matching rule itself

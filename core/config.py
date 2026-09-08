@@ -40,6 +40,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "timeout": 180,
         "keep_alive": "10m",
         "router_model": "",
+        "instant_chat": True,   # skip the classifier model for keyword-silent small talk
         "stream": True,
         "retries": 2,              # extra attempts when Ollama hiccups
         "retry_backoff": 0.75,     # seconds, doubled on each further attempt

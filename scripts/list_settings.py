@@ -81,6 +81,10 @@ DESCRIPTIONS: Dict[str, str] = {
         "A smaller model used only for intent classification. Blank reuses the main "
         "one."
     ),
+    "llm.instant_chat": (
+        "Skip the classifier model for keyword-silent small talk, so 'hello' costs "
+        "one model call instead of two. false asks the router model every time."
+    ),
     "llm.stream": "Stream the reply token by token, so speech can start before it finishes.",
     "llm.retries": "Retry attempts when a request fails.",
     "llm.retry_backoff": "Seconds multiplied per retry.",

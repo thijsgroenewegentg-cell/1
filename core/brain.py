@@ -611,6 +611,10 @@ class Brain:
         self.streaming_enabled: bool = bool(config.get("llm.stream", True))
         self._busy = asyncio.Lock()
         self._cancel = asyncio.Event()
+        #: The in-flight post-turn upkeep task (fact extraction / summaries).
+        #: Holding the handle lets a new question preempt it so the model is
+        #: free for the user instead of finishing yesterday's housekeeping.
+        self._upkeep_task: Optional["asyncio.Task[Any]"] = None
         #: Tools in the current turn whose output came from outside JARVIS.
         self._tainted_by: Set[str] = set()
         #: Injection attempts spotted during the current turn.
@@ -1181,6 +1185,12 @@ class Brain:
             self._cancel.clear()
             self._tainted_by.clear()
             self._injection_notes.clear()
+            # A new question preempts background housekeeping: fact extraction
+            # and summarization from earlier turns share the one Ollama model,
+            # and letting them run on would queue this reply behind them.
+            upkeep = self._upkeep_task
+            if upkeep is not None and not upkeep.done():
+                upkeep.cancel()
             self.turn_count += 1
             start = time.perf_counter()
             await self.events.publish(
@@ -1219,8 +1229,8 @@ class Brain:
                 seconds=elapsed,
                 module=self.last_intent.module if self.last_intent else "",
             )
-            if self.llm.available:
-                self._spawn(self._background_upkeep(text, response))
+            if self.llm.available and (self._upkeep_task is None or self._upkeep_task.done()):
+                self._upkeep_task = self._spawn(self._background_upkeep(text, response))
             return response
 
     async def _background_upkeep(self, user_text: str, response: str) -> None:
@@ -1233,6 +1243,10 @@ class Brain:
                 # ChromaDB persists itself; the JSON fallback does not, so
                 # without this a crash loses everything learnt since start-up.
                 await self.memory.save()
+        except asyncio.CancelledError:
+            # A new user question took the model back — normal, not an error.
+            logger.debug("Background upkeep preempted by a new turn.")
+            raise
         except Exception as exc:
             logger.debug("Background upkeep failed: %s", exc)
 
@@ -1244,13 +1258,33 @@ class Brain:
         if followup is not None:
             return followup
 
-        memory_context = await self.memory.build_context(text)
-        intent = await self.classify(text)
+        # Long-term recall and intent classification are independent, so run
+        # them together: the embedding search hides behind the router round
+        # trip instead of adding its own serial delay in front of every turn.
+        # With the model offline neither is needed — the keyword router is
+        # instant and the degraded replies never consult memory context.
+        mem_task: Optional["asyncio.Task[Any]"] = None
+        if self.llm.available:
+            mem_task = asyncio.create_task(self.memory.build_context(text))
+        try:
+            intent = await self.classify(text)
+        except BaseException:
+            if mem_task is not None:
+                mem_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await mem_task
+            raise
         self.last_intent = intent
         logger.debug(
             "Intent: %s (%.2f, %s) — %s",
             intent.module, intent.confidence, intent.method, intent.reason,
         )
+        memory_context = ""
+        if mem_task is not None:
+            try:
+                memory_context = await mem_task
+            except Exception as exc:
+                logger.debug("Memory context build failed: %s", exc)
 
         if intent.module == "memory":
             return await self._handle_memory_intent(text, memory_context)

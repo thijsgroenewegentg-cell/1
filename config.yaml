@@ -42,7 +42,10 @@ llm:
   retry_backoff: 0.75                     # seconds; doubles on each further try
   warm_up: true                           # load the model at start-up, not mid-question
   # A smaller/faster model can be used for intent classification & tool picking
-  router_model: ""                        # "" = reuse main model
+  router_model: ""                        # "" = reuse main model (try e.g. "llama3.2:1b")
+  instant_chat: true                      # "hello"-style small talk skips the
+                                          #   classifier round-trip entirely
+                                          # false = always ask the router model
 
 memory:
   enabled: true
