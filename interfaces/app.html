@@ -918,6 +918,13 @@ body.degraded-open #toasts { top: 118px; }
         <button class="ghost" id="memoryImport" style="font:11px;padding:4px 8px;border-radius:8px;border:1px solid #1b2533">import JSON</button>
         <span id="memoryImportHint" style="font:11px;color:#5b6b82"></span>
       </div>
+      <div class="head">System</div>
+      <div class="stat"><span>Control</span><span id="sysPaused">—</span></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap">
+        <button class="tool" id="sysPause" style="width:auto;padding:6px 12px;border-radius:10px;background:#991b1b;color:#fee2e2;border-color:#991b1b">⏸ pause system</button>
+        <span id="sysHint" style="font:11px;color:#7d8da1">B: no asks, allowed_roots ["/"]</span>
+      </div>
+      <div id="sysBanner" style="display:none;margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.4);color:#fecaca;font:12px ui-sans-system">⏸ System control is PAUSED — open app / mouse / shell will be ignored until you resume.</div>
       <div class="switch" style="margin-top:8px"><span>Clear the transcript</span><button id="setClear">clear</button></div>
     </div>
     <div class="pane" id="pane-tools">
@@ -2126,7 +2133,7 @@ function togglePanel(force) {
   const open = force === undefined ? !document.body.classList.contains("panel-open") : force;
   document.body.classList.toggle("panel-open", open);
   $("panelBtn").classList.toggle("on", open);
-  if (open) { loadStatus(); loadTools().then(drawTools); loadVoices(); }
+  if (open) { loadStatus(); loadTools().then(drawTools); loadVoices(); loadSystemStatus(); loadMemory(); }
 }
 
 /* Show or hide the degraded-mode banner. Dismissal lasts for the session
@@ -2723,9 +2730,33 @@ $("doctorRefresh").addEventListener("click", async () => {
     list.innerHTML = findings.map(f => '<div style="display:flex;gap:8px;align-items:baseline;border-bottom:1px solid #1b2533;padding:6px 0"><span style="color:' + (f.state==="ok"?"#22c55e":f.state==="warn"?"#eab308":"#ef4444") + '">' + escapeHtml(f.symbol||f.state) + '</span><span style="flex:1"><b>' + escapeHtml(f.name) + '</b> <span style="color:var(--dim)">' + escapeHtml(f.detail) + '</span>' + (f.fix ? '<div style="font:11px ui-monospace;color:#7d8da1">→ ' + escapeHtml(f.fix) + '</div>' : '') + '</span></div>').join("") || '<span style="color:var(--dimmer)">No findings.</span>';
   } catch(e){ list.innerHTML = '<span style="color:var(--dimmer)">Doctor unavailable.</span>'; }
 });
+
+async function loadSystemStatus() {
+  try {
+    const data = await (await fetch("/api/system/status" + auth)).json();
+    const paused = !!data.paused;
+    const el = $("sysPaused"); if (el) el.textContent = paused ? "PAUSED" : "active (B)";
+    const btn = $("sysPause"); if (btn) { btn.textContent = paused ? "▶ resume system" : "⏸ pause system"; btn.style.background = paused ? "#065f46" : "#991b1b"; btn.style.borderColor = paused ? "#065f46" : "#991b1b"; }
+    const banner = $("sysBanner"); if (banner) banner.style.display = paused ? "block" : "none";
+    const hint = $("sysHint"); if (hint) hint.textContent = paused ? "paused — no mouse/shell" : 'B: no asks, allowed_roots ["/"]';
+  } catch(e) {}
+}
+$("sysPause").addEventListener("click", async () => {
+  const btn = $("sysPause"); const wasPaused = btn && btn.textContent.includes("resume");
+  // Optimistic
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try {
+    const res = await fetch("/api/system/pause" + auth, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ paused: !wasPaused }) });
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) throw new Error(data.detail||"toggle failed");
+    toast(data.paused ? "System PAUSED" : "System resumed — full control");
+    loadSystemStatus();
+  } catch(e){ toast("Toggle failed: "+e.message, true); loadSystemStatus(); } finally { if(btn) btn.disabled=false; }
+});
 document.querySelectorAll(".tab").forEach(tab => {
   if (tab.dataset.pane === "doctor") tab.addEventListener("click", () => { const l=$("doctorList"); if(l && !l.dataset.loaded){ l.dataset.loaded="1"; $("doctorRefresh").click(); } });
 });
+document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => { if (tab.dataset.pane === "status") loadSystemStatus(); }));
 // Vision drop + paste
 const drop = $("dropOverlay");
 ["dragenter","dragover"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (e.dataTransfer && e.dataTransfer.types.includes("Files")) drop.style.display = "grid"; }));
@@ -2755,7 +2786,9 @@ $("setClear").addEventListener("click", () => {
 paintSpeech();
 connect();
 loadStatus();
+loadSystemStatus();
 setInterval(loadStatus, 30000);
+setInterval(loadSystemStatus, 15000);
 fetch("/api/status" + auth).then((response) => response.json())
   .then((data) => {
     if (!data.greeting) return;

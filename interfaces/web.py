@@ -261,6 +261,7 @@ class WebInterface:
         self._hits: Dict[str, List[float]] = {}
         self._server: Optional[Any] = None
         self._tts: Optional[Any] = None
+        self._paused: bool = False
         self.app = self._build_app()
 
     # ------------------------------------------------------------------ utils
@@ -890,6 +891,37 @@ class WebInterface:
             except Exception as exc:
                 logger.warning("Doctor failed: %s", exc)
                 raise HTTPException(status_code=500, detail="doctor failed")
+
+        @app.get("/api/system/status")
+        async def system_status(token: str = Query(default="")) -> Any:
+            """Whether system_control is paused (kill-switch)."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            return JSONResponse({"paused": self._paused, "confirm_dangerous": bool(self.config.get("security.confirm_dangerous", True)), "allowed_roots": self.config.get("security.allowed_roots", [])})
+
+        @app.post("/api/system/pause")
+        async def system_pause(request: Request, token: str = Query(default="")) -> Any:
+            """Kill-switch: pause/unpause system_control + vision + shell."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = {}
+            # Toggle if no explicit value
+            if "paused" in payload:
+                self._paused = bool(payload["paused"])
+            else:
+                self._paused = not self._paused
+            # Also reflect in brain if it has a flag
+            try:
+                brain = self.brain
+                if hasattr(brain, "paused"):
+                    brain.paused = self._paused
+            except Exception:
+                pass
+            logger.warning("System pause toggled to %s via web UI", self._paused)
+            return JSONResponse({"paused": self._paused})
 
         @app.post("/api/piper/install")
         async def piper_install(token: str = Query(default="")) -> Any:

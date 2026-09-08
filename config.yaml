@@ -226,14 +226,14 @@ web_ui:
   title: "JARVIS"
 
 security:
-  confirm_dangerous: true
+  confirm_dangerous: false  # B: full control — no asks, whole disk (you said B, destructive)
   allow_shell: true
   shell_timeout: 60
   sandbox_timeout: 20
   # Extra regexes to always block, on top of the built-in blacklist
   blocked_patterns: []
-  # Restrict file operations to these roots ([] = home directory only)
-  allowed_roots: []
+  # Restrict file operations to these roots ([] = home directory only, ["/"] = whole disk)
+  allowed_roots: ["/", "C:\\", "C:/"]
   # Credential files (~/.ssh/*, ~/.aws/credentials, *.pem, .env, …) are asked
   # about before being read or written, even though they sit inside your home
   # directory. Bulk scans and the document indexer skip them silently. With
