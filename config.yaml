@@ -33,6 +33,21 @@ assistant:
   nightly_check_time: "03:15"  # quiet daily health scan (HH:MM, 24h)
   health_file: "data/health.json"
   report_health_in_brief: true # mention last night's scan in the morning brief
+  # Session journal: one line per completed turn. Powers "what were we doing
+  # yesterday?" and the one-line recap in the morning briefing.
+  journal_file: "data/journal.json"
+  boot_routine: ""             # name of a routine to run once after boot
+                               #   (e.g. "morning": mail app + briefing)
+                               #   never fires inside quiet hours
+  macro_suggestions: true      # offer a macro after the same single action
+                               #   runs macro_repeat_threshold times in a row
+  macro_repeat_threshold: 3
+  # "Back up my data" snapshots (data guardian): dated zips of the database,
+  # memory, notes, code and config.yaml, kept local in backup_dir.
+  backup_dir: "backups"
+  keep_backups: 5              # snapshots to keep; older ones are pruned
+  auto_backup: false           # daily snapshot at auto_backup_time while running
+  auto_backup_time: "04:00"
 
 llm:
   provider: "ollama"
@@ -175,7 +190,8 @@ modules:
   communications: true     # email (IMAP) + calendar (.ics)
   models: true             # list/pull/switch the local Ollama models from chat
   self_improve: true       # search GitHub, add plugins, edit his own code
-  macros: true
+  macros: true             # "when I say X, do Y" instant commands
+  guardian: true           # "back up my data" / restore from snapshots
 
 knowledge:
   paths:                   # folders indexed for "ask my documents"

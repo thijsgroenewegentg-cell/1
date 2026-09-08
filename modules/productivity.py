@@ -1967,6 +1967,21 @@ class Productivity(BaseModule):
             except Exception as exc:
                 self.log.debug("Briefing weather failed: %s", exc)
 
+        # Where we left off: one line from the session journal about the last
+        # day that had any activity (usually yesterday). Silent when the
+        # journal is empty or disabled.
+        try:
+            from core.journal import brief_line, day_before, events_on
+
+            journal_day = day_before(now.strftime("%Y-%m-%d"))
+            if not events_on(self.config, journal_day):
+                journal_day = now.strftime("%Y-%m-%d")
+            line = brief_line(self.config, journal_day)
+            if line:
+                parts.append(line)
+        except Exception as exc:
+            self.log.debug("Briefing journal line failed: %s", exc)
+
         todos = await self.list_todos(limit=5)
         open_tasks = [row for row in todos.data.get("todos", []) if not row.get("done")]
         if open_tasks:

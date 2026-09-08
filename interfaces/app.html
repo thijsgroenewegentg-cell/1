@@ -1819,7 +1819,46 @@ function showCards(html) {
   while (holder.children.length > 3) holder.firstChild.remove();
 }
 
-function clearCards() { $("cards").innerHTML = ""; }
+function clearCards() { $("cards").innerHTML = ""; $("cards").dataset.dash = ""; }
+
+/* ----------------------------------------------------- idle home dashboard
+   Read-only glanceable cards for the home screen: open tasks, upcoming
+   reminders, weather (when enabled), system stats and the last nightly
+   self-check. The browser refetches /api/dashboard every 45 s but only
+   renders it while nobody has started a conversation, so it never fights
+   with real replies — the first message clears it like any other card. */
+let dashboardAt = 0;
+function renderDashboard(payload) {
+  if (busy || conversation.length) return;              // chat owns the screen
+  if (performance.now() - dashboardAt < 20000) return;  // never hot-refresh
+  dashboardAt = performance.now();
+  const marks = { tasks: "○", reminders: "◷", weather: "☀",
+                  system: "◉", health: "✚" };
+  const body = (payload.cards || []).map((item) => {
+    const lines = item.lines || [];
+    const inner = lines.length
+      ? list(lines.map((line) =>
+          escapeHtml(String(line.text || "")) +
+          (line.meta ? ' <span class="muted">' + escapeHtml(line.meta) + "</span>" : "")),
+          marks[item.key] || "•")
+      : '<ul><li><span class="mark">·</span><span class="muted">' +
+        escapeHtml(item.empty ? "Nothing here yet." : "Nothing to report.") +
+        "</span></li></ul>";
+    return card(item.title || item.key, inner);
+  }).join("");
+  if (!body) return;
+  if ($("cards").dataset.dash === body) return;  // unchanged: keep it still
+  $("cards").dataset.dash = body;
+  $("cards").innerHTML = body;
+}
+async function loadDashboard() {
+  if (busy || conversation.length) return;
+  try {
+    const response = await fetch("/api/dashboard" + auth, { cache: "no-store" });
+    if (!response.ok) return;
+    renderDashboard(await response.json());
+  } catch (_) { /* server or token unavailable: the home stays as it is */ }
+}
 
 /* ------------------------------------------------------------- history */
 const conversation = [];
@@ -3027,14 +3066,17 @@ $("setClear").addEventListener("click", () => {
   $("historyCount").textContent = "0 turns";
   say("Hold <b>space</b> and speak, or press <b>K</b> for anything.", { dim: true });
   toast("Cleared.");
+  loadDashboard();
 });
 
 paintSpeech();
 connect();
 loadStatus();
 loadSystemStatus();
+loadDashboard();
 setInterval(loadStatus, 30000);
 setInterval(loadSystemStatus, 15000);
+setInterval(loadDashboard, 45000);
 fetch("/api/status" + auth).then((response) => response.json())
   .then((data) => {
     if (!data.greeting) return;

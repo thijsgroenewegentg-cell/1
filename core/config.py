@@ -63,6 +63,29 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "nightly_check_time": "03:15",
         "health_file": "data/health.json",
         "report_health_in_brief": True,
+        #: Persistent journal of completed turns (what we did, when). Written
+        #: after every real turn; "what were we doing yesterday?" and the
+        #: morning briefing's one-line recap read it back.
+        "journal_file": "data/journal.json",
+        #: Name of a routine (productivity.create_routine) to run once after
+        #: boot: a start-up sequence such as opening the mail app, the
+        #: briefing and reading the day's items. Blank = no boot routine.
+        #: It never fires inside productivity.quiet_hours.
+        "boot_routine": "",
+        #: Offer to arm a macro when the identical single tool call has run
+        #: three times in a row ("third time's a charm").
+        "macro_suggestions": True,
+        #: How many identical consecutive single-tool turns earn that offer.
+        "macro_repeat_threshold": 3,
+        #: Where "back up my data" snapshots are written (a dated zip of the
+        #: database, memory, notes, code and config.yaml).
+        "backup_dir": "backups",
+        #: Snapshots to keep: older ones are pruned automatically.
+        "keep_backups": 5,
+        #: Take a snapshot automatically every day at ``auto_backup_time``
+        #: while JARVIS is running. Off by default.
+        "auto_backup": False,
+        "auto_backup_time": "04:00",
     },
     "llm": {
         "provider": "ollama",
@@ -178,6 +201,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "models": True,
         "self_improve": True,
         "macros": True,
+        "guardian": True,
     },
     "knowledge": {
         "paths": ["~/Documents"],

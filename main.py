@@ -60,6 +60,7 @@ class Jarvis:
         self.web: Optional[Any] = None
         self._web_task: Optional["asyncio.Task[Any]"] = None
         self._shutting_down = False
+        self._boot_routine_ran = False
 
     # ------------------------------------------------------------------ setup
     async def initialize(self, want_voice: bool = True) -> None:
@@ -129,6 +130,40 @@ class Jarvis:
                 await self.voice.speak(message, interruptible=False)
         elif self.cli is not None:
             self.cli.info(message)
+
+    async def run_boot_routine(self) -> None:
+        """Run the configured start-up routine exactly once per boot.
+
+        The routine (``assistant.boot_routine``) is a saved productivity
+        routine — e.g. open the mail app, morning briefing, read the day's
+        items — executed by the brain after configuration and modules are
+        loaded, and never inside quiet hours. Its spoken result surfaces on
+        whatever is available: the CLI panel, the web UI and the voice.
+
+        Returns:
+            None.
+        """
+        if self._boot_routine_ran:
+            return
+        self._boot_routine_ran = True
+        try:
+            text = await self.brain.boot_routine()
+        except Exception as exc:
+            logger.warning("Boot routine failed: %s", exc)
+            return
+        if not (text or "").strip():
+            return
+        if self.cli is not None:
+            self.cli.assistant_panel(text)
+        if self.web is not None:
+            with contextlib.suppress(Exception):
+                await self.web.broadcast(text)
+        if (
+            self.voice is not None and self.voice.available
+            and getattr(getattr(self.voice, "tts", None), "available", False)
+        ):
+            with contextlib.suppress(Exception):
+                await self.voice.speak(text)
 
     # ------------------------------------------------------------------ modes
     async def _announce_startup(self) -> None:
@@ -625,6 +660,11 @@ async def async_main(args: argparse.Namespace) -> int:
             jarvis.cli.running = False
 
     watcher = asyncio.create_task(watch_stop())
+
+    # A configured boot routine (assistant.boot_routine) runs once, right
+    # after everything is loaded — never for one-shots or maintenance.
+    if not (args.test or args.say or args.doctor):
+        await jarvis.run_boot_routine()
 
     exit_code = 0
     try:

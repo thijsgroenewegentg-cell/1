@@ -113,6 +113,40 @@ DESCRIPTIONS: Dict[str, str] = {
     "assistant.report_health_in_brief": (
         "Mention the latest nightly health scan in the morning briefing."
     ),
+    "assistant.journal_file": (
+        "JSON-lines file recording every completed turn (what was said, what "
+        "was done, which module/tools). Feeds 'what were we doing yesterday?' "
+        "and the one-line recap in the morning briefing."
+    ),
+    "assistant.boot_routine": (
+        "Name of a saved routine (see productivity.create_routine) to run "
+        "once after boot — a start-up sequence such as opening the mail app "
+        "and the briefing. Blank = none. Skipped inside quiet hours."
+    ),
+    "assistant.macro_suggestions": (
+        "Offer to arm a macro when the same single tool call has run "
+        "assistant.macro_repeat_threshold times in a row."
+    ),
+    "assistant.macro_repeat_threshold": (
+        "How many consecutive identical single-tool turns earn a macro "
+        "suggestion (default 3)."
+    ),
+    "assistant.backup_dir": (
+        "Directory holding 'back up my data' snapshots: dated zips of the "
+        "database, memory, notes, code, plugins and config.yaml."
+    ),
+    "assistant.keep_backups": (
+        "Snapshots to keep in assistant.backup_dir; older ones are pruned "
+        "after each new snapshot."
+    ),
+    "assistant.auto_backup": (
+        "Take a snapshot automatically every day at assistant.auto_backup_time "
+        "while JARVIS is running."
+    ),
+    "assistant.auto_backup_time": (
+        "Local time (HH:MM) of the automatic daily snapshot when "
+        "assistant.auto_backup is on."
+    ),
     # -- llm ----------------------------------------------------------------
     "llm.provider": "Accepted for compatibility; JARVIS only ever talks to Ollama.",
     "llm.host": "Where Ollama is listening. Point it at another machine on your LAN if you like.",
@@ -172,6 +206,7 @@ DESCRIPTIONS: Dict[str, str] = {
     "productivity.catch_up_on_start": "Report reminders that came due while JARVIS was off.",
     "productivity.scheduler_interval": "Seconds between checks for due reminders and jobs.",
     "modules.macros": "Fixed 'when I say X, do Y' commands (trigger + steps).",
+    "modules.guardian": "Data guardian: 'back up my data' snapshots and restores.",
     "productivity.weekly_review_day": (
         "Weekday (e.g. 'sunday') on which the daily briefing folds in the "
         "week-ahead review. Blank = only when asked."

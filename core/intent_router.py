@@ -130,6 +130,14 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "compare", "pros and cons", "how many", "solve", "math",
         "% of", "percent of", "square root", "average of",
     ],
+    "guardian": [
+        "back up my data", "backup my data", "back everything up",
+        "snapshot my data", "make a snapshot", "take a snapshot", "backup now",
+        "list backups", "list the backups", "show my backups", "my backups",
+        "what backups", "backup history",
+        "restore the backup", "restore from backup", "restore from the backup",
+        "restore my data", "go back to a backup", "recover from a backup",
+    ],
 }
 
 
@@ -179,6 +187,12 @@ DECISIVE_PHRASES: Dict[str, Tuple[str, ...]] = {
         "find all pdf", "find every pdf", "organize my", "organise my",
         "summarize this document", "summarise this document", "summarize the document",
         "summarise the document", "duplicate files", "largest files",
+    ),
+    "guardian": (
+        "back up my data", "backup my data", "back everything up",
+        "list backups", "list the backups", "restore the backup",
+        "restore from backup", "restore my data", "make a snapshot",
+        "snapshot my data",
     ),
     "code_assistant": (
         "write a python", "write me a python", "write a script", "write a program",

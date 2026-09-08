@@ -73,8 +73,28 @@ class Planner:
         self.anaphora_turn = bool(intent.method == "anaphora")
 
         # --- degraded mode: no LLM, drive the module directly ---------------
+        # Routed calls go through brain.dispatch so they are recorded like any
+        # other tool (context store, macro repeat tracking, result events);
+        # only unrouteable text falls back to the module's plain executor.
         if not self.brain.llm.available:
-            result = await module.execute(text, {})
+            routed = getattr(module, "offline_router", None)
+            reference = ""
+            params: Dict[str, Any] = {}
+            try:
+                if callable(routed):
+                    item = routed(text)
+                    if item:
+                        reference = str(item[0])
+                        if len(item) > 1 and isinstance(item[1], dict):
+                            params = dict(item[1])
+            except Exception:
+                reference = ""
+            if reference:
+                result = await self.brain.dispatch(
+                    f"{module.name}.{reference}", params
+                )
+            else:
+                result = await module.execute(text, {})
             if result.success:
                 return result.output or "Done, sir."
             return f"{result.error or 'That did not work.'} (LLM offline — running on reflexes.)"

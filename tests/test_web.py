@@ -708,3 +708,54 @@ def test_denying_the_confirm_cancels_the_edit(config):
     """Deny in the browser: the dangerous tool must not run."""
     text = _confirm_scenario(config, reply=False)
     assert "cancel" in text.lower()
+
+
+# ----------------------------------------------------------- G: home dashboard
+def test_the_dashboard_requires_the_token_and_returns_cards(web, config):
+    from fastapi.testclient import TestClient
+
+    config.set("modules.web_search", False)  # no weather call in a test
+    client = TestClient(web.app)
+    assert client.get("/api/dashboard").status_code == 401
+
+    response = client.get("/api/dashboard", params={"token": web.token})
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, dict)
+    assert isinstance(payload.get("cards"), list)
+    assert any(card.get("key") == "tasks" for card in payload["cards"])
+    assert any(card.get("key") == "system" for card in payload["cards"])
+
+
+def test_the_dashboard_card_shows_open_tasks(web, config):
+    from fastapi.testclient import TestClient
+
+    config.set("modules.web_search", False)
+    module = web.brain.modules["productivity"]
+    from tests.conftest import run
+
+    run(module.call_tool("add_todo", {"task": "proof the dashboard"}))
+    client = TestClient(web.app)
+    payload = client.get("/api/dashboard", params={"token": web.token}).json()
+    tasks = next(card for card in payload["cards"] if card["key"] == "tasks")
+    assert any("proof the dashboard" in line.get("text", "")
+               for line in tasks["lines"])
+
+
+def test_the_dashboard_degrades_when_everything_is_off(config):
+    config.set("modules.productivity", False)
+    config.set("modules.system_control", False)
+    config.set("modules.web_search", False)
+    config.set("assistant.nightly_check_time", "")  # no health placeholder either
+    from core.brain import Brain
+    from interfaces.web_ui import WebInterface
+    from tests.conftest import run
+
+    brain = Brain(config)
+    run(brain.initialize())
+    interface = WebInterface(brain, config, port=8124)
+    try:
+        payload = run(interface._dashboard_payload())
+        assert payload["cards"] == []
+    finally:
+        run(brain.shutdown())

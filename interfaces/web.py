@@ -366,6 +366,129 @@ class WebInterface:
                 self._tts = None
         return self._tts
 
+    async def _dashboard_payload(self) -> Dict[str, Any]:
+        """Assemble the idle home dashboard: five glanceable, read-only cards.
+
+        Each capability degrades to an empty card when its module is disabled,
+        its data is empty or it errors — the home page must never depend on
+        any one of them. Everything is read from local modules, so the cards
+        work with the model offline.
+
+        Returns:
+            ``{"cards": [{"key", "title", "lines": [{"text", "meta"}]}]}``.
+        """
+        cards: List[Dict[str, Any]] = []
+
+        async def _call(module: str, tool_name: str,
+                        params: Optional[Dict[str, Any]] = None) -> Any:
+            """Run one module tool with a short timeout; never raise."""
+            module_obj = self.brain.modules.get(module) if self.brain else None
+            if module_obj is None:
+                return None
+            try:
+                return await asyncio.wait_for(
+                    module_obj.call_tool(tool_name, params or {}), timeout=6
+                )
+            except Exception as exc:
+                logger.debug("Dashboard %s.%s failed: %s", module, tool_name, exc)
+                return None
+
+        # -- open tasks ------------------------------------------------------
+        result = await _call("productivity", "list_todos", {"limit": 8})
+        rows = (result.data or {}).get("todos", []) if result and result.success else []
+        open_rows = [row for row in rows if not row.get("done")]
+        if result is not None:
+            lines = []
+            if open_rows:
+                for row in open_rows[:5]:
+                    meta = []
+                    if row.get("priority") == "high":
+                        meta.append("high")
+                    due = str(row.get("due") or "")
+                    if due and "T" in due:
+                        meta.append(f"due {due[11:16]}")
+                    lines.append({"text": str(row.get("task", "")),
+                                  "meta": " · ".join(meta) or ""})
+            else:
+                lines.append({"text": "Nothing open — suspiciously quiet.",
+                              "meta": ""})
+            cards.append({
+                "key": "tasks", "title": "Open tasks",
+                "lines": lines,
+                "empty": not open_rows,
+            })
+
+        # -- next reminders --------------------------------------------------
+        result = await _call("productivity", "list_reminders", {"limit": 4})
+        rows = (result.data or {}).get("reminders", []) if result and result.success else []
+        if result is not None:
+            lines = []
+            if rows:
+                for row in rows[:4]:
+                    due = str(row.get("due") or "")
+                    meta = f"at {due[11:16]}" if "T" in due else ""
+                    lines.append({"text": str(row.get("text", "")), "meta": meta})
+            else:
+                lines.append({"text": "No reminders coming up.", "meta": ""})
+            cards.append({
+                "key": "reminders", "title": "Next reminders",
+                "lines": lines, "empty": not rows,
+            })
+
+        # -- weather (only when web_search is enabled) -----------------------
+        if self.config.get("modules.web_search", True):
+            result = await _call("web_search", "weather", {})
+            if result is not None and result.success:
+                text = (result.speak or result.output or "").strip()
+                if text:
+                    first = text.split("\n")[0]
+                    cards.append({
+                        "key": "weather", "title": "Weather",
+                        "lines": [{"text": first[:200], "meta": ""}],
+                        "empty": False,
+                    })
+
+        # -- system -----------------------------------------------------------
+        result = await _call("system_control", "system_stats")
+        if result is not None and result.success:
+            data = result.data or {}
+            if data.get("cpu_percent") is not None:
+                lines = [
+                    {"text": f"CPU {float(data['cpu_percent']):.0f}%",
+                     "meta": f"{data.get('cpu_cores', '?')} cores"},
+                    {"text": f"RAM {float(data['ram_percent']):.0f}%",
+                     "meta": f"{data.get('ram_used', '?')} of {data.get('ram_total', '?')}"},
+                    {"text": f"Disk {float(data['disk_percent']):.0f}%",
+                     "meta": f"{data.get('disk_used', '?')} used"},
+                ]
+                cards.append({"key": "system", "title": "System",
+                              "lines": lines, "empty": False})
+
+        # -- last self-check --------------------------------------------------
+        try:
+            from core.health import read_report, summarize
+
+            report = read_report(self.config)
+        except Exception:
+            report = None
+        if report and (report.get("date") or report.get("ok") is not None):
+            day = str(report.get("date", "") or "")
+            when = f"{day[8:10]}/{day[5:7]}/{day[0:4]}" if "T" not in day and len(day) == 10 else day
+            cards.append({
+                "key": "health", "title": "Last self-check",
+                "lines": [{"text": (summarize(report) or "All quiet.")[:200],
+                           "meta": when or ""}],
+                "empty": False,
+            })
+        elif str(self.config.get("assistant.nightly_check_time", "") or "").strip():
+            cards.append({
+                "key": "health", "title": "Last self-check",
+                "lines": [{"text": "No check recorded yet — the first runs "
+                                   "overnight.", "meta": ""}],
+                "empty": True,
+            })
+        return {"cards": cards}
+
     async def speech_available(self) -> bool:
         """Whether ``/api/tts`` can actually return audio.
 
@@ -506,6 +629,23 @@ class WebInterface:
                     "tts_cache": tts_cache_info,
                 }
             )
+
+        @app.get("/api/dashboard")
+        async def dashboard(token: str = Query(default="")) -> Any:
+            """Idle-home cards: tasks, reminders, weather, system, self-check.
+
+            Read-only and cheap: local SQLite plus one optional weather
+            request, every call wrapped so a failing module never fails the
+            page. The browser refreshes it while the home screen is idle.
+            """
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                payload = await self._dashboard_payload()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("Dashboard assembly failed: %s", exc)
+                payload = {"cards": []}
+            return JSONResponse(payload)
 
         @app.post("/api/ask")
         async def ask(request: Request, token: str = Query(default="")) -> Any:

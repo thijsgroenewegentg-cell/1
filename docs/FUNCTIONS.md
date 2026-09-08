@@ -9,13 +9,14 @@ and marked with `·`; methods the intent router can call are marked
 
 ## Contents
 
-- [`main.py`](#mainpy) — 25
+- [`main.py`](#mainpy) — 26
 - [`install.py`](#installpy) — 56
-- [`core/brain.py`](#corebrainpy) — 75
+- [`core/brain.py`](#corebrainpy) — 85
 - [`core/config.py`](#coreconfigpy) — 29
 - [`core/event_bus.py`](#coreevent_buspy) — 13
 - [`core/health.py`](#corehealthpy) — 11
 - [`core/intent_router.py`](#coreintent_routerpy) — 8
+- [`core/journal.py`](#corejournalpy) — 9
 - [`core/macros.py`](#coremacrospy) — 11
 - [`core/memory.py`](#corememorypy) — 69
 - [`core/personality.py`](#corepersonalitypy) — 5
@@ -23,12 +24,13 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/preferences.py`](#corepreferencespy) — 10
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
-- [`interfaces/web.py`](#interfaceswebpy) — 49
+- [`interfaces/web.py`](#interfaceswebpy) — 52
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 36
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
 - [`modules/communications.py`](#modulescommunicationspy) — 24
 - [`modules/file_manager.py`](#modulesfile_managerpy) — 32
+- [`modules/guardian.py`](#modulesguardianpy) — 12
 - [`modules/knowledge.py`](#modulesknowledgepy) — 20
 - [`modules/macros.py`](#modulesmacrospy) — 5
 - [`modules/models.py`](#modulesmodelspy) — 17
@@ -59,9 +61,11 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_config.py`](#teststest_configpy) — 27
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
+- [`tests/test_guardian.py`](#teststest_guardianpy) — 11
 - [`tests/test_health.py`](#teststest_healthpy) — 10
 - [`tests/test_install.py`](#teststest_installpy) — 17
 - [`tests/test_intent_router.py`](#teststest_intent_routerpy) — 19
+- [`tests/test_journal.py`](#teststest_journalpy) — 14
 - [`tests/test_knowledge.py`](#teststest_knowledgepy) — 15
 - [`tests/test_macros.py`](#teststest_macrospy) — 11
 - [`tests/test_memory.py`](#teststest_memorypy) — 23
@@ -71,6 +75,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_productivity.py`](#teststest_productivitypy) — 28
 - [`tests/test_self_improve.py`](#teststest_self_improvepy) — 21
 - [`tests/test_sensitive_paths.py`](#teststest_sensitive_pathspy) — 16
+- [`tests/test_session.py`](#teststest_sessionpy) — 14
 - [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 16
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
 - [`tests/test_system_control.py`](#teststest_system_controlpy) — 16
@@ -79,14 +84,14 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
-- [`tests/test_web.py`](#teststest_webpy) — 62
+- [`tests/test_web.py`](#teststest_webpy) — 65
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
 
 ## `main.py`
 
-*25 functions*
+*26 functions*
 
 > JARVIS — a fully local, completely free personal AI assistant.
 
@@ -103,6 +108,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _on_task_completed(self, event: Any) -> None` — Deliver a completion ping through every active channel.
 - `async def _notify(self, message: str) -> None` — Announce a reminder, timer or scheduled job in every active channel.
 - `async def _status_update(self, message: str) -> None` — Speak a short progress update during slow operations.
+- `async def run_boot_routine(self) -> None` — Run the configured start-up routine exactly once per boot.
 - `async def _announce_startup(self) -> None` — Speak the boot report, optional morning briefing, then the greeting.
 - `async def run_voice(self) -> None` — Always-on voice loop with a CLI fallback if audio fails.
   · `async def on_wake() -> None` — Show a listening indicator when the wake word fires.
@@ -187,7 +193,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*75 functions*
+*85 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
@@ -250,6 +256,10 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _background_upkeep(self, user_text: str, response: str) -> None` — Mine facts and compress old history without blocking the reply.
 - `async def _process_inner(self, text: str, speak_status: bool, on_token: Optional[TokenCallback] = None) -> str` — Classification + routing + answer generation.
 - `async def _execute_macro(self, entry: Dict[str, Any], text: str) -> str` — Run an armed macro: canned lines plus fixed tool steps.
+- `def _signature_of(tools: List[Dict[str, Any]]) -> Optional[str]` *staticmethod* — A stable identity for a turn that ran exactly one successful tool.
+- `def _macro_already_armed(self, tool: str, params: Dict[str, Any]) -> bool` — Whether a macro with exactly this single step already exists.
+- `def _macro_suggestion_after_turn(self) -> Optional[str]` — Offer a macro after the same single action repeats three times.
+- `async def _handle_macro_offer(self, text: str) -> Optional[str]` — Process the answer to an outstanding macro suggestion.
 - `def _referential(text: str) -> bool` *staticmethod* — True when the utterance leans on the previous turn.
 - `def _context_hint(self) -> str` — Summarise recent turns and tool runs for the model's next prompt.
 - `def _remember_turn(self, text: str, response: str) -> None` — File the finished turn in the context store.
@@ -262,6 +272,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def _read_request(self, text: str) -> bool` — True when the utterance asks for text to be read out loud.
 - `def _read_target(self, text: str) -> Optional[str]` — Find the file the user wants read aloud.
 - `async def _read_aloud(self, text: str) -> Optional[str]` — Answer a read-it-to-me request with chunked plain text.
+- `async def _journal_turn(self, text: str, response: str) -> None` — Append this turn to the session journal (see :mod:`core.journal`).
+- `def _recap_target(text: str) -> Optional[str]` *staticmethod* — Which day a "what were we doing?" question points at.
+- `async def _journal_recap(self, text: str) -> Optional[str]` — Answer "what were we doing?" from the session journal.
+- `def _is_boot_routine_question(text: str) -> bool` *staticmethod* — Whether the user is asking what the start-up routine is.
+- `async def _boot_routine_answer(self, text: str) -> Optional[str]` — Answer the boot-routine question from the stored routine.
+- `async def boot_routine(self) -> str` — Run the configured boot routine once, when out of quiet hours.
 - `def _record_tool(self, reference: str, params: Dict[str, Any], result: ModuleResult) -> None` — Remember one tool call so the next turn can say "that one".
 - `async def _resolve_pending(self, text: str) -> Optional[str]` — Handle a yes/no answer to a previously offered action.
 - `async def _status(self, message: str) -> None` — Emit a spoken/printed progress update if a hook is installed.
@@ -382,6 +398,22 @@ and marked with `·`; methods the intent router can call are marked
 - `def _tool_keywords(self) -> Dict[str, List[str]]` — Collect every loaded tool's keywords, grouped by owning module.
 - `def _keyword_intent(self, text: str) -> Intent` — Score the utterance against the keyword tables.
 - `def _closest_module(self, name: str) -> Optional[str]` — Fuzzy-match a hallucinated category onto a loaded module.
+
+## `core/journal.py`
+
+*9 functions*
+
+> A tiny, always-on session journal so JARVIS can answer "what were we doing?".
+
+- `def _journal_path(config: Any) -> Path` — Resolve ``assistant.journal_file`` against the config root.
+- `def _entries_from(path: Path) -> List[Dict[str, Any]]` — Read every journal line from one file.
+- `def note_turn(config: Any, text: str, response: str, module: str, tools: Optional[List[str]] = None, ok: bool = True) -> None` — Append one completed turn to the journal.
+- `def _load(config: Any) -> List[Dict[str, Any]]` — Read the journal, including a rotated predecessor if any.
+- `def events_on(config: Any, day: str) -> List[Dict[str, Any]]` — Return the journal entries for one calendar day.
+- `def _friendly_day(day: str) -> str` — Turn ``YYYY-MM-DD`` into ``Tuesday 8 September``-style text.
+- `def day_before(day: str, delta: int = 1) -> str` — Return the date ``delta`` days before ``day``.
+- `def recap(config: Any, day: str, sample: int = 4) -> str` — Summarise one day of activity as a spoken sentence.
+- `def brief_line(config: Any, day: str) -> str` — A one-liner for the morning briefing about the previous day.
 
 ## `core/macros.py`
 
@@ -696,7 +728,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*49 functions*
+*52 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
@@ -714,11 +746,14 @@ and marked with `·`; methods the intent router can call are marked
 - `def url(self) -> str` *property* — The address to open in a browser.
 - `def _authorised(self, supplied: Optional[str]) -> bool` — Constant-time check of the shared secret.
 - `async def _tts_engine(self) -> Optional[Any]` — Lazily build a TTS engine for the ``/api/tts`` endpoint.
+- `async def _dashboard_payload(self) -> Dict[str, Any]` — Assemble the idle home dashboard: five glanceable, read-only cards.
+  · `async def _call(module: str, tool_name: str, params: Optional[Dict[str, Any]] = None) -> Any` — Run one module tool with a short timeout; never raise.
 - `async def speech_available(self) -> bool` — Whether ``/api/tts`` can actually return audio.
 - `def _build_app(self) -> Any` — Construct the FastAPI application.
   · `def rendered_page() -> str` — Return the interface with its placeholders filled in.
   · `async def index(token: str = Query(default='')) -> Any` — Serve the chat page.
   · `async def status(token: str = Query(default='')) -> Any` — Report assistant status and a greeting.
+  · `async def dashboard(token: str = Query(default='')) -> Any` — Idle-home cards: tasks, reminders, weather, system, self-check.
   · `async def ask(request: Request, token: str = Query(default='')) -> Any` — Answer a single question over plain JSON (no streaming).
   · `async def tools(token: str = Query(default='')) -> Any` — List every tool, so the interface can offer them for browsing.
   · `async def audit(token: str = Query(default=''), limit: int = Query(default=25)) -> Any` — Report what needed permission, for the audit tab.
@@ -950,6 +985,28 @@ and marked with `·`; methods the intent router can call are marked
   · `def _read() -> List[Dict[str, Any]]`
 - `async def folder_stats(self, path: str = '~') -> ModuleResult` **@tool** — Summarise a folder: file count, total size and type breakdown.
   · `def _scan() -> Dict[str, Any]`
+
+## `modules/guardian.py`
+
+*12 functions*
+
+> Data guardian: snapshots, restores and babysits everything JARVIS knows.
+
+- `def _stamp_to_text(stamp: Optional[str]) -> str` — Turn a ``YYYYMMDD-HHMMSS`` filename stamp into a friendly date.
+
+### `class Guardian` — Back up, list and restore snapshots of everything JARVIS knows.
+
+- `def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None` — Resolve where snapshots live and how many to keep.
+- `def _snapshots(self) -> List[Dict[str, Any]]` — Return every snapshot in the backup directory, newest first.
+- `def _prune(self) -> List[str]` — Delete snapshots beyond the newest ``assistant.keep_backups``.
+- `async def setup(self) -> None` — Start the optional automatic daily snapshot loop.
+- `async def shutdown(self) -> None` — Cancel the automatic snapshot loop.
+- `def _seconds_until(self, hour: int, minute: int) -> float` — Seconds from now until the next HH:MM on the local clock.
+- `async def _auto_snapshot_loop(self) -> None` — Snapshot daily at ``assistant.auto_backup_time`` while running.
+- `async def _snapshot_once(self, silent: bool = False) -> ModuleResult` — Create one snapshot and prune the oldest beyond the retention.
+- `async def backup_data(self) -> ModuleResult` **@tool** — Run a full local snapshot of the user's data now.
+- `async def list_backups(self) -> ModuleResult` **@tool** — Return a readable catalogue of the snapshots on disk.
+- `async def restore_backup_tool(self, name: str = '') -> ModuleResult` **@tool** — Restore everything from a chosen snapshot.
 
 ## `modules/knowledge.py`
 
@@ -1977,6 +2034,23 @@ and marked with `·`; methods the intent router can call are marked
   · `async def decline(prompt: str) -> bool`
 - `def test_writing_inside_the_allowed_roots_is_unchallenged(tmp_path)`
 
+## `tests/test_guardian.py`
+
+*11 functions*
+
+> The data guardian (B): snapshots, retention, restore and auto-backup.
+
+- `def guardian(config)` — A Guardian module with a fresh backup directory under tmp_path.
+- `def _precious(config, text: str = 'top secret plans') -> None`
+- `def test_backup_data_creates_a_zip_and_lists_it(config, guardian)`
+- `def test_restore_puts_deleted_files_back(config, guardian)`
+- `def test_restore_with_no_name_lists_what_is_available(config, guardian)`
+- `def test_restore_with_an_unknown_name_fails_politely(config, guardian)`
+- `def test_keep_backups_prunes_the_oldest(config, monkeypatch)`
+- `def test_auto_backup_runs_a_single_daily_loop(config)`
+  · `async def scenario() -> None`
+- `def test_auto_backup_is_off_by_default(config)`
+
 ## `tests/test_health.py`
 
 *10 functions*
@@ -2046,6 +2120,27 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_blank_keywords_are_ignored() -> None`
 - `def test_tool_keywords_are_grouped_by_owning_module(brain: Any) -> None`
 - `def test_the_keyword_cache_is_reused(brain: Any) -> None`
+
+## `tests/test_journal.py`
+
+*14 functions*
+
+> The session journal (H): append-only JSON-lines file, rotation, recap.
+
+- `def _seed_day(config, day: str, texts, tools = ())` — Write journal entries for an arbitrary past day, oldest-first.
+- `def _yesterday() -> str`
+- `def test_note_turn_appends_one_json_line_per_turn(config)`
+- `def test_note_turn_truncates_long_text_and_tools(config)`
+- `def test_the_journal_rotates_to_a_dot_old_sidecar(config, monkeypatch)`
+- `def test_events_on_filters_by_day_and_recap_is_speakable(config)`
+- `def test_brief_line_is_blank_for_empty_days_and_compact_otherwise(config)`
+- `def test_day_before_crosses_month_boundaries()`
+- `def _brain(config)`
+- `def test_brain_answers_what_were_we_doing_yesterday(config)`
+- `def test_brain_answers_about_the_last_session(config)`
+- `def test_ordinary_small_talk_is_not_treated_as_a_recap_question(config)`
+- `def test_every_turn_is_written_to_the_journal(config)`
+- `def test_the_morning_brief_folds_in_yesterdays_one_liner(config)`
 
 ## `tests/test_knowledge.py`
 
@@ -2256,6 +2351,27 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_ordinary_reads_are_not_slowed_down(secrets: Path) -> None`
 - `def test_grep_skips_credentials_without_prompting(secrets: Path) -> None`
 - `def test_the_indexer_skips_credentials(secrets: Path) -> None`
+
+## `tests/test_session.py`
+
+*14 functions*
+
+> Boot routine (D) and proactive macro suggestions (F) on the Brain.
+
+- `def _brain(config)` — An offline Brain with every module loaded.
+- `def brain(config)` — An offline Brain with every module loaded.
+- `def _arm_routine(brain, name: str, step: str) -> None`
+- `def test_boot_routine_runs_the_configured_routine_once(brain, config)`
+- `def test_boot_routine_stays_silent_inside_quiet_hours(config)`
+- `def test_boot_routine_question_is_answered_offline(brain, config)`
+- `def test_creating_a_boot_routine_is_not_treated_as_a_question(brain)`
+- `def _repeat_todo(brain, text: str = 'add buy milk to my todo list') -> str`
+- `def test_three_identical_turns_offer_a_macro(brain)`
+- `def test_the_offer_can_arm_the_macro_with_a_phrase(brain)`
+- `def test_no_thanks_suppresses_the_suggestion_for_the_session(brain)`
+- `def test_macro_suggestions_can_be_turned_off(brain, config)`
+- `def test_a_chat_turn_between_repeats_resets_the_counter(brain)`
+- `def test_the_threshold_is_configurable(brain, config)`
 
 ## `tests/test_smart_assistant.py`
 
@@ -2565,7 +2681,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*62 functions*
+*65 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -2628,6 +2744,9 @@ and marked with `·`; methods the intent router can call are marked
 - `def _confirm_scenario(config, reply)` — Run one WS turn that needs approval, answer it, and return the reply.
 - `def test_a_dangerous_edit_is_approved_over_the_socket(config)` — Approve in the browser: the edit proceeds (and here, without an LLM,
 - `def test_denying_the_confirm_cancels_the_edit(config)` — Deny in the browser: the dangerous tool must not run.
+- `def test_the_dashboard_requires_the_token_and_returns_cards(web, config)`
+- `def test_the_dashboard_card_shows_open_tasks(web, config)`
+- `def test_the_dashboard_degrades_when_everything_is_off(config)`
 
 ## `tests/test_web_search.py`
 
@@ -2680,5 +2799,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1889 functions across 74 files.**
+**1966 functions across 79 files.**
 

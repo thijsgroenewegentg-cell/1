@@ -1005,7 +1005,7 @@ EVERYTHING_ON: Dict[str, object] = {
     **{f"modules.{name}": True for name in (
         "system_control", "web_search", "productivity", "code_assistant",
         "file_manager", "smart_assistant", "knowledge", "vision", "blender",
-        "communications", "models", "self_improve", "macros",
+        "communications", "models", "self_improve", "macros", "guardian",
     )},
     "voice.enabled": True,
     "voice.stream_speech": True,

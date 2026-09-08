@@ -692,6 +692,12 @@ class Brain:
         self.last_module_hint: str = "conversation"
         #: Cursor for chunked read-aloud sessions (see ``_read_aloud``).
         self._reading: Optional[Dict[str, Any]] = None
+        #: Consecutive-single-tool tracking for macro suggestions.
+        self._repeat_signature: Optional[str] = None
+        self._repeat_count: int = 0
+        self._macro_offered_for: Optional[str] = None
+        #: An outstanding "want me to make that a macro?" offer.
+        self._macro_offer: Optional[Dict[str, Any]] = None
 
     # ------------------------------------------------------------------ setup
     async def initialize(self) -> None:
@@ -724,6 +730,7 @@ class Brain:
             "models": ("modules.models", "Models"),
             "self_improve": ("modules.self_improve", "SelfImprove"),
             "macros": ("modules.macros", "Macros"),
+            "guardian": ("modules.guardian", "Guardian"),
         }
         import importlib
 
@@ -1296,7 +1303,11 @@ class Brain:
                 "turn.started", source="brain", text=text, turn=self.turn_count
             )
             try:
-                response = await self._process_inner(text, speak_status, on_token)
+                # An outstanding "want me to make that a macro?" offer is
+                # resolved here, before any routing or model work.
+                response = await self._handle_macro_offer(text)
+                if response is None:
+                    response = await self._process_inner(text, speak_status, on_token)
                 self._remember_turn(text, response)
             except asyncio.CancelledError:
                 raise
@@ -1325,11 +1336,21 @@ class Brain:
             await self.memory.add_exchange(
                 text, response, self.last_intent.module if self.last_intent else ""
             )
+            await self._journal_turn(text, response)
             await self.events.publish(
                 "turn.finished", source="brain", text=text, response=response,
                 seconds=elapsed,
                 module=self.last_intent.module if self.last_intent else "",
             )
+            # After a real reply, earn a macro suggestion when the user has
+            # now run the identical single action three times in a row. The
+            # tracker is consulted on *every* turn so an ordinary chat turn
+            # between repeats resets the streak instead of letting it linger.
+            suggestion = self._macro_suggestion_after_turn()
+            if suggestion:
+                response = " ".join(
+                    piece for piece in (response, suggestion) if piece.strip()
+                )
             if self.llm.available and (self._upkeep_task is None or self._upkeep_task.done()):
                 self._upkeep_task = self._spawn(self._background_upkeep(text, response))
             return response
@@ -1382,6 +1403,21 @@ class Brain:
             module = "file_manager" if "file_manager" in self.modules else "conversation"
             self.last_intent = Intent(module, 1.0, "read-aloud", method="read-aloud")
             return read_reply
+
+        # "What were we doing yesterday?" — answered from the session journal,
+        # no model, no vector memory, works offline.
+        recap_reply = await self._journal_recap(text)
+        if recap_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "session recap",
+                                      method="recap")
+            return recap_reply
+
+        # "What's your boot routine?" — answered from the saved routine.
+        boot_answer = await self._boot_routine_answer(text)
+        if boot_answer is not None:
+            self.last_intent = Intent("conversation", 1.0, "boot routine info",
+                                      method="boot-info")
+            return boot_answer
 
         # Long-term recall and intent classification are independent, so run
         # them together: the embedding search hides behind the router round
@@ -1490,6 +1526,147 @@ class Brain:
                 f"Macro '{trigger}' tripped over itself: {exc}. "
                 "Check its definition and try again."
             )
+
+    # ------------------------------------------------- macro suggestions
+    @staticmethod
+    def _signature_of(tools: List[Dict[str, Any]]) -> Optional[str]:
+        """A stable identity for a turn that ran exactly one successful tool.
+
+        Args:
+            tools: The turn's recorded tool calls.
+
+        Returns:
+            ``tool(params...)`` when the turn ran one successful tool,
+            otherwise ``None`` (so chat turns reset the repeat counter).
+        """
+        if len(tools) != 1:
+            return None
+        item = tools[0]
+        if not item.get("ok"):
+            return None
+        params = item.get("params") or {}
+        bits = ", ".join(
+            f"{key}={value}" for key, value in sorted(params.items())
+        )
+        return f"{item.get('tool')}({bits})"
+
+    def _macro_already_armed(self, tool: str, params: Dict[str, Any]) -> bool:
+        """Whether a macro with exactly this single step already exists.
+
+        Args:
+            tool: The ``module.tool`` reference.
+            params: The parameters it ran with.
+
+        Returns:
+            True when a stored macro would already reproduce this action.
+        """
+        for entry in self.macros.all():
+            steps = entry.get("steps") or []
+            if len(steps) != 1:
+                continue
+            step = steps[0]
+            if str(step.get("tool", "")) == tool and (step.get("params") or {}) == params:
+                return True
+        return False
+
+    def _macro_suggestion_after_turn(self) -> Optional[str]:
+        """Offer a macro after the same single action repeats three times.
+
+        Called at the end of a turn. Three consecutive turns that each ran
+        exactly the same successful tool with the same parameters — the
+        classic "render the donut" → "again" → "again" shape — earns a spoken
+        offer to arm it as a macro.
+
+        Returns:
+            The offer text, or ``None`` when nothing should be proposed.
+        """
+        if not self.config.get("assistant.macro_suggestions", True):
+            return None
+        try:
+            threshold = max(2, int(
+                self.config.get("assistant.macro_repeat_threshold", 3) or 3
+            ))
+        except (TypeError, ValueError):
+            threshold = 3
+        signature = self._signature_of(self.last_tools)
+        if signature is None or signature == self._macro_offered_for:
+            if signature is None:
+                self._repeat_signature = None
+                self._repeat_count = 0
+            return None
+        if signature == self._repeat_signature:
+            self._repeat_count += 1
+        else:
+            self._repeat_signature = signature
+            self._repeat_count = 1
+        if self._repeat_count < threshold:
+            return None
+        item = self.last_tools[0]
+        tool = str(item.get("tool", ""))
+        params = dict(item.get("params") or {})
+        if self._macro_already_armed(tool, params):
+            self._macro_offered_for = signature
+            return None
+        self._macro_offer = {"tool": tool, "params": params}
+        self._macro_offered_for = signature
+        short = tool.split(".")[-1].replace("_", " ")
+        ordinal = {2: "twice", 3: "third time", 4: "fourth time",
+                   5: "fifth time"}.get(threshold, f"{threshold} times")
+        return (
+            f"{ordinal.capitalize()} in a row with the same action, sir. "
+            f"Say \"yes — when I say <your phrase>, {short}\" and I'll arm "
+            f"it as a macro."
+        )
+
+    async def _handle_macro_offer(self, text: str) -> Optional[str]:
+        """Process the answer to an outstanding macro suggestion.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            The reply when the utterance resolved the offer, otherwise
+            ``None`` so normal processing continues.
+        """
+        offer = self._macro_offer
+        if offer is None:
+            return None
+        normalised = (text or "").lower().strip(" .!?,")
+        if normalised in NEGATIVE or any(
+            normalised.startswith(word + " ") for word in NEGATIVE
+        ):
+            self._macro_offer = None
+            return "Fair enough, sir — I'll stop offering."
+        phrase_match = re.search(
+            r"when\s+(?:i|you)\s+say\s+(?:to\s+)?(.+)$", text or "", re.IGNORECASE
+        )
+        if phrase_match:
+            trigger = phrase_match.group(1).strip().strip("\"'.,!? ")
+            if not trigger:
+                return "Say it with a phrase, like: yes — when I say movie time."
+            try:
+                self.macros.add(
+                    trigger,
+                    say="",
+                    steps=[{"tool": offer["tool"], "params": offer["params"]}],
+                )
+            except ValueError as exc:
+                return f"I couldn't arm that one: {exc}"
+            self._macro_offer = None
+            short = str(offer["tool"]).split(".")[-1].replace("_", " ")
+            return (
+                f"Armed, sir. When you say \"{trigger}\" I'll run {short} "
+                f"with the same settings — no model involved."
+            )
+        if normalised in AFFIRMATIVE or any(
+            normalised.startswith(word) for word in ("yes", "yeah", "yep", "sure")
+        ):
+            return (
+                "And the phrase, sir? Say: yes — when I say <your phrase>."
+            )
+        # Anything else means the moment passed.
+        self._macro_offer = None
+        return None
 
     # ------------------------------------------------------------ context
     @staticmethod
@@ -1858,6 +2035,216 @@ class Brain:
         return (
             first + " There's more — say 'continue reading' and I'll keep going."
         )
+
+    # ------------------------------------------------------------ journal
+    async def _journal_turn(self, text: str, response: str) -> None:
+        """Append this turn to the session journal (see :mod:`core.journal`).
+
+        Args:
+            text: The user's utterance.
+            response: JARVIS's reply.
+        """
+        try:
+            from core.journal import note_turn
+
+            tools = [str(item.get("tool", "")) for item in self.last_tools]
+            tools = [tool for tool in tools if tool]
+            await run_blocking(
+                note_turn,
+                self.config,
+                text=text,
+                response=response,
+                module=self.last_intent.module if self.last_intent else "conversation",
+                tools=tools,
+                ok=bool(response.strip()),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug("Journal write failed: %s", exc)
+
+    @staticmethod
+    def _recap_target(text: str) -> Optional[str]:
+        """Which day a "what were we doing?" question points at.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            ``"today"``, ``"yesterday"``, ``"week"``, ``"recent"``, or
+            ``None`` when the utterance is not a recap question at all.
+        """
+        lowered = " ".join((text or "").lower().split())
+        asks = any(
+            phrase in lowered
+            for phrase in (
+                "what were we doing", "what did we do", "what did we get up to",
+                "what have we been up to", "what was i doing", "what was i working on",
+                "what did you and i do", "recap", "what happened",
+                "last session", "previous session", "when we last spoke",
+            )
+        )
+        if not asks:
+            return None
+        if "week" in lowered or "few days" in lowered or "last days" in lowered:
+            return "week"
+        if "today" in lowered:
+            return "today"
+        if "last night" in lowered or "yesterday" in lowered:
+            return "yesterday"
+        if "last session" in lowered or "previous session" in lowered:
+            return "recent"
+        return "recent"
+
+    async def _journal_recap(self, text: str) -> Optional[str]:
+        """Answer "what were we doing?" from the session journal.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            The recap text, or ``None`` when it is not a recap request.
+        """
+        target = self._recap_target(text)
+        if target is None:
+            return None
+        try:
+            from core.journal import day_before, events_on, recap
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("Journal unavailable: %s", exc)
+            return None
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            if target == "week":
+                days = [
+                    day_before(today, delta)
+                    for delta in range(6, -1, -1)
+                ]
+                counts = sum(len(events_on(self.config, day)) for day in days)
+                modules: Dict[str, int] = {}
+                for day in days:
+                    for entry in events_on(self.config, day):
+                        name = str(entry.get("module", "conversation"))
+                        modules[name] = modules.get(name, 0) + 1
+                top = ", ".join(
+                    f"{name} ({count}×)" for name, count in
+                    sorted(modules.items(), key=lambda item: item[1], reverse=True)[:3]
+                )
+                if not counts:
+                    return "The journal is empty for this week — we haven't talked much."
+                line = f"This week: {counts} exchange(s) across the journal."
+                if top:
+                    line += f" Mostly {top}."
+                return line
+            day = today if target == "today" else day_before(today)
+            if target == "recent":
+                day = day_before(today)
+                if not events_on(self.config, day):
+                    day = today
+            return recap(self.config, day)
+        except Exception as exc:  # defensive
+            logger.debug("Journal recap failed: %s", exc)
+            return "The journal tripped over itself reading that back, sir."
+
+    # ------------------------------------------------------------ boot routine
+    @staticmethod
+    def _is_boot_routine_question(text: str) -> bool:
+        """Whether the user is asking what the start-up routine is.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            True for question forms ("what's your boot routine?",
+            "what do you run on boot?") but never for requests to create or
+            change one, which belong to the normal productivity tools.
+        """
+        lowered = " ".join((text or "").lower().split())
+        markers = ("boot routine", "start-up routine", "startup routine")
+        if not any(marker in lowered for marker in markers):
+            return False
+        if lowered.startswith(("create", "make ", "set ", "change ", "add ",
+                               "remove", "delete", "update")):
+            return False
+        starts = ("what", "how", "when", "which", "describe", "explain",
+                  "tell me", "show me", "walk me through")
+        return lowered.startswith(starts) or "your boot routine" in lowered
+
+    async def _boot_routine_answer(self, text: str) -> Optional[str]:
+        """Answer the boot-routine question from the stored routine.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            The answer, or ``None`` when this is not a boot-routine question.
+        """
+        if not self._is_boot_routine_question(text):
+            return None
+        name = str(self.config.get("assistant.boot_routine", "") or "").strip()
+        if not name:
+            return (
+                "I don't run a boot routine yet, sir. Create one with "
+                "\"create a routine called morning\" and set "
+                "assistant.boot_routine in config.yaml to its name."
+            )
+        module = self.modules.get("productivity")
+        if module is None:
+            return f"My boot routine is '{name}', but the productivity module is off."
+        try:
+            result = await module.call_tool("routines", {})
+            rows = (result.data or {}).get("routines", []) if result.success else []
+        except Exception as exc:  # defensive
+            logger.debug("Routine lookup failed: %s", exc)
+            rows = []
+        for row in rows:
+            if " ".join(str(row.get("name", "")).lower().split()) != \
+                    " ".join(name.lower().split()):
+                continue
+            try:
+                steps = json.loads(str(row.get("steps") or "[]"))
+            except Exception:
+                steps = []
+            steps = [str(step) for step in steps if str(step).strip()]
+            if not steps:
+                return f"On boot I run the '{name}' routine, sir — it has no steps yet."
+            joined = "; then ".join(steps)
+            return (
+                f"On boot, sir, I run your '{name}' routine: {joined}."
+            )
+        return f"My boot routine is set to '{name}', but I can't find it saved yet."
+
+    async def boot_routine(self) -> str:
+        """Run the configured boot routine once, when out of quiet hours.
+
+        Reads ``assistant.boot_routine`` (the name of a routine created with
+        ``create_routine``) and executes it, returning the spoken digest for
+        the start-up announcements. Booted inside quiet hours the routine is
+        skipped and logged rather than shouting through the night.
+
+        Returns:
+            The routine's combined output, or ``""`` when unset/unavailable.
+        """
+        name = str(self.config.get("assistant.boot_routine", "") or "").strip()
+        if not name:
+            return ""
+        module = self.modules.get("productivity")
+        if module is None:
+            return ""
+        try:
+            quiet = getattr(module, "in_quiet_hours", lambda: False)()
+            if quiet:
+                logger.info("Boot routine '%s' skipped: quiet hours.", name)
+                return ""
+            result = await module.call_tool("run_routine", {"name": name})
+            if not result.success:
+                logger.warning("Boot routine '%s' failed: %s", name,
+                               result.error or result.output)
+                return ""
+            return (result.speak or result.output or "").strip()
+        except Exception as exc:
+            logger.warning("Boot routine '%s' errored: %s", name, exc)
+            return ""
 
     def _record_tool(self, reference: str, params: Dict[str, Any], result: ModuleResult) -> None:
         """Remember one tool call so the next turn can say "that one".
