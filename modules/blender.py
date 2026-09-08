@@ -230,6 +230,11 @@ class Blender(BaseModule):
                 )
             else:
                 candidates.append(str(expanded))
+        # Steam installs Blender wherever a library lives — the common-locations
+        # path above only covers the C: install Steam itself chose, and a
+        # config path typed for another machine helps nobody. Ask Steam where
+        # its libraries actually are.
+        candidates.extend(self._steam_blender_candidates())
 
         for candidate in candidates:
             if not candidate:
@@ -252,6 +257,80 @@ class Blender(BaseModule):
         else:
             self._bpy_state = False
         return None
+
+    # --------------------------------------------------------- Steam library
+    def _steam_blender_candidates(self) -> List[str]:
+        """Find ``steamapps/common/Blender`` in every Steam library on disk.
+
+        Steam can keep games on any number of libraries (one per drive).
+        ``libraryfolders.vdf`` inside the Steam install lists them all, so
+        instead of guessing we read it and look for Blender in each library.
+
+        Returns:
+            Candidate paths to a Blender executable, existing or not (the
+            caller checks existence); de-duplicated.
+        """
+        executable = "blender.exe" if IS_WINDOWS else "blender"
+        output: List[str] = []
+        seen = set()
+        for root in self._steam_roots():
+            for library in [root, *self._steam_library_folders(root)]:
+                candidate = library / "steamapps" / "common" / "Blender" / executable
+                key = str(candidate).lower()
+                if key not in seen:
+                    seen.add(key)
+                    output.append(str(candidate))
+        return output
+
+    @staticmethod
+    def _steam_roots() -> List[Path]:
+        """Where Steam itself installs, per platform.
+
+        Returns:
+            Steam installation directories that actually exist (they contain a
+            ``steamapps`` folder).
+        """
+        roots: List[Path] = []
+        if IS_WINDOWS:
+            program_files_x86 = os.environ.get(
+                "PROGRAMFILES(X86)", r"C:\Program Files (x86)"
+            )
+            program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+            roots.extend([Path(program_files_x86) / "Steam", Path(program_files) / "Steam"])
+        elif IS_MACOS:
+            roots.append(Path.home() / "Library" / "Application Support" / "Steam")
+        else:
+            roots.extend([
+                Path.home() / ".local" / "share" / "Steam",
+                Path.home() / ".steam" / "steam",
+                Path("/usr/share/steam"),
+            ])
+        return [root for root in roots if (root / "steamapps").is_dir()]
+
+    @staticmethod
+    def _steam_library_folders(steam_root: Path) -> List[Path]:
+        """Read the extra libraries from ``steamapps/libraryfolders.vdf``.
+
+        Args:
+            steam_root: A Steam installation directory.
+
+        Returns:
+            The library folders Steam manages, excluding the install's own
+            ``steamapps`` (that one is always searched first).
+        """
+        vdf = steam_root / "steamapps" / "libraryfolders.vdf"
+        try:
+            text = vdf.read_text("utf-8", errors="replace")
+        except Exception:
+            return []
+        folders: List[Path] = []
+        # Entries look like:  "path"  "D:\\SteamLibrary"   (the file escapes
+        # backslashes, and single-slash variants are seen in the wild too).
+        for match in re.finditer(r'^\s*"path"\s+"(.*?)"\s*$', text, re.MULTILINE):
+            raw = match.group(1).replace("\\\\", "\\")
+            if raw.strip():
+                folders.append(Path(raw.strip()))
+        return folders
 
     @staticmethod
     def _bpy_importable() -> bool:
@@ -283,14 +362,22 @@ class Blender(BaseModule):
         """
         configured = Path(self.configured_path).expanduser() if self.configured_path else None
         exists = bool(configured and (configured.is_file() or configured.is_dir()))
+        steam_candidates = self._steam_blender_candidates()
+        steam_notes = (
+            "\n".join(f"      {candidate}" for candidate in steam_candidates[:4])
+            if steam_candidates else "(no Steam install found)"
+        )
+        if len(steam_candidates) > 4:
+            steam_notes += f"\n      …and {len(steam_candidates) - 4} more libraries"
         lines = [
             "I can't find Blender, sir. Here is what I checked:",
             "",
             f"  configured in config.yaml : {configured or '(none set)'}",
             f"      exists on disk        : {'yes' if exists else 'no'}",
-            f"      on PATH as 'blender'  : "
+            f"  Steam Blender candidates  : {steam_notes}",
+            f"  on PATH as 'blender'      : "
             f"{'yes' if shutil.which('blender') else 'no'}",
-            f"  pip 'bpy' module         : "
+            f"  pip 'bpy' module          : "
             f"{'imports fine' if self._bpy_state else 'not installed or broken'}",
             "",
             "Fix it by installing the application from blender.org (or Steam) and setting "

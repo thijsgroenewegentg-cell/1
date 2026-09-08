@@ -99,11 +99,57 @@ def test_a_missed_blender_is_not_researched_on_every_call(config, tmp_path, monk
     monkeypatch.setattr("modules.blender.shutil.which", counting_which)
     monkeypatch.setattr("modules.blender.COMMON_LOCATIONS",
                         {"windows": (), "macos": (), "linux": ()})
+    monkeypatch.setattr(Blender, "_steam_roots", staticmethod(lambda: []))
     module = Blender(config)
     assert module.find_runtime(refresh=True) is None
     assert module.find_runtime() is None          # cached, no rescan
     assert module.find_runtime() is None
     assert calls["n"] == 1
+
+
+def test_steam_library_folders_are_parsed_from_the_vdf(tmp_path):
+    """libraryfolders.vdf lists every Steam library; we must read them all."""
+    steam = tmp_path / "Steam"
+    (steam / "steamapps").mkdir(parents=True)
+    (steam / "steamapps" / "libraryfolders.vdf").write_text(
+        '"libraryfolders"\n{\n'
+        '\t"0"\n\t{\n'
+        '\t\t"path"\t\t"D:\\\\SteamLibrary"\n'
+        '\t}\n'
+        '\t"1"\n\t{\n'
+        '\t\t"path"\t\t"E:\\\\Games"\n'
+        '\t}\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    folders = Blender._steam_library_folders(steam)
+    assert [str(folder) for folder in folders] == [r"D:\SteamLibrary", r"E:\Games"]
+
+
+def test_blender_is_found_in_an_extra_steam_library(config, tmp_path, monkeypatch):
+    """Blender on a secondary Steam library is found despite a wrong config."""
+    steam = tmp_path / "Steam"
+    (steam / "steamapps").mkdir(parents=True)
+    library = tmp_path / "Games"
+    blender_dir = library / "steamapps" / "common" / "Blender"
+    blender_dir.mkdir(parents=True)
+    executable = blender_dir / "blender"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o755)
+    (steam / "steamapps" / "libraryfolders.vdf").write_text(
+        '"libraryfolders"\n{\n'
+        '\t"0"\n\t{\n'
+        f'\t\t"path"\t\t"{library}"\n'
+        '\t}\n'
+        '}\n',
+        encoding="utf-8",
+    )
+    config.set("blender.executable", str(tmp_path / "wrong" / "blender.exe"))
+    config.set("blender.allow_bpy_module", False)
+    module = Blender(config)
+    monkeypatch.setattr(Blender, "_steam_roots", staticmethod(lambda: [steam]))
+    runtime = module.find_runtime(refresh=True)
+    assert runtime == ("executable", str(executable))
 
 
 def test_status_reports_the_version(blender):
