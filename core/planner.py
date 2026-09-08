@@ -102,6 +102,21 @@ class Planner:
         observations: List[Tuple[str, ModuleResult]] = []
         catalog = self.brain.tool_registry(intent.module)
 
+        # Fast/deep tiering: the first attempt runs on the main model. When a
+        # decision cannot even be parsed, or a tool already failed, the next
+        # attempt moves to ``llm.deep_model`` — the big model is spent only
+        # when the cheap one already stumbled.
+        model_override: Optional[str] = None
+        escalated = False
+        deep_model = str(self.brain.llm.deep_model or "").strip()
+
+        def escalate() -> None:
+            nonlocal model_override, escalated
+            if deep_model and not escalated:
+                model_override = deep_model
+                escalated = True
+                logger.debug("Escalating ReAct planning to the deep model (%s).", deep_model)
+
         for step in range(1, MAX_REACT_STEPS + 1):
             if self.brain._cancel.is_set():
                 break
@@ -112,8 +127,28 @@ class Planner:
                 temperature=0.1,
                 max_tokens=420,
                 json_mode=True,
+                model=model_override,
             )
             decision = extract_json(raw)
+
+            # An unreadable decision on the main model earns one retry on the
+            # deep model before we give up and fall back to a direct call.
+            if not isinstance(decision, dict) and not escalated:
+                escalate()
+                if model_override:
+                    logger.debug(
+                        "ReAct step %d produced no JSON on the main model; "
+                        "retrying on %s.", step, model_override,
+                    )
+                    raw = await self.brain.llm.complete(
+                        prompt,
+                        system=self.brain.system_prompt(),
+                        temperature=0.1,
+                        max_tokens=420,
+                        json_mode=True,
+                        model=model_override,
+                    )
+                    decision = extract_json(raw)
 
             if not isinstance(decision, dict):
                 logger.debug("ReAct step %d produced no JSON; falling back to direct call.", step)
@@ -146,6 +181,15 @@ class Planner:
                 reference = f"{intent.module}.{reference}"
 
             await self._status_for_tool(reference, step)
+            # Go/no-go on the first tool when the plan looks like a guess.
+            # The model can pick a plausible-but-wrong target ("city.blend"
+            # when the user said "the donut scene"), which is exactly the
+            # "he did something else than I asked" complaint. A quick confirm
+            # catches it before anything runs.
+            if not await self._confirm_plan(text, reference, params, step):
+                note = f"{reference} with {params or 'no arguments'}".replace("'", "")
+                return (f"Hold on — before I run anything I wanted to check the plan: {note}. "
+                        "Tell me what to change and I'll go.")
             result = await self.brain.dispatch(reference, params)
             if result.untrusted:
                 self.brain._tainted_by.add(reference)
@@ -158,6 +202,10 @@ class Planner:
 
             if result.success and self._is_terminal(reference, result):
                 break
+            # The tool failed: give the deep model one chance to pick a better
+            # next step instead of composing a defeat reply immediately.
+            if not result.success:
+                escalate()
 
         return await self.brain._compose_answer(text, observations, memory_context, on_token)
 
@@ -226,6 +274,69 @@ class Planner:
             "be satisfied with the tools above, do NOT guess — set action to null and ask "
             "one short question for the missing detail."
         )
+
+    async def _confirm_plan(
+        self, text: str, reference: str, params: Dict[str, Any], step: int
+    ) -> bool:
+        """Ask before running a tool whose target the user never named.
+
+        The heuristic is deliberately narrow so it does not nag on every turn:
+        only the *first* tool of a turn is considered, the request must have
+        been vague enough to allow a wrong guess (it names no file, no .blend,
+        no app), the tool must carry a file-like parameter, and confirmations
+        must be switched on. When all hold, the user is asked to approve the
+        concrete plan — catching "render city.blend" when they meant the donut.
+
+        Args:
+            text: The user's request.
+            reference: ``module.tool`` about to run.
+            params: The parameters chosen for it.
+            step: The ReAct step (only step 1 is worth interrupting).
+
+        Returns:
+            True when the tool may run (or nothing needs asking).
+        """
+        if step != 1:
+            return True
+        if not self.brain.config.get("assistant.confirm_plan", True):
+            return True
+        security = getattr(self.brain, "security", None)
+        if security is None or not getattr(security, "confirm_dangerous", True):
+            return True
+        # The user already named the concrete target — no guess involved.
+        lowered = (text or "").lower()
+        words = set(re.findall(r"[a-z0-9_.]+", lowered))
+        file_keys = ("path", "file", "blend", "blend_file", "app", "url",
+                     "repo", "script", "name", "target")
+        concrete: Dict[str, str] = {}
+        for key, value in (params or {}).items():
+            if not isinstance(value, str) or not value.strip():
+                continue
+            stripped = value.strip()
+            if key in file_keys or (len(stripped) >= 4 and "." in stripped):
+                concrete[key] = stripped
+        if not concrete:
+            return True
+        # A target mentioned verbatim in the request is not a guess.
+        if any(self._target_mentioned(token, words) for token in concrete.values()):
+            return True
+        summary = ", ".join(f"{key}={value}" for key, value in concrete.items())
+        try:
+            approved = await security.confirm(
+                f"Run {reference} with {summary}? You didn't name that file — "
+                "just checking before I touch it."
+            )
+        except Exception:
+            approved = False
+        return approved
+
+    @staticmethod
+    def _target_mentioned(token: str, words: set) -> bool:
+        """Whether the user's words contain the concrete target."""
+        token = token.strip().lower()
+        if not token:
+            return True
+        return any(part and part in words for part in re.split(r"[/\\_.]", token))
 
     async def _status_for_tool(self, reference: str, step: int) -> None:
         """Give the user a spoken heads-up for slower tools."""

@@ -27,6 +27,21 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "sarcasm": 0.35,
         "greet_on_start": True,
         "proactive": True,
+        #: Speak a one-line systems report (model, memory, modules, Blender)
+        #: when JARVIS boots in voice mode, so a silent audio pipeline is
+        #: obvious the moment it starts.
+        "say_status_on_start": True,
+        #: When enabled, the start-up announcement includes the daily briefing
+        #: (tasks, calendar, reminders, weather) from the productivity module.
+        "morning_brief_on_start": False,
+        #: Ask before the first tool call of a turn when the chosen plan looks
+        #: like a guess (e.g. the model invented a file name the user never
+        #: said). Fixes the "he does something else than I asked" feeling.
+        "confirm_plan": True,
+        #: A global shortcut that summons the assistant from anywhere
+        #: (e.g. "ctrl+alt+j"). Needs the optional 'keyboard' package on
+        #: Windows/Linux; opens the web UI when one is running.
+        "global_hotkey": "",
     },
     "llm": {
         "provider": "ollama",
@@ -40,6 +55,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "timeout": 180,
         "keep_alive": "10m",
         "router_model": "",
+        #: Tiered models: routine chat goes to the small/fast ``fast_model``,
+        #: and a hard plan step that already failed gets one retry on the
+        #: big/slow ``deep_model``. Blank entries reuse the main model, so
+        #: leaving all three the same name costs nothing.
+        "fast_model": "",
+        "deep_model": "",
+        "tiered_models": True,  # master switch for the fast/deep split above
         "instant_chat": True,   # skip the classifier model for keyword-silent small talk
         "stream": True,
         "retries": 2,              # extra attempts when Ollama hiccups
@@ -57,6 +79,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "min_relevance": 0.20,
         "autosave": True,
         "auto_extract_facts": True,
+        #: Durable store of habits learned from completed interactions
+        #: (e.g. "renders at 50% for previews"). Survives restarts.
+        "preferences_file": "data/preferences.json",
         "summarize": True,
         "summary_trigger": 12,
         "context_char_budget": 9000,
@@ -161,6 +186,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "memory_mb": 0,              # 0 = no ceiling; renders are memory-hungry
         "allow_scripts": True,
         "allow_bpy_module": True,    # accept "pip install bpy" as a runtime
+        #: Remembers the last-used .blend (per name and overall) and the
+        #: render settings you last chose, so "render the animation" just
+        #: works after a restart.
+        "state_file": "data/blender_state.json",
+        #: Open the first rendered frame in the OS image viewer whenever a
+        #: render finishes. Off by default: "render and show me" opens it
+        #: for that one call regardless.
+        "show_after_render": False,
     },
     "email": {
         "enabled": False,
@@ -289,7 +322,8 @@ def _load_secrets_env(root: Path) -> None:
                 if not key or key in os.environ:
                     continue
                 # Only allow the known secret keys so a stray file cannot inject arbitrary env.
-                if key in {"ELEVENLABS_API_KEY", "GITHUB_TOKEN", "JARVIS_EMAIL_PASSWORD"} or key.startswith("JARVIS_"):
+                if (key in {"ELEVENLABS_API_KEY", "GITHUB_TOKEN",
+                           "JARVIS_EMAIL_PASSWORD"} or key.startswith("JARVIS_")):
                     os.environ[key] = value
         except Exception:
             continue

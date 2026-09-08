@@ -25,7 +25,7 @@ import contextlib
 import signal
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 # Make sure the project root is importable no matter where we're launched from.
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -117,6 +117,32 @@ class Jarvis:
             self.cli.info(message)
 
     # ------------------------------------------------------------------ modes
+    async def _announce_startup(self) -> None:
+        """Speak the boot report, optional morning briefing, then the greeting.
+
+        Order matters: the status line proves audio works with the very first
+        utterance (a silent pipeline is obvious at once), the briefing arrives
+        only if enabled, and the personality greeting — which needs the model —
+        comes last so nothing blocks on Ollama first.
+        """
+        if self.cli is None or self.voice is None:
+            return
+        parts: List[str] = []
+        if self.config.get("assistant.say_status_on_start", True):
+            parts.append(self.brain.boot_status())
+        if self.config.get("assistant.morning_brief_on_start", False):
+            parts.append(await self.brain.morning_brief())
+        if self.config.get("assistant.greet_on_start", True):
+            parts.append(await self.brain.greeting())
+        for part in parts:
+            if not (part or "").strip():
+                continue
+            self.cli.assistant_panel(part)
+            try:
+                await self.voice.speak(part)
+            except Exception as exc:
+                logger.debug("Start-up announcement failed to speak: %s", exc)
+
     async def run_voice(self) -> None:
         """Always-on voice loop with a CLI fallback if audio fails."""
         if self.voice is None or not self.voice.available:
@@ -132,10 +158,7 @@ class Jarvis:
             f"tts: {report['tts_voice']}, wake: {report['wake_engine']}"
         )
 
-        if self.config.get("assistant.greet_on_start", True):
-            greeting = await self.brain.greeting()
-            self.cli.assistant_panel(greeting)
-            await self.voice.speak(greeting)
+        await self._announce_startup()
 
         wake_word = self.config.get("voice.wake_word", "jarvis")
         self.cli.info(f"Listening. Say '{wake_word}' to wake me. Ctrl+C to exit.")
@@ -180,6 +203,66 @@ class Jarvis:
             logger.debug("Could not open a browser: %s", exc)
         if not opened and self.cli is not None:
             self.cli.info(f"Open this yourself: {url}")
+
+    def register_global_hotkey(self, loop: "asyncio.AbstractEventLoop") -> None:
+        """Arm the configured global hotkey that summons the assistant.
+
+        Pressing it (e.g. ``ctrl+alt+j``) from any application opens the web
+        UI in the default browser — the PWA doubles as a desktop window — and
+        starts the UI on demand if it is not already serving.
+
+        Args:
+            loop: The running event loop, so the hotkey thread can hand work
+                back to it.
+        """
+        combo = str(self.config.get("assistant.global_hotkey", "") or "").strip()
+        if not combo:
+            return
+        if sys.platform == "darwin":
+            logger.warning(
+                "assistant.global_hotkey is set, but the 'keyboard' package does "
+                "not support macOS — use the wake word, or a Shortcuts shortcut "
+                "that opens the web UI."
+            )
+            return
+        try:
+            import keyboard  # type: ignore[import-not-found]
+        except Exception:
+            logger.warning(
+                "assistant.global_hotkey is set to '%s', but the optional 'keyboard' "
+                "package is missing. Install it with: pip install keyboard",
+                combo,
+            )
+            return
+
+        def summon() -> None:
+            """Hotkey callback (runs in the keyboard hook thread)."""
+            try:
+                asyncio.run_coroutine_threadsafe(self._summon_from_hotkey(), loop)
+            except Exception as exc:
+                logger.debug("Hotkey summon failed: %s", exc)
+
+        try:
+            keyboard.add_hotkey(combo, summon)
+            if self.cli is not None:
+                self.cli.info(
+                    f"Global hotkey '[bold]{combo}[/bold]' armed — press it "
+                    "anywhere to open the assistant."
+                )
+        except Exception as exc:
+            logger.warning("Could not arm global hotkey '%s': %s", combo, exc)
+
+    async def _summon_from_hotkey(self) -> None:
+        """Open the assistant UI from the global hotkey (on the event loop)."""
+        try:
+            if self.web is None:
+                await self.start_background_web()
+            if self.web is not None and getattr(self.web, "url", None):
+                await self._open_in_browser(self.web)
+            elif self.cli is not None:
+                self.cli.info("Summoned — but no web UI is available to open.")
+        except Exception as exc:
+            logger.debug("Hotkey summon could not open the web UI: %s", exc)
 
     async def run_cli(self) -> None:
         """Run the rich text interface."""
@@ -507,6 +590,11 @@ async def async_main(args: argparse.Namespace) -> int:
     # Ctrl+C / SIGTERM shut down cleanly on POSIX.
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
+
+    # A configured global hotkey outlives the current mode: arm it for every
+    # interactive session so "summon the assistant" works from any app.
+    if not (args.say or args.test or args.doctor):
+        jarvis.register_global_hotkey(loop)
     for signal_name in ("SIGINT", "SIGTERM"):
         signal_value = getattr(signal, signal_name, None)
         if signal_value is None:

@@ -142,6 +142,79 @@ print("JARVIS_JSON_END")
 '''
 
 
+
+
+#: Finished-scene looks applied after the model's script builds the geometry.
+#: Each is a small bpy snippet that sets world shading and light mood, so the
+#: scene gets a coherent presentational look without knowing the object names.
+LOOK_PRESETS: Dict[str, str] = {
+    "studio": (
+        "import bpy\n"
+        "# studio: neutral backdrop, punchier lights\n"
+        'world = bpy.data.worlds.get("World")\n'
+        "if world is None:\n"
+        '    world = bpy.data.worlds.new("World")\n'
+        "    bpy.context.scene.world = world\n"
+        "world.use_nodes = True\n"
+        'bg = world.node_tree.nodes.get("Background")\n'
+        "if bg is not None:\n"
+        "    bg.inputs[0].default_value = (0.045, 0.045, 0.05, 1.0)\n"
+        "    bg.inputs[1].default_value = 0.9\n"
+        "for obj in bpy.data.objects:\n"
+        '    if obj.type == "LIGHT":\n'
+        "        obj.data.energy *= 1.5\n"
+    ),
+    "soft": (
+        "import bpy\n"
+        "# soft: warm, low-contrast morning light\n"
+        'world = bpy.data.worlds.get("World")\n'
+        "if world is None:\n"
+        '    world = bpy.data.worlds.new("World")\n'
+        "    bpy.context.scene.world = world\n"
+        "world.use_nodes = True\n"
+        'bg = world.node_tree.nodes.get("Background")\n'
+        "if bg is not None:\n"
+        "    bg.inputs[0].default_value = (0.06, 0.05, 0.045, 1.0)\n"
+        "    bg.inputs[1].default_value = 0.7\n"
+        "for obj in bpy.data.objects:\n"
+        '    if obj.type == "LIGHT":\n'
+        "        obj.data.energy *= 0.85\n"
+    ),
+    "sunset": (
+        "import bpy\n"
+        "# sunset: warm rim light against a cool dusk\n"
+        'world = bpy.data.worlds.get("World")\n'
+        "if world is None:\n"
+        '    world = bpy.data.worlds.new("World")\n'
+        "    bpy.context.scene.world = world\n"
+        "world.use_nodes = True\n"
+        'bg = world.node_tree.nodes.get("Background")\n'
+        "if bg is not None:\n"
+        "    bg.inputs[0].default_value = (0.02, 0.015, 0.045, 1.0)\n"
+        "    bg.inputs[1].default_value = 0.6\n"
+        "for obj in bpy.data.objects:\n"
+        '    if obj.type == "LIGHT":\n'
+        "        obj.data.energy *= 0.7\n"
+    ),
+    "minimal": (
+        "import bpy\n"
+        "# minimal: near-black backdrop, crisp single light\n"
+        'world = bpy.data.worlds.get("World")\n'
+        "if world is None:\n"
+        '    world = bpy.data.worlds.new("World")\n'
+        "    bpy.context.scene.world = world\n"
+        "world.use_nodes = True\n"
+        'bg = world.node_tree.nodes.get("Background")\n'
+        "if bg is not None:\n"
+        "    bg.inputs[0].default_value = (0.01, 0.01, 0.012, 1.0)\n"
+        "    bg.inputs[1].default_value = 1.0\n"
+        "for obj in bpy.data.objects:\n"
+        '    if obj.type == "LIGHT":\n'
+        "        obj.data.energy *= 1.2\n"
+    ),
+}
+
+
 class Blender(BaseModule):
     """3D work: render scenes, run Blender Python, inspect and export models."""
 
@@ -175,16 +248,139 @@ class Blender(BaseModule):
         self.memory_mb: int = int(section.get("memory_mb", 0) or 0)
         self.engine: str = str(section.get("engine", "") or "")
         self.samples: int = int(section.get("samples", 0) or 0)
+        self.show_after_render: bool = bool(section.get("show_after_render", False))
         self.allow_scripts: bool = bool(section.get("allow_scripts", True))
         self.allow_bpy_module: bool = bool(section.get("allow_bpy_module", True))
         self.output_dir: Path = config.resolve(
             section.get("output_dir", "data/renders")
         )
-        self.last_blend: str = ""
+        self.state_file: Path = config.resolve(
+            section.get("state_file", "data/blender_state.json")
+        )
+        self._state: Dict[str, Any] = self._load_state()
+        self.last_blend: str = str(self._state.get("last", "") or "")
         self._runtime: Optional[Tuple[str, str]] = None  # (kind, path)
         self._searched: bool = False
         self._bpy_state: Optional[bool] = None  # remembered by the last discovery
         ensure_dir(self.output_dir)
+
+    # ------------------------------------------------------- scene memory
+    def _load_state(self) -> Dict[str, Any]:
+        """Read the remembered scenes and settings, tolerating a corrupt file."""
+        try:
+            if self.state_file.exists():
+                data = json.loads(self.state_file.read_text("utf-8", errors="replace"))
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+        return {"last": "", "by_name": {}, "settings": {}}
+
+    def _save_state(self) -> None:
+        """Persist the scene memory so it survives a restart."""
+        try:
+            ensure_dir(self.state_file.parent)
+            self.state_file.write_text(
+                json.dumps(self._state, indent=2, default=str), "utf-8"
+            )
+        except Exception:
+            pass
+
+    def _remember(self, path: Path) -> None:
+        """Remember this .blend as the most recent, keyed several ways."""
+        try:
+            resolved = path.resolve()
+            self._state["last"] = str(resolved)
+            by_name = self._state.setdefault("by_name", {})
+            names = {
+                str(resolved).lower(): str(resolved),
+                resolved.name.lower(): str(resolved),
+                resolved.stem.lower(): str(resolved),
+            }
+            by_name.update(names)
+            self._save_state()
+        except Exception:
+            pass
+
+    def _remembered_settings(self) -> Dict[str, Any]:
+        """Render settings the user last chose, for use as defaults."""
+        return dict(self._state.get("settings", {}) or {})
+
+    def _record_settings(self, **settings: Any) -> None:
+        """Store the settings actually used, dropping empty values."""
+        current = self._remembered_settings()
+        changed = False
+        for key, value in settings.items():
+            if value not in (None, "", 0, False):
+                current[key] = value
+                changed = True
+        if changed:
+            self._state["settings"] = current
+            self._save_state()
+
+    def _find_blend(self, given: str, use_last: bool = True) -> Optional[Path]:
+        """Resolve a .blend the user may have named loosely.
+
+        Tries, in order: the path as written, a remembered scene whose name
+        matches, and the most recent scene. This is what lets "render the
+        donut" find ``donut.blend`` from a previous session.
+
+        Args:
+            given: The file the user (or model) named; may be empty.
+            use_last: Fall back to the most recent scene.
+
+        Returns:
+            An existing .blend path, or ``None``.
+        """
+        if (given or "").strip():
+            direct = resolve_user_path(given)
+            if direct.is_file():
+                return direct
+            stem = Path(given).stem.lower().strip()
+            by_name = self._state.get("by_name", {}) or {}
+            if stem in by_name:
+                candidate = Path(by_name[stem])
+                if candidate.is_file():
+                    return candidate
+            if (self.output_dir / f"{Path(given).stem}.blend").is_file():
+                return self.output_dir / f"{Path(given).stem}.blend"
+            return None
+        if use_last and self.last_blend and Path(self.last_blend).is_file():
+            return Path(self.last_blend)
+        return None
+
+    def _open_for_user(self, path: Path) -> str:
+        """Show a finished render in the OS image viewer.
+
+        Best effort by design: a headless box has no viewer, and that must
+        never turn a good render into an error.
+
+        Args:
+            path: The file to open.
+
+        Returns:
+            Empty string on success, else a short reason the open failed.
+        """
+        import subprocess
+
+        try:
+            if IS_WINDOWS:
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            elif IS_MACOS:
+                subprocess.Popen(
+                    ["open", str(path)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                subprocess.Popen(
+                    ["xdg-open", str(path)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            return ""
+        except Exception as exc:
+            return truncate(str(exc) or type(exc).__name__, 160)
 
     # ------------------------------------------------------------ discovery
     def find_runtime(self, refresh: bool = False) -> Optional[Tuple[str, str]]:
@@ -653,9 +849,15 @@ class Blender(BaseModule):
                                    "default": 0},
             "samples": {"type": "integer", "description": "Cycles/EEVEE samples",
                         "default": 0},
+            "show": {"type": "boolean",
+                     "description": "Open the first frame in the OS image viewer "
+                                    "afterwards ('render and show me')",
+                     "default": False},
         },
-        keywords=["render", "render the scene", "render frame", "render the animation"],
-        examples=["render frame 12 of ~/scenes/city.blend at 50%"],
+        keywords=["render", "render the scene", "render frame", "render the animation",
+                  "render and show", "show me the render"],
+        examples=["render frame 12 of ~/scenes/city.blend at 50%",
+                  "render the donut and show me"],
     )
     async def render(
         self,
@@ -667,6 +869,7 @@ class Blender(BaseModule):
         format: str = "png",
         resolution_percent: int = 0,
         samples: int = 0,
+        show: bool = False,
     ) -> ModuleResult:
         """Render stills or an animation from a .blend file.
 
@@ -680,6 +883,7 @@ class Blender(BaseModule):
             resolution_percent: Render scale — 50 halves it, which is the
                 quickest way to preview a heavy scene.
             samples: Sample count, when the engine uses one.
+            show: Open the first frame in the OS image viewer afterwards.
 
         Returns:
             A :class:`ModuleResult` listing the files written.
@@ -687,22 +891,29 @@ class Blender(BaseModule):
         if self.find_runtime() is None:
             return self._missing()
 
-        target = resolve_user_path(blend_file or self.last_blend)
-        if not blend_file and not self.last_blend:
-            return ModuleResult.fail("Which .blend should I render, sir?")
-        if not target.is_file():
-            return ModuleResult.fail(f"No .blend file at {target}.")
+        target = self._find_blend(blend_file)
+        if target is None:
+            if blend_file:
+                return ModuleResult.fail(
+                    f"No .blend matching '{blend_file}', sir. Name the file, "
+                    "or tell me which scene to use and I'll remember it."
+                )
+            return ModuleResult.fail(
+                "Which .blend should I render, sir? Name one, or say 'render "
+                "the donut' if we made it before."
+            )
         if not self._is_blend(target):
             return ModuleResult.fail(
                 f"{target.name} isn't a Blender file, sir — I need a .blend."
             )
         self.last_blend = str(target)
+        self._remember(target)
 
         kind, _ = self.find_runtime() or ("", "")
         if kind != "executable":
             return await self._render_via_bpy(
                 target, frame, animation, output, engine, format,
-                resolution_percent, samples,
+                resolution_percent, samples, show,
             )
 
         stem = target.stem
@@ -711,7 +922,13 @@ class Blender(BaseModule):
         ensure_dir(prefix.parent)
 
         args: List[str] = ["-b", str(target)]
-        resolved_engine = ENGINES.get((engine or self.engine).strip().lower(), "")
+        # The engine and samples you chose last time are the defaults for the
+        # next render — that is the "he learns how I work" part.
+        remembered = self._remembered_settings()
+        engine_choice = str(
+            engine or self.engine or remembered.get("engine", "") or ""
+        ).strip()
+        resolved_engine = ENGINES.get(engine_choice.lower(), "")
         if resolved_engine:
             args += ["-E", resolved_engine]
         args += ["-o", str(prefix), "-F", FORMATS.get(format.strip().lower(), "PNG")]
@@ -722,14 +939,16 @@ class Blender(BaseModule):
                 "bpy.context.scene.render.resolution_percentage = "
                 f"{max(1, min(400, int(resolution_percent)))}"
             )
-        if samples or self.samples:
-            count = int(samples or self.samples)
+        sample_count = int(
+            samples or self.samples or remembered.get("samples", 0) or 0
+        )
+        if sample_count:
             tweaks.append(
                 "scene = bpy.context.scene\n"
                 "if hasattr(scene, 'cycles'):\n"
-                f"    scene.cycles.samples = {count}\n"
+                f"    scene.cycles.samples = {sample_count}\n"
                 "if hasattr(scene, 'eevee'):\n"
-                f"    scene.eevee.taa_render_samples = {count}"
+                f"    scene.eevee.taa_render_samples = {sample_count}"
             )
         if tweaks:
             args += ["--python-expr", "import bpy\n" + "\n".join(tweaks)]
@@ -759,16 +978,24 @@ class Blender(BaseModule):
             )
 
         total = sum(path.stat().st_size for path in written)
-        listing = "\n".join(f"  {path} ({human_bytes(path.stat().st_size)})"
+        self._record_settings(engine=engine_choice, samples=sample_count)
+        listing = "\n".join(f"  {path} ({human_bytes(path.stat().st_size)})\n"
                             for path in written[:12])
         more = f"\n  …and {len(written) - 12} more" if len(written) > 12 else ""
+        opened = ""
+        if show or self.show_after_render:
+            reason = self._open_for_user(written[0])
+            if reason:
+                opened = f"\n(I couldn't open {written[0].name}: {reason})"
+            else:
+                opened = f"\nOpened {written[0].name} for you."
         return ModuleResult(
             success=True,
-            output=f"Rendered {len(written)} frame(s), {human_bytes(total)}:\n{listing}{more}",
+            output=(f"Rendered {len(written)} frame(s), {human_bytes(total)}:\n"
+                    f"{listing}{more}{opened}"),
             speak=f"Rendered {len(written)} frame{'s' if len(written) != 1 else ''}, sir.",
             data={"files": [str(path) for path in written], "bytes": total},
         )
-
     @staticmethod
     def _outputs_since(prefix: Path, since: float) -> List[Path]:
         """Find the frames a render just wrote.
@@ -803,6 +1030,7 @@ class Blender(BaseModule):
     async def _render_via_bpy(
         self, target: Path, frame: int, animation: bool, output: str,
         engine: str, image_format: str, resolution_percent: int, samples: int,
+        show: bool = False,
     ) -> ModuleResult:
         """Render through the bpy module, which has no command line.
 
@@ -815,6 +1043,7 @@ class Blender(BaseModule):
             image_format: Output format name.
             resolution_percent: Render scale.
             samples: Sample count.
+            show: Open the first frame in the OS image viewer afterwards.
 
         Returns:
             A :class:`ModuleResult` listing what was written.
@@ -824,7 +1053,14 @@ class Blender(BaseModule):
         )
         ensure_dir(destination if not destination.suffix else destination.parent)
         prefix = destination if destination.suffix else destination / f"{target.stem}_"
-        resolved_engine = ENGINES.get((engine or self.engine).strip().lower(), "")
+        remembered = self._remembered_settings()
+        engine_choice = str(
+            engine or self.engine or remembered.get("engine", "") or ""
+        ).strip()
+        resolved_engine = ENGINES.get(engine_choice.lower(), "")
+        sample_count = int(
+            samples or self.samples or remembered.get("samples", 0) or 0
+        )
         started = time.time() - 1.0
 
         script = f'''
@@ -839,13 +1075,12 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
         if resolution_percent:
             script += ("scene.render.resolution_percentage = "
                        f"{max(1, min(400, int(resolution_percent)))}\n")
-        if samples or self.samples:
-            count = int(samples or self.samples)
+        if sample_count:
             script += (
                 "if hasattr(scene, 'cycles'):\n"
-                f"    scene.cycles.samples = {count}\n"
+                f"    scene.cycles.samples = {sample_count}\n"
                 "if hasattr(scene, 'eevee'):\n"
-                f"    scene.eevee.taa_render_samples = {count}\n"
+                f"    scene.eevee.taa_render_samples = {sample_count}\n"
             )
         if frame:
             script += f"scene.frame_set({int(frame)})\n"
@@ -858,14 +1093,22 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
         if not written:
             return ModuleResult.fail("Blender wrote no frames — is there a camera?")
         total = sum(path.stat().st_size for path in written)
+        self._record_settings(engine=engine_choice, samples=sample_count)
+        opened = ""
+        if show or self.show_after_render:
+            reason = self._open_for_user(written[0])
+            if reason:
+                opened = f"\n(I couldn't open {written[0].name}: {reason})"
+            else:
+                opened = f"\nOpened {written[0].name} for you."
         return ModuleResult(
             success=True,
-            output=f"Rendered {len(written)} frame(s), {human_bytes(total)}:\n"
-                   + "\n".join(f"  {path}" for path in written[:12]),
+            output=(f"Rendered {len(written)} frame(s), {human_bytes(total)}:\n"
+                    + "\n".join(f"  {path}" for path in written[:12])
+                    + opened),
             speak=f"Rendered {len(written)} frame(s), sir.",
             data={"files": [str(path) for path in written], "bytes": total},
         )
-
     # ------------------------------------------------------------- inspection
     @staticmethod
     def _is_blend(path: Path) -> bool:
@@ -889,11 +1132,12 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
         keywords=["what's in the blend", "inspect the blend", "scene info",
                   "how many objects", "contents of the blend"],
     )
-    async def scene_info(self, blend_file: str) -> ModuleResult:
+    async def scene_info(self, blend_file: str = "") -> ModuleResult:
         """Open a .blend headlessly and summarise its contents.
 
         Args:
-            blend_file: The file to inspect.
+            blend_file: The file to inspect; empty (or a loose name like
+                "the donut") recalls a scene we have seen before.
 
         Returns:
             A :class:`ModuleResult` with a readable summary, and the full
@@ -901,14 +1145,23 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
         """
         if self.find_runtime() is None:
             return self._missing()
-        target = resolve_user_path(blend_file)
-        if not target.is_file():
-            return ModuleResult.fail(f"No .blend file at {target}.")
+        target = self._find_blend(blend_file)
+        if target is None:
+            if (blend_file or "").strip():
+                return ModuleResult.fail(
+                    f"No .blend matching '{blend_file}', sir. Name the file, "
+                    "or say 'the donut' if we made it before."
+                )
+            return ModuleResult.fail(
+                "Which .blend should I inspect, sir? Name one, or say 'the "
+                "donut' if we made it before."
+            )
         if not self._is_blend(target):
             return ModuleResult.fail(
                 f"{target.name} isn't a Blender file, sir — I need a .blend."
             )
         self.last_blend = str(target)
+        self._remember(target)
 
         _code, out, err = await self._run_script(INSPECT_SCRIPT, str(target))
         summary = self._extract_json(out)
@@ -1085,12 +1338,18 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
                         "default": ""},
             "preview": {"type": "boolean", "description": "Render a still afterwards",
                         "default": True},
+            "look": {"type": "string",
+                     "description": "Presentational look applied after the build: "
+                                    "'studio', 'soft', 'sunset' or 'minimal'. "
+                                    "Blank lets the model decide.",
+                     "default": ""},
         },
         keywords=["make a 3d scene", "build a 3d", "model a", "create a scene in blender"],
-        examples=["make a 3d scene with a red cube on a checkered plane"],
+        examples=["make a 3d scene with a red cube on a checkered plane",
+                  "make a donut scene in a studio look"],
     )
     async def make_scene(self, description: str, save_as: str = "",
-                         preview: bool = True) -> ModuleResult:
+                         preview: bool = True, look: str = "") -> ModuleResult:
         """Have the LLM write a bpy script, run it, and save the result.
 
         Args:
@@ -1098,6 +1357,8 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
             save_as: Where to save the ``.blend``; a sensible name is chosen
                 when this is empty.
             preview: Render a still once the scene is built.
+            look: A finished-scene look from :data:`LOOK_PRESETS` applied after
+                the build; blank lets the model choose its own lighting.
 
         Returns:
             A :class:`ModuleResult` naming the .blend and any preview image.
@@ -1109,13 +1370,20 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
                 "Building a scene from a description needs the language model, sir. "
                 "Start Ollama, or give me a bpy script and I'll run it."
             )
+        preset = str(look or "").strip().lower()
+        if preset and preset not in LOOK_PRESETS:
+            return ModuleResult.fail(
+                f"Unknown look '{look}', sir. Try {', '.join(sorted(LOOK_PRESETS))}."
+            )
 
         prompt = (
             "Write a Blender Python (bpy) script for Blender 4.x that builds this "
             f"scene:\n\n{description}\n\n"
             "Rules:\n"
             "1. Start from an empty scene: delete the default objects first.\n"
-            "2. Add a camera framing the subject and at least one light.\n"
+            "2. Frame the subject properly: compute the object bounds, aim the \n"
+            "camera at their centre from a three-quarter angle, and pull back so \n"
+            "everything fits with margin; add at least one light.\n"
             "3. Use only bpy, bmesh, mathutils and the standard library — no "
             "downloads, no file reads, no add-ons.\n"
             "4. Set materials with nodes where colour is asked for.\n"
@@ -1126,6 +1394,8 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
         source = await self._resolve_script(raw)
         if not source.strip():
             return ModuleResult.fail("The model didn't give me a usable script.")
+        if preset:
+            source = f"{source}\n\n{LOOK_PRESETS[preset]}"
 
         # Judge the script the model actually wrote. A scene built from bpy
         # calls needs no confirmation; one that reaches for the filesystem or
@@ -1166,6 +1436,7 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
                 f"The scene didn't build: {self._blender_error(out, err)}"
             )
         self.last_blend = str(target)
+        self._remember(target)
 
         message = f"Built {target.name} ({human_bytes(target.stat().st_size)}) at {target}."
         data: Dict[str, Any] = {"blend": str(target), "script": source}
@@ -1224,15 +1495,18 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
         """
         if self.find_runtime() is None:
             return self._missing()
-        target = resolve_user_path(blend_file or self.last_blend)
-        if not (blend_file or self.last_blend):
-            return ModuleResult.fail("Which .blend should I export, sir?")
-        if not target.is_file():
-            return ModuleResult.fail(f"No .blend file at {target}.")
+        target = self._find_blend(blend_file)
+        if target is None:
+            return ModuleResult.fail(
+                "Which .blend should I export, sir? Name one — or say 'export "
+                "the donut' if we made it before."
+            )
         if not self._is_blend(target):
             return ModuleResult.fail(
                 f"{target.name} isn't a Blender file, sir — I need a .blend."
             )
+        self.last_blend = str(target)
+        self._remember(target)
 
         suffix = ("." + format.strip().lower().lstrip(".")) if format else ".glb"
         operator = EXPORTERS.get(suffix)

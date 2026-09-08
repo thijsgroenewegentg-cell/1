@@ -39,6 +39,7 @@ from core.intent_router import INTENT_KEYWORDS, Intent, IntentRouter
 from core.memory import Memory
 from core.personality import Personality
 from core.planner import Planner, TokenCallback
+from core.preferences import Preferences
 from modules.base import BaseModule, ModuleResult
 from utils.helpers import (
     detect_os,
@@ -94,6 +95,13 @@ class OllamaClient:
         self.host: str = str(config.get("llm.host", "http://localhost:11434")).rstrip("/")
         self.model: str = str(config.get("llm.model", "llama3.2"))
         self.router_model: str = str(config.get("llm.router_model", "") or self.model)
+        #: Tiered models (see ``llm.fast_model``/``llm.deep_model``): filled in
+        #: during :meth:`initialize` with installed model names, or left ""
+        #: so callers keep using the main model. Routine chat is fast, and a
+        #: plan step that already failed gets one retry on the deep model.
+        self.fast_model: str = ""
+        self.deep_model: str = ""
+        self.tiered_models: bool = bool(config.get("llm.tiered_models", True))
         self.fallbacks: List[str] = list(config.get("llm.fallback_models", []) or [])
         self.timeout: float = float(config.get("llm.timeout", 180))
         self.available: bool = False
@@ -154,9 +162,39 @@ class OllamaClient:
 
         router = self._resolve_model(self.router_model) or self.model
         self.router_model = router
+
+        # Resolve the fast/deep tiers against what Ollama actually has. A tier
+        # name that is not installed must not silently become the main model
+        # — it falls back to "" (main) with a warning so it is easy to spot.
+        if self.tiered_models:
+            self.fast_model = self._resolve_tier("llm.fast_model")
+            self.deep_model = self._resolve_tier("llm.deep_model")
+        else:
+            self.fast_model = ""
+            self.deep_model = ""
+
         self.available = True
-        logger.info("LLM ready — model=%s router=%s host=%s", self.model, router, self.host)
+        logger.info(
+            "LLM ready — model=%s router=%s fast=%s deep=%s host=%s",
+            self.model, router, self.fast_model or "-", self.deep_model or "-",
+            self.host,
+        )
         return True
+
+    def _resolve_tier(self, key: str) -> str:
+        """Resolve a configured tier model, warning when it is not installed."""
+        configured = str(self.config.get(key, "") or "").strip()
+        if not configured:
+            return ""
+        resolved = self._resolve_model(configured)
+        if resolved is None:
+            logger.warning(
+                "Configured %s '%s' is not installed — that tier will reuse the "
+                "main model. Install it with: ollama pull %s",
+                key, configured, configured.split(":")[0],
+            )
+            return ""
+        return resolved
 
     def _resolve_model(self, name: str) -> Optional[str]:
         """Match a configured model name against installed Ollama tags."""
@@ -302,6 +340,9 @@ class OllamaClient:
             "online": bool(models),
             "model": self.model,
             "router_model": self.router_model,
+            "fast_model": self.fast_model,
+            "deep_model": self.deep_model,
+            "tiered_models": self.tiered_models,
             "installed": models,
             "last_error": self.last_error,
         }
@@ -586,6 +627,10 @@ class Brain:
         self.config = config
         self.llm = OllamaClient(config)
         self.memory = Memory(config)
+        #: Habits learned from completed interactions (see :mod:`core.preferences`).
+        self.preferences = Preferences(config.resolve(
+            config.get("memory.preferences_file", "data/preferences.json")
+        ))
         self.security = SecurityGuard.from_config(config.section("security"))
         #: Intent classification: keyword prior plus the model itself.
         self.router = IntentRouter(self)
@@ -910,6 +955,7 @@ class Brain:
         on_token: Optional[TokenCallback] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
     ) -> str:
         """Generate a reply, streaming tokens when a callback is supplied.
 
@@ -921,13 +967,16 @@ class Brain:
             on_token: Optional callback invoked with each token as it arrives.
             temperature: Sampling temperature.
             max_tokens: Response length cap.
+            model: Model override (None = the resolved main model), used by
+                the fast/deep tiering.
 
         Returns:
             The complete (or partial, if cancelled) response text.
         """
         if on_token is None or not self.streaming_enabled:
             task = asyncio.create_task(
-                self.llm.chat(messages, temperature=temperature, max_tokens=max_tokens)
+                self.llm.chat(messages, temperature=temperature,
+                              max_tokens=max_tokens, model=model)
             )
             cancel_task = asyncio.create_task(self._cancel.wait())
             done, _ = await asyncio.wait(
@@ -944,7 +993,8 @@ class Brain:
         pieces: List[str] = []
         try:
             async for token in self.llm.stream(
-                messages, temperature=temperature, max_tokens=max_tokens
+                messages, temperature=temperature, max_tokens=max_tokens,
+                model=model,
             ):
                 if self._cancel.is_set():
                     logger.debug("Generation cancelled mid-stream.")
@@ -962,7 +1012,8 @@ class Brain:
             logger.debug("Streaming generation failed: %s", exc)
             if not pieces:
                 return await self.llm.chat(
-                    messages, temperature=temperature, max_tokens=max_tokens
+                    messages, temperature=temperature, max_tokens=max_tokens,
+                    model=model,
                 )
         return "".join(pieces).strip()
 
@@ -1102,7 +1153,9 @@ class Brain:
                 self.events.emit(
                     "tool.called", source="brain", tool=reference, params=params
                 )
-                return self._announce_result(reference, await module.call_tool(tool_name, params))
+                return self._announce_result(
+                    reference, await module.call_tool(tool_name, params), params
+                )
             return await module.execute(str(params.get("query", "")), params)
 
         # Bare tool name: search every module.
@@ -1111,13 +1164,20 @@ class Brain:
                 self.events.emit(
                     "tool.called", source="brain", tool=reference, params=params
                 )
-                return self._announce_result(reference, await module.call_tool(reference, params))
+                return self._announce_result(
+                    reference, await module.call_tool(reference, params), params
+                )
 
         return ModuleResult.fail(
             f"No such tool '{reference}'. Known modules: {', '.join(self.modules)}."
         )
 
-    def _announce_result(self, reference: str, result: ModuleResult) -> ModuleResult:
+    def _announce_result(
+        self,
+        reference: str,
+        result: ModuleResult,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> ModuleResult:
         """Publish a tool's structured result, then hand it back unchanged.
 
         Tools already return their findings as data — todo rows, CPU figures,
@@ -1128,6 +1188,8 @@ class Brain:
         Args:
             reference: ``module.tool``.
             result: What the tool returned.
+            params: The parameters the tool ran with, used to learn the
+                user's recurring routines from successful calls.
 
         Returns:
             ``result``, untouched.
@@ -1136,6 +1198,8 @@ class Brain:
             "tool.result", source="brain", tool=reference, ok=result.success,
             data=_compact(result.data),
         )
+        if result.success:
+            self.preferences.observe(reference, params or {})
         return result
 
     async def _memory_tool(self, tool_name: str, params: Dict[str, Any]) -> ModuleResult:
@@ -1391,14 +1455,22 @@ class Brain:
     async def _converse(
         self, text: str, memory_context: str, on_token: Optional[TokenCallback] = None
     ) -> str:
-        """Plain conversational reply with persona and history."""
+        """Plain conversational reply with persona and history.
+
+        Routine chatter is exactly where the fast tier earns its keep: no
+        tools are involved, so a small model keeps the reply snappy and the
+        main model free for real work. Falls back to the main model when no
+        ``llm.fast_model`` is configured.
+        """
         if not self.llm.available:
             return self._offline_reply(text)
 
         messages = [{"role": "system", "content": self.system_prompt(memory_context)}]
         messages.extend(self.memory.context_messages())
         messages.append({"role": "user", "content": text})
-        reply = await self._generate(messages, on_token=on_token)
+        reply = await self._generate(
+            messages, on_token=on_token, model=self.llm.fast_model or None
+        )
         if reply.strip():
             return reply.strip()
         if self._cancel.is_set():
@@ -1517,6 +1589,62 @@ class Brain:
         except Exception:
             pass
         return base
+
+    def boot_status(self) -> str:
+        """One local, instant sentence describing what came online.
+
+        Deliberately does not call the model: the boot announcement must never
+        wait on Ollama or a network call to prove the pipes are open.
+
+        Returns:
+            A concise systems report ready to speak or print.
+        """
+        bits: List[str] = []
+        if self.llm.available:
+            bits.append(f"{self.llm.model} brain ready")
+        else:
+            bits.append("language model offline (Ollama not answering)")
+        memory_name = getattr(self.memory, "backend", "") or "disabled"
+        bits.append(f"{memory_name} memory" if memory_name else "memory offline")
+        bits.append(f"{len(self.modules)} modules")
+        blender = self.modules.get("blender")
+        if blender is not None:
+            try:
+                if blender.find_runtime() is not None:
+                    bits.append("Blender found")
+            except Exception:
+                pass
+        status = ", ".join(bits)
+        address = self.config.user_address()
+        if address:
+            return f"All systems online, {address}. {status.capitalize()}."
+        return f"All systems online. {status.capitalize()}."
+
+    async def morning_brief(self, timeout: float = 25.0) -> str:
+        """Assemble the day's briefing from the productivity module.
+
+        Args:
+            timeout: Seconds to wait before falling back to a partial answer.
+
+        Returns:
+            A spoken-style briefing, or a short failure note.
+        """
+        productivity = self.modules.get("productivity")
+        if productivity is None:
+            return "My briefing module is off the air, sir."
+        try:
+            result = await asyncio.wait_for(
+                productivity.call_tool("daily_briefing", {}), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            return "The briefing is taking too long, sir — ask me for tasks, "
+            "calendar or weather separately."
+        except Exception as exc:
+            logger.debug("Morning briefing failed: %s", exc)
+            return "My briefing feed is having trouble this morning, sir."
+        if result.success and (result.output or "").strip():
+            return str(result.output)
+        return "Nothing pressing on the books, sir."
 
     async def status_report(self) -> Dict[str, Any]:
         """Collect a full status snapshot for the CLI ``status`` command."""

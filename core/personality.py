@@ -107,6 +107,17 @@ class Personality:
             lines += ["", f"Earlier in this conversation: {summary}"]
         if memory_context:
             lines += ["", memory_context]
+
+        learned = getattr(self.brain, "preferences", None)
+        if learned is not None:
+            habits = learned.summary()
+            if habits:
+                lines += [
+                    "",
+                    f"What JARVIS has noticed about how {user_name} works "
+                    "(offer these first, keep following them until told otherwise):",
+                    habits,
+                ]
         return "\n".join(lines)
 
     @staticmethod

@@ -66,6 +66,22 @@ DESCRIPTIONS: Dict[str, str] = {
     "assistant.sarcasm": "0.0 for straight-faced, 1.0 for insufferable. Default is dry.",
     "assistant.greet_on_start": "Greet you when JARVIS starts.",
     "assistant.proactive": "Offer a follow-up suggestion when one is obviously useful.",
+    "assistant.say_status_on_start": (
+        "Speak a one-line systems report (model, memory, modules) when voice "
+        "mode boots, so a silent audio pipeline is obvious immediately."
+    ),
+    "assistant.morning_brief_on_start": (
+        "Add the daily briefing (tasks, calendar, reminders, weather) to the "
+        "start-up announcement."
+    ),
+    "assistant.confirm_plan": (
+        "Ask before the first tool call when the chosen action looks like a "
+        "guess (a file or target the user never named)."
+    ),
+    "assistant.global_hotkey": (
+        "Global shortcut that summons JARVIS (e.g. 'ctrl+alt+j'). Needs the "
+        "optional 'keyboard' package; opens the web UI when running."
+    ),
     # -- llm ----------------------------------------------------------------
     "llm.provider": "Accepted for compatibility; JARVIS only ever talks to Ollama.",
     "llm.host": "Where Ollama is listening. Point it at another machine on your LAN if you like.",
@@ -81,6 +97,14 @@ DESCRIPTIONS: Dict[str, str] = {
         "A smaller model used only for intent classification. Blank reuses the main "
         "one."
     ),
+    "llm.fast_model": (
+        "Small/fast model used for routine chat replies. Blank reuses the main model."
+    ),
+    "llm.deep_model": (
+        "Big/slow model used for one retry when a plan step already failed. "
+        "Blank reuses the main model."
+    ),
+    "llm.tiered_models": "Master switch for the fast-chat/deep-retry model split.",
     "llm.instant_chat": (
         "Skip the classifier model for keyword-silent small talk, so 'hello' costs "
         "one model call instead of two. false asks the router model every time."
@@ -94,6 +118,10 @@ DESCRIPTIONS: Dict[str, str] = {
     "memory.short_term_limit": "Exchanges kept verbatim in RAM for immediate context.",
     "memory.long_term": "Keep durable facts in the vector store for later recall.",
     "memory.path": "Where the ChromaDB (or JSON fallback) vector store lives.",
+    "memory.preferences_file": (
+        "JSON file where habits learned from completed interactions are stored "
+        "durably (e.g. the user renders at 50% for quick previews)."
+    ),
     "memory.collection": "Collection name inside the vector store.",
     "memory.embedding_model": "Ollama model used to embed memories.",
     "memory.local_embedding_model": (
@@ -146,10 +174,12 @@ DESCRIPTIONS: Dict[str, str] = {
     "voice.stt.beam_size": "Whisper beam search width. 1 is fastest.",
     "voice.stt.vad_filter": "Let Whisper drop silence before transcribing.",
     "voice.tts.engine": (
-        "TTS engine: 'auto' (Piper if a local voice is installed else ElevenLabs if a key is set else edge-tts), "
-        "'piper' (offline), 'edge' (free online) or 'elevenlabs'/'eleven' (premium, needs a key)."
+        "TTS engine: 'auto' (Piper if a local voice is installed, else "
+        "ElevenLabs when a key is set, else edge-tts), 'piper' (offline), "
+        "'edge' (free online) or 'elevenlabs'/'eleven' (premium, needs a key)."
     ),
-    "voice.tts.piper_voice": "Piper voice name or .onnx path in data/piper. Blank auto-discovers one.",
+    "voice.tts.piper_voice": ("Piper voice name or .onnx path in data/piper. "
+                              "Blank auto-discovers one."),
     "voice.tts.piper_speed": "Piper speaking speed. 1.0 is normal, >1 faster, <1 slower.",
     "voice.tts.voice": "Edge-TTS voice name. Blank picks one to match the language.",
     "voice.tts.rate": "Speaking rate, e.g. '+8%' or '-10%'.",
@@ -157,18 +187,24 @@ DESCRIPTIONS: Dict[str, str] = {
     "voice.tts.pitch": "Pitch offset, e.g. '+0Hz'.",
     "voice.tts.cache": "Cache synthesised audio so repeated phrases are instant.",
     "voice.tts.elevenlabs_api_key": (
-        "ElevenLabs API key (https://elevenlabs.io/app/settings/api-keys). Blank uses env ELEVENLABS_API_KEY."
+        "ElevenLabs API key (https://elevenlabs.io/app/settings/api-keys). "
+        "Blank uses the ELEVENLABS_API_KEY env var."
     ),
     "voice.tts.elevenlabs_voice_id": (
-        "ElevenLabs voice ID (https://elevenlabs.io/app/voice-library), e.g. '21m00Tcm4TlvDq8ikWAM' for Rachel."
+        "ElevenLabs voice ID (https://elevenlabs.io/app/voice-library), e.g. "
+        "'21m00Tcm4TlvDq8ikWAM' for Rachel."
     ),
     "voice.tts.elevenlabs_model": (
-        "ElevenLabs model: 'eleven_turbo_v2' (fast), 'eleven_multilingual_v2' (best) or 'eleven_monolingual_v1'."
+        "ElevenLabs model: 'eleven_turbo_v2' (fast), 'eleven_multilingual_v2' "
+        "(best) or 'eleven_monolingual_v1'."
     ),
-    "voice.tts.elevenlabs_stability": "ElevenLabs stability 0.0-1.0. Lower is more expressive, higher is more stable.",
-    "voice.tts.elevenlabs_similarity_boost": "ElevenLabs similarity to the original voice, 0.0-1.0.",
+    "voice.tts.elevenlabs_stability": ("ElevenLabs stability 0.0-1.0. Lower is more "
+                                        "expressive, higher is more stable."),
+    "voice.tts.elevenlabs_similarity_boost": ("ElevenLabs similarity to the original "
+                                               "voice, 0.0-1.0."),
     "voice.tts.elevenlabs_style": "ElevenLabs style exaggeration 0.0-1.0 (only for v2 models).",
-    "voice.tts.elevenlabs_use_speaker_boost": "Boost ElevenLabs similarity at the cost of a little latency.",
+    "voice.tts.elevenlabs_use_speaker_boost": ("Boost ElevenLabs similarity at the cost of "
+                                                "a little latency."),
     "voice.vad.sample_rate": "Microphone sample rate in hertz.",
     "voice.vad.frame_ms": "Audio frame size for voice detection.",
     "voice.vad.energy_threshold": (
@@ -208,6 +244,14 @@ DESCRIPTIONS: Dict[str, str] = {
         "Full path to the Blender binary. Blank searches PATH and the usual places."
     ),
     "blender.output_dir": "Where renders and exports are written.",
+    "blender.state_file": (
+        "Remembers the last-used .blend (overall and by name) and your render "
+        "settings, so a bare 'render the animation' works after a restart."
+    ),
+    "blender.show_after_render": (
+        "Open the first rendered frame in the OS image viewer after every "
+        "render. A 'render and show me' request opens it regardless."
+    ),
     "blender.engine": (
         "Default render engine: 'cycles', 'eevee', 'workbench', or blank for the "
         "file's own."

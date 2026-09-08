@@ -20,6 +20,10 @@ assistant:
   sarcasm: 0.35            # 0.0 (dry) .. 1.0 (insufferable)
   greet_on_start: true
   proactive: true          # offer follow-up suggestions when useful
+  say_status_on_start: true    # speak a one-line systems report at boot
+  morning_brief_on_start: false  # add the daily briefing (tasks/calendar/weather)
+  confirm_plan: true           # ask before a first tool call that looks like a guess
+  global_hotkey: ""            # e.g. "ctrl+alt+j": summon JARVIS from anywhere
 
 llm:
   provider: "ollama"
@@ -43,6 +47,11 @@ llm:
   warm_up: true                           # load the model at start-up, not mid-question
   # A smaller/faster model can be used for intent classification & tool picking
   router_model: ""                        # "" = reuse main model (try e.g. "llama3.2:1b")
+  # Tiered models — fast for routine chat, deep for a second attempt at a
+  # hard plan step that already failed. Leave blank to reuse the main model.
+  fast_model: ""                          # try e.g. "llama3.2:1b" for quick chat
+  deep_model: ""                          # try e.g. "llama3.3" or "qwen2.5:32b"
+  tiered_models: true                     # master switch for the split above
   instant_chat: true                      # "hello"-style small talk skips the
                                           #   classifier round-trip entirely
                                           # false = always ask the router model
@@ -58,6 +67,9 @@ memory:
   min_relevance: 0.20
   autosave: true
   auto_extract_facts: true                # let the LLM mine facts worth keeping
+  # Habits learned from completed interactions (durable, JSON): how you like
+  # things done — e.g. renders at 50% for quick previews.
+  preferences_file: "data/preferences.json"
   summarize: true                         # compress old turns into a running summary
   summary_trigger: 12                     # exchanges before compressing
   context_char_budget: 9000               # rough prompt budget for history
@@ -181,6 +193,10 @@ blender:
   render_timeout: 1800
   memory_mb: 0
   allow_scripts: true
+  state_file: "data/blender_state.json"   # remembers your last scene + settings
+  show_after_render: false                # true = open the first frame in your
+                                          #   image viewer after every render
+                                          # ("render and show me" opens anyway)
 
 email:
   enabled: false           # set true and fill in the details below

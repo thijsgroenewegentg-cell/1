@@ -474,3 +474,185 @@ def test_every_tool_is_still_registered(blender):
     for name in ("blender_status", "render", "scene_info", "run_script",
                  "make_scene", "export_model", "open_blender", "list_renders"):
         assert name in blender.tools, name
+
+
+# ------------------------------------------------------- scene memory
+def test_a_loose_scene_name_recalls_the_blend_after_a_restart(blender, scene):
+    """'render the donut' works on a fresh instance once the file is known."""
+    result = run(blender.call_tool("render", {"blend_file": str(scene), "frame": 1}))
+    assert result.success
+
+    reopened = Blender(blender.config)  # a brand-new instance = a fresh session
+    result = run(reopened.call_tool("render", {"blend_file": "city"}))
+    assert result.success, result.error
+    assert result.data["files"]
+
+
+def test_render_without_a_name_uses_the_last_scene_across_instances(blender, scene):
+    run(blender.call_tool("render", {"blend_file": str(scene), "frame": 1}))
+    reopened = Blender(blender.config)
+    result = run(reopened.call_tool("render", {"blend_file": ""}))
+    assert result.success, result.error
+
+
+def test_scene_info_recalls_a_loose_name_across_instances(blender, scene):
+    run(blender.call_tool("scene_info", {"blend_file": str(scene)}))
+    reopened = Blender(blender.config)
+    result = run(reopened.call_tool("scene_info", {"blend_file": "city"}))
+    assert result.success, result.error
+    assert "city.blend" in result.output
+
+
+def test_export_model_recalls_the_last_scene_across_instances(blender, scene):
+    run(blender.call_tool("render", {"blend_file": str(scene), "frame": 1}))
+    reopened = Blender(blender.config)
+    result = run(reopened.call_tool("export_model", {"format": "glb"}))
+    assert result.success, result.error
+
+
+def test_a_loose_name_with_no_memory_is_still_an_ask(blender):
+    result = run(blender.call_tool("scene_info", {"blend_file": "donut"}))
+    assert not result.success
+    assert "donut" in result.error
+
+
+def test_render_settings_are_remembered_and_reused(blender, scene, monkeypatch):
+    """Engine and samples chosen once become the defaults for later renders."""
+    run(blender.call_tool("render", {
+        "blend_file": str(scene), "engine": "cycles", "samples": 64, "frame": 1,
+    }))
+
+    reopened = Blender(blender.config)
+    seen = {}
+
+    real_run = reopened._run
+
+    async def capture_run(args, timeout, script="") -> object:
+        seen["args"] = list(args)
+        return await real_run(args, timeout, script=script)
+
+    monkeypatch.setattr(reopened, "_run", capture_run)
+    result = run(reopened.call_tool("render", {"blend_file": str(scene), "frame": 2}))
+    assert result.success, result.error
+    assert "-E" in seen["args"]
+    assert seen["args"][seen["args"].index("-E") + 1] == "CYCLES"
+    assert any("scene.cycles.samples = 64" in arg for arg in seen["args"])
+
+
+def test_show_opens_the_first_frame_for_you(blender, scene, monkeypatch):
+    opened = []
+
+    def fake_open(path) -> str:
+        opened.append(str(path))
+        return ""
+
+    monkeypatch.setattr(blender, "_open_for_user", fake_open)
+    result = run(blender.call_tool(
+        "render", {"blend_file": str(scene), "frame": 1, "show": True}
+    ))
+    assert result.success, result.error
+    assert opened, "the render result should have been opened"
+    assert "Opened" in result.output
+    assert opened[0].rsplit("/", 1)[-1] in result.output
+
+
+def test_show_after_render_config_opens_every_render(blender, scene, monkeypatch):
+    blender.show_after_render = True
+    opened = []
+    monkeypatch.setattr(blender, "_open_for_user",
+                        lambda path: opened.append(str(path)) or "")
+    result = run(blender.call_tool("render", {"blend_file": str(scene), "frame": 1}))
+    assert result.success, result.error
+    assert len(opened) == 1
+
+
+def test_a_failed_show_never_fails_the_render(blender, scene, monkeypatch):
+    monkeypatch.setattr(blender, "_open_for_user", lambda path: "no viewer here")
+    result = run(blender.call_tool(
+        "render", {"blend_file": str(scene), "frame": 1, "show": True}
+    ))
+    assert result.success, result.error
+    assert "couldn't open" in result.output.lower()
+
+
+# ---------------------------------------------------------- scene presets
+def test_make_scene_applies_a_look_preset(blender, monkeypatch, tmp_path):
+    """A requested look appends its lighting snippet to the bpy build."""
+    seen = {}
+
+    async def fake_complete(prompt, system=None, temperature=None,
+                            max_tokens=None, model=None, json_mode=False) -> str:
+        seen["prompt"] = prompt
+        return "```python\nimport bpy\nbpy.ops.mesh.primitive_cube_add()\n```"
+
+    class FakeLLM:
+        available = True
+        complete = staticmethod(fake_complete)
+
+    blender.llm = FakeLLM()
+
+    async def fake_run_script(script, *args: object, **kwargs: object) -> object:
+        seen["script"] = script
+        # Simulate Blender saving the file the script asked for.
+        target = blender.output_dir / "donut.blend"
+        target.write_text("# fake blend", encoding="utf-8")
+        return 0, f"JARVIS_SAVED {target}", ""
+
+    monkeypatch.setattr(blender, "_run_script", fake_run_script)
+    result = run(blender.call_tool(
+        "make_scene", {"description": "a donut", "look": "studio",
+                       "preview": False}
+    ))
+    assert result.success, result.error
+    assert "Frame the subject properly" in seen["prompt"], \
+        "camera framing should be part of the build rules"
+    assert "# studio: neutral backdrop" in seen["script"]
+    assert "obj.data.energy *= 1.5" in seen["script"]
+    assert result.data["blend"].endswith("donut.blend")
+
+
+def test_an_unknown_look_is_refused(blender, monkeypatch):
+    async def fake_complete(prompt, system=None, temperature=None,
+                            max_tokens=None, model=None, json_mode=False) -> str:
+        return "import bpy"
+
+    class FakeLLM:
+        available = True
+        complete = staticmethod(fake_complete)
+
+    blender.llm = FakeLLM()
+    result = run(blender.call_tool(
+        "make_scene", {"description": "a donut", "look": "neon"}
+    ))
+    assert not result.success
+    assert "studio" in result.error
+
+
+def test_make_scene_remembers_what_it_built(blender, monkeypatch):
+    async def fake_complete(prompt, system=None, temperature=None,
+                            max_tokens=None, model=None, json_mode=False) -> str:
+        return "import bpy"
+
+    class FakeLLM:
+        available = True
+        complete = staticmethod(fake_complete)
+
+    blender.llm = FakeLLM()
+
+    async def fake_run_script(script, *args: object, **kwargs: object) -> object:
+        target = blender.output_dir / "tower.blend"
+        target.write_text("# fake blend", encoding="utf-8")
+        return 0, f"JARVIS_SAVED {target}", ""
+
+    monkeypatch.setattr(blender, "_run_script", fake_run_script)
+    result = run(blender.call_tool(
+        "make_scene", {"description": "a tower", "preview": False}
+    ))
+    assert result.success, result.error
+
+    reopened = Blender(blender.config)
+    loose = run(reopened.call_tool("scene_info", {"blend_file": "tower"}))
+    # No real Blender runs here, so scene_info fails on runtime discovery —
+    # but it must resolve the remembered file and get as far as Blender itself.
+    assert loose.error and "blender" in loose.error.lower()
+    assert reopened.last_blend.endswith("tower.blend")
