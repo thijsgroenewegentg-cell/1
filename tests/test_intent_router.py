@@ -108,6 +108,35 @@ def test_small_talk_is_not_hijacked_by_a_tool_keyword(brain: Any, utterance: str
     assert route(brain, utterance) == "conversation"
 
 
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "edit your code to be faster",
+        "edit your own code please",
+        "rewrite your code",
+        "modify your own code",
+        "fix your own code",
+        "change your code so replies are shorter",
+        "add a tool to yourself",
+    ],
+)
+def test_explicit_self_edit_orders_route_to_self_improve(brain: Any, utterance: str) -> None:
+    """'change your code' is an order to edit his own source, not a chat."""
+    intent = brain.router._keyword_intent(utterance)
+    assert intent.module == "self_improve"
+    assert intent.reason.startswith("decisive"), utterance
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["don't change your code today", "please never edit your own code"],
+)
+def test_advice_against_self_editing_is_not_decisive(brain: Any, utterance: str) -> None:
+    """'Don't change your code' is a preference, not an order to edit."""
+    intent = brain.router._keyword_intent(utterance)
+    assert not intent.reason.startswith("decisive"), utterance
+
+
 # ------------------------------------------------- latency: skip the router LLM
 def test_plain_chat_skips_the_classifier_model(brain: Any, monkeypatch: Any) -> None:
     """Small talk with the model online costs one model call, not two."""

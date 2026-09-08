@@ -657,3 +657,54 @@ def test_reduced_motion_suppresses_the_new_atmosphere(web):
     assert "#halo" in reduced
     assert "#grid" in reduced
     assert "#grain" in reduced
+
+
+# ---------------------------------------------- permission gate over the socket
+def _confirm_scenario(config, reply):
+    """Run one WS turn that needs approval, answer it, and return the reply."""
+    import json
+
+    from fastapi.testclient import TestClient
+
+    from interfaces.web_ui import WebInterface
+
+    config.set("security.confirm_dangerous", True)
+    brain = Brain(config)
+    run(brain.initialize())
+    interface = WebInterface(brain, config, port=8129)
+    client = TestClient(interface.app)
+    try:
+        with client.websocket_connect(f"/ws?token={interface.token}") as ws:
+            ws.send_text(json.dumps({
+                "text": "edit your code in modules/productivity.py to say hello"
+            }))
+            confirm = None
+            for _ in range(40):
+                message = ws.receive_json()
+                if message.get("type") == "confirm":
+                    confirm = message
+                    break
+            assert confirm is not None, "the browser should be asked"
+            assert "edit_own_code" in confirm["text"] or "self_improve" in confirm["text"]
+            ws.send_text(json.dumps({
+                "type": "confirm", "id": confirm["id"], "reply": reply
+            }))
+            while True:
+                message = ws.receive_json()
+                if message.get("type") == "reply":
+                    return message.get("text", "")
+    finally:
+        run(brain.shutdown())
+
+
+def test_a_dangerous_edit_is_approved_over_the_socket(config):
+    """Approve in the browser: the edit proceeds (and here, without an LLM,
+    explains that the rewrite itself needs the model)."""
+    text = _confirm_scenario(config, reply=True)
+    assert text and ("language model" in text or "Ollama" in text)
+
+
+def test_denying_the_confirm_cancels_the_edit(config):
+    """Deny in the browser: the dangerous tool must not run."""
+    text = _confirm_scenario(config, reply=False)
+    assert "cancel" in text.lower()

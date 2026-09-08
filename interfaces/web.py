@@ -262,6 +262,11 @@ class WebInterface:
         self._server: Optional[Any] = None
         self._tts: Optional[Any] = None
         self._paused: bool = False
+        #: Serialises who may swap the security confirmation hook. The brain
+        #: runs one turn at a time, but two browsers could otherwise race to
+        #: install their own hook and one would answer the other's prompt.
+        self._confirm_lock = asyncio.Lock()
+        self._confirm_seq: int = 0
         self.app = self._build_app()
 
     # ------------------------------------------------------------------ utils
@@ -1259,6 +1264,47 @@ class WebInterface:
         except Exception:
             self._sockets.discard(socket)
 
+    def _ask_over_websocket(self, websocket: Any) -> Any:
+        """Build the security confirmation hook for one browser turn.
+
+        Returns:
+            An ``async (prompt) -> bool`` callable that renders an approval
+            card in the browser and waits for the user's answer.
+        """
+
+        async def ask(prompt: str) -> bool:
+            self._confirm_seq += 1
+            seq = self._confirm_seq
+            await websocket.send_text(json.dumps({
+                "type": "confirm",
+                "id": seq,
+                "text": truncate(prompt, 600),
+            }))
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 300.0
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return False
+                try:
+                    raw = await asyncio.wait_for(
+                        websocket.receive_text(), timeout=remaining
+                    )
+                except Exception:
+                    # Socket died or the user never answered — deny by default.
+                    return False
+                try:
+                    message = json.loads(raw)
+                except Exception:
+                    continue
+                if message.get("command") == "cancel":
+                    return False
+                if message.get("type") == "confirm" and message.get("id") == seq:
+                    return bool(message.get("reply", False))
+                # Anything else (a stray token command) is not the answer.
+
+        return ask
+
     async def _handle_turn(self, websocket: Any, text: str) -> None:
         """Run one request, streaming tokens back to the browser."""
         loop = asyncio.get_running_loop()
@@ -1281,13 +1327,28 @@ class WebInterface:
                     return
 
         sender = asyncio.create_task(pump())
+        security = getattr(self.brain, "security", None)
         try:
-            reply = await self.brain.process(text, on_token=on_token)
-        except Exception as exc:
-            logger.exception("Web turn failed")
-            reply = ""
-            with_error = {"type": "error", "text": truncate(str(exc), 200)}
-            await websocket.send_text(json.dumps(with_error))
+            # Dangerous tools (editing his own code, installing packages) ask
+            # for approval. Over the web the terminal may not exist, so ask on
+            # the socket this turn came in on; restore the previous hook (the
+            # CLI's) afterwards. The lock keeps two browsers from answering
+            # each other's prompts.
+            async with self._confirm_lock:
+                previous_hook = None
+                if security is not None:
+                    previous_hook = getattr(security, "_confirm_hook", None)
+                    security.set_confirm_hook(self._ask_over_websocket(websocket))
+                try:
+                    reply = await self.brain.process(text, on_token=on_token)
+                except Exception as exc:
+                    logger.exception("Web turn failed")
+                    reply = ""
+                    with_error = {"type": "error", "text": truncate(str(exc), 200)}
+                    await websocket.send_text(json.dumps(with_error))
+                finally:
+                    if security is not None:
+                        security.set_confirm_hook(previous_hook)
         finally:
             queue.put_nowait(None)
             await sender

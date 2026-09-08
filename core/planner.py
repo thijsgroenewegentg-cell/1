@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import json
 import random
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
+import re
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from core.intent_router import Intent
 from modules.base import ModuleResult
@@ -71,6 +72,27 @@ class Planner:
             if result.success:
                 return result.output or "Done, sir."
             return f"{result.error or 'That did not work.'} (LLM offline — running on reflexes.)"
+
+        # --- explicit "edit your code" needs no negotiation -----------------
+        # The whole point of the module is that JARVIS rewrites himself, and a
+        # small model asked to "plan the next step" will happily answer in
+        # prose instead of calling the edit tool. When the user is *ordering*
+        # an edit, run it directly: parse the target file out of the request
+        # and let edit_own_code do the LLM rewrite, backup, tests and reload.
+        if intent.module == "self_improve":
+            direct = self._self_edit_request(text)
+            if direct is not None:
+                reference = "self_improve.edit_own_code"
+                await self._status_for_tool(reference, 1)
+                result = await self.brain.dispatch(reference, direct)
+                if result.success:
+                    return result.speak or result.output or "Done, sir."
+                if not direct.get("path"):
+                    listing = await self.brain.dispatch("self_improve.code_map", {})
+                    body = truncate(listing.output, 1400) if listing.success else ""
+                    note = result.error or result.output or "That did not work."
+                    return f"{note}\n\n{body}" if body else note
+                return result.error or result.output or "That did not work."
 
         transcript: List[str] = []
         observations: List[Tuple[str, ModuleResult]] = []
@@ -134,6 +156,44 @@ class Planner:
                 break
 
         return await self.brain._compose_answer(text, observations, memory_context, on_token)
+
+    @staticmethod
+    def _self_edit_request(text: str) -> Optional[Dict[str, Any]]:
+        """Extract an explicit self-edit order from the utterance, if there is one.
+
+        Matched only after the intent has already been classified as
+        ``self_improve``, so the phrases here are read in that context — "edit
+        it" is JARVIS's own code being discussed, not a document on disk.
+
+        Args:
+            text: The user's request.
+
+        Returns:
+            ``edit_own_code`` parameters, or ``None`` when this is not an
+            explicit order to rewrite his own code.
+        """
+        lowered = (text or "").lower()
+        ordered = any(marker in lowered for marker in (
+            "edit your", "rewrite your", "modify your", "change your code",
+            "change your own", "fix your own", "fix your code",
+            "improve your own", "improve yourself", "upgrade yourself",
+            "rewrite yourself", "add a tool to yourself",
+            "make your code", "make yourself", "update yourself",
+        ))
+        # Short follow-ups resolve through the conversation: "edit it",
+        # "change it", "go ahead". The classifier only lands here when the
+        # recent exchange was about JARVIS's own source.
+        pointed = any(marker in lowered for marker in (
+            "edit it", "edit that", "change it", "change that", "modify it",
+            "fix it", "update it", "do it", "go ahead", "yes do it",
+        ))
+        if not (ordered or pointed):
+            return None
+        if not pointed and any(negation in lowered for negation in (
+            "don't", "dont ", "do not", "never", "shouldn't", "wouldn't")):
+            return None
+        match = re.search(r"[A-Za-z_][\w./-]*\.py", text or "")
+        return {"path": match.group(0) if match else "", "instruction": text or ""}
 
     def _react_prompt(
         self,

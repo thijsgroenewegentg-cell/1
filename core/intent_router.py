@@ -147,6 +147,8 @@ DECISIVE_VETOES: Dict[str, Tuple[str, ...]] = {
         "file", "document", "pdf", "docx", "csv", "spreadsheet", "folder",
         "image", "picture", "screenshot", "video", "audio",
     ),
+    # "don't change your code" is advice, not an order to self-edit.
+    "self_improve": ("don't", "dont ", "do not", "never", "shouldn't", "wouldn't"),
 }
 
 DECISIVE_PHRASES: Dict[str, Tuple[str, ...]] = {
@@ -178,6 +180,13 @@ DECISIVE_PHRASES: Dict[str, Tuple[str, ...]] = {
     "code_assistant": (
         "write a python", "write me a python", "write a script", "write a program",
         "explain this code", "debug this", "refactor this", "run this code",
+    ),
+    "self_improve": (
+        "edit your own code", "edit your code", "edit your source",
+        "rewrite your own code", "rewrite your code", "rewrite yourself",
+        "modify your own code", "modify your code", "change your own code",
+        "change your code", "fix your own code", "improve your own code",
+        "add a tool to yourself", "make your own code", "make yourself",
     ),
     "smart_assistant": (
         "translate ", "convert ", "how many kilometres", "how many kilometers",
@@ -223,6 +232,34 @@ def _keyword_matches(keyword: str, padded_text: str) -> bool:
     return f" {keyword} " in padded_text or f" {keyword}." in padded_text
 
 
+#: Verbs that start an instruction when the user is pointing at something —
+#: "edit it", "change that", "open this". These carry no keyword of their own
+#: but are commands, not small talk, so they must not take the instant-chat
+#: shortcut; the classifier uses the recent transcript to resolve the target.
+_BARE_COMMAND_VERBS = (
+    "edit", "change", "fix", "rewrite", "modify", "update", "upgrade", "delete",
+    "remove", "rename", "move", "copy", "open", "close", "run", "execute",
+    "create", "write", "make", "add", "install", "uninstall", "set", "turn",
+    "show", "read", "print", "repeat", "send", "remind", "schedule", "stop",
+    "start", "lock", "unlock", "mute", "unmute", "increase", "decrease",
+)
+
+
+def _looks_like_a_bare_command(text: str) -> bool:
+    """True for a short instruction that starts with a verb and no keyword.
+
+    Args:
+        text: The raw utterance.
+
+    Returns:
+        True when the classifier model should be consulted after all.
+    """
+    t = (text or "").strip().lower()
+    if not t or len(t) > 80:
+        return False
+    return any(t.startswith(verb + " ") or t == verb for verb in _BARE_COMMAND_VERBS)
+
+
 class IntentRouter:
     """Decides which module handles an utterance."""
 
@@ -258,9 +295,13 @@ class IntentRouter:
         # so asking the router model to re-read the whole module catalogue would
         # only add a full round-trip before the reply that almost always comes
         # back "conversation" anyway. Skip it (``llm.instant_chat: false``
-        # restores the old always-consult-the-model behaviour).
+        # restores the old always-consult-the-model behaviour). One exception:
+        # a bare command-like follow-up ("edit it", "change that") carries no
+        # keyword but usually *does* mean business, and the classifier reads
+        # the recent transcript to resolve what "it" is.
         if (keyword_intent.module == "conversation"
-                and self.brain.config.get("llm.instant_chat", True)):
+                and self.brain.config.get("llm.instant_chat", True)
+                and not _looks_like_a_bare_command(text)):
             return keyword_intent
 
         if not self.brain.llm.available:

@@ -297,6 +297,14 @@ class SelfImprove(BaseModule):
             return "self_status", {}
         if "suggest" in lowered or "what would you improve" in lowered:
             return "suggest_improvements", {"focus": text}
+        if any(word in lowered for word in ("improve", "modify", "rewrite", "fix your",
+                                            "change your", "edit your", "upgrade your")):
+            # An order to change his own code must not fall through to the
+            # read/code-map branch below — "edit your code" and "show me your
+            # code" both mention "your code", but only one is a rewrite.
+            match = re.search(r"[\w/]+\.py", text)
+            return "edit_own_code", {"path": match.group(0) if match else "",
+                                     "instruction": text}
         if any(word in lowered for word in ("your code", "your source", "own code",
                                             "source code")):
             match = re.search(r"[\w/]+\.py", text)
@@ -311,11 +319,6 @@ class SelfImprove(BaseModule):
                          "modules", "module", "self"):
                 skill = ""
             return "reload_module", {"name": skill}
-        if any(word in lowered for word in ("improve", "modify", "rewrite", "fix your",
-                                            "change your", "edit your", "upgrade your")):
-            match = re.search(r"[\w/]+\.py", text)
-            return "edit_own_code", {"path": match.group(0) if match else "",
-                                     "instruction": text}
         return "code_map", {}
 
     # ---------------------------------------------------------------- GitHub

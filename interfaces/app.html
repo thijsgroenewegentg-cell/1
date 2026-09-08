@@ -681,6 +681,27 @@ body.panel-open #panel { transform: none; }
   padding: 3px 10px; color: var(--live); font-size: 12px;
   background: rgba(var(--tint), .08); text-align: center;
 }
+#confirm {
+  position: fixed; inset: 0; z-index: 35; display: none; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, .82); backdrop-filter: blur(8px);
+}
+#confirm.show { display: flex; }
+.confirm-box {
+  border: 1px solid rgba(239, 68, 68, .55); border-radius: var(--r-lg); padding: 26px 30px;
+  background: var(--surface-solid); max-width: 560px; width: calc(100vw - 48px);
+  box-shadow: var(--shadow-lg), 0 0 90px rgba(239, 68, 68, .22);
+  animation: drop .34s var(--ease);
+}
+.confirm-box h2 { margin: 0 0 12px; font-size: 11px; letter-spacing: .3em;
+                  text-transform: uppercase; color: rgba(239,68,68,.9); font-weight: 600; }
+#confirmText { font-size: 14px; line-height: 1.5; color: var(--live); white-space: pre-wrap;
+               word-break: break-word; }
+.confirm-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+.confirm-actions button { font-size: 13px; padding: 9px 22px; }
+#confirmAllow { background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.7);
+                color: #fff; font-weight: 600; }
+#confirmAllow:hover { background: rgba(239,68,68,.32); }
+.confirm-hint { margin-top: 10px; text-align: right; font-size: 10.5px; color: var(--dimmer); }
 /* Below the top bar, and pushed further down when the degraded banner is
    showing so the two never stack on top of each other. */
 #toasts { position: fixed; top: 62px; left: 50%; transform: translateX(-50%); z-index: 40;
@@ -867,6 +888,18 @@ body.degraded-open #toasts { top: 118px; }
     <kbd>Ctrl /</kbd><span>status, tools, audit</span>
     <kbd>esc</kbd><span>stop, or close</span>
     <kbd>?</kbd><span>this list</span>
+  </div>
+</div>
+
+<div id="confirm" role="alertdialog" aria-label="JARVIS needs permission">
+  <div class="confirm-box" id="confirmBox">
+    <h2>⚠ permission needed</h2>
+    <div id="confirmText"></div>
+    <div class="confirm-actions">
+      <button class="ghost" id="confirmDeny" type="button">deny</button>
+      <button class="round" id="confirmAllow" type="button">allow</button>
+    </div>
+    <div class="confirm-hint">enter allow · esc deny</div>
   </div>
 </div>
 
@@ -1911,6 +1944,33 @@ function handle(data) {
   } else if (data.type === "error") {
     toast(data.text, true); trace("err", escapeHtml(data.text));
     setBusy(false); showDoing("");
+  } else if (data.type === "confirm") {
+    askPermission(data.id, data.text);
+  }
+}
+
+/* ---------------------------------------------------------- permission gate
+   Dangerous actions (editing his own code, installing packages) ask the user
+   before running. The server pushes a "confirm" frame; this renders the card
+   and answers with the same id. Without it, confirmations auto-denied over
+   the web — the terminal they used to ask on was not there. */
+let pendingPermission = null;
+
+function askPermission(id, text) {
+  pendingPermission = { id, allow: null };
+  $("confirmText").textContent = text || "Run this action?";
+  $("confirm").classList.add("show");
+  if (!busy) setBusy(true);                    // hold the dock while waiting
+  $("confirmAllow").focus();
+}
+
+function answerPermission(reply) {
+  if (!pendingPermission) return;
+  const pending = pendingPermission;
+  pendingPermission = null;
+  $("confirm").classList.remove("show");
+  if (socket && socket.readyState === 1) {
+    socket.send(JSON.stringify({ type: "confirm", id: pending.id, reply }));
   }
 }
 
@@ -2707,6 +2767,15 @@ $("paletteBtn").addEventListener("click", openPalette);
 $("keysBtn").addEventListener("click", () => $("keys").classList.toggle("show"));
 $("historyBtn").addEventListener("click", () => toggleHistory());
 $("keys").addEventListener("click", () => $("keys").classList.remove("show"));
+$("confirmAllow").addEventListener("click", () => answerPermission(true));
+$("confirmDeny").addEventListener("click", () => answerPermission(false));
+$("confirm").addEventListener("click", (event) => {
+  if (event.target === $("confirm")) answerPermission(false);
+});
+$("confirmBox").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); answerPermission(true); }
+  else if (event.key === "Escape") { event.preventDefault(); answerPermission(false); }
+});
 $("palette").addEventListener("click", (event) => {
   if (event.target === $("palette")) closePalette();
 });
@@ -2744,6 +2813,7 @@ addEventListener("keydown", (event) => {
   const typing = field === input || field === $("toolSearch") || field === $("paletteInput");
 
   if (event.key === "Escape") {
+    if ($("confirm").classList.contains("show")) { answerPermission(false); return; }
     if ($("palette").classList.contains("show")) return;    // its own handler
     if ($("keys").classList.contains("show")) { $("keys").classList.remove("show"); return; }
     if (socket && socket.readyState === 1) socket.send(JSON.stringify({ command: "cancel" }));

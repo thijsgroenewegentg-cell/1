@@ -41,6 +41,26 @@ def test_offline_router_recognises_self_requests(self_improve, phrase, expected)
     assert routed[0] == expected
 
 
+@pytest.mark.parametrize(
+    ("phrase", "expected_path"),
+    [
+        ("edit your code in modules/base.py to be snappier", "modules/base.py"),
+        ("change your code in core/brain.py so replies are faster", "core/brain.py"),
+        ("rewrite your own code to be more helpful", ""),
+        ("improve your greeting in interfaces/cli.py", "interfaces/cli.py"),
+    ],
+)
+def test_offline_router_sends_edit_orders_to_edit_own_code(
+    self_improve, phrase, expected_path
+):
+    """An order to *change* his own code must not be answered with a code map."""
+    routed = self_improve.offline_router(phrase)
+    assert routed is not None
+    assert routed[0] == "edit_own_code"
+    assert routed[1]["path"] == expected_path
+    assert routed[1]["instruction"] == phrase
+
+
 def test_the_code_map_lists_the_real_modules(self_improve):
     result = run(self_improve.call_tool("code_map", {}))
     assert result.success

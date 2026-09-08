@@ -209,6 +209,31 @@ def test_the_planner_has_a_step_budget():
     assert 1 <= MAX_REACT_STEPS <= 10
 
 
+@pytest.mark.parametrize(
+    ("requested", "path", "is_order"),
+    [
+        ("edit your own code to be quicker", "", True),
+        ("edit your code in core/brain.py to trim prefill", "core/brain.py", True),
+        ("change your code in modules/base.py, please", "modules/base.py", True),
+        ("edit it", "", True),
+        ("don't edit your code today", "", False),
+        ("explain your code to me", "", False),
+        ("what files do you have", "", False),
+    ],
+)
+def test_the_planner_recognises_explicit_self_edit_orders(
+    requested, path, is_order
+):
+    """Self-edit orders skip the ReAct model's chance to answer in prose."""
+    params = Planner._self_edit_request(requested)
+    if not is_order:
+        assert params is None
+        return
+    assert params is not None
+    assert params["path"] == path
+    assert params["instruction"] == requested
+
+
 def test_an_intent_is_a_plain_data_object():
     intent = Intent(module="web_search", confidence=0.9, method="keyword")
     assert intent.module == "web_search"
