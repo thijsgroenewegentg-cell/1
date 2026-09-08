@@ -55,7 +55,7 @@ except Exception:  # pragma: no cover - optional dependency
 def render_icon(size: int) -> bytes:
     """Draw the app icon as a PNG, with no image library involved.
 
-    A dark rounded square with a cyan reactor ring — enough for a home-screen
+    A black rounded square with a red reactor ring — enough for a home-screen
     icon, and it costs nothing but ``zlib``.
 
     Args:
@@ -72,8 +72,8 @@ def render_icon(size: int) -> bytes:
     inner = size * 0.27
     core = size * 0.12
     corner = size * 0.22
-    background = (11, 15, 20)
-    ring = (56, 189, 248)
+    background = (0, 0, 0)
+    ring = (239, 68, 68)
 
     rows = bytearray()
     for y in range(size):
@@ -157,7 +157,7 @@ APP_FILE = Path(__file__).with_name("app.html")
 #: Shown only if that file is missing from an installation.
 FALLBACK_PAGE = """<!doctype html><meta charset="utf-8">
 <title>__TITLE__</title>
-<body style="background:#070b11;color:#e8eef6;font:16px system-ui;padding:40px">
+<body style="background:#000;color:#f4f4f5;font:16px system-ui;padding:40px">
 <h1>__TITLE__</h1>
 <p>interfaces/app.html is missing, so this is the plain fallback.</p>
 <form onsubmit="event.preventDefault();ask()">
@@ -1311,9 +1311,10 @@ class WebInterface:
             import uvicorn
         except Exception as exc:  # pragma: no cover - dependency guard
             raise RuntimeError(
-                "The web interface needs uvicorn: pip install 'uvicorn>=0.29'"
+                "The web interface needs uvicorn: pip install 'uvicorn[standard]>=0.29'"
             ) from exc
 
+        self._check_websocket_support()
         settings = uvicorn.Config(
             self.app,
             host=self.host,
@@ -1330,6 +1331,32 @@ class WebInterface:
         )
         logger.info("Web interface on http://%s:%d", self.host, self.port)
         await self._server.serve()
+
+    @staticmethod
+    def _check_websocket_support() -> None:
+        """Warn when uvicorn cannot do WebSockets, before it silently fails.
+
+        Plain ``uvicorn`` (without the ``[standard]`` extra) serves HTTP fine and
+        rejects every upgrade request, so the page loads, the orb spins and the
+        status reads "connecting" forever — with the only clue buried in
+        uvicorn's own warnings. Chat, streaming replies and spoken answers all
+        ride that socket, so it is worth one explicit line at start-up.
+        """
+        try:
+            import websockets  # noqa: F401
+            return
+        except Exception:
+            pass
+        try:
+            import wsproto  # noqa: F401
+            return
+        except Exception:
+            pass
+        logger.warning(
+            "No WebSocket library found — the page will load but chat will hang "
+            "on 'connecting'. Fix with: pip install 'uvicorn[standard]>=0.29' "
+            "(or: pip install websockets)"
+        )
 
     async def stop(self) -> None:
         """Ask the server to shut down."""
