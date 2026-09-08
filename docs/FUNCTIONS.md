@@ -9,26 +9,30 @@ and marked with `·`; methods the intent router can call are marked
 
 ## Contents
 
-- [`main.py`](#mainpy) — 20
+- [`main.py`](#mainpy) — 25
 - [`install.py`](#installpy) — 56
-- [`core/brain.py`](#corebrainpy) — 57
+- [`core/brain.py`](#corebrainpy) — 75
 - [`core/config.py`](#coreconfigpy) — 29
 - [`core/event_bus.py`](#coreevent_buspy) — 13
-- [`core/intent_router.py`](#coreintent_routerpy) — 7
+- [`core/health.py`](#corehealthpy) — 11
+- [`core/intent_router.py`](#coreintent_routerpy) — 8
+- [`core/macros.py`](#coremacrospy) — 11
 - [`core/memory.py`](#corememorypy) — 69
 - [`core/personality.py`](#corepersonalitypy) — 5
-- [`core/planner.py`](#coreplannerpy) — 5
+- [`core/planner.py`](#coreplannerpy) — 9
+- [`core/preferences.py`](#corepreferencespy) — 10
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
-- [`interfaces/web.py`](#interfaceswebpy) — 46
+- [`interfaces/web.py`](#interfaceswebpy) — 49
 - [`modules/base.py`](#modulesbasepy) — 32
-- [`modules/blender.py`](#modulesblenderpy) — 24
+- [`modules/blender.py`](#modulesblenderpy) — 36
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
 - [`modules/communications.py`](#modulescommunicationspy) — 24
 - [`modules/file_manager.py`](#modulesfile_managerpy) — 32
 - [`modules/knowledge.py`](#modulesknowledgepy) — 20
+- [`modules/macros.py`](#modulesmacrospy) — 5
 - [`modules/models.py`](#modulesmodelspy) — 17
-- [`modules/productivity.py`](#modulesproductivitypy) — 72
+- [`modules/productivity.py`](#modulesproductivitypy) — 78
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
 - [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 24
 - [`modules/system_control.py`](#modulessystem_controlpy) — 53
@@ -46,22 +50,26 @@ and marked with `·`; methods the intent router can call are marked
 - [`utils/security.py`](#utilssecuritypy) — 18
 - [`tests/fake_blender.py`](#testsfake_blenderpy) — 22
 - [`tests/mock_ollama.py`](#testsmock_ollamapy) — 10
-- [`tests/test_blender.py`](#teststest_blenderpy) — 43
-- [`tests/test_brain.py`](#teststest_brainpy) — 33
+- [`tests/test_assistant_features.py`](#teststest_assistant_featurespy) — 14
+- [`tests/test_blender.py`](#teststest_blenderpy) — 67
+- [`tests/test_brain.py`](#teststest_brainpy) — 70
 - [`tests/test_cli.py`](#teststest_clipy) — 15
 - [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 15
 - [`tests/test_communications.py`](#teststest_communicationspy) — 8
 - [`tests/test_config.py`](#teststest_configpy) — 27
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
+- [`tests/test_health.py`](#teststest_healthpy) — 10
 - [`tests/test_install.py`](#teststest_installpy) — 17
-- [`tests/test_intent_router.py`](#teststest_intent_routerpy) — 13
+- [`tests/test_intent_router.py`](#teststest_intent_routerpy) — 19
 - [`tests/test_knowledge.py`](#teststest_knowledgepy) — 15
+- [`tests/test_macros.py`](#teststest_macrospy) — 11
 - [`tests/test_memory.py`](#teststest_memorypy) — 23
 - [`tests/test_models.py`](#teststest_modelspy) — 7
 - [`tests/test_plugins.py`](#teststest_pluginspy) — 18
-- [`tests/test_productivity.py`](#teststest_productivitypy) — 23
-- [`tests/test_self_improve.py`](#teststest_self_improvepy) — 18
+- [`tests/test_preferences.py`](#teststest_preferencespy) — 8
+- [`tests/test_productivity.py`](#teststest_productivitypy) — 28
+- [`tests/test_self_improve.py`](#teststest_self_improvepy) — 21
 - [`tests/test_sensitive_paths.py`](#teststest_sensitive_pathspy) — 16
 - [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 16
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
@@ -71,14 +79,14 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
-- [`tests/test_web.py`](#teststest_webpy) — 59
+- [`tests/test_web.py`](#teststest_webpy) — 62
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
 
 ## `main.py`
 
-*20 functions*
+*25 functions*
 
 > JARVIS — a fully local, completely free personal AI assistant.
 
@@ -92,13 +100,18 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def __init__(self, config_path: str = 'config.yaml') -> None` — Load the configuration and construct the assistant.
 - `async def initialize(self, want_voice: bool = True) -> None` — Boot every subsystem.
+- `async def _on_task_completed(self, event: Any) -> None` — Deliver a completion ping through every active channel.
 - `async def _notify(self, message: str) -> None` — Announce a reminder, timer or scheduled job in every active channel.
 - `async def _status_update(self, message: str) -> None` — Speak a short progress update during slow operations.
+- `async def _announce_startup(self) -> None` — Speak the boot report, optional morning briefing, then the greeting.
 - `async def run_voice(self) -> None` — Always-on voice loop with a CLI fallback if audio fails.
   · `async def on_wake() -> None` — Show a listening indicator when the wake word fires.
   · `async def on_transcript(text: str) -> None` — Echo what was heard into the terminal.
   · `async def handler(text: str, on_token: Any = None) -> str` — Route a transcript through the brain and display the reply.
 - `async def _open_in_browser(self, server: Any) -> None` — Open the running interface in the user's default browser.
+- `def register_global_hotkey(self, loop: 'asyncio.AbstractEventLoop') -> None` — Arm the configured global hotkey that summons the assistant.
+  · `def summon() -> None` — Hotkey callback (runs in the keyboard hook thread).
+- `async def _summon_from_hotkey(self) -> None` — Open the assistant UI from the global hotkey (on the event loop).
 - `async def run_cli(self) -> None` — Run the rich text interface.
 - `async def start_background_web(self) -> None` — Serve the phone interface alongside whatever else is running.
 - `async def run_web(self, port: Optional[int] = None, with_cli: bool = False, open_browser: bool = False) -> None` — Serve the browser/phone interface.
@@ -174,7 +187,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*57 functions*
+*75 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
@@ -185,6 +198,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def __init__(self, config: Config) -> None` — Prepare an Ollama client (no connection is made yet).
 - `async def _http(self) -> Any` — Return a lazily created shared ``httpx.AsyncClient``.
 - `async def initialize(self) -> bool` — Probe the Ollama server and resolve which model to use.
+- `def _resolve_tier(self, key: str) -> str` — Resolve a configured tier model, warning when it is not installed.
 - `def _resolve_model(self, name: str) -> Optional[str]` — Match a configured model name against installed Ollama tags.
 - `def _out_of_memory(text: str) -> bool` *staticmethod* — Recognise Ollama's out-of-memory complaint in an error body.
 - `def _friendly_error(self, detail: str) -> str` — Turn a transport error into something worth reading.
@@ -223,18 +237,32 @@ and marked with `·`; methods the intent router can call are marked
 - `def _humorous_failure(self, error: str) -> str` — Report an error gracefully, with a little personality.
 - `def _offline_reply(self, text: str) -> str` — Canned reply when no LLM is reachable.
 - `def _keyword_intent(self, text: str) -> Intent` — Score the utterance against the keyword table.
-- `async def _generate(self, messages: List[Dict[str, str]], on_token: Optional[TokenCallback] = None, temperature: Optional[float] = None, max_tokens: Optional[int] = None) -> str` — Generate a reply, streaming tokens when a callback is supplied.
+- `async def _generate(self, messages: List[Dict[str, str]], on_token: Optional[TokenCallback] = None, temperature: Optional[float] = None, max_tokens: Optional[int] = None, model: Optional[str] = None) -> str` — Generate a reply, streaming tokens when a callback is supplied.
 - `def cancel(self) -> None` — Abort the in-flight response (used for voice barge-in and Ctrl+C).
 - `def busy(self) -> bool` *property* — True while a turn is being processed.
 - `def tool_registry(self, primary: Optional[str] = None) -> str` — Render the tool catalog for the ReAct prompt.
 - `def _tool_spec(self, reference: str) -> Optional[Any]` — Look up the :class:`~modules.base.ToolSpec` behind a reference.
 - `async def _injection_gate(self, reference: str, params: Dict[str, Any]) -> Optional[str]` — Refuse or re-confirm dangerous work driven by untrusted content.
 - `async def dispatch(self, reference: str, params: Dict[str, Any]) -> ModuleResult` — Execute ``module.tool`` (or a bare tool name) with ``params``.
-- `def _announce_result(self, reference: str, result: ModuleResult) -> ModuleResult` — Publish a tool's structured result, then hand it back unchanged.
+- `def _announce_result(self, reference: str, result: ModuleResult, params: Optional[Dict[str, Any]] = None) -> ModuleResult` — Publish a tool's structured result, then hand it back unchanged.
 - `async def _memory_tool(self, tool_name: str, params: Dict[str, Any]) -> ModuleResult` — Handle the brain-level memory tools.
 - `async def process(self, text: str, speak_status: bool = False, on_token: Optional[TokenCallback] = None) -> str` — Main entry point: turn a user utterance into JARVIS's reply.
 - `async def _background_upkeep(self, user_text: str, response: str) -> None` — Mine facts and compress old history without blocking the reply.
 - `async def _process_inner(self, text: str, speak_status: bool, on_token: Optional[TokenCallback] = None) -> str` — Classification + routing + answer generation.
+- `async def _execute_macro(self, entry: Dict[str, Any], text: str) -> str` — Run an armed macro: canned lines plus fixed tool steps.
+- `def _referential(text: str) -> bool` *staticmethod* — True when the utterance leans on the previous turn.
+- `def _context_hint(self) -> str` — Summarise recent turns and tool runs for the model's next prompt.
+- `def _remember_turn(self, text: str, response: str) -> None` — File the finished turn in the context store.
+- `def _ping_minutes(text: str) -> Optional[int]` *staticmethod* — How many minutes to wait before the requested ping, if any.
+- `async def _fire_ping(self, summary: str, minutes: int = 0) -> None` — Publish a completion ping the interfaces turn into chime + notice.
+- `async def _delayed_ping(self, summary: str, minutes: int) -> None` — Sleep then emit the ping.
+- `async def _maybe_ping(self, text: str, response: str, elapsed: float) -> None` — Emit a done-ping when the user asked for one or the turn was long.
+- `def _is_help_request(self, text: str) -> bool` — Recognise a capabilities/help request.
+- `def help_text(self) -> str` — Describe the loaded capabilities with concrete example phrases.
+- `def _read_request(self, text: str) -> bool` — True when the utterance asks for text to be read out loud.
+- `def _read_target(self, text: str) -> Optional[str]` — Find the file the user wants read aloud.
+- `async def _read_aloud(self, text: str) -> Optional[str]` — Answer a read-it-to-me request with chunked plain text.
+- `def _record_tool(self, reference: str, params: Dict[str, Any], result: ModuleResult) -> None` — Remember one tool call so the next turn can say "that one".
 - `async def _resolve_pending(self, text: str) -> Optional[str]` — Handle a yes/no answer to a previously offered action.
 - `async def _status(self, message: str) -> None` — Emit a spoken/printed progress update if a hook is installed.
 - `async def _handle_memory_intent(self, text: str, memory_context: str) -> str` — Store, recall or forget memories based on natural phrasing.
@@ -242,6 +270,9 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _compose_answer(self, text: str, observations: List[Tuple[str, ModuleResult]], memory_context: str, on_token: Optional[TokenCallback] = None) -> str` — Turn raw tool observations into a JARVIS-flavoured reply.
 - `def _capture_followup(self, observations: List[Tuple[str, ModuleResult]]) -> None` — Remember any action a tool offered to perform on confirmation.
 - `async def greeting(self) -> str` — Compose the start-up greeting.
+- `def boot_status(self) -> str` — One local, instant sentence describing what came online.
+- `async def run_self_check(self) -> str` — Probe the offline services quietly and store the findings.
+- `async def morning_brief(self, timeout: float = 25.0) -> str` — Assemble the day's briefing from the productivity module.
 - `async def status_report(self) -> Dict[str, Any]` — Collect a full status snapshot for the CLI ``status`` command.
 - `def speakable(self, text: str) -> str` — Strip markdown so the TTS engine reads clean prose.
 
@@ -313,13 +344,32 @@ and marked with `·`; methods the intent router can call are marked
 - `def clear(self) -> None` — Forget the history (handlers stay subscribed).
 - `async def close(self) -> None` — Wait for any fire-and-forget deliveries still in flight.
 
+## `core/health.py`
+
+*11 functions*
+
+> Offline health probes for the nightly self-check.
+
+- `def _health_path(config: Any) -> Path` — Resolve ``assistant.health_file`` against the config root when possible.
+- `def _probe_ollama(host: str, timeout: float = 3.0) -> Dict[str, Any]` — Is Ollama reachable at ``host``?
+- `def _probe_port(host: str, port: int, timeout: float = 2.0) -> Dict[str, Any]` — Is something listening on ``host:port``?
+- `def _probe_blender() -> Dict[str, Any]` — Find a Blender executable on PATH (or the usual suspects).
+- `def _probe_microphone(timeout: float = 2.0) -> Dict[str, Any]` — Can the OS enumerate an input device?
+- `def _probe_wake_word(config: Any) -> Dict[str, Any]` — Is the wake-word engine importable when one is configured?
+- `def run_probes(config: Any) -> Dict[str, str]` — Run every cheap offline probe and label the results.
+- `def write_report(config: Any, results: Dict[str, str]) -> Path` — Persist a probe report to ``assistant.health_file``.
+- `def read_report(config: Any) -> Optional[Dict[str, Any]]` — Return the latest health report, if any.
+- `def summarize(report: Optional[Dict[str, Any]]) -> str` — Turn a report into one calm spoken sentence.
+- `def last_report_is_today(report: Optional[Dict[str, Any]], day: str) -> bool` — Whether the report dates from the given day.
+
 ## `core/intent_router.py`
 
-*7 functions*
+*8 functions*
 
 > LLM-based intent classification: which module should handle this?
 
 - `def _keyword_matches(keyword: str, padded_text: str) -> bool` — Test one tool keyword against an utterance already padded with spaces.
+- `def _looks_like_a_bare_command(text: str) -> bool` — True for a short instruction that starts with a verb and no keyword.
 
 ### `class Intent` — Classification result for one user utterance.
 
@@ -332,6 +382,27 @@ and marked with `·`; methods the intent router can call are marked
 - `def _tool_keywords(self) -> Dict[str, List[str]]` — Collect every loaded tool's keywords, grouped by owning module.
 - `def _keyword_intent(self, text: str) -> Intent` — Score the utterance against the keyword tables.
 - `def _closest_module(self, name: str) -> Optional[str]` — Fuzzy-match a hallucinated category onto a loaded module.
+
+## `core/macros.py`
+
+*11 functions*
+
+> Persistent voice macros: "when I say X, do Y".
+
+- `def normalize(text: str) -> str` — Lower-case, strip punctuation and filler so triggers match speech.
+
+### `class MacroStore` — Load and save the macro table.
+
+- `def __init__(self, path: Path) -> None` — Load the macro table.
+- `def _load(self) -> Dict[str, Any]`
+- `def _refresh(self) -> None` — Re-read the file when someone else (another store) rewrote it.
+- `def save(self) -> None` — Persist to disk, tolerating an unwritable location.
+- `def all(self) -> List[Dict[str, Any]]` — Every macro, most recently created first.
+- `def find(self, trigger: str) -> Optional[Dict[str, Any]]` — Return the macro whose trigger normalises to ``trigger``.
+- `def match(self, text: str) -> Optional[Dict[str, Any]]` — Match a user utterance against the triggers.
+- `def add(self, trigger: str, say: str = '', steps: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]` — Create or replace a macro, returning the stored entry.
+- `def remove(self, trigger: str) -> bool` — Delete the macro with this trigger; True when one was removed.
+- `def count_use(self, trigger: str) -> None` — Bump the use counter after a successful run.
 
 ## `core/memory.py`
 
@@ -446,7 +517,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/planner.py`
 
-*5 functions*
+*9 functions*
 
 > The ReAct loop: Reason, Act, Observe, repeat — then answer.
 
@@ -454,9 +525,33 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def __init__(self, brain: 'Brain') -> None` — Attach the planner to a brain.
 - `async def run(self, text: str, intent: Intent, memory_context: str, on_token: Optional[TokenCallback] = None) -> str` — Run the Reason → Act → Observe loop, then compose the answer.
+  · `def escalate() -> None`
+- `def _self_edit_request(text: str) -> Optional[Dict[str, Any]]` *staticmethod* — Extract an explicit self-edit order from the utterance, if there is one.
 - `def _react_prompt(self, text: str, catalog: str, transcript: List[str], step: int, memory_context: str) -> str` — Build the prompt for one ReAct iteration.
+- `async def _confirm_plan(self, text: str, reference: str, params: Dict[str, Any], step: int) -> bool` — Ask before running a tool whose target the user never named.
+- `def _target_mentioned(token: str, words: set) -> bool` *staticmethod* — Whether the user's words contain the concrete target.
 - `async def _status_for_tool(self, reference: str, step: int) -> None` — Give the user a spoken heads-up for slower tools.
 - `def _is_terminal(reference: str, result: ModuleResult) -> bool` *staticmethod* — Heuristic: does this tool result already satisfy the request?
+
+## `core/preferences.py`
+
+*10 functions*
+
+> Durable habits JARVIS learns from completed interactions.
+
+- `def _now() -> str`
+
+### `class Preferences` — A small JSON store of usage counts and repeated-request routines.
+
+- `def __init__(self, path: Path) -> None` — Open (or lazily create) the store at ``path``.
+- `def _load(self) -> Dict[str, Any]`
+- `def save(self) -> None` — Persist to disk, tolerating an unwritable location.
+- `def _preference_params(params: Dict[str, Any]) -> Dict[str, Any]` *staticmethod* — Keep only the params that plausibly encode a durable preference.
+- `def observe(self, reference: str, params: Dict[str, Any]) -> None` — Record one successful tool call of ``reference`` with ``params``.
+- `def tool_counts(self) -> Dict[str, int]` — How many successful calls each tool has had.
+- `def routines(self) -> List[Tuple[str, Dict[str, Any]]]` — Learned routines as ``(reference, entry)`` pairs, most repeated first.
+- `def _phrase(self, reference: str, params: Dict[str, Any]) -> str` — Turn one routine into a natural sentence about the user.
+- `def summary(self, limit: int = 4) -> str` — A short block for the system prompt, or empty when nothing learned.
 
 ## `interfaces/cli.py`
 
@@ -601,7 +696,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*46 functions*
+*49 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
@@ -648,10 +743,13 @@ and marked with `·`; methods the intent router can call are marked
 - `def _watch_the_brain(self) -> None` — Relay the brain's internal events to connected browsers.
   · `def relay(event: Any) -> None` — Push one event out to the sockets, best effort.
 - `async def _send_quietly(self, socket: Any, payload: str) -> None` — Send to one socket, dropping it if it has gone away.
+- `def _ask_over_websocket(self, websocket: Any) -> Any` — Build the security confirmation hook for one browser turn.
+  · `async def ask(prompt: str) -> bool`
 - `async def _handle_turn(self, websocket: Any, text: str) -> None` — Run one request, streaming tokens back to the browser.
   · `def on_token(token: str) -> None` — Hand a generated token to the sender task.
   · `async def pump() -> None` — Forward tokens to the socket in order.
 - `async def serve(self) -> None` — Run the HTTP server until :meth:`stop` is called.
+- `def _check_websocket_support() -> None` *staticmethod* — Warn when uvicorn cannot do WebSockets, before it silently fails.
 - `async def stop(self) -> None` — Ask the server to shut down.
 
 ## `modules/base.py`
@@ -708,15 +806,27 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/blender.py`
 
-*24 functions*
+*36 functions*
 
 > Drive Blender from its command line: render, script, inspect and export.
 
 ### `class Blender` — 3D work: render scenes, run Blender Python, inspect and export models.
 
 - `def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None` — Read the Blender settings and prepare the output directory.
+- `def _load_state(self) -> Dict[str, Any]` — Read the remembered scenes and settings, tolerating a corrupt file.
+- `def _save_state(self) -> None` — Persist the scene memory so it survives a restart.
+- `def _remember(self, path: Path) -> None` — Remember this .blend as the most recent, keyed several ways.
+- `def _remembered_settings(self) -> Dict[str, Any]` — Render settings the user last chose, for use as defaults.
+- `def _record_settings(self, **settings: Any) -> None` — Store the settings actually used, dropping empty values.
+- `def _find_blend(self, given: str, use_last: bool = True) -> Optional[Path]` — Resolve a .blend the user may have named loosely.
+- `def _open_for_user(self, path: Path) -> str` — Show a finished render in the OS image viewer.
 - `def find_runtime(self, refresh: bool = False) -> Optional[Tuple[str, str]]` — Locate Blender, preferring the application over the Python module.
+- `def _locate(self) -> Optional[Tuple[str, str]]` — Walk every place Blender might be and return the first hit.
+- `def _steam_blender_candidates(self) -> List[str]` — Find ``steamapps/common/Blender`` in every Steam library on disk.
+- `def _steam_roots() -> List[Path]` *staticmethod* — Where Steam itself installs, per platform.
+- `def _steam_library_folders(steam_root: Path) -> List[Path]` *staticmethod* — Read the extra libraries from ``steamapps/libraryfolders.vdf``.
 - `def _bpy_importable() -> bool` *staticmethod* — Check whether ``import bpy`` works in this interpreter.
+- `def _diagnose(self) -> str` — Explain exactly what was searched, so a miss is fixable.
 - `def _missing(self) -> ModuleResult` — The standard "Blender isn't here" answer, with how to fix it.
 - `def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]` — Rule-based routing with parameter extraction (used without an LLM).
 - `def _first_path(text: str, suffixes: Tuple[str, ...]) -> str` *staticmethod* — Pull the first path with one of ``suffixes`` out of a sentence.
@@ -725,15 +835,15 @@ and marked with `·`; methods the intent router can call are marked
 - `def _extract_json(output: str) -> Optional[Dict[str, Any]]` *staticmethod* — Pull the JSON block our scripts print out of Blender's chatter.
 - `def _blender_error(stdout: str, stderr: str) -> str` *staticmethod* — Summarise why Blender failed, in one line where possible.
 - `async def blender_status(self) -> ModuleResult` **@tool** — Check for Blender and report what was found.
-- `async def render(self, blend_file: str = '', frame: int = 0, animation: bool = False, output: str = '', engine: str = '', format: str = 'png', resolution_percent: int = 0, samples: int = 0) -> ModuleResult` **@tool** — Render stills or an animation from a .blend file.
+- `async def render(self, blend_file: str = '', frame: int = 0, animation: bool = False, output: str = '', engine: str = '', format: str = 'png', resolution_percent: int = 0, samples: int = 0, show: bool = False) -> ModuleResult` **@tool** — Render stills or an animation from a .blend file.
 - `def _outputs_since(prefix: Path, since: float) -> List[Path]` *staticmethod* — Find the frames a render just wrote.
-- `async def _render_via_bpy(self, target: Path, frame: int, animation: bool, output: str, engine: str, image_format: str, resolution_percent: int, samples: int) -> ModuleResult` — Render through the bpy module, which has no command line.
+- `async def _render_via_bpy(self, target: Path, frame: int, animation: bool, output: str, engine: str, image_format: str, resolution_percent: int, samples: int, show: bool = False) -> ModuleResult` — Render through the bpy module, which has no command line.
 - `def _is_blend(path: Path) -> bool` *staticmethod* — Whether a path is plausibly a Blender file.
-- `async def scene_info(self, blend_file: str) -> ModuleResult` **@tool** — Open a .blend headlessly and summarise its contents.
+- `async def scene_info(self, blend_file: str = '') -> ModuleResult` **@tool** — Open a .blend headlessly and summarise its contents.
 - `async def run_script(self, script: str, blend_file: str = '', save_as: str = '') -> ModuleResult` **@tool** — Execute Blender Python and report what it printed.
 - `async def _resolve_script(self, script: str) -> str` — Accept either Python source or a path to a ``.py`` file.
 - `def _script_output(stdout: str) -> str` *staticmethod* — Strip Blender's own start-up chatter from a script's output.
-- `async def make_scene(self, description: str, save_as: str = '', preview: bool = True) -> ModuleResult` **@tool** — Have the LLM write a bpy script, run it, and save the result.
+- `async def make_scene(self, description: str, save_as: str = '', preview: bool = True, look: str = '') -> ModuleResult` **@tool** — Have the LLM write a bpy script, run it, and save the result.
 - `def _slug(text: str) -> str` *staticmethod* — Turn a description into a short, safe file stem.
 - `async def export_model(self, blend_file: str = '', format: str = 'glb', output: str = '', selected_only: bool = False) -> ModuleResult` **@tool** — Convert a .blend into an interchange format.
 - `async def open_blender(self, blend_file: str = '') -> ModuleResult` **@tool** — Launch the Blender application, optionally on a file.
@@ -870,6 +980,21 @@ and marked with `·`; methods the intent router can call are marked
 - `async def forget_documents(self, path: str) -> ModuleResult` **@tool** — Drop indexed documents matching a path fragment.
   · `def _forget() -> int`
 
+## `modules/macros.py`
+
+*5 functions*
+
+> Macros: teach JARVIS fixed "when I say X, do Y" commands.
+
+- `def _noop_normalize(value: str) -> str` — Fallback normaliser used only when core.macros cannot be imported.
+
+### `class Macros` — Create, list and remove fixed trigger-phrase commands.
+
+- `def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None` — Resolve the shared macro file and open the store.
+- `async def add_macro(self, trigger: str, definition: str) -> ModuleResult` **@tool** — Validate and store a macro from a JSON definition string.
+- `async def list_macros(self) -> ModuleResult` **@tool** — Return a readable catalogue of the armed macros.
+- `async def remove_macro(self, trigger: str) -> ModuleResult` **@tool** — Remove the macro with this trigger.
+
 ## `modules/models.py`
 
 *17 functions*
@@ -898,7 +1023,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/productivity.py`
 
-*72 functions*
+*78 functions*
 
 > Todos, reminders, timers, notes and the daily briefing — all SQLite backed.
 
@@ -930,6 +1055,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _announce(self, message: str) -> None` — Speak/print a notification and raise a desktop toast.
 - `async def _desktop_notify(title: str, message: str) -> None` *staticmethod* — Best-effort native desktop notification.
 - `async def _tick(self) -> None` — One scheduler pass: fire due reminders and jobs, flush held speech.
+- `async def _nightly_check_if_due(self) -> None` — Run the quiet daily health probe at ``assistant.nightly_check_time``.
 - `async def _scheduler_loop(self) -> None` — Poll in a plain loop — used only if the Scheduler cannot start.
 - `def _pop_due_jobs(self) -> List[Dict[str, Any]]` — Return scheduled jobs that are due, and reschedule them.
 - `async def _run_job(self, job: Dict[str, Any]) -> None` — Execute one scheduled job and announce the outcome.
@@ -979,6 +1105,11 @@ and marked with `·`; methods the intent router can call are marked
 - `async def delete_note(self, note_id: int) -> ModuleResult` **@tool** — Remove a note from the database.
   · `def _delete() -> int`
 - `async def daily_briefing(self) -> ModuleResult` **@tool** — Assemble the morning briefing from every available source.
+- `def _is_weekly_review_day(self, moment: datetime) -> bool` — Whether today is the configured weekly review day.
+- `def _week_window(self, now: Optional[datetime] = None) -> Tuple[str, str]` — ISO timestamps bounding the trailing seven days.
+- `async def _week_stats(self) -> Dict[str, Any]` — Tally the last seven days straight from SQLite.
+  · `def _gather() -> Dict[str, Any]`
+- `async def weekly_digest(self) -> ModuleResult` **@tool** — Assemble the seven-day review from local data and live extras.
 
 ## `modules/self_improve.py`
 
@@ -1519,9 +1650,30 @@ and marked with `·`; methods the intent router can call are marked
 - `def do_DELETE(self) -> None` — Serve ``/api/delete``.
 - `def do_POST(self) -> None` — Serve ``/api/chat``, ``/api/embeddings``, ``/api/pull`` and ``/api/show``.
 
+## `tests/test_assistant_features.py`
+
+*14 functions*
+
+> Wave-2 assistant behaviours: help, read-aloud, done-pings, context.
+
+- `def make_brain(config) -> Any`
+- `def test_help_request_lists_live_modules(config)`
+- `def test_help_request_works_offline_and_is_short(config)`
+- `def test_help_is_not_stolen_from_a_longer_request(config)`
+- `def test_read_aloud_chunks_and_continues(config, tmp_path)`
+- `def test_read_aloud_uses_context_when_no_path_given(config, tmp_path)`
+- `def test_read_aloud_ignores_non_read_requests(config)`
+- `def test_ping_minutes_parsing()`
+- `def test_requested_ping_publishes_a_task_completed_event(config)`
+- `def test_no_ping_without_a_request(config)`
+- `def test_ping_respects_the_master_switch(config)`
+- `def test_referential_detection()`
+- `def test_context_hint_describes_the_last_turn(config)`
+- `def test_anaphora_reroutes_to_the_previous_module(config)`
+
 ## `tests/test_blender.py`
 
-*43 functions*
+*67 functions*
 
 > Unit tests for modules/blender.py.
 
@@ -1529,6 +1681,11 @@ and marked with `·`; methods the intent router can call are marked
 - `def scene(tmp_path)` — A .blend file the stand-in understands: three objects, three frames.
 - `def test_the_configured_executable_is_used(blender)`
 - `def test_a_missing_blender_is_reported_helpfully(config, tmp_path)`
+- `def test_a_folder_in_the_config_is_tolerated(config, tmp_path)` — A config pointing at the install folder still finds blender inside.
+- `def test_a_missed_blender_is_not_researched_on_every_call(config, tmp_path, monkeypatch)` — A failed search is cached so Blender requests never feel like a hang.
+  · `def counting_which(_name: str) -> None`
+- `def test_steam_library_folders_are_parsed_from_the_vdf(tmp_path)` — libraryfolders.vdf lists every Steam library; we must read them all.
+- `def test_blender_is_found_in_an_extra_steam_library(config, tmp_path, monkeypatch)` — Blender on a secondary Steam library is found despite a wrong config.
 - `def test_status_reports_the_version(blender)`
 - `def test_offline_router_recognises_blender_work(blender, phrase, expected)`
 - `def test_the_router_extracts_the_frame_number(blender)`
@@ -1567,10 +1724,29 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_blend_backups_are_still_accepted(blender, scene, tmp_path)`
 - `def test_unrelated_files_are_not_counted_as_rendered(blender, scene, tmp_path)`
 - `def test_every_tool_is_still_registered(blender)`
+- `def test_a_loose_scene_name_recalls_the_blend_after_a_restart(blender, scene)` — 'render the donut' works on a fresh instance once the file is known.
+- `def test_render_without_a_name_uses_the_last_scene_across_instances(blender, scene)`
+- `def test_scene_info_recalls_a_loose_name_across_instances(blender, scene)`
+- `def test_export_model_recalls_the_last_scene_across_instances(blender, scene)`
+- `def test_a_loose_name_with_no_memory_is_still_an_ask(blender)`
+- `def test_render_settings_are_remembered_and_reused(blender, scene, monkeypatch)` — Engine and samples chosen once become the defaults for later renders.
+  · `async def capture_run(args, timeout, script = '') -> object`
+- `def test_show_opens_the_first_frame_for_you(blender, scene, monkeypatch)`
+  · `def fake_open(path) -> str`
+- `def test_show_after_render_config_opens_every_render(blender, scene, monkeypatch)`
+- `def test_a_failed_show_never_fails_the_render(blender, scene, monkeypatch)`
+- `def test_make_scene_applies_a_look_preset(blender, monkeypatch, tmp_path)` — A requested look appends its lighting snippet to the bpy build.
+  · `async def fake_complete(prompt, system = None, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+  · `async def fake_run_script(script, *args: object, **kwargs: object) -> object`
+- `def test_an_unknown_look_is_refused(blender, monkeypatch)`
+  · `async def fake_complete(prompt, system = None, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+- `def test_make_scene_remembers_what_it_built(blender, monkeypatch)`
+  · `async def fake_complete(prompt, system = None, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+  · `async def fake_run_script(script, *args: object, **kwargs: object) -> object`
 
 ## `tests/test_brain.py`
 
-*33 functions*
+*70 functions*
 
 > Unit tests for core/brain.py and the pieces it delegates to.
 
@@ -1584,6 +1760,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_every_keyword_table_names_a_real_module(brain)`
 - `def test_every_decisive_phrase_names_a_real_module(brain)`
 - `def test_no_decisive_phrase_is_claimed_by_two_modules()`
+- `def test_offline_turns_skip_the_memory_recall_round_trip(brain, monkeypatch)` — An offline turn must not wait on an embedding search to answer.
+  · `def should_not_be_called(*args: object, **kwargs: object) -> None`
 - `def test_an_empty_utterance_is_answered_not_routed(brain)`
 - `def test_dispatch_runs_a_tool_by_qualified_name(brain)`
 - `def test_dispatch_finds_a_bare_tool_name(brain)`
@@ -1598,6 +1776,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_turn_publishes_its_lifecycle_events(brain)`
 - `def test_the_exchange_is_remembered(brain)`
 - `def test_the_planner_has_a_step_budget()`
+- `def test_the_planner_recognises_explicit_self_edit_orders(requested, path, is_order)` — Self-edit orders skip the ReAct model's chance to answer in prose.
+- `def test_a_no_file_self_edit_asks_which_file(brain, monkeypatch)` — A no-file self-edit asks rather than editing the project root dir.
 - `def test_an_intent_is_a_plain_data_object()`
 - `def test_a_number_shaped_parameter_rejects_prose(brain)`
 - `def test_an_interrupted_answer_says_stopped_not_offline(brain)` — Stopping mid-answer used to report that Ollama was unreachable.
@@ -1607,6 +1787,39 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_tool_result_is_published(brain)` — Interfaces should be able to draw the data, not parse the sentence.
 - `def test_published_data_is_kept_small(brain)` — A file search can return thousands of rows; a socket should not.
 - `def test_the_result_event_survives_a_failing_tool(brain)`
+- `def test_learned_habits_reach_the_system_prompt(brain)`
+- `def test_dispatch_feeds_the_preferences_store(brain)`
+- `def test_failed_calls_are_not_learned_from(brain)`
+- `def test_a_first_tool_that_names_an_unnamed_file_is_checked(brain, monkeypatch)` — The model picked 'city.blend' though the user never said it — ask.
+  · `async def fake_confirm(question: str) -> bool`
+  · `async def fake_complete(prompt, system = None, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+  · `async def fake_dispatch(reference, params) -> ModuleResult`
+- `def test_an_approved_plan_runs_the_tool(brain, monkeypatch)`
+  · `async def fake_confirm(question: str) -> bool`
+  · `async def fake_complete(prompt, system = None, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+  · `async def fake_dispatch(reference, params) -> ModuleResult`
+- `def test_a_named_target_skips_the_plan_check(brain, monkeypatch)` — The user said 'city.blend' themselves — no guess, no question.
+  · `async def fake_confirm(question: str) -> bool`
+  · `async def fake_complete(prompt, system = None, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+  · `async def fake_dispatch(reference, params) -> ModuleResult`
+- `def test_confirmations_off_means_no_plan_check(brain, monkeypatch)` — confirm_dangerous: false trusts the plan; the gate stays silent.
+  · `async def fake_confirm(question: str) -> bool`
+  · `async def fake_complete(prompt, system = None, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+  · `async def fake_dispatch(reference, params) -> ModuleResult`
+  · `async def fake_compose(text, obs, mem, on_token = None) -> str`
+- `def test_routine_chat_uses_the_fast_model(brain, monkeypatch)`
+  · `async def fake_chat(messages, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+- `def test_an_unparseable_decision_gets_one_deep_model_retry(brain, monkeypatch)`
+  · `async def fake_complete(prompt, system = None, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+- `def test_a_failed_tool_moves_the_next_step_to_the_deep_model(brain, monkeypatch)`
+  · `async def fake_complete(prompt, system = None, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+  · `async def fake_compose(text, obs, mem, on_token = None) -> str`
+- `def test_deep_retry_stays_off_when_no_deep_model_is_configured(brain, monkeypatch)` — Garbage on the main model falls back — it is not 'escalated' to nobody.
+  · `async def fake_complete(prompt, system = None, temperature = None, max_tokens = None, model = None, json_mode = False) -> str`
+- `def test_boot_status_is_a_local_sentence(brain)`
+- `def test_boot_status_never_waits_on_the_model(brain, monkeypatch)` — The boot line is instant and local — a silent audio pipe must show at once.
+  · `def should_not_be_called(*args: object, **kwargs: object) -> object`
+- `def test_morning_brief_always_returns_speechable_text(brain)`
 
 ## `tests/test_cli.py`
 
@@ -1764,6 +1977,26 @@ and marked with `·`; methods the intent router can call are marked
   · `async def decline(prompt: str) -> bool`
 - `def test_writing_inside_the_allowed_roots_is_unchallenged(tmp_path)`
 
+## `tests/test_health.py`
+
+*10 functions*
+
+> Tests for the quiet daily self-check (core/health + brain wiring).
+
+- `def brain(config)` — An offline Brain with every module loaded.
+- `def test_run_probes_reports_the_offline_llm(config)`
+- `def test_write_and_read_roundtrip(config)`
+- `def test_summarize_speaks_only_about_problems()`
+- `def test_brain_run_self_check_writes_a_report(config)`
+- `def test_morning_brief_mentions_a_fresh_nightly_report(brain)`
+- `def test_stale_report_is_not_mentioned(brain)`
+
+### `class _FakeConfig` — Minimal config stand-in for probes that only need .get().
+
+- `def __init__(self, data: Dict[str, Any]) -> None`
+- `def get(self, key: str, default: Any = None) -> Any`
+- `def resolve(self, raw: str) -> Path`
+
 ## `tests/test_install.py`
 
 *17 functions*
@@ -1790,7 +2023,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_intent_router.py`
 
-*13 functions*
+*19 functions*
 
 > Offline routing: the keyword layer that works when Ollama is not running.
 
@@ -1800,6 +2033,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_these_phrases_are_answerable_without_the_llm(brain: Any) -> None` — The whole point: no LLM, so falling back to conversation is a failure.
 - `def test_established_routes_still_hold(brain: Any, utterance: str, expected: str) -> None`
 - `def test_small_talk_is_not_hijacked_by_a_tool_keyword(brain: Any, utterance: str) -> None`
+- `def test_explicit_self_edit_orders_route_to_self_improve(brain: Any, utterance: str) -> None` — 'change your code' is an order to edit his own source, not a chat.
+- `def test_advice_against_self_editing_is_not_decisive(brain: Any, utterance: str) -> None` — 'Don't change your code' is a preference, not an order to edit.
+- `def test_plain_chat_skips_the_classifier_model(brain: Any, monkeypatch: Any) -> None` — Small talk with the model online costs one model call, not two.
+  · `def should_not_be_called(*args: Any, **kwargs: Any) -> Any`
+- `def test_instant_chat_can_be_turned_back_off(brain: Any, monkeypatch: Any) -> None` — The old always-ask-the-router-model behaviour is one config away.
+  · `def consulted(*args: Any, **kwargs: Any) -> Any`
 - `def test_short_keywords_need_a_word_boundary() -> None`
 - `def test_generic_short_keywords_are_vetoed_outright(brain: Any) -> None`
 - `def test_long_keywords_may_match_as_substrings() -> None`
@@ -1829,6 +2068,24 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_an_empty_file_is_reported_not_hidden(knowledge, tmp_path)`
 - `def test_an_explicit_path_survives_the_router(knowledge, tmp_path)`
 - `def test_a_named_folder_still_works(knowledge)`
+
+## `tests/test_macros.py`
+
+*11 functions*
+
+> Voice macros: the JSON store, management tools and the instant trigger.
+
+- `def brain(config)` — An offline Brain with every module loaded, including macros.
+- `def test_normalize_handles_filler_and_punctuation()`
+- `def test_store_add_find_remove_roundtrip(config)`
+- `def test_store_reloads_when_the_file_changes_under_it(config)`
+- `def test_add_macro_requires_something_to_say_or_do(config)`
+- `def test_macros_module_manages_the_table(brain)`
+- `def test_add_macro_rejects_bad_definition(brain)`
+- `def test_trigger_fires_instantly_without_a_model(brain)`
+- `def test_trigger_wins_over_conversation_and_is_fast(brain)`
+- `def test_macro_step_failure_stops_cleanly(brain)`
+- `def test_unarmed_trigger_still_routes_normally(brain)`
 
 ## `tests/test_memory.py`
 
@@ -1899,9 +2156,24 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_unloading_forgets_the_import(plugin_dir, config)`
 - `def test_removing_an_installed_plugin_deletes_it(plugin_dir, config)`
 
+## `tests/test_preferences.py`
+
+*8 functions*
+
+> Unit tests for core/preferences.py and its wiring into the brain.
+
+- `def test_usage_is_counted_per_tool(tmp_path)`
+- `def test_a_repeated_request_becomes_a_routine(tmp_path)`
+- `def test_a_different_request_resets_the_streak(tmp_path)`
+- `def test_noise_parameters_are_not_preferences(tmp_path)`
+- `def test_summary_reads_as_advice_for_the_model(tmp_path)`
+- `def test_summary_is_empty_until_something_is_learned(tmp_path)`
+- `def test_preferences_survive_a_restart(tmp_path)`
+- `def test_a_corrupt_file_starts_clean(tmp_path)`
+
 ## `tests/test_productivity.py`
 
-*23 functions*
+*28 functions*
 
 > Unit tests for modules/productivity.py.
 
@@ -1928,15 +2200,21 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_a_tick_with_nothing_due_is_harmless(productivity)`
 - `def test_a_negative_duration_is_refused(productivity)`
 - `def test_a_non_numeric_id_is_refused_politely(productivity)`
+- `def _seed_week(productivity) -> None` — Create two completed todos, a fired reminder and a note.
+- `def test_weekly_digest_counts_the_last_seven_days(config)`
+- `def test_weekly_digest_with_an_empty_week_is_still_calm(config)`
+- `def test_daily_briefing_folds_in_the_review_on_its_day(config)`
+- `def test_daily_briefing_skips_the_review_on_other_days(config)`
 
 ## `tests/test_self_improve.py`
 
-*18 functions*
+*21 functions*
 
 > Unit tests for modules/self_improve.py — JARVIS editing his own source.
 
 - `def self_improve(config)` — A SelfImprove module that reads the real project tree.
 - `def test_offline_router_recognises_self_requests(self_improve, phrase, expected)`
+- `def test_offline_router_sends_edit_orders_to_edit_own_code(self_improve, phrase, expected_path)` — An order to *change* his own code must not be answered with a code map.
 - `def test_the_code_map_lists_the_real_modules(self_improve)`
 - `def test_reading_its_own_source_works(self_improve)`
 - `def test_a_line_range_can_be_requested(self_improve)`
@@ -1950,6 +2228,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_installing_a_package_is_refused_when_forbidden(config)`
 - `def test_repository_readmes_are_untrusted(self_improve)`
 - `def test_a_protected_file_is_refused_for_being_protected(self_improve)`
+- `def test_editing_with_no_file_named_is_a_clean_refusal(self_improve)` — An empty edit path must never read the project root as a file.
+- `def test_editing_a_directory_is_refused_not_read(self_improve)` — Pointing an edit at a folder ('.', 'core') is refused outright.
 - `def test_a_broken_rewrite_is_rejected_by_the_syntax_gate(self_improve)`
 - `def test_a_sound_rewrite_passes_the_syntax_gate(self_improve)`
 - `def test_the_source_tree_is_found_regardless_of_where_the_config_lives(tmp_path)` — Following config.root broke self-inspection for anyone using --config.
@@ -2285,7 +2565,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*59 functions*
+*62 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -2345,6 +2625,9 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_answer_is_centred_below_the_console(web)` — The stage sits just above the dock so the text hugs the controls.
 - `def test_the_page_has_a_reactive_halo_and_horizon_grid(web)`
 - `def test_reduced_motion_suppresses_the_new_atmosphere(web)`
+- `def _confirm_scenario(config, reply)` — Run one WS turn that needs approval, answer it, and return the reply.
+- `def test_a_dangerous_edit_is_approved_over_the_socket(config)` — Approve in the browser: the edit proceeds (and here, without an LLM,
+- `def test_denying_the_confirm_cancels_the_edit(config)` — Deny in the browser: the dangerous tool must not run.
 
 ## `tests/test_web_search.py`
 
@@ -2397,5 +2680,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1682 functions across 66 files.**
+**1889 functions across 74 files.**
 

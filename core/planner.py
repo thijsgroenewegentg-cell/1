@@ -43,6 +43,7 @@ class Planner:
             brain: The orchestrator that owns the modules and the model.
         """
         self.brain = brain
+        self.anaphora_turn = False
 
     async def run(
         self,
@@ -65,6 +66,11 @@ class Planner:
         module = self.brain.modules.get(intent.module)
         if module is None:
             return await self.brain._converse(text, memory_context, on_token)
+        # An anaphora intent ("again", "that file") is the brain re-pointing a
+        # vague phrase at the module that handled the previous turn. The user
+        # is not guessing a target — the target is last turn's — so the
+        # confirm-your-guess gate must not nag here.
+        self.anaphora_turn = bool(intent.method == "anaphora")
 
         # --- degraded mode: no LLM, drive the module directly ---------------
         if not self.brain.llm.available:
@@ -257,10 +263,13 @@ class Planner:
     ) -> str:
         """Build the prompt for one ReAct iteration."""
         history = "\n".join(transcript[-8:]) or "(nothing yet)"
+        recent = self.brain._context_hint()
+        recent_block = f"RECENT ACTIVITY:\n{recent}\n\n" if recent else ""
         return (
             "You are the reasoning core of JARVIS. Decide the next step.\n\n"
             f"TOOLS:\n{catalog}\n\n"
             + (f"MEMORY:\n{memory_context}\n\n" if memory_context else "")
+            + recent_block
             + f"USER REQUEST: {text}\n\n"
             f"SCRATCHPAD (step {step} of {MAX_REACT_STEPS}):\n{history}\n\n"
             "Reply with ONLY a JSON object:\n"
@@ -297,6 +306,10 @@ class Planner:
             True when the tool may run (or nothing needs asking).
         """
         if step != 1:
+            return True
+        if getattr(self, "anaphora_turn", False):
+            # "again, but slower" already names its target implicitly — last
+            # turn's. Confirming would be nagging.
             return True
         if not self.brain.config.get("assistant.confirm_plan", True):
             return True

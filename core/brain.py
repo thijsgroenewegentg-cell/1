@@ -19,12 +19,15 @@ import contextlib
 import json
 import re
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import (
     Any,
     AsyncIterator,
     ClassVar,
+    Deque,
     Dict,
     FrozenSet,
     List,
@@ -36,6 +39,7 @@ from typing import (
 from core.config import Config
 from core.event_bus import EventBus
 from core.intent_router import INTENT_KEYWORDS, Intent, IntentRouter
+from core.macros import MacroStore
 from core.memory import Memory
 from core.personality import Personality
 from core.planner import Planner, TokenCallback
@@ -631,6 +635,10 @@ class Brain:
         self.preferences = Preferences(config.resolve(
             config.get("memory.preferences_file", "data/preferences.json")
         ))
+        #: Fixed "when I say X, do Y" commands (see :mod:`core.macros`).
+        self.macros = MacroStore(config.resolve(
+            config.get("assistant.macros_file", "data/macros.json")
+        ))
         self.security = SecurityGuard.from_config(config.section("security"))
         #: Intent classification: keyword prior plus the model itself.
         self.router = IntentRouter(self)
@@ -664,6 +672,26 @@ class Brain:
         self._tainted_by: Set[str] = set()
         #: Injection attempts spotted during the current turn.
         self._injection_notes: List[str] = []
+        #: The user's most recent utterance, kept so "that"/"it" in the next
+        #: one can point at it (short-term context store; see ``_context_hint``).
+        self._current_user_text: str = ""
+        #: Tool calls made while answering the current turn, in order. Used to
+        #: resolve "that file" / "again, but slower" and to narrate macros.
+        self._current_turn_tools: List[Dict[str, Any]] = []
+        #: Tools run in the most recent planned turn — same list as above but
+        #: preserved between turns for the model to consult.
+        self.last_tools: List[Dict[str, Any]] = []
+        #: Short echo of the last few completed turns (utterance, reply).
+        self.turn_log: Deque[Dict[str, str]] = deque(maxlen=10)
+        self.last_turn: Dict[str, str] = {}
+        #: The last non-empty text JARVIS itself spoke, so "again" can repeat
+        #: the previous answer instead of guessing at the subject.
+        self.last_response: str = ""
+        #: Which module (if any) handled the most recent turn; anaphora
+        #: routing sends "again"/"that" back there.
+        self.last_module_hint: str = "conversation"
+        #: Cursor for chunked read-aloud sessions (see ``_read_aloud``).
+        self._reading: Optional[Dict[str, Any]] = None
 
     # ------------------------------------------------------------------ setup
     async def initialize(self) -> None:
@@ -695,6 +723,7 @@ class Brain:
             "communications": ("modules.communications", "Communications"),
             "models": ("modules.models", "Models"),
             "self_improve": ("modules.self_improve", "SelfImprove"),
+            "macros": ("modules.macros", "Macros"),
         }
         import importlib
 
@@ -1145,7 +1174,9 @@ class Brain:
         tool_name = tool_name.strip()
 
         if module_name == "memory":
-            return await self._memory_tool(tool_name, params)
+            result = await self._memory_tool(tool_name, params)
+            self._record_tool(reference, params, result)
+            return result
 
         if module_name in self.modules:
             module = self.modules[module_name]
@@ -1153,10 +1184,12 @@ class Brain:
                 self.events.emit(
                     "tool.called", source="brain", tool=reference, params=params
                 )
-                return self._announce_result(
-                    reference, await module.call_tool(tool_name, params), params
-                )
-            return await module.execute(str(params.get("query", "")), params)
+                result = await module.call_tool(tool_name, params)
+                self._record_tool(reference, params, result)
+                return self._announce_result(reference, result, params)
+            result = await module.execute(str(params.get("query", "")), params)
+            self._record_tool(reference, params, result)
+            return result
 
         # Bare tool name: search every module.
         for module in self.modules.values():
@@ -1164,9 +1197,9 @@ class Brain:
                 self.events.emit(
                     "tool.called", source="brain", tool=reference, params=params
                 )
-                return self._announce_result(
-                    reference, await module.call_tool(reference, params), params
-                )
+                result = await module.call_tool(reference, params)
+                self._record_tool(reference, params, result)
+                return self._announce_result(reference, result, params)
 
         return ModuleResult.fail(
             f"No such tool '{reference}'. Known modules: {', '.join(self.modules)}."
@@ -1249,6 +1282,8 @@ class Brain:
             self._cancel.clear()
             self._tainted_by.clear()
             self._injection_notes.clear()
+            self._current_user_text = text
+            self._current_turn_tools = []
             # A new question preempts background housekeeping: fact extraction
             # and summarization from earlier turns share the one Ollama model,
             # and letting them run on would queue this reply behind them.
@@ -1262,6 +1297,7 @@ class Brain:
             )
             try:
                 response = await self._process_inner(text, speak_status, on_token)
+                self._remember_turn(text, response)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -1285,6 +1321,7 @@ class Brain:
                 not response.strip() or response == self._offline_reply(text)
             ):
                 response = "Stopped."
+            await self._maybe_ping(text, response, elapsed)
             await self.memory.add_exchange(
                 text, response, self.last_intent.module if self.last_intent else ""
             )
@@ -1322,6 +1359,30 @@ class Brain:
         if followup is not None:
             return followup
 
+        # An armed macro fires before anything model-shaped: it is a fixed
+        # "when I say X, do Y" contract, so it must be instant and identical
+        # every time, and it must still work when Ollama is down.
+        macro = None
+        if self.config.get("modules.macros", True):
+            macro = self.macros.match(text)
+        if macro is not None:
+            self.last_intent = Intent("macros", 1.0, "armed macro", method="macro")
+            return await self._execute_macro(macro, text)
+
+        # "What can you do?" is answered from live module metadata — no model,
+        # no network, works offline, and only lists what is really enabled.
+        if self._is_help_request(text):
+            self.last_intent = Intent("conversation", 1.0, "capabilities request",
+                                      method="help")
+            return self.help_text()
+
+        # "Read it to me": chunked, plain, spoken straight from the file.
+        read_reply = await self._read_aloud(text)
+        if read_reply is not None:
+            module = "file_manager" if "file_manager" in self.modules else "conversation"
+            self.last_intent = Intent(module, 1.0, "read-aloud", method="read-aloud")
+            return read_reply
+
         # Long-term recall and intent classification are independent, so run
         # them together: the embedding search hides behind the router round
         # trip instead of adding its own serial delay in front of every turn.
@@ -1338,6 +1399,21 @@ class Brain:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await mem_task
             raise
+        # "Again", "that file", "do it slower" have no keywords of their own,
+        # so the router sends them to small talk. When they clearly lean on
+        # the previous turn and that turn was real work, re-point them at the
+        # module that did the work — the context hint then supplies the file.
+        if (
+            intent.is_conversation
+            and self._referential(text)
+            and getattr(self, "last_module_hint", "") in self.modules
+        ):
+            intent = Intent(
+                self.last_module_hint,
+                max(0.8, intent.confidence),
+                "referential phrasing resolved to the previous module",
+                method="anaphora",
+            )
         self.last_intent = intent
         logger.debug(
             "Intent: %s (%.2f, %s) — %s",
@@ -1360,6 +1436,446 @@ class Brain:
             await self._status(f"Working on it, {self.config.user_address()}.")
 
         return await self._react(text, intent, memory_context, on_token)
+
+    # ------------------------------------------------------------ macro runs
+    async def _execute_macro(self, entry: Dict[str, Any], text: str) -> str:
+        """Run an armed macro: canned lines plus fixed tool steps.
+
+        Tools are dispatched in order and stop at the first failure; plain
+        ``say`` lines never fail. The macro's own words and the tool replies
+        are woven into one answer, and the run is recorded for the context
+        store so a follow-up like "that again, slower" has something to point
+        at.
+
+        Args:
+            entry: The stored macro record from :attr:`macros`.
+            text: The exact utterance that triggered it (for the log).
+
+        Returns:
+            The reply to speak/print.
+        """
+        trigger = str(entry.get("trigger", "") or text)
+        try:
+            pieces: List[str] = []
+            if entry.get("say"):
+                pieces.append(str(entry["say"]).strip())
+            for step in entry.get("steps", []) or []:
+                if not isinstance(step, dict):
+                    continue
+                if step.get("say"):
+                    line = str(step["say"]).strip()
+                    if line and not any(line.lower() == p.lower() for p in pieces):
+                        pieces.append(line)
+                    continue
+                reference = str(step.get("tool", "") or "").strip()
+                if not reference:
+                    continue
+                params = dict(step.get("params") or {})
+                result = await self.dispatch(reference, params)
+                if result.success:
+                    line = (result.speak or result.output or "").strip()
+                    if line and not any(line.lower() == p.lower() for p in pieces):
+                        pieces.append(line)
+                else:
+                    pieces.append(
+                        f"Step {reference} hit a snag: {result.error or result.output}"
+                    )
+                    break
+            self.macros.count_use(trigger)
+            body = " ".join(pieces).strip()
+            return body or f"Ran '{trigger}', sir — nothing to report."
+        except Exception as exc:  # defensive: a macro must never crash a turn
+            logger.exception("Macro '%s' failed", trigger)
+            return (
+                f"Macro '{trigger}' tripped over itself: {exc}. "
+                "Check its definition and try again."
+            )
+
+    # ------------------------------------------------------------ context
+    @staticmethod
+    def _referential(text: str) -> bool:
+        """True when the utterance leans on the previous turn.
+
+        Detects "that file", "it", "again", "repeat", "same", "one more" —
+        the words a context store exists for. The keyword router sends these
+        to conversation on their own, so the anaphora hook re-points them at
+        the module that handled the previous turn.
+        """
+        words = set(
+            re.sub(r"[^a-z\s]", " ", (text or "").lower()).split()
+        )
+        return bool(
+            words
+            & {"again", "repeat", "same", "that", "it", "its", "them", "those"}
+        ) or any(token in (text or "").lower() for token in ("one more", "another"))
+
+    def _context_hint(self) -> str:
+        """Summarise recent turns and tool runs for the model's next prompt.
+
+        This is the short-term half of the "that/it" fix: before the model
+        sees the new turn it gets a compact note naming the file that was
+        just rendered, the app that was just opened, the parameters of the
+        last tool call. Enough to resolve "render it again but slower"
+        without re-searching memory.
+
+        Returns:
+            A prose hint, or ``""`` when there is nothing worth adding.
+        """
+        if not self.config.get("assistant.context_hints", True):
+            return ""
+        notes: List[str] = []
+        if self.last_turn.get("user"):
+            notes.append(
+                "previous request: " + truncate(self.last_turn["user"], 160)
+            )
+            if self.last_turn.get("response"):
+                notes.append(
+                    "JARVIS answered: " + truncate(self.last_turn["response"], 200)
+                )
+        for item in list(self.last_tools)[-3:]:
+            params = item.get("params") or {}
+            brief = ", ".join(
+                f"{k}={truncate(str(v), 60)}" for k, v in list(params.items())[:3]
+            )
+            note = f"tool {item.get('tool')}({brief})"
+            if item.get("ok"):
+                out = truncate(item.get("text", ""), 140)
+                if out:
+                    note += f" -> {out}"
+            else:
+                note += " -> FAILED"
+            notes.append(note)
+        if not notes:
+            return ""
+        return (
+            "Recent activity (resolve 'that', 'it', 'again', 'repeat' against "
+            f"this; ignore when irrelevant): {'; '.join(notes)}."
+        )
+
+    def _remember_turn(self, text: str, response: str) -> None:
+        """File the finished turn in the context store.
+
+        Args:
+            text: The user's utterance.
+            response: What JARVIS answered with.
+        """
+        tools = list(self._current_turn_tools)
+        self._current_turn_tools = []
+        if tools:
+            self.last_tools = tools
+        self.last_turn = {"user": text, "response": response}
+        if response.strip():
+            self.last_response = response.strip()
+        self.last_module_hint = self.last_intent.module if self.last_intent else "conversation"
+        self.turn_log.append(
+            {"user": text, "response": response, "tools": len(tools)}
+        )
+
+    # ------------------------------------------------------------- done-pings
+    @staticmethod
+    def _ping_minutes(text: str) -> Optional[int]:
+        """How many minutes to wait before the requested ping, if any.
+
+        Parses "ping me in 10 minutes" → 10; "notify me when it's done" → 0;
+        anything unrelated → None (no ping at all).
+        """
+        lowered = " " + (text or "").strip().lower().strip(" .!?,") + " "
+        asks_ping = any(
+            marker in lowered
+            for marker in (" ping ", "notify me", "let me know", "tell me when",
+                           "message me", "ping when", "ping me")
+        ) or lowered.startswith((" ping ", "notify "))
+        if not asks_ping:
+            return None
+        match = re.search(r"in\s+(\d+)\s*min", lowered)
+        if match:
+            return max(0, int(match.group(1)))
+        mentions_task = any(
+            word in lowered
+            for word in ("done", "finish", "finished", "complete", "completed",
+                         "ready", "when it", "when you", "the render",
+                         "the download", "the backup", "the task", "it is",
+                         "its done")
+        )
+        return 0 if mentions_task else None
+
+    async def _fire_ping(self, summary: str, minutes: int = 0) -> None:
+        """Publish a completion ping the interfaces turn into chime + notice.
+
+        Args:
+            summary: Short text describing what finished.
+            minutes: Wait this long before pinging (0 = now).
+        """
+        if minutes > 0:
+            self._spawn(self._delayed_ping(summary, minutes))
+            return
+        await self.events.publish(
+            "task.completed",
+            source="brain",
+            text=summary,
+            task=summary,
+        )
+
+    async def _delayed_ping(self, summary: str, minutes: int) -> None:
+        """Sleep then emit the ping."""
+        try:
+            await asyncio.sleep(minutes * 60)
+            await self.events.publish(
+                "task.completed", source="brain", text=summary, task=summary
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug("Delayed ping failed: %s", exc)
+
+    async def _maybe_ping(self, text: str, response: str, elapsed: float) -> None:
+        """Emit a done-ping when the user asked for one or the turn was long.
+
+        Args:
+            text: The user's utterance.
+            response: The final reply (used as the ping text).
+            elapsed: Seconds the turn took.
+        """
+        if not self.config.get("assistant.notify_when_asked", True):
+            return
+        summary = truncate(
+            response.strip() or f"Done, {self.config.user_address()}.", 240
+        )
+        minutes = self._ping_minutes(text)
+        long_task_seconds = int(
+            self.config.get("assistant.long_task_seconds", 45) or 0
+        )
+        auto_ping = bool(
+            self.config.get("assistant.ping_long_tasks", False)
+        ) and elapsed >= long_task_seconds
+        if minutes is None:
+            if auto_ping:
+                await self._fire_ping(summary, 0)
+            return
+        await self._fire_ping(summary, minutes)
+
+    # ------------------------------------------------------- "what can you do"
+    def _is_help_request(self, text: str) -> bool:
+        """Recognise a capabilities/help request.
+
+        Narrow on purpose: "help" as part of a longer ask ("help me find my
+        keys") must keep routing normally, not dump the whole catalogue.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            True when JARVIS should answer with its capability list.
+        """
+        lowered = " ".join((text or "").lower().split()).strip(" .!?,")
+        if not lowered:
+            return False
+        exact = {
+            "help", "what can you do", "what do you do", "what are you",
+            "list your commands", "list your skills", "what are you capable of",
+            "what are your capabilities", "what can you help with",
+        }
+        if lowered in exact:
+            return True
+        words = lowered.split()
+        if lowered.startswith("help ") and len(words) <= 3:
+            return True
+        return any(
+            phrase in lowered
+            for phrase in (
+                "what can you do", "show me what you can do",
+                "what commands do you have", "your capabilities",
+                "what can you help with", "what can you help me with",
+            )
+        )
+
+    def help_text(self) -> str:
+        """Describe the loaded capabilities with concrete example phrases.
+
+        Built from live module metadata, so a module that is switched off in
+        config simply does not appear, and nothing hard-coded goes stale.
+
+        Returns:
+            The help text to show and speak.
+        """
+        lines: List[str] = [f"Here's what I can do, {self.config.user_address()}:"]
+        for name in sorted(self.modules):
+            module = self.modules[name]
+            description = (getattr(module, "description", "") or "").strip()
+            desc = truncate(description.replace("\n", " "), 110) if description else ""
+            example = ""
+            examples = list(getattr(module, "intent_examples", None) or [])
+            if examples and str(examples[0]).strip():
+                example = truncate(str(examples[0]).strip(), 60)
+            line = f"• {name}" + (f" — {desc}" if desc else "")
+            if example:
+                line += f' (try: "{example}")'
+            lines.append(line)
+        lines.append(
+            "I also remember long-term facts, answer from your files, and hold "
+            "macros: say 'when I say X, do Y' to teach me a fixed command."
+        )
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------ read-aloud
+    def _read_request(self, text: str) -> bool:
+        """True when the utterance asks for text to be read out loud.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            True for "read it to me" / "read the file aloud" phrasing.
+        """
+        lowered = " ".join((text or "").lower().split())
+        if not lowered:
+            return False
+        if lowered in {
+            "read it", "read that", "read this", "read it to me",
+            "read that to me", "read this to me", "read it out",
+            "read me that", "read me this",
+        }:
+            return True
+        if lowered.startswith("read me ") or lowered.startswith("read the "):
+            return True
+        return bool(
+            re.search(r"\bread\b.*\b(to me|aloud|out loud|out)\b", lowered)
+            or re.search(r"\b(say|recite)\b.*\b(to me|aloud|out loud)\b", lowered)
+        )
+
+    def _read_target(self, text: str) -> Optional[str]:
+        """Find the file the user wants read aloud.
+
+        Looks for an explicit path in the utterance first, then falls back to
+        the most recent tool parameter that pointed at an existing file (the
+        context store: "read that file to me" right after a render).
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            An absolute file path, or ``None`` when nothing was named.
+        """
+        lowered = text or ""
+        # Explicit: ~/…, /…, ./…, C:\… or a bare name with an extension.
+        patterns = [
+            r"~[/\\][\w .\-/\\]+",
+            r"(?:^|\s)(?:\.{0,2})[/\\][\w .\-/\\]+",
+            r"[A-Za-z]:[/\\][\w .\-/\\]+",
+            r"\b[\w .\-]+\.(?:txt|md|markdown|log|json|yaml|yml|csv|py|ini|cfg|rtf)\b",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, lowered)
+            if match:
+                candidate = match.group(0).strip()
+                if pattern.startswith(r"\b[\w"):
+                    candidate = candidate.strip()
+                try:
+                    path = self.config.resolve(candidate)
+                except Exception:
+                    continue
+                if path.is_file():
+                    return str(path)
+        # Context store: did the previous turn touch a file?
+        for item in reversed(self.last_tools):
+            for value in (item.get("params") or {}).values():
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                try:
+                    path = self.config.resolve(value.strip())
+                except Exception:
+                    continue
+                if path.is_file():
+                    return str(path)
+        return None
+
+    async def _read_aloud(self, text: str) -> Optional[str]:
+        """Answer a read-it-to-me request with chunked plain text.
+
+        Long files are split into word-sized chunks; each chunk is returned as
+        the turn's answer (so it is spoken naturally), and the next one is
+        served when the user says "continue reading". No LLM is involved.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            The reply, or ``None`` when the utterance is not a read request
+            (or names no file) and normal processing should continue.
+        """
+        lowered = " ".join((text or "").lower().split())
+        reading = getattr(self, "_reading", None)
+        continuing = reading is not None and (
+            lowered in {"continue", "keep going", "read more", "next part", "more"}
+            or lowered.startswith(
+                ("continue reading", "keep reading", "carry on reading", "next part")
+            )
+        )
+        if continuing and reading is not None:
+            words = reading.get("words") or []
+            position = int(reading.get("pos", 0))
+            if position >= len(words):
+                self._reading = None
+                return "That was the whole thing, sir — nothing left to read."
+            size = max(30, int(self.config.get("assistant.read_aloud_words", 420) or 420))
+            chunk = " ".join(words[position:position + size])
+            reading["pos"] = position + size
+            if reading["pos"] >= len(words):
+                self._reading = None
+                return chunk
+            return (
+                chunk
+                + " There's more — say 'continue reading' and I'll keep going."
+            )
+
+        if not self._read_request(lowered):
+            return None
+        target = self._read_target(text)
+        if target is None:
+            return None
+        module = self.modules.get("file_manager")
+        if module is None or "read_file" not in module.tools:
+            return None
+        result = await self.dispatch("file_manager.read_file", {"path": target})
+        if not result.success:
+            return f"I couldn't read that one: {result.error or result.output}"
+        output = result.output or ""
+        newline = output.find("\n")
+        body = output[newline + 1:] if newline != -1 else output
+        words = body.split()
+        size = max(30, int(self.config.get("assistant.read_aloud_words", 420) or 420))
+        if not words:
+            return f"{Path(target).name} is empty, sir."
+        first = " ".join(words[:size])
+        if len(words) <= size:
+            self._reading = None
+            return first
+        self._reading = {
+            "path": str(target),
+            "words": words,
+            "pos": min(size, len(words)),
+        }
+        return (
+            first + " There's more — say 'continue reading' and I'll keep going."
+        )
+
+    def _record_tool(self, reference: str, params: Dict[str, Any], result: ModuleResult) -> None:
+        """Remember one tool call so the next turn can say "that one".
+
+        Args:
+            reference: The ``module.tool`` that ran.
+            params: The parameters it ran with.
+            result: Its outcome (success flag + spoken/output text).
+        """
+        text = (result.speak or result.output or "").strip()
+        self._current_turn_tools.append(
+            {
+                "tool": reference,
+                "params": dict(params or {}),
+                "ok": bool(result.success),
+                "text": truncate(text, 260),
+            }
+        )
 
     # --------------------------------------------------------- follow-up state
     async def _resolve_pending(self, text: str) -> Optional[str]:
@@ -1465,7 +1981,13 @@ class Brain:
         if not self.llm.available:
             return self._offline_reply(text)
 
-        messages = [{"role": "system", "content": self.system_prompt(memory_context)}]
+        system = self.system_prompt(memory_context)
+        hint = self._context_hint()
+        if hint:
+            # The model sees this turn with a note about the previous one, so
+            # "that file" / "again" can be resolved instead of guessed.
+            system = f"{system}\n\n{hint}"
+        messages = [{"role": "system", "content": system}]
         messages.extend(self.memory.context_messages())
         messages.append({"role": "user", "content": text})
         reply = await self._generate(
@@ -1619,6 +2141,30 @@ class Brain:
         if address:
             return f"All systems online, {address}. {status.capitalize()}."
         return f"All systems online. {status.capitalize()}."
+
+    # ------------------------------------------------------------ self-check
+    async def run_self_check(self) -> str:
+        """Probe the offline services quietly and store the findings.
+
+        Checks Ollama, Blender, the microphone and the wake-word engine with
+        short local timeouts — no model calls, nothing spoken. The report is
+        written to ``assistant.health_file`` so the next morning briefing can
+        mention anything that went offline overnight.
+
+        Returns:
+            A one-line summary of the result (safe to log).
+        """
+        from core.health import read_report, run_probes, summarize, write_report
+
+        try:
+            results = await run_blocking(run_probes, self.config)
+            write_report(self.config, results)
+            summary = summarize(read_report(self.config))
+            logger.info("Self-check: %s", summary)
+            return summary
+        except Exception as exc:  # defensive: a broken probe must not crash
+            logger.debug("Self-check failed: %s", exc)
+            return "The self-check tripped over itself."
 
     async def morning_brief(self, timeout: float = 25.0) -> str:
         """Assemble the day's briefing from the productivity module.

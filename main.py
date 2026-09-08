@@ -97,6 +97,20 @@ class Jarvis:
         # Long-running tasks can speak progress updates.
         self.brain.speaker_hook = self._status_update
 
+        # "Ping me when it's done": completion events become a voice chime, a
+        # terminal panel and a browser notification (see core/brain.py).
+        self.brain.events.subscribe("task.completed", self._on_task_completed)
+
+    async def _on_task_completed(self, event: Any) -> None:
+        """Deliver a completion ping through every active channel.
+
+        Args:
+            event: The ``task.completed`` event from the brain.
+        """
+        data = getattr(event, "data", None) or {}
+        text = str(data.get("text") or "").strip() or "Done, sir."
+        await self._notify(text)
+
     async def _notify(self, message: str) -> None:
         """Announce a reminder, timer or scheduled job in every active channel."""
         if self.cli is not None:

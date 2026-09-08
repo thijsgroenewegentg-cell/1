@@ -592,10 +592,42 @@ class Productivity(BaseModule):
             for job in await run_blocking(self._pop_due_jobs):
                 await self._run_job(job)
             await self._flush_deferred()
+            await self._nightly_check_if_due()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self.log.debug("Scheduler hiccup: %s", exc)
+
+    async def _nightly_check_if_due(self) -> None:
+        """Run the quiet daily health probe at ``assistant.nightly_check_time``.
+
+        Fires at most once per calendar day and never announces itself —
+        findings are written to the health file, which the next morning
+        briefing reads out. Running it here (inside the normal scheduler
+        tick) means it works without any extra scheduler engine.
+        """
+        if self.brain is None:
+            return
+        wanted = str(
+            self.config.get("assistant.nightly_check_time", "") or ""
+        ).strip()
+        if not wanted:
+            return
+        now = datetime.now()
+        if now.strftime("%H:%M") != wanted:
+            return
+        try:
+            from core.health import read_report
+
+            today = now.strftime("%Y-%m-%d")
+            report = read_report(self.config)
+            if report and str(report.get("date", "")) == today:
+                return  # already probed today
+            await self.brain.run_self_check()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.log.debug("Nightly self-check failed: %s", exc)
 
     async def _scheduler_loop(self) -> None:
         """Poll in a plain loop — used only if the Scheduler cannot start."""
@@ -828,6 +860,9 @@ class Productivity(BaseModule):
         "brief me": "productivity.daily_briefing",
         "my todos": "productivity.list_todos",
         "my todo list": "productivity.list_todos",
+        "weekly digest": "productivity.weekly_digest",
+        "weekly review": "productivity.weekly_digest",
+        "week in review": "productivity.weekly_digest",
         "my tasks": "productivity.list_todos",
         "my reminders": "productivity.list_reminders",
         "the weather": "web_search.weather",
@@ -2002,8 +2037,197 @@ class Productivity(BaseModule):
             except Exception as exc:
                 self.log.debug("Briefing news failed: %s", exc)
 
+        # Last night's quiet self-check, when one ran today (see core/health).
+        if self.config.get("assistant.report_health_in_brief", True):
+            try:
+                from core.health import last_report_is_today, read_report, summarize
+
+                report = read_report(self.config)
+                if last_report_is_today(report, now.strftime("%Y-%m-%d")):
+                    parts.append(summarize(report))
+            except Exception as exc:
+                self.log.debug("Briefing health failed: %s", exc)
+
+        # The weekly review sits beside the morning briefing on its day.
+        if self._is_weekly_review_day(now):
+            try:
+                review = await self.weekly_digest()
+                if review.success and review.data.get("digest"):
+                    parts.append(review.data["digest"])
+            except Exception as exc:
+                self.log.debug("Briefing weekly digest failed: %s", exc)
+
         text = " ".join(parts)
         return ModuleResult(success=True, output=text, speak=text, data={"parts": parts})
+
+    # ------------------------------------------------------------- weekly
+    def _is_weekly_review_day(self, moment: datetime) -> bool:
+        """Whether today is the configured weekly review day.
+
+        Args:
+            moment: The day to test.
+
+        Returns:
+            True when ``productivity.weekly_review_day`` names this weekday.
+        """
+        day = str(
+            self.config.get("productivity.weekly_review_day", "") or ""
+        ).strip().lower()
+        if not day:
+            return False
+        wanted = WEEKDAYS.get(day)
+        if wanted is None:
+            return False
+        return moment.weekday() == wanted
+
+    def _week_window(self, now: Optional[datetime] = None) -> Tuple[str, str]:
+        """ISO timestamps bounding the trailing seven days.
+
+        Args:
+            now: Reference moment (defaults to now).
+
+        Returns:
+            ``(start, end)`` ISO strings.
+        """
+        end = now or datetime.now()
+        start = end - timedelta(days=7)
+        return start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")
+
+    async def _week_stats(self) -> Dict[str, Any]:
+        """Tally the last seven days straight from SQLite.
+
+        Returns:
+            Counts plus the most recent completed todos, fired reminders and
+            written notes for the digest.
+        """
+        start, _end = self._week_window()
+
+        def _gather() -> Dict[str, Any]:
+            with self._connect() as connection:
+                completed = connection.execute(
+                    "SELECT task, completed FROM todos WHERE done = 1 AND completed >= ? "
+                    "ORDER BY completed DESC LIMIT 5",
+                    (start,),
+                ).fetchall()
+                fired = connection.execute(
+                    "SELECT text, due FROM reminders WHERE fired = 1 AND due >= ? "
+                    "ORDER BY due DESC LIMIT 3",
+                    (start,),
+                ).fetchall()
+                notes = connection.execute(
+                    "SELECT title, created FROM notes WHERE created >= ? "
+                    "ORDER BY created DESC LIMIT 3",
+                    (start,),
+                ).fetchall()
+                counts = {
+                    "todos_done": connection.execute(
+                        "SELECT COUNT(*) FROM todos WHERE done = 1 AND completed >= ?",
+                        (start,),
+                    ).fetchone()[0],
+                    "reminders_fired": connection.execute(
+                        "SELECT COUNT(*) FROM reminders WHERE fired = 1 AND due >= ?",
+                        (start,),
+                    ).fetchone()[0],
+                    "notes": connection.execute(
+                        "SELECT COUNT(*) FROM notes WHERE created >= ?",
+                        (start,),
+                    ).fetchone()[0],
+                }
+            return {
+                "counts": counts,
+                "completed": [dict(row) for row in completed],
+                "reminders_fired": [dict(row) for row in fired],
+                "notes": [dict(row) for row in notes],
+            }
+
+        return await run_blocking(_gather)
+
+    @tool(
+        description=(
+            "Give the weekly review: todos completed, reminders fired and notes "
+            "written in the last 7 days, plus calendar and mail ahead."
+        ),
+        params={},
+        keywords=["weekly digest", "weekly review", "week in review",
+                  "summarize my week", "summarise my week", "my week in review",
+                  "this week's summary", "how was my week"],
+        examples=["give me the weekly review", "how was my week"],
+    )
+    async def weekly_digest(self) -> ModuleResult:
+        """Assemble the seven-day review from local data and live extras.
+
+        Returns:
+            A :class:`ModuleResult` whose ``data.digest`` is the plain text,
+            ready to fold into the morning briefing.
+        """
+        now = datetime.now()
+        parts: List[str] = [f"Weekly digest for the 7 days to {now:%A %d %B}."]
+        try:
+            stats = await self._week_stats()
+        except Exception as exc:
+            self.log.debug("Week stats failed: %s", exc)
+            return ModuleResult.fail(f"I couldn't read my week: {truncate(str(exc), 160)}")
+        counts = stats["counts"]
+        parts.append(
+            f"Last 7 days: {counts['todos_done']} task(s) completed, "
+            f"{counts['reminders_fired']} reminder(s) fired and "
+            f"{counts['notes']} note(s) written."
+        )
+        completed = stats["completed"]
+        if completed:
+            listed = "; ".join(row["task"] for row in completed)
+            parts.append(f"Completed: {listed}.")
+        fired = stats["reminders_fired"]
+        if fired:
+            listed = "; ".join(row["text"] for row in fired)
+            parts.append(f"Reminded you about: {listed}.")
+        note_titles = [row["title"] for row in stats["notes"] if row.get("title")]
+        if note_titles:
+            parts.append("Recent notes: " + "; ".join(note_titles[:3]) + ".")
+
+        # Calendar ahead (optional dependency, mirrors the morning briefing).
+        if self.config.get("modules.communications", True) and self.config.get(
+            "calendar.enabled", True
+        ):
+            try:
+                from modules.communications import Communications
+
+                comms = Communications(self.config, llm=self.llm, security=self.security)
+                agenda = await comms.upcoming_events(days=7)
+                events = agenda.data.get("events", []) if agenda.success else []
+                if events:
+                    first = events[0]
+                    start = str(first.get("start", ""))
+                    when = start[11:16] if len(start) > 11 else ""
+                    parts.append(
+                        f"{len(events)} event(s) in the next week, the first: "
+                        f"{first.get('summary', '?')} at {when}."
+                    )
+            except Exception as exc:
+                self.log.debug("Digest calendar failed: %s", exc)
+
+        # Unread mail, when configured.
+        if self.config.get("modules.communications", True) and self.config.get(
+            "email.enabled", False
+        ):
+            try:
+                from modules.communications import Communications
+
+                mailer = Communications(self.config, llm=self.llm, security=self.security)
+                inbox = await mailer.check_email(unread_only=True, limit=5)
+                unread = inbox.data.get("messages", []) if inbox.success else []
+                if unread:
+                    parts.append(f"{len(unread)} unread email(s) waiting.")
+            except Exception as exc:
+                self.log.debug("Digest email failed: %s", exc)
+
+        digest = " ".join(parts)
+        return ModuleResult(
+            success=True,
+            output=digest,
+            speak=digest,
+            data={"digest": digest, "stats": counts},
+        )
 
 
 __all__ = ["Productivity"]

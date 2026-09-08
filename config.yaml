@@ -24,6 +24,15 @@ assistant:
   morning_brief_on_start: false  # add the daily briefing (tasks/calendar/weather)
   confirm_plan: true           # ask before a first tool call that looks like a guess
   global_hotkey: ""            # e.g. "ctrl+alt+j": summon JARVIS from anywhere
+  # "When I say X, do Y" macros (see modules/macros): instant, no model.
+  macros_file: "data/macros.json"
+  read_aloud_words: 420        # longest "read it to me" reply, in words
+  context_hints: true          # remind the model what you just did, so "that
+                               #   file"/"again" resolve instead of guessing
+  notify_when_asked: true      # "ping me when it's done" -> voice + web ping
+  nightly_check_time: "03:15"  # quiet daily health scan (HH:MM, 24h)
+  health_file: "data/health.json"
+  report_health_in_brief: true # mention last night's scan in the morning brief
 
 llm:
   provider: "ollama"
@@ -81,6 +90,8 @@ productivity:
   catch_up_on_start: true    # report reminders/jobs that came due while JARVIS was off
   scheduler_interval: 15     # seconds between checks for due reminders and schedules
   quiet_hours: ""            # e.g. "22:30-07:00" — hold proactive announcements until morning
+  weekly_review_day: ""      # e.g. "sunday": fold the week-ahead review into
+                             #   that day's briefing (blank = on request only)
 
 voice:
   enabled: true
@@ -164,6 +175,7 @@ modules:
   communications: true     # email (IMAP) + calendar (.ics)
   models: true             # list/pull/switch the local Ollama models from chat
   self_improve: true       # search GitHub, add plugins, edit his own code
+  macros: true
 
 knowledge:
   paths:                   # folders indexed for "ask my documents"
@@ -247,8 +259,8 @@ web_ui:
   enabled: true  # C: full control — you said a,b,c so phone/browser always on LAN
   host: "0.0.0.0"
   port: 8765
-  token: ""                # shared secret; blank = one is generated for you
-  require_token: false  # preview: no token needed (you said yes)      # false = deliberately open (only on a trusted LAN)
+  token: ""                # shared secret; blank + require_token: true = generated
+  require_token: false        # true = ?token=… required; auto-generated in data/web_token.txt
   rate_limit_per_minute: 40
   allow_tts: true
   max_audio_mb: 25         # largest hold-to-talk recording accepted

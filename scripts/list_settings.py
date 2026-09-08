@@ -82,6 +82,37 @@ DESCRIPTIONS: Dict[str, str] = {
         "Global shortcut that summons JARVIS (e.g. 'ctrl+alt+j'). Needs the "
         "optional 'keyboard' package; opens the web UI when running."
     ),
+    "assistant.macros_file": (
+        "JSON file where fixed 'when I say X, do Y' macros are stored "
+        "(trigger, canned reply and tool steps)."
+    ),
+    "assistant.read_aloud_words": (
+        "Longest 'read it to me' reply in words; the reading is cut politely "
+        "after this many."
+    ),
+    "assistant.context_hints": (
+        "Remind the model what the previous turn did (tools and parameters), "
+        "so 'that file' / 'again' resolve instead of being guessed fresh."
+    ),
+    "assistant.notify_when_asked": (
+        "Emit a voice + web completion ping when the request asked for one "
+        "('ping me when the render is done')."
+    ),
+    "assistant.ping_long_tasks": (
+        "Also ping automatically when a turn takes longer than "
+        "assistant.long_task_seconds. Off by default."
+    ),
+    "assistant.long_task_seconds": "A turn longer than this counts as a long task.",
+    "assistant.nightly_check_time": (
+        "Time (HH:MM, 24h) of the daily quiet health scan. Blank disables it."
+    ),
+    "assistant.health_file": (
+        "JSON file where the latest health scan findings are stored for the "
+        "morning briefing."
+    ),
+    "assistant.report_health_in_brief": (
+        "Mention the latest nightly health scan in the morning briefing."
+    ),
     # -- llm ----------------------------------------------------------------
     "llm.provider": "Accepted for compatibility; JARVIS only ever talks to Ollama.",
     "llm.host": "Where Ollama is listening. Point it at another machine on your LAN if you like.",
@@ -140,6 +171,11 @@ DESCRIPTIONS: Dict[str, str] = {
     # -- productivity -------------------------------------------------------
     "productivity.catch_up_on_start": "Report reminders that came due while JARVIS was off.",
     "productivity.scheduler_interval": "Seconds between checks for due reminders and jobs.",
+    "modules.macros": "Fixed 'when I say X, do Y' commands (trigger + steps).",
+    "productivity.weekly_review_day": (
+        "Weekday (e.g. 'sunday') on which the daily briefing folds in the "
+        "week-ahead review. Blank = only when asked."
+    ),
     "productivity.quiet_hours": (
         "Window when JARVIS stays silent, e.g. '23:00-07:00'. Blank disables."
     ),

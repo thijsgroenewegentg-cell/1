@@ -194,3 +194,79 @@ def test_a_non_numeric_id_is_refused_politely(productivity):
     result = run(productivity.call_tool("delete_note", {"note_id": "the shopping one"}))
     assert not result.success
     assert "number" in result.error.lower()
+
+
+# ------------------------------------------------------------------ digest
+def _seed_week(productivity) -> None:
+    """Create two completed todos, a fired reminder and a note."""
+    for label in ("ship the wave", "walk the dog"):
+        created = run(productivity.call_tool("add_todo", {"task": label}))
+        assert created.success
+        run(productivity.call_tool("complete_todo", {"task": label}))
+    with productivity._connect() as connection:
+        connection.execute(
+            "INSERT INTO reminders (text, due, fired, created) VALUES (?, ?, 1, ?)",
+            ("stretch break", datetime.now().isoformat(timespec="seconds"),
+             datetime.now().isoformat(timespec="seconds")),
+        )
+    run(productivity.call_tool("add_note", {"content": "ideas for next week"}))
+
+
+def test_weekly_digest_counts_the_last_seven_days(config):
+    config.set("modules.communications", False)
+    module = Productivity(config)
+    run(module.setup())
+    try:
+        _seed_week(module)
+        result = run(module.weekly_digest())
+        assert result.success
+        assert "2 task(s) completed" in result.output
+        assert "1 reminder(s) fired" in result.output
+        assert "1 note(s) written" in result.output
+        assert "ship the wave" in result.output
+    finally:
+        run(module.shutdown())
+
+
+def test_weekly_digest_with_an_empty_week_is_still_calm(config):
+    config.set("modules.communications", False)
+    module = Productivity(config)
+    run(module.setup())
+    try:
+        result = run(module.weekly_digest())
+        assert result.success
+        assert "0 task(s) completed" in result.output
+    finally:
+        run(module.shutdown())
+
+
+def test_daily_briefing_folds_in_the_review_on_its_day(config):
+    config.set("modules.communications", False)
+    config.set("modules.web_search", False)
+    config.set("productivity.weekly_review_day",
+               datetime.now().strftime("%A").lower())
+    module = Productivity(config)
+    run(module.setup())
+    try:
+        _seed_week(module)
+        brief = run(module.daily_briefing())
+        assert brief.success
+        assert "Last 7 days" in brief.output
+    finally:
+        run(module.shutdown())
+
+
+def test_daily_briefing_skips_the_review_on_other_days(config):
+    config.set("modules.communications", False)
+    config.set("modules.web_search", False)
+    other = ["monday", "tuesday", "wednesday", "thursday", "friday",
+             "saturday", "sunday"]
+    other.remove(datetime.now().strftime("%A").lower())
+    config.set("productivity.weekly_review_day", other[0])
+    module = Productivity(config)
+    run(module.setup())
+    try:
+        brief = run(module.daily_briefing())
+        assert "Last 7 days" not in brief.output
+    finally:
+        run(module.shutdown())

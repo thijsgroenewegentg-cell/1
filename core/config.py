@@ -42,6 +42,27 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         #: (e.g. "ctrl+alt+j"). Needs the optional 'keyboard' package on
         #: Windows/Linux; opens the web UI when one is running.
         "global_hotkey": "",
+        #: Where fixed "when I say X, do Y" macros live (see modules/macros).
+        "macros_file": "data/macros.json",
+        #: Longest read-aloud reply, in words, before it is cut politely.
+        "read_aloud_words": 420,
+        #: Remind the model of the previous turn's tools/params so "that
+        #: file"/"again" can resolve instead of being a fresh guess.
+        "context_hints": True,
+        #: Emit a completion notification (voice + web) when the user asked
+        #: to be pinged ("ping me when the render is done").
+        "notify_when_asked": True,
+        #: Also ping automatically when a turn took longer than
+        #: ``long_task_seconds``. Off by default so replies never double up
+        #: with the answer that was just spoken.
+        "ping_long_tasks": False,
+        #: A turn longer than this many seconds counts as a "long task".
+        "long_task_seconds": 45,
+        #: Daily quiet health scan time (HH:MM, 24h). Blank disables it.
+        #: Findings are read back in the next morning briefing.
+        "nightly_check_time": "03:15",
+        "health_file": "data/health.json",
+        "report_health_in_brief": True,
     },
     "llm": {
         "provider": "ollama",
@@ -91,6 +112,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "catch_up_on_start": True,
         "scheduler_interval": 15,
         "quiet_hours": "",
+        #: Weekday the daily briefing folds in the week-ahead review
+        #: ("monday".."sunday"). Blank = only on request.
+        "weekly_review_day": "",
     },
     "voice": {
         "enabled": True,
@@ -153,6 +177,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "communications": True,
         "models": True,
         "self_improve": True,
+        "macros": True,
     },
     "knowledge": {
         "paths": ["~/Documents"],
@@ -244,7 +269,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "host": "0.0.0.0",
         "port": 8765,
         "token": "",
-        "require_token": True,
         "rate_limit_per_minute": 40,
         "allow_tts": True,
         "max_audio_mb": 25,
