@@ -182,11 +182,18 @@ class Blender(BaseModule):
         )
         self.last_blend: str = ""
         self._runtime: Optional[Tuple[str, str]] = None  # (kind, path)
+        self._searched: bool = False
+        self._bpy_state: Optional[bool] = None  # remembered by the last discovery
         ensure_dir(self.output_dir)
 
     # ------------------------------------------------------------ discovery
     def find_runtime(self, refresh: bool = False) -> Optional[Tuple[str, str]]:
         """Locate Blender, preferring the application over the Python module.
+
+        Discovery is cached — including a *miss*. A failed search used to be
+        retried on every Blender request, and each retry could spend a minute
+        probing whether the ``bpy`` module imports, which made "can't find
+        Blender" feel like a hang. ``blender_status`` refreshes explicitly.
 
         Args:
             refresh: Ignore the cached answer and look again.
@@ -195,12 +202,22 @@ class Blender(BaseModule):
             ``("executable", path)`` or ``("bpy", interpreter)``, or ``None``
             when Blender is not installed at all.
         """
-        if self._runtime is not None and not refresh:
+        if self._searched and not refresh:
             return self._runtime
+        self._runtime = self._locate()
+        self._searched = True
+        return self._runtime
 
+    def _locate(self) -> Optional[Tuple[str, str]]:
+        """Walk every place Blender might be and return the first hit."""
         candidates: List[str] = []
         if self.configured_path:
-            candidates.append(str(Path(self.configured_path).expanduser()))
+            configured = Path(self.configured_path).expanduser()
+            # Tolerate a folder in blender.executable ("C:\\...\\Blender"): it
+            # is the obvious thing to paste from the file browser.
+            if configured.is_dir():
+                configured = configured / ("blender.exe" if IS_WINDOWS else "blender")
+            candidates.append(str(configured))
         found = shutil.which("blender")
         if found:
             candidates.append(found)
@@ -215,15 +232,25 @@ class Blender(BaseModule):
                 candidates.append(str(expanded))
 
         for candidate in candidates:
-            if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
-                self._runtime = ("executable", candidate)
-                return self._runtime
+            if not candidate:
+                continue
+            path = Path(candidate)
+            if not path.is_file():
+                continue
+            # Windows has no exec bit; os.access(…, X_OK) is unreliable there,
+            # so an existing .exe counts as executable.
+            executable = os.access(path, os.X_OK) or (
+                IS_WINDOWS and path.suffix.lower() == ".exe"
+            )
+            if executable:
+                return ("executable", str(path))
 
-        if self.allow_bpy_module and self._bpy_importable():
-            self._runtime = ("bpy", sys.executable)
-            return self._runtime
-
-        self._runtime = None
+        if self.allow_bpy_module:
+            self._bpy_state = self._bpy_importable()
+            if self._bpy_state:
+                return ("bpy", sys.executable)
+        else:
+            self._bpy_state = False
         return None
 
     @staticmethod
@@ -234,26 +261,47 @@ class Blender(BaseModule):
             True when the pip-installed Blender module is usable. The import
             is attempted in a subprocess: a broken wheel (missing system
             libraries, most often) must not take the assistant down with it.
+            Twenty-five seconds is generous for a first import without making
+            a missing Blender feel like a hang on every request.
         """
         import subprocess
 
         try:
             probe = subprocess.run(
                 [sys.executable, "-c", "import bpy; print(bpy.app.version_string)"],
-                capture_output=True, timeout=60, text=True,
+                capture_output=True, timeout=25, text=True,
             )
         except Exception:
             return False
         return probe.returncode == 0
 
+    def _diagnose(self) -> str:
+        """Explain exactly what was searched, so a miss is fixable.
+
+        Uses the ``bpy`` probe result remembered by the last discovery run so
+        the diagnosis never spawns its own slow import check.
+        """
+        configured = Path(self.configured_path).expanduser() if self.configured_path else None
+        exists = bool(configured and (configured.is_file() or configured.is_dir()))
+        lines = [
+            "I can't find Blender, sir. Here is what I checked:",
+            "",
+            f"  configured in config.yaml : {configured or '(none set)'}",
+            f"      exists on disk        : {'yes' if exists else 'no'}",
+            f"      on PATH as 'blender'  : "
+            f"{'yes' if shutil.which('blender') else 'no'}",
+            f"  pip 'bpy' module         : "
+            f"{'imports fine' if self._bpy_state else 'not installed or broken'}",
+            "",
+            "Fix it by installing the application from blender.org (or Steam) and setting "
+            "blender.executable in config.yaml to its blender.exe — a folder path is fine, "
+            "I look for the executable inside it. For scripting only, run 'pip install bpy'.",
+        ]
+        return "\n".join(lines)
+
     def _missing(self) -> ModuleResult:
         """The standard "Blender isn't here" answer, with how to fix it."""
-        return ModuleResult.fail(
-            "I can't find Blender, sir. Install the application from blender.org "
-            "(or your package manager), or run 'pip install bpy' for the Python "
-            "module alone. If it is installed somewhere unusual, set "
-            "blender.executable in config.yaml to the full path."
-        )
+        return ModuleResult.fail(self._diagnose())
 
     # ---------------------------------------------------------- offline route
     def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]:
@@ -271,8 +319,17 @@ class Blender(BaseModule):
 
         if any(phrase in lowered for phrase in
                ("is blender installed", "blender version", "blender status",
-                "which blender", "do you have blender")):
+                "which blender", "do you have blender", "connect to blender",
+                "use blender", "can you use blender", "blender available",
+                "is blender working", "find blender")):
             return "blender_status", {}
+
+        # Launching the application itself ("open Blender") must not fall
+        # through to make_scene or the generic keyword picker.
+        if any(phrase in lowered for phrase in
+               ("open blender", "launch blender", "start blender",
+                "open up blender", "fire up blender")) and ".blend" not in lowered:
+            return "open_blender", {"blend_file": ""}
 
         if any(phrase in lowered for phrase in
                ("what's in", "whats in", "what is in", "inspect", "contents of",

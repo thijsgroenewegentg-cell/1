@@ -149,6 +149,8 @@ DECISIVE_VETOES: Dict[str, Tuple[str, ...]] = {
     ),
     # "don't change your code" is advice, not an order to self-edit.
     "self_improve": ("don't", "dont ", "do not", "never", "shouldn't", "wouldn't"),
+    # "don't use blender for this" is a preference, not a Blender request.
+    "blender": ("don't", "dont ", "do not", "never", "shouldn't", "wouldn't"),
 }
 
 DECISIVE_PHRASES: Dict[str, Tuple[str, ...]] = {
@@ -171,6 +173,7 @@ DECISIVE_PHRASES: Dict[str, Tuple[str, ...]] = {
     "blender": (
         "in blender", "with blender", "blender file", ".blend", "render frame",
         "render the animation", "3d scene", "3d model", "export to glb",
+        "open blender", "launch blender", "connect to blender", "use blender",
     ),
     "file_manager": (
         "find all pdf", "find every pdf", "organize my", "organise my",

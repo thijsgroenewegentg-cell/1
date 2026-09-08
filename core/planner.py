@@ -222,7 +222,9 @@ class Planner:
             "Rules: call at most one tool per step. Use a tool when you need real data or "
             "must change something on the machine. If the scratchpad already contains the "
             "information needed, set action to null and give the answer. Never invent "
-            "observations."
+            "observations. If the request is vague, names no file/app/parameter, or cannot "
+            "be satisfied with the tools above, do NOT guess — set action to null and ask "
+            "one short question for the missing detail."
         )
 
     async def _status_for_tool(self, reference: str, step: int) -> None:

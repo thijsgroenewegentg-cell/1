@@ -73,6 +73,39 @@ def test_a_missing_blender_is_reported_helpfully(config, tmp_path):
     assert "blender.org" in result.error or "pip install bpy" in result.error
 
 
+def test_a_folder_in_the_config_is_tolerated(config, tmp_path):
+    """A config pointing at the install folder still finds blender inside."""
+    fake = tmp_path / "blender"
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    fake.chmod(0o755)
+    config.set("blender.executable", str(tmp_path))
+    config.set("blender.allow_bpy_module", False)
+    module = Blender(config)
+    runtime = module.find_runtime(refresh=True)
+    assert runtime is not None
+    assert runtime == ("executable", str(fake))
+
+
+def test_a_missed_blender_is_not_researched_on_every_call(config, tmp_path, monkeypatch):
+    """A failed search is cached so Blender requests never feel like a hang."""
+    config.set("blender.executable", str(tmp_path / "no" / "blender"))
+    config.set("blender.allow_bpy_module", False)
+    calls = {"n": 0}
+
+    def counting_which(_name: str) -> None:
+        calls["n"] += 1
+        return None
+
+    monkeypatch.setattr("modules.blender.shutil.which", counting_which)
+    monkeypatch.setattr("modules.blender.COMMON_LOCATIONS",
+                        {"windows": (), "macos": (), "linux": ()})
+    module = Blender(config)
+    assert module.find_runtime(refresh=True) is None
+    assert module.find_runtime() is None          # cached, no rescan
+    assert module.find_runtime() is None
+    assert calls["n"] == 1
+
+
 def test_status_reports_the_version(blender):
     result = run(blender.call_tool("blender_status", {}))
     assert result.success
@@ -89,6 +122,11 @@ def test_status_reports_the_version(blender):
         ("what's in ~/models/chair.blend", "scene_info"),
         ("export chair.blend to glb", "export_model"),
         ("is blender installed", "blender_status"),
+        ("can you connect to blender", "blender_status"),
+        ("is blender working on this pc", "blender_status"),
+        ("open blender", "open_blender"),
+        ("launch blender please", "open_blender"),
+        ("start blender", "open_blender"),
         ("make a 3d scene with a red cube", "make_scene"),
         ("run this in blender: import bpy", "run_script"),
     ],
