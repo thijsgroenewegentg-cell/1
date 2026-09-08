@@ -427,6 +427,38 @@ class WebInterface:
             if not self._authorised(token):
                 raise HTTPException(status_code=401, detail="bad token")
             report = await self.brain.status_report()
+            # Hot-reload language -> voice: if the user changed assistant.language
+            # in config.yaml, pick the right edge voice on the next status poll
+            # without requiring a restart.
+            try:
+                tts = await self._tts_engine()
+                if tts is not None:
+                    cur_lang = str(self.config.get("assistant.language", "en"))
+                    if getattr(tts, "language", "") != __import__("utils.language").language.normalise(cur_lang):
+                        # Re-derive voice_for so a language switch is audible immediately.
+                        from utils.language import voice_for
+                        tts.language = __import__("utils.language").language.normalise(cur_lang)
+                        cfg_voice = str(self.config.get("voice.tts.voice", "") or "")
+                        tts.voice = voice_for(cur_lang, cfg_voice)
+            except Exception:
+                pass
+            # Redacted presence of an ElevenLabs key for the HUD — never the raw value.
+            has_eleven = False
+            try:
+                eng = await self._tts_engine()
+                has_eleven = bool(getattr(eng, "elevenlabs_api_key", "") if eng else self.config.get("voice.tts.elevenlabs_api_key", "")) or bool(__import__("os").getenv("ELEVENLABS_API_KEY"))
+            except Exception:
+                has_eleven = False
+            tts_cache_info = {}
+            try:
+                eng = await self._tts_engine()
+                if eng is not None and hasattr(eng, "cache_dir"):
+                    cdir = getattr(eng, "cache_dir")
+                    import os as _os
+                    files = list(cdir.glob("*.mp3")) + list(cdir.glob("*.wav")) if cdir.exists() else []
+                    tts_cache_info = {"files": len(files), "bytes": sum(f.stat().st_size for f in files if f.exists())}
+            except Exception:
+                tts_cache_info = {}
             return JSONResponse(
                 {
                     "greeting": await self.brain.greeting(),
@@ -442,6 +474,8 @@ class WebInterface:
                     # So the page can disable the "read replies aloud" control
                     # instead of offering speech that cannot be delivered.
                     "speech": await self.speech_available(),
+                    "has_elevenlabs_key": has_eleven,
+                    "tts_cache": tts_cache_info,
                 }
             )
 
@@ -547,6 +581,227 @@ class WebInterface:
                 "elevenlabs_voices": eleven_voices[:30],
                 "speech": await self.speech_available(),
             })
+
+        @app.post("/api/voices")
+        async def save_voice(request: Request, token: str = Query(default="")) -> Any:
+            """Persist the picker choice to config.yaml."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                payload: Dict[str, Any] = await request.json()
+            except Exception:
+                payload = {}
+            engine = str(payload.get("engine", "") or "").strip().lower()
+            voice = str(payload.get("voice", "") or "").strip()
+            eleven_id = str(payload.get("elevenlabs_voice_id", "") or "").strip()
+            eleven_model = str(payload.get("elevenlabs_model", "") or "").strip()
+            # Allow the combined picker value "elevenlabs:ID" / "edge:Name"
+            if not engine and voice:
+                if voice.startswith("elevenlabs:"):
+                    engine = "elevenlabs"
+                    eleven_id = voice.split(":", 1)[1].strip()
+                    voice = ""
+                elif voice.startswith("edge:"):
+                    engine = "edge"
+                    voice = voice.split(":", 1)[1].strip()
+            # Validate
+            if engine and engine not in {"auto", "piper", "edge", "elevenlabs", "eleven", "eleven_labs"}:
+                raise HTTPException(status_code=400, detail="unknown engine")
+            # Write through the config object so aliases, env and save() all apply
+            if engine:
+                self.config.set("voice.tts.engine", engine)
+            if voice:
+                self.config.set("voice.tts.voice", voice)
+            if eleven_id:
+                self.config.set("voice.tts.elevenlabs_voice_id", eleven_id)
+            if eleven_model:
+                self.config.set("voice.tts.elevenlabs_model", eleven_model)
+            # Also persist assistant.language if the picker sent a language hint
+            lang = str(payload.get("language", "") or "").strip()
+            if lang:
+                self.config.set("assistant.language", lang)
+            try:
+                self.config.save()
+            except Exception as exc:
+                logger.warning("Could not save voice config: %s", exc)
+                raise HTTPException(status_code=500, detail="could not save config")
+            # Re-initialise the in-memory TTS so the next /api/tts uses it without restart
+            try:
+                tts = await self._tts_engine()
+                if tts is not None:
+                    # Force re-read from config
+                    tts.engine = str(self.config.get("voice.tts.engine", "auto"))
+                    tts.voice = str(self.config.get("voice.tts.voice", "") or tts.voice)
+                    tts.elevenlabs_voice_id = str(self.config.get("voice.tts.elevenlabs_voice_id", "") or getattr(tts, "elevenlabs_voice_id", ""))
+                    tts.elevenlabs_model = str(self.config.get("voice.tts.elevenlabs_model", "") or getattr(tts, "elevenlabs_model", ""))
+                    # Language -> voice hot-reload
+                    from utils.language import voice_for as _vf
+                    cur_lang = str(self.config.get("assistant.language", "en"))
+                    tts.language = __import__("utils.language").language.normalise(cur_lang)
+                    if not voice and engine != "elevenlabs":
+                        cfg_v = str(self.config.get("voice.tts.voice", "") or "")
+                        tts.voice = _vf(cur_lang, cfg_v)
+                    await tts.initialize(require_player=False)
+            except Exception as exc:
+                logger.debug("TTS re-init after save failed: %s", exc)
+            return JSONResponse({"ok": True})
+
+        @app.post("/api/tts/cache/clear")
+        async def clear_tts_cache(token: str = Query(default="")) -> Any:
+            """Clear the TTS cache (mp3/wav files)."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                tts = await self._tts_engine()
+                if tts is not None and hasattr(tts, "cache_dir"):
+                    cdir = getattr(tts, "cache_dir")
+                    count = 0
+                    if cdir.exists():
+                        for f in list(cdir.glob("*.mp3")) + list(cdir.glob("*.wav")) + list(cdir.glob("*.part")):
+                            try:
+                                f.unlink()
+                                count += 1
+                            except Exception:
+                                pass
+                    return JSONResponse({"ok": True, "cleared": count})
+            except Exception as exc:
+                logger.debug("Cache clear failed: %s", exc)
+            return JSONResponse({"ok": True, "cleared": 0})
+
+        @app.post("/api/vision")
+        async def vision(request: Request, token: str = Query(default="")) -> Any:
+            """Describe an image dropped onto the web UI (llava etc)."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            ctype = (request.headers.get("content-type", "") or "").lower()
+            tmp_path = None
+            question = ""
+            try:
+                if "multipart/form-data" in ctype:
+                    form = await request.form()
+                    file = form.get("file") or form.get("image")
+                    question = str(form.get("question", "") or form.get("text", "") or "").strip()
+                    if file is not None and hasattr(file, "read"):
+                        data = await file.read() if hasattr(file, "read") else file
+                        if isinstance(data, (bytes, bytearray)) and len(data) > 0:
+                            if len(data) > 25 * 1024 * 1024:
+                                raise HTTPException(status_code=413, detail="image too large (25 MB)")
+                            import secrets, tempfile
+                            suffix = ".png"
+                            fname = getattr(file, "filename", "") or ""
+                            if "." in fname:
+                                suffix = "." + fname.rsplit(".", 1)[-1][:4].lower()
+                                if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}:
+                                    suffix = ".png"
+                            tmp = pathlib.Path(tempfile.gettempdir()) / f"jarvis-vision-{secrets.token_hex(6)}{suffix}"
+                            tmp.write_bytes(bytes(data))
+                            tmp_path = tmp
+                    if tmp_path is None:
+                        raise HTTPException(status_code=400, detail="no image file")
+                else:
+                    try:
+                        payload = await request.json()
+                    except Exception:
+                        payload = {}
+                    question = str(payload.get("question", "") or payload.get("text", "") or "").strip()
+                    path_str = str(payload.get("path", "") or "").strip()
+                    if path_str:
+                        tmp_path = pathlib.Path(path_str).expanduser()
+                        if not tmp_path.exists():
+                            raise HTTPException(status_code=404, detail="file not found")
+                    else:
+                        raise HTTPException(status_code=400, detail="no image")
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.warning("Vision upload failed: %s", exc)
+                raise HTTPException(status_code=500, detail="vision upload failed")
+            try:
+                vision_mod = None
+                for mod in getattr(self.brain, "modules", {}).values():
+                    if getattr(mod, "name", "") == "vision" or "vision" in str(type(mod)).lower():
+                        vision_mod = mod
+                        break
+                    if hasattr(mod, "describe_image"):
+                        vision_mod = mod
+                        break
+                if vision_mod is not None and hasattr(vision_mod, "call_tool"):
+                    result = await vision_mod.call_tool("describe_image", {"path": str(tmp_path), "question": question or "Describe this image."})
+                    text_out = getattr(result, "data", "") or getattr(result, "message", "") or str(result)
+                    if hasattr(result, "success") and not result.success:
+                        text_out = getattr(result, "message", "") or getattr(result, "data", "") or "Vision failed."
+                    return JSONResponse({"text": str(text_out)[:4000]})
+                prompt = f"Describe this image: {tmp_path}" + (f" Question: {question}" if question else "")
+                reply = await self.brain.process(prompt)
+                return JSONResponse({"text": reply[:4000]})
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.warning("Vision describe failed: %s", exc)
+                raise HTTPException(status_code=500, detail="vision failed")
+            finally:
+                try:
+                    if tmp_path and tmp_path.exists() and str(tmp_path).startswith(str(pathlib.Path(tempfile.gettempdir()))):
+                        tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        @app.get("/api/memory")
+        async def list_memory(token: str = Query(default=""), q: str = Query(default=""), limit: int = Query(default=20)) -> Any:
+            """List or search long-term memory."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                mem = getattr(self.brain, "memory", None)
+                if mem is None:
+                    return JSONResponse({"facts": [], "total": 0})
+                if q.strip():
+                    hits = await mem.recall(q.strip(), k=max(1, min(50, int(limit))))
+                    facts = [{"text": getattr(h, "text", str(h)), "score": getattr(h, "score", 0), "id": getattr(h, "id", "")} for h in hits]
+                    return JSONResponse({"facts": facts, "total": len(facts)})
+                stats = {}
+                try:
+                    stats = await mem.stats() if hasattr(mem, "stats") else {}
+                except Exception:
+                    stats = {}
+                facts = []
+                try:
+                    if hasattr(mem, "recall"):
+                        hits = await mem.recall("user", k=max(1, min(50, int(limit))))
+                        facts = [{"text": getattr(h, "text", str(h)), "score": getattr(h, "score", 0)} for h in hits]
+                except Exception:
+                    facts = []
+                return JSONResponse({"facts": facts[:limit], "total": stats.get("long_term", stats.get("entries", len(facts))) if isinstance(stats, dict) else len(facts), "backend": stats.get("backend", "") if isinstance(stats, dict) else ""})
+            except Exception as exc:
+                logger.debug("Memory list failed: %s", exc)
+                return JSONResponse({"facts": [], "total": 0})
+
+        @app.post("/api/memory")
+        async def manage_memory(request: Request, token: str = Query(default="")) -> Any:
+            """Remember or forget a fact."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                payload: Dict[str, Any] = await request.json()
+            except Exception:
+                payload = {}
+            action = str(payload.get("action", "") or "").strip().lower()
+            text_mem = str(payload.get("text", "") or "").strip()
+            if not text_mem:
+                raise HTTPException(status_code=400, detail="missing 'text'")
+            mem = getattr(self.brain, "memory", None)
+            if mem is None:
+                raise HTTPException(status_code=503, detail="memory unavailable")
+            try:
+                if action in {"forget", "delete", "remove"}:
+                    removed = await mem.forget(text_mem)
+                    return JSONResponse({"ok": True, "removed": int(removed or 0)})
+                else:
+                    ok = await mem.remember(text_mem, category=str(payload.get("category", "fact")))
+                    return JSONResponse({"ok": bool(ok)})
+            except Exception as exc:
+                logger.warning("Memory manage failed: %s", exc)
+                raise HTTPException(status_code=500, detail="memory failed")
 
         @app.get("/api/tts")
         async def tts(text: str = Query(...), token: str = Query(default=""), voice: str = Query(default=""), engine: str = Query(default="")) -> Any:

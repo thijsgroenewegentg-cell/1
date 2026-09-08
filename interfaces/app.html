@@ -809,6 +809,7 @@ body.degraded-open #toasts { top: 118px; }
       <canvas id="micWave" width="68" height="68" style="position:absolute;inset:-4px;width:76px;height:76px;pointer-events:none;opacity:0;transition:opacity .18s"></canvas>
       <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
     </button>
+    <span id="micDb" style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);font:10px ui-monospace,monospace;color:#38bdf8;opacity:0;transition:opacity .18s;pointer-events:none;white-space:nowrap"></span>
     <button class="round" id="speech" title="Read replies aloud (S)" aria-label="Read replies aloud">
       <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8a5 5 0 0 1 0 8"/></svg>
     </button>
@@ -864,11 +865,26 @@ body.degraded-open #toasts { top: 118px; }
           <option value="">Loading voices…</option>
         </select>
         <button class="tool" id="voicePreview" style="width:auto;white-space:nowrap;padding:6px 12px;border-radius:10px">preview</button>
+        <button class="tool" id="voiceSave" style="width:auto;white-space:nowrap;padding:6px 12px;border-radius:10px" title="Save to config.yaml">save</button>
       </div>
       <div id="voiceHint" style="font:12px/1.5 ui-sans-system;color:#7d8da1;min-height:14px"></div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
+        <span id="ttsCacheInfo" style="font:11px ui-sans-system;color:#5b6b82"></span>
+        <button class="ghost" id="ttsCacheClear" style="font:11px ui-sans-system;padding:2px 8px;border-radius:8px;border:1px solid #1b2533;color:#7d8da1">clear cache</button>
+        <span id="piperStatus" style="font:11px ui-sans-system;color:#5b6b82"></span>
+      </div>
       <div class="head">Memory</div>
-      <div id="memoryList" style="font:12px/1.5 ui-sans-system;color:#9bb0c8;display:flex;flex-direction:column;gap:4px;max-height:120px;overflow:auto"></div>
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <input id="memorySearch" placeholder="Search memory…" style="flex:1;background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:8px;padding:5px 8px;font:12px ui-sans-system">
+        <button class="ghost" id="memoryRefresh" style="font:11px;padding:4px 8px;border-radius:8px">↻</button>
+        <button class="ghost" id="memoryExport" style="font:11px;padding:4px 8px;border-radius:8px">export</button>
+      </div>
+      <div id="memoryList" style="font:12px/1.5 ui-sans-system;color:#9bb0c8;display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto"></div>
       <div id="memoryHint" style="font:11px/1.4 ui-sans-system;color:#5b6b82"></div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <input id="memoryAdd" placeholder="Remember that …" style="flex:1;background:#0b1018;color:#e8eef6;border:1px solid #1b2533;border-radius:8px;padding:5px 8px;font:12px ui-sans-system">
+        <button class="tool" id="memoryAddBtn" style="width:auto;padding:4px 10px;border-radius:8px;font:11px ui-sans-system">remember</button>
+      </div>
       <div class="switch" style="margin-top:8px"><span>Clear the transcript</span><button id="setClear">clear</button></div>
     </div>
     <div class="pane" id="pane-tools">
@@ -896,6 +912,7 @@ body.degraded-open #toasts { top: 118px; }
 </div>
 
 <div id="toasts" aria-live="assertive"></div>
+<div id="dropOverlay" style="position:fixed;inset:0;background:rgba(56,189,248,0.08);backdrop-filter:blur(4px);border:2px dashed rgba(56,189,248,0.6);display:none;place-items:center;z-index:9999;color:#e8eef6;font:18px ui-sans-system"><div style="background:#0b1018;border:1px solid #38bdf8;border-radius:16px;padding:24px 32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6)"><div style="font-size:32px;margin-bottom:8px">🖼️</div><div>Drop image to describe</div><div style="font:12px ui-sans-system;color:#7d8da1;margin-top:4px">or paste (Ctrl+V) — llava / vision</div></div></div>
 
 <script>
 "use strict";
@@ -1916,6 +1933,7 @@ function listenTo(stream) {
       mood("listen", Math.min(1, (peak / 128) * 3.2));
       // Waveform canvas — a thin oscilloscope ring around the mic so you *see*
       // that the browser is hearing you, even when the orb is behind content.
+      const dbEl = document.getElementById("micDb");
       if (waveCtx && waveCanvas) {
         waveCtx.clearRect(0,0,68,68);
         // subtle circle
@@ -1940,6 +1958,13 @@ function listenTo(stream) {
           waveCtx.arc(34, 4.5, 1.2 + lvl*1.8, 0, Math.PI*2);
           waveCtx.fill();
         }
+      }
+      // numeric dB / energy persisted so you see the meter even when orb is hidden
+      if (dbEl) {
+        const db = peak > 1 ? (20 * Math.log10(peak/128 + 0.001) + 42).toFixed(0) : "-inf";
+        const lvl = Math.min(1, (peak/128)*2.2);
+        dbEl.textContent = lvl > 0.08 ? (Math.round(lvl*100) + "% · " + db + " dB") : "";
+        dbEl.style.opacity = lvl > 0.08 ? "1" : "0";
       }
     }, 45);
   } catch (err) {
@@ -2082,22 +2107,6 @@ function showDegraded(on, host) {
   document.body.classList.toggle("degraded-open", showing);
 }
 
-/* Show or hide the degraded-mode banner. Dismissal lasts for the session
-   only: a new tab after starting Ollama should not stay silent about it. */
-let degradedDismissed = false;
-function showDegraded(on, host) {
-  const banner = $("degraded");
-  if (!banner) return;
-  const showing = Boolean(on) && !degradedDismissed;
-  if (showing) {
-    $("degradedText").textContent =
-      "No language model at " + (host || "Ollama") + " — reflex commands only.";
-  }
-  banner.hidden = !showing;
-  // Toasts move down out of the banner's way rather than landing on it.
-  document.body.classList.toggle("degraded-open", showing);
-}
-
 async function loadStatus() {
   try {
     const data = await (await fetch("/api/status" + auth)).json();
@@ -2167,6 +2176,18 @@ async function loadStatus() {
       $("statTurns").textContent = turns;
     }
     applySpeechSupport(data.speech !== false);
+    try {
+      const c = data.tts_cache || {};
+      const el = $("ttsCacheInfo");
+      if (el) {
+        const kb = c.bytes ? (c.bytes/1024).toFixed(0) + " KB" : "";
+        el.textContent = c.files ? (c.files + " files" + (kb ? " · " + kb : "")) : "cache empty";
+      }
+      // has_elevenlabs_key redacted presence could drive hint
+      if (hasEleven !== undefined) {
+        // already used in voices, but also ensure status reflects it
+      }
+    } catch(e) {}
     // Kick the voice picker in background — it is cheap and the panel may be open.
     if (!$("voicePicker").dataset.loaded) loadVoices();
   } catch (err) { /* the panel simply stays empty */ }
@@ -2234,6 +2255,14 @@ async function loadVoices() {
       const a = cur.active_engine || cur.engine || "auto";
       hint.textContent = data.speech ? ('active: ' + a + (hasEleven ? '' : ' · add ELEVENLABS_API_KEY for premium')) : 'speech unavailable';
     }
+    try {
+      const ps = document.getElementById("piperStatus");
+      if (ps) {
+        if (cur.active_engine === "piper") ps.textContent = "· piper offline ✓";
+        else if (data.edge_voices && data.edge_voices.length) ps.textContent = "· piper not installed — run install.py --full for offline";
+        else ps.textContent = "";
+      }
+    } catch(e) {}
   } catch (err) {
     if (picker && !picker.dataset.loaded) picker.innerHTML = '<option value="">voices unavailable</option>';
   }
@@ -2262,6 +2291,110 @@ async function previewVoice() {
     if (btn) { btn.disabled = false; btn.textContent = "preview"; }
   }
 }
+
+async function saveVoice() {
+  const picker = $("voicePicker");
+  const val = picker ? picker.value : "";
+  if (!val) { toast("Pick a voice first.", true); return; }
+  let payload = {};
+  if (val.startsWith("elevenlabs:")) payload = { engine: "elevenlabs", elevenlabs_voice_id: val.slice("elevenlabs:".length) };
+  else if (val.startsWith("edge:")) payload = { engine: "edge", voice: val.slice("edge:".length) };
+  else if (val.startsWith("engine:")) payload = { engine: val.slice(7) };
+  const btn = $("voiceSave");
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try {
+    const res = await fetch("/api/voices" + auth, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "save failed");
+    toast("Voice saved to config.yaml");
+    loadVoices();
+    loadStatus();
+  } catch (err) {
+    toast("Save failed: " + err.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "save"; }
+  }
+}
+
+async function clearTtsCache() {
+  const btn = $("ttsCacheClear");
+  if (btn) btn.textContent = "…";
+  try {
+    const res = await fetch("/api/tts/cache/clear" + auth, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    toast("Cache cleared — " + (data.cleared || 0) + " files");
+    loadStatus();
+  } catch (err) {
+    toast("Clear failed", true);
+  } finally {
+    if (btn) btn.textContent = "clear cache";
+  }
+}
+
+async function loadMemory() {
+  const q = ($("memorySearch") ? $("memorySearch").value : "").trim();
+  const list = $("memoryList");
+  if (!list) return;
+  list.innerHTML = '<span style="color:var(--dimmer)">loading…</span>';
+  try {
+    let url = "/api/memory" + auth;
+    if (q) url += (auth ? "&" : "?") + "q=" + encodeURIComponent(q);
+    url += (url.includes("?") ? "&" : "?") + "limit=20";
+    const data = await (await fetch(url)).json();
+    const facts = data.facts || [];
+    const hint = $("memoryHint");
+    if (hint) hint.textContent = (data.backend || "") + (data.total ? " · " + data.total + " facts" : "");
+    if (!facts.length) {
+      list.innerHTML = '<span style="color:var(--dimmer)">' + (q ? 'No matches.' : 'No facts yet — say “remember that …”') + '</span>';
+      return;
+    }
+    list.innerHTML = facts.slice(0, 20).map(f =>
+      '<div style="display:flex;gap:6px;align-items:baseline;justify-content:space-between;border-bottom:1px solid #1b2533;padding:4px 0"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(f.text) + '"><span style="color:var(--tint)">•</span> ' + escapeHtml(f.text) + '</span><button class="ghost" data-forget="' + escapeHtml(f.text).replace(/"/g, '&quot;') + '" style="font:10px ui-sans-system;padding:2px 6px;border-radius:6px;border:1px solid #1b2533;color:#ff6b6b">forget</button></div>'
+    ).join("");
+    list.querySelectorAll("[data-forget]").forEach(btn => btn.addEventListener("click", async () => {
+      const t = btn.getAttribute("data-forget");
+      try {
+        await fetch("/api/memory" + auth, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "forget", text: t }) });
+        toast("Forgot");
+        loadMemory();
+      } catch (e) { toast("Forgot failed", true); }
+    }));
+  } catch (err) {
+    list.innerHTML = '<span style="color:var(--dimmer)">Memory unavailable.</span>';
+  }
+}
+
+async function addMemoryFact() {
+  const inp = $("memoryAdd");
+  const text = inp ? inp.value.trim() : "";
+  if (!text) return;
+  try {
+    await fetch("/api/memory" + auth, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remember", text }) });
+    toast("Remembered");
+    inp.value = "";
+    loadMemory();
+  } catch (err) { toast("Remember failed", true); }
+}
+
+async function handleVisionFile(file, question) {
+  if (!file) return;
+  if (file.size > 25 * 1024 * 1024) { toast("Image too large (25 MB)", true); return; }
+  const form = new FormData();
+  form.append("file", file);
+  if (question) form.append("question", question);
+  toast("Analysing image…");
+  status("vision");
+  try {
+    const res = await fetch("/api/vision" + auth, { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "vision failed");
+    const text = data.text || "No description.";
+    say(text); trace("vision", escapeHtml(text)); remember("vision", file.name + ": " + text.slice(0, 120));
+  } catch (err) {
+    toast("Vision failed: " + err.message, true);
+  } finally { status(""); }
+}
+
 
 async function loadTools() {
   if (toolCache) return toolCache;
@@ -2435,12 +2568,44 @@ function toggleSpeech() {
 $("speech").addEventListener("click", toggleSpeech);
 $("setSpeech").addEventListener("click", toggleSpeech);
 $("voicePreview").addEventListener("click", previewVoice);
+$("voiceSave").addEventListener("click", saveVoice);
+$("ttsCacheClear").addEventListener("click", clearTtsCache);
 $("voicePicker").addEventListener("change", () => {
   const v = $("voicePicker").value;
   if (v.startsWith("elevenlabs:")) $("voiceName").textContent = v.slice("elevenlabs:".length);
   else if (v.startsWith("edge:")) $("voiceName").textContent = v.slice("edge:".length);
   else if (v.startsWith("engine:")) $("voiceEngine").textContent = v.slice(7);
 });
+$("memorySearch").addEventListener("input", () => { clearTimeout(window._memTimer); window._memTimer = setTimeout(loadMemory, 280); });
+$("memorySearch").addEventListener("keydown", (e) => { if (e.key === "Enter") loadMemory(); });
+$("memoryRefresh").addEventListener("click", loadMemory);
+$("memoryExport").addEventListener("click", async () => {
+  try {
+    let url = "/api/memory" + auth;
+    url += (url.includes("?") ? "&" : "?") + "limit=100";
+    const data = await (await fetch(url)).json();
+    const blob = new Blob([JSON.stringify(data.facts || [], null, 2)], {type: "application/json"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "jarvis-memory.json"; a.click();
+    toast("Exported " + (data.facts||[]).length + " facts");
+  } catch(e) { toast("Export failed", true); }
+});
+$("memoryAddBtn").addEventListener("click", addMemoryFact);
+$("memoryAdd").addEventListener("keydown", (e) => { if (e.key === "Enter") addMemoryFact(); });
+// Vision drop + paste
+const drop = $("dropOverlay");
+["dragenter","dragover"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (e.dataTransfer && e.dataTransfer.types.includes("Files")) drop.style.display = "grid"; }));
+["dragleave","drop"].forEach(ev => document.addEventListener(ev, e => { if (ev==="drop") { e.preventDefault(); const f = e.dataTransfer && e.dataTransfer.files[0]; if (f && f.type.startsWith("image/")) handleVisionFile(f); } if (!e.relatedTarget || e.relatedTarget === document.documentElement) drop.style.display = "none"; }));
+document.addEventListener("paste", e => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const it of items) if (it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) handleVisionFile(f); }
+});
+document.addEventListener("drop", e => e.preventDefault());
+// Refresh memory when panel opens
+const _origToggle = togglePanel;
+window.togglePanel = function(force) { _origToggle(force); if (document.body.classList.contains("panel-open") && $("pane-status").classList.contains("on")) loadMemory(); };
+document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => { if (tab.dataset.pane === "status") setTimeout(loadMemory, 50); }));
+
 $("setClear").addEventListener("click", () => {
   rail.innerHTML = ""; turns = 0; $("statTurns").textContent = "0";
   clearCards(); conversation.length = 0; $("historyList").innerHTML = "";

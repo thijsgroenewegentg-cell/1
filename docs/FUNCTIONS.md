@@ -20,7 +20,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/planner.py`](#coreplannerpy) — 5
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
-- [`interfaces/web.py`](#interfaceswebpy) — 36
+- [`interfaces/web.py`](#interfaceswebpy) — 41
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 24
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
@@ -37,7 +37,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`plugins/plugin_loader.py`](#pluginsplugin_loaderpy) — 12
 - [`utils/backup.py`](#utilsbackuppy) — 11
 - [`utils/cache.py`](#utilscachepy) — 12
-- [`utils/doctor.py`](#utilsdoctorpy) — 26
+- [`utils/doctor.py`](#utilsdoctorpy) — 27
 - [`utils/documents.py`](#utilsdocumentspy) — 8
 - [`utils/helpers.py`](#utilshelperspy) — 36
 - [`utils/language.py`](#utilslanguagepy) — 8
@@ -71,7 +71,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
-- [`tests/test_web.py`](#teststest_webpy) — 54
+- [`tests/test_web.py`](#teststest_webpy) — 58
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
@@ -601,7 +601,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*36 functions*
+*41 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
@@ -628,6 +628,11 @@ and marked with `·`; methods the intent router can call are marked
   · `async def tools(token: str = Query(default='')) -> Any` — List every tool, so the interface can offer them for browsing.
   · `async def audit(token: str = Query(default=''), limit: int = Query(default=25)) -> Any` — Report what needed permission, for the audit tab.
   · `async def voices(token: str = Query(default='')) -> Any` — List available TTS voices for the picker.
+  · `async def save_voice(request: Request, token: str = Query(default='')) -> Any` — Persist the picker choice to config.yaml.
+  · `async def clear_tts_cache(token: str = Query(default='')) -> Any` — Clear the TTS cache (mp3/wav files).
+  · `async def vision(request: Request, token: str = Query(default='')) -> Any` — Describe an image dropped onto the web UI (llava etc).
+  · `async def list_memory(token: str = Query(default=''), q: str = Query(default=''), limit: int = Query(default=20)) -> Any` — List or search long-term memory.
+  · `async def manage_memory(request: Request, token: str = Query(default='')) -> Any` — Remember or forget a fact.
   · `async def tts(text: str = Query(...), token: str = Query(default=''), voice: str = Query(default=''), engine: str = Query(default='')) -> Any` — Render text to speech and return an audio file.
   · `async def manifest(token: str = Query(default='')) -> Any` — Serve the PWA manifest so the page installs to a home screen.
   · `async def service_worker() -> Any` — Serve the offline shell worker (never behind the token gate).
@@ -1220,7 +1225,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `utils/doctor.py`
 
-*26 functions*
+*27 functions*
 
 > ``python main.py --doctor`` — find out why JARVIS is unhappy.
 
@@ -1236,6 +1241,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def check_web_port(report: Report, config: Any) -> None` — Check whether the web UI's port is free.
 - `def check_config(report: Report, config: Any, path: Optional[Path]) -> None` — Check the config file itself, and the settings people get wrong.
 - `def check_temp(report: Report) -> None` — Check that the temp directory works — audio and sandboxing need it.
+- `def check_secrets(report: Report, config: Any) -> None` — Check that data/secrets.env is not world-readable.
 - `def check_capabilities(report: Report, config: Any) -> None` — Report capabilities that are switched on but cannot work yet.
   · `def _package(fix: str) -> str` — Pull the package name out of a 'pip install X' fix.
 - `async def diagnose(config: Any, root: Optional[Path] = None) -> Report` — Run every check and collect the findings.
@@ -2253,7 +2259,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*54 functions*
+*58 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -2276,6 +2282,10 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_tools_endpoint_lists_every_tool(web)`
 - `def test_the_audit_endpoint_answers(web)`
 - `def test_the_new_endpoints_demand_the_token(web)`
+- `def test_voices_endpoint_lists_voices(web)`
+- `def test_voices_save_persists(web, tmp_path, monkeypatch)`
+- `def test_tts_cache_clear(web)`
+- `def test_memory_endpoints(web)`
 - `def test_brain_events_reach_the_browser(web)` — The interface shows which module answered and which tools ran.
   · `async def scenario() -> None`
 - `def test_uninteresting_events_are_not_relayed(web)`
@@ -2360,5 +2370,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1639 functions across 66 files.**
+**1649 functions across 66 files.**
 

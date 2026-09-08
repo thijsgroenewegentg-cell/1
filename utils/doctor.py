@@ -542,6 +542,62 @@ def check_temp(report: Report) -> None:
         )
 
 
+def check_secrets(report: Report, config: Any) -> None:
+    """Check that data/secrets.env is not world-readable."""
+    # The file is gitignored and should be 0600. A 0644 secrets file on a shared
+    # machine leaks the ElevenLabs key to every local user.
+    try:
+        resolve = getattr(config, "resolve", None)
+        candidates = []
+        if callable(resolve):
+            try:
+                candidates.append(resolve("data/secrets.env"))
+            except Exception:
+                pass
+        # Also check cwd/data/secrets.env for good measure
+        candidates.append(pathlib.Path.cwd() / "data" / "secrets.env")
+        # Deduplicate
+        seen = set()
+        found = None
+        for cand in candidates:
+            try:
+                cand = cand.resolve()
+            except Exception:
+                continue
+            if cand in seen:
+                continue
+            seen.add(cand)
+            if cand.is_file():
+                found = cand
+                break
+        if found is None:
+            report.add("Secrets file", OK, "no data/secrets.env — using config.yaml / env")
+            return
+        # Check perms
+        try:
+            mode = found.stat().st_mode & 0o777
+            if mode & 0o077:
+                report.add(
+                    "Secrets file", WARN, f"{found} is {oct(mode)} — world/group readable",
+                    f"chmod 600 {found}   (or: chmod 600 data/secrets.env)",
+                )
+                return
+        except Exception:
+            pass
+        # Check it does not contain a raw key that is also in config.yaml (placeholder)
+        try:
+            content = found.read_text(encoding="utf-8")
+            if "ELEVENLABS_API_KEY" in content:
+                # Do not log the value
+                report.add("Secrets file", OK, f"{found.name} present (redacted, {len(content.splitlines())} lines, {oct(mode) if 'mode' in locals() else '0600'})")
+                return
+        except Exception:
+            pass
+        report.add("Secrets file", OK, f"{found.name} present")
+    except Exception as exc:
+        report.add("Secrets file", WARN, f"could not be checked ({exc})")
+
+
 #: For each module: what it needs beyond Python, and how to get it.
 CAPABILITY_NEEDS: Dict[str, List[Tuple[str, str, str]]] = {
     "voice": [
@@ -648,6 +704,7 @@ async def diagnose(config: Any, root: Optional[Path] = None) -> Report:
         ("Memory", lambda: check_memory_ram(report, config)),
         ("Storage", lambda: check_storage(report, project_root, config)),
         ("Temp", lambda: check_temp(report)),
+        ("Secrets", lambda: check_secrets(report, config)),
         ("Audio", lambda: check_audio(report, config)),
         ("Network", lambda: check_network(report)),
         ("Web port", lambda: check_web_port(report, config)),

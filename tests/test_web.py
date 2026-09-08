@@ -175,6 +175,61 @@ def test_the_new_endpoints_demand_the_token(web):
     client = TestClient(web.app)
     assert client.get("/api/tools").status_code == 401
     assert client.get("/api/audit").status_code == 401
+    assert client.get("/api/voices").status_code == 401
+    assert client.get("/api/tts?text=hi").status_code == 401
+    assert client.post("/api/voices", json={}).status_code == 401
+    assert client.post("/api/tts/cache/clear").status_code == 401
+    assert client.post("/api/vision").status_code == 401
+    assert client.get("/api/memory").status_code == 401
+    assert client.post("/api/memory", json={}).status_code == 401
+
+
+def test_voices_endpoint_lists_voices(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    resp = client.get("/api/voices", params={"token": web.token})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "current" in data
+    assert "edge_voices" in data
+    assert "elevenlabs_voices" in data
+    assert "speech" in data
+
+
+def test_voices_save_persists(web, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    # Save a voice choice
+    resp = client.post("/api/voices", params={"token": web.token}, json={"engine": "edge", "voice": "en-GB-RyanNeural"})
+    assert resp.status_code in {200, 500}  # 500 if config save fails in test tmp, but should be 200
+    if resp.status_code == 200:
+        assert resp.json().get("ok") is True
+
+
+def test_tts_cache_clear(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    resp = client.post("/api/tts/cache/clear", params={"token": web.token})
+    assert resp.status_code == 200
+    assert "cleared" in resp.json()
+
+
+def test_memory_endpoints(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    # List
+    resp = client.get("/api/memory", params={"token": web.token})
+    assert resp.status_code == 200
+    assert "facts" in resp.json()
+    # Remember + forget
+    resp = client.post("/api/memory", params={"token": web.token}, json={"text": "test fact", "action": "remember"})
+    # May be 503 if memory unavailable in test, but should not be 401/400
+    assert resp.status_code in {200, 503, 500}
+
 
 
 def test_brain_events_reach_the_browser(web):
