@@ -794,7 +794,7 @@ body.degraded-open #toasts { top: 118px; }
 }
 #startup.out{
   opacity:0; visibility:hidden; pointer-events:none;
-  transition: opacity .14s steps(2,end) .14s, visibility .14s steps(2,end) .14s;
+  transition: opacity .3s ease .26s, visibility .3s ease .26s;
 }
 #startup.hit{ animation: quake .42s steps(4,end) 1; }
 @keyframes quake{
@@ -1110,6 +1110,68 @@ body.degraded-open #toasts { top: 118px; }
 }
 @keyframes surge{0%{transform:scale(.25); opacity:0} 7%{opacity:.95} 100%{transform:scale(46); opacity:0}}
 
+/* --- shatter: the screen breaks apart on the cut (shards built in JS) --- */
+#sShards{ position:absolute; inset:0; z-index:9; pointer-events:none; }
+#sShards i{
+  position:absolute; left:50%; top:50%; width:0; height:0; opacity:0;
+  border-left:8px solid transparent; border-right:8px solid transparent; border-bottom:32px solid #fff;
+  filter: drop-shadow(0 0 10px rgba(255,255,255,.75));
+  transform: translate(-50%,-50%) rotate(var(--rot,0deg)) translateY(0) scale(.4);
+}
+#sShards i:nth-child(3n){ border-bottom-color:#ef4444; filter:drop-shadow(0 0 13px rgba(239,68,68,.9)); }
+#sShards i:nth-child(4n){ border-bottom-width:52px; border-left-width:5px; border-right-width:5px; }
+#startup.out #sShards i{ animation: shardFly .8s cubic-bezier(.18,.72,.3,1) var(--d,0s) forwards; }
+@keyframes shardFly{
+  0%{ opacity:1; transform: translate(-50%,-50%) rotate(var(--rot,0deg)) translateY(0) scale(.45) }
+  100%{ opacity:0; transform: translate(-50%,-50%) rotate(calc(var(--rot,0deg) + 240deg)) translateY(var(--dy,-600px)) scale(1.7) }
+}
+
+/* --- cracks racing across the glass on the hard punch --- */
+#sCrack{ position:absolute; inset:0; z-index:8; width:100%; height:100%; pointer-events:none; opacity:0; }
+#sCrack path{
+  fill:none; stroke:#fff; stroke-width:1.3; stroke-dasharray:1500; stroke-dashoffset:1500;
+  filter: drop-shadow(0 0 7px rgba(255,255,255,.85));
+}
+#sCrack path:nth-child(even){ stroke:#ef4444; filter: drop-shadow(0 0 9px rgba(239,68,68,.9)); }
+#startup.crack #sCrack{ opacity:1; }
+#startup.crack #sCrack path{ animation: crackDraw .3s ease-out forwards, crackGone .45s ease-in .36s forwards; }
+@keyframes crackDraw{ to{ stroke-dashoffset:0 } }
+@keyframes crackGone{ to{ opacity:0 } }
+
+/* --- chromatic aberration on every tear --- */
+#sChroma{
+  position:absolute; inset:0; z-index:9; pointer-events:none; opacity:0; mix-blend-mode:screen;
+  background:
+    radial-gradient(circle at 47% 46%, rgba(239,68,68,.34), transparent 46%),
+    radial-gradient(circle at 53% 54%, rgba(255,255,255,.26), transparent 44%);
+}
+#startup.tear #sChroma{ animation: chroma .17s steps(2,end) 1; }
+@keyframes chroma{
+  0%{opacity:.95; transform:translate(-7px,2px) scale(1.012)}
+  50%{opacity:.55; transform:translate(7px,-2px) scale(.995)}
+  100%{opacity:0; transform:none}
+}
+
+/* --- red alert frame during punches and overdrive --- */
+#sAlert{
+  position:absolute; inset:0; z-index:9; pointer-events:none; opacity:0;
+  box-shadow: inset 0 0 95px 14px rgba(239,68,68,.55), inset 0 0 0 2px rgba(239,68,68,.55);
+}
+#startup.punch #sAlert{ animation: alertPulse .32s steps(1,end) 1; }
+#startup.over #sAlert{ animation: alertPulse .34s steps(2,end) infinite; }
+@keyframes alertPulse{0%,100%{opacity:0} 35%{opacity:1} 62%{opacity:.3}}
+
+/* --- a third tear band, straight through the middle of the title --- */
+#sTearMid{
+  position:absolute; left:36px; top:30px; z-index:5; white-space:nowrap; pointer-events:none; opacity:0; color:#fff;
+  font: 900 78px/1 ui-sans-system, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+  letter-spacing:.16em; text-transform:uppercase; clip-path: inset(40% 0 42% 0);
+  mix-blend-mode:screen;
+}
+#startup.tear #sTearMid{ opacity:1; animation: tearM .17s steps(2,end) 1; }
+@keyframes tearM{0%{transform:translate(22px,0) scaleX(1.06); color:#ef4444}
+  50%{transform:translate(-18px,0) scaleX(.97); color:#fff} 100%{transform:none}}
+
 /* --- the full name, hammered in on the second punch --- */
 #sFull{
   font: 700 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.42em; margin-right:-.42em;
@@ -1134,7 +1196,7 @@ body.degraded-open #toasts { top: 118px; }
   #sReactor .r2, #sReactor .cross{ animation:none !important; }
   #startup.out #sInner{ animation:none !important; opacity:0 !important; }
   #sTearTop, #sTearBot{ display:none !important; }
-  #sRed, #sRays, #sSurge{ display:none !important; }
+  #sRed, #sRays, #sSurge, #sShards, #sCrack, #sChroma, #sAlert, #sTearMid{ display:none !important; }
   #sGate::before, #sGate::after, #sCore, #sCore::before, #sCore::after{ animation:none !important; }
   #sCore{ transform:none !important; opacity:1 !important; }
   #sGateText, #sGateHint{ animation:none !important; opacity:.9 !important; }
@@ -1185,6 +1247,7 @@ body::after{
         <div id="sGhostW" aria-hidden="true">JARVIS</div>
         <div id="sTearTop" aria-hidden="true">JARVIS</div>
         <div id="sTearBot" aria-hidden="true">JARVIS</div>
+        <div id="sTearMid" aria-hidden="true">JARVIS</div>
         <div id="sLogo">JARVIS</div>
       </div>
       <div id="sSub">BLACK / WHITE / RED</div>
@@ -1201,6 +1264,15 @@ body::after{
     <div id="sBeam"></div>
     <div id="sStrobe"></div>
     <div id="sRed"></div>
+    <div id="sChroma"></div>
+    <div id="sAlert"></div>
+    <svg id="sCrack" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 296 L168 286 L292 314 L420 264 L556 322 L694 280 L838 308 L1000 290"/>
+      <path d="M498 0 L486 138 L520 236 L468 356 L514 468 L492 600"/>
+      <path d="M112 52 L258 188 L236 298 L362 424 L340 560"/>
+      <path d="M888 44 L742 182 L792 296 L664 438 L700 566"/>
+    </svg>
+    <div id="sShards"></div>
   </div>
   <div id="sGate">
     <div id="sCore"></div>
@@ -1418,7 +1490,14 @@ let llmOnline = null;
 let captionTimer = null, turnStarted = 0;
 // Speech defaults ON unless the visitor explicitly turned it off, so JARVIS
 // actually talks when you start it up instead of waiting to be discovered.
-const settings = { speech: localStorage.getItem("jarvis.speech") !== "0" };
+//
+// The key is versioned on purpose. The old build switched speech OFF by itself
+// whenever the server had no TTS engine and *persisted* that as
+// jarvis.speech="0" — so a browser that ever hit that path stayed mute forever,
+// even after the fallback landed. v2 ignores that stale auto-disable and only
+// records a choice the visitor actually made.
+const SPEECH_KEY = "jarvis.speech.v2";
+const settings = { speech: localStorage.getItem(SPEECH_KEY) !== "0" };
 
 /* =======================================================================
    The sphere.
@@ -2386,8 +2465,24 @@ function pickBrowserVoice() {
   return browserVoices[0] || null;
 }
 
+//: Audio can be refused outright when the page runs inside a frame that was
+//: not granted autoplay — the click gesture then does not help, and every
+//: engine stays silent. Detect it instead of pretending it worked.
+let audioBlocked = false;
+function reportAudioBlocked() {
+  if (audioBlocked) return;
+  audioBlocked = true;
+  try {
+    toast("This frame blocks audio — open the preview in its own tab for sound and speech.", true);
+    const tag = document.getElementById("sGateSound");
+    if (tag) { tag.textContent = "AUDIO BLOCKED — OPEN IN NEW TAB"; tag.classList.add("muted"); }
+    const label = document.getElementById("setSpeech");
+    if (label) label.textContent = "blocked by browser";
+  } catch (_e) {}
+}
+
 function speakWithBrowser(text) {
-  if (!browserVoice) return false;
+  if (!browserVoice) { reportAudioBlocked(); return false; }
   try {
     const synth = window.speechSynthesis;
     synth.cancel();                            // never stack two replies
@@ -2397,9 +2492,19 @@ function speakWithBrowser(text) {
     if (voice) line.voice = voice;
     line.lang = voice ? voice.lang : (document.documentElement.getAttribute("lang") || "en");
     line.rate = 1.03; line.pitch = 0.9; line.volume = 1;
+    // Chrome fires onstart only if the utterance was really allowed to run.
+    // No start within 1.5s means the frame swallowed it.
+    let started = false;
+    line.onstart = () => { started = true; };
+    line.onerror = () => { if (!started) reportAudioBlocked(); };
+    setTimeout(() => {
+      // Queued or still speaking means it worked, just slowly — only a synth
+      // that is neither is proof the frame refused the audio.
+      try { if (!started && !synth.speaking && !synth.pending) reportAudioBlocked(); } catch (_e) {}
+    }, 2500);
     synth.speak(line);
     return true;
-  } catch (_e) { return false; }
+  } catch (_e) { reportAudioBlocked(); return false; }
 }
 
 function stopSpeaking() {
@@ -2412,6 +2517,20 @@ function armAudio() {
   if (armedAudio) return;
   armedAudio = true;
   loadBrowserVoices();
+  // If a real gesture cannot wake an AudioContext, nothing audio-related will
+  // work in this frame — surface it once rather than failing silently forever.
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) {
+      const probe = new Ctx();
+      const wake = probe.resume ? probe.resume() : Promise.resolve();
+      Promise.resolve(wake).catch(() => {});
+      setTimeout(() => {
+        if (probe.state === "suspended") reportAudioBlocked();
+        try { probe.close(); } catch (_e) {}
+      }, 900);
+    }
+  } catch (_e) {}
   if (browserVoice) {
     try { const warm = new SpeechSynthesisUtterance(" "); warm.volume = 0; window.speechSynthesis.speak(warm); }
     catch (_e) {}
@@ -3169,7 +3288,7 @@ function applySpeechSupport(supported) {
     // It was switched on against a server that cannot deliver. Turn it off
     // rather than silently swallowing every reply's audio.
     settings.speech = false;
-    localStorage.setItem("jarvis.speech", "0");
+    localStorage.setItem(SPEECH_KEY, "0");
     paintSpeech();
     toast("No speech engine on the server — reading aloud is off.", true);
   }
@@ -3195,7 +3314,7 @@ function toggleSpeech() {
     return;
   }
   settings.speech = !settings.speech;
-  localStorage.setItem("jarvis.speech", settings.speech ? "1" : "0");
+  localStorage.setItem(SPEECH_KEY, settings.speech ? "1" : "0");
   paintSpeech();
   toast(settings.speech ? "Speaking replies aloud." : "Speech off.");
   if (settings.speech) {
@@ -3459,8 +3578,8 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
     const T = ctx.currentTime + 0.05;
     scoreMaster.gain.setValueAtTime(0.0001, T);
     scoreMaster.gain.linearRampToValueAtTime(0.6, T + 0.07);
-    scoreMaster.gain.setValueAtTime(0.6, T + 3.3);
-    scoreMaster.gain.exponentialRampToValueAtTime(0.0001, T + 5.6);
+    scoreMaster.gain.setValueAtTime(0.62, T + 3.3);
+    scoreMaster.gain.exponentialRampToValueAtTime(0.0001, T + 6.2);
 
     // 0.00 — ignition: electrical zap, crackle, sub thump, riser into the slam
     tone(ctx, T, 'sawtooth', 2700, 170, 0.3, 0.2, scoreDrive);
@@ -3473,8 +3592,26 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
     tone(ctx, T + 0.02, 'sawtooth', 68, 640, 0.62, 0.13, scoreDrive);
     noiseHit(ctx, T + 0.02, 0.64, 'bandpass', 380, 5400, 0.13, scoreMaster, 2);
 
-    // 0.16 — the slam: sub drop, distorted noise crash, a crack of square
+    // 0.16 — the slam: braam, sub drop, distorted noise crash, a crack of square
     const I = T + 0.16;
+    // Braam: five detuned saws through a lowpass that opens then slams shut.
+    const braamFilter = ctx.createBiquadFilter();
+    braamFilter.type = 'lowpass'; braamFilter.Q.value = 9;
+    braamFilter.frequency.setValueAtTime(160, I);
+    braamFilter.frequency.exponentialRampToValueAtTime(2400, I + 0.34);
+    braamFilter.frequency.exponentialRampToValueAtTime(220, I + 1.7);
+    const braamGain = ctx.createGain();
+    braamGain.gain.setValueAtTime(0.0001, I);
+    braamGain.gain.linearRampToValueAtTime(0.42, I + 0.07);
+    braamGain.gain.exponentialRampToValueAtTime(0.0001, I + 1.9);
+    braamFilter.connect(braamGain); braamGain.connect(scoreMaster); braamGain.connect(delay);
+    [[55, 1], [55.6, .9], [82.4, .7], [110, .55], [164.8, .3]].forEach(([freq, level]) => {
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(freq, I);
+      o.frequency.exponentialRampToValueAtTime(freq * 0.985, I + 1.8);
+      const g = ctx.createGain(); g.gain.value = level * 0.5;
+      o.connect(g); g.connect(braamFilter); o.start(I); o.stop(I + 2.0);
+    });
     tone(ctx, I, 'sine', 155, 30, 0.85, 0.9, scoreMaster);
     tone(ctx, I, 'triangle', 330, 58, 0.42, 0.24, scoreDrive);
     noiseHit(ctx, I, 0.55, 'lowpass', 4400, 150, 0.55, scoreDrive);
@@ -3516,6 +3653,26 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
       tone(ctx, t, 'sine', (i % 4 === 0) ? 110 : 55, 40, 0.17, (i % 4 === 0) ? 0.36 : 0.22, scoreMaster);
       if(i % 2 === 1) noiseHit(ctx, t, 0.05, 'highpass', 6200, 9000, 0.05, scoreMaster);
     }
+    // 16th-note hats for drive
+    for(let i = 0; i < 18; i++){
+      const t = M + i * 0.15625;
+      if(t > T + 3.2) break;
+      noiseHit(ctx, t, 0.028, 'highpass', (i % 4 === 2) ? 9200 : 7400, 11000, (i % 4 === 0) ? 0.06 : 0.032, scoreMaster);
+    }
+    // A-minor add9 pad, slow attack, thrown into the delay for width
+    const padGain = ctx.createGain(); padGain.gain.value = 0.0001; padGain.connect(scoreMaster); padGain.connect(delay);
+    padGain.gain.setValueAtTime(0.0001, M);
+    padGain.gain.linearRampToValueAtTime(0.13, M + 0.85);
+    padGain.gain.setValueAtTime(0.13, M + 2.0);
+    padGain.gain.exponentialRampToValueAtTime(0.0001, M + 3.4);
+    const padFilter = ctx.createBiquadFilter(); padFilter.type = 'lowpass'; padFilter.frequency.value = 1900; padFilter.Q.value = 1.2;
+    padFilter.connect(padGain);
+    [220.0, 261.63, 329.63, 493.88].forEach((freq, idx) => {
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = freq;
+      o.detune.value = (idx % 2 ? 6 : -6);
+      const g = ctx.createGain(); g.gain.value = idx === 0 ? 0.5 : 0.34;
+      o.connect(g); g.connect(padFilter); o.start(M); o.stop(M + 3.6);
+    });
     [[0.0, 440.0], [0.62, 523.25], [1.25, 659.25], [1.87, 523.25], [2.2, 880.0]]
       .forEach(([off, freq]) => {
         const t = M + off; if(t > T + 3.25) return;
@@ -3536,10 +3693,22 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
     };
     punch(T + 1.80, false); punch(T + 2.32, true);
 
-    // 2.72 — overdrive: riser and a machine-gun blip run
+    // 2.72 — overdrive: riser, siren and a machine-gun blip run
     tone(ctx, T + 2.72, 'sawtooth', 120, 1500, 0.54, 0.17, scoreDrive);
     noiseHit(ctx, T + 2.72, 0.54, 'bandpass', 900, 8200, 0.17, scoreMaster, 2);
     for(let i = 0; i < 6; i++) tone(ctx, T + 2.72 + i * 0.085, 'square', 1320, 1320, 0.03, 0.07, scoreMaster);
+    const siren = ctx.createOscillator(); siren.type = 'square';
+    siren.frequency.setValueAtTime(620, T + 2.72);
+    siren.frequency.exponentialRampToValueAtTime(1520, T + 2.97);
+    siren.frequency.exponentialRampToValueAtTime(640, T + 3.22);
+    const sirenGain = ctx.createGain();
+    sirenGain.gain.setValueAtTime(0.0001, T + 2.72);
+    sirenGain.gain.linearRampToValueAtTime(0.085, T + 2.8);
+    sirenGain.gain.exponentialRampToValueAtTime(0.0001, T + 3.24);
+    const sirenFilter = ctx.createBiquadFilter(); sirenFilter.type = 'bandpass';
+    sirenFilter.frequency.value = 1200; sirenFilter.Q.value = 2.5;
+    siren.connect(sirenFilter); sirenFilter.connect(sirenGain); sirenGain.connect(scoreMaster);
+    siren.start(T + 2.72); siren.stop(T + 3.3);
 
     // 3.25 — the cut: swell up, hard boom, then the "ready" chime rings out
     const F = T + 3.25;
@@ -3554,12 +3723,38 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
     swell.connect(swellFilter); swellFilter.connect(swellGain); swellGain.connect(scoreMaster);
     swell.start(F - 0.62); swell.stop(F + 0.05);
     tone(ctx, F, 'sine', 125, 27, 1.2, 0.85, scoreMaster);
+    tone(ctx, F, 'sine', 62, 19, 1.6, 0.95, scoreMaster);          // sub drop under the boom
     noiseHit(ctx, F, 0.75, 'lowpass', 2600, 85, 0.36, scoreDrive);
+    // second, brighter swell so the cut has teeth
+    const swell2 = ctx.createBufferSource(); swell2.buffer = scoreBuf;
+    const swell2Filter = ctx.createBiquadFilter(); swell2Filter.type = 'highpass';
+    swell2Filter.frequency.setValueAtTime(1200, F - 0.5);
+    swell2Filter.frequency.exponentialRampToValueAtTime(9500, F - 0.01);
+    const swell2Gain = ctx.createGain();
+    swell2Gain.gain.setValueAtTime(0.0001, F - 0.5);
+    swell2Gain.gain.exponentialRampToValueAtTime(0.2, F - 0.02);
+    swell2Gain.gain.setValueAtTime(0.0001, F);
+    swell2.connect(swell2Filter); swell2Filter.connect(swell2Gain); swell2Gain.connect(scoreMaster);
+    swell2.start(F - 0.5); swell2.stop(F + 0.05);
     tone(ctx, F + 0.06, 'triangle', 880.0, 880.0, 1.0, 0.09, delay);
     tone(ctx, F + 0.22, 'triangle', 1318.5, 1318.5, 1.2, 0.07, delay);
   }
 
   /* ============================ the visuals ============================== */
+  // Shatter shards, randomised per load: angle, distance, size and delay.
+  (function buildShards(){
+    const host = document.getElementById('sShards');
+    if(!host) return;
+    for(let i = 0; i < 16; i++){
+      const shard = document.createElement('i');
+      const angle = Math.random() * 360;
+      shard.style.setProperty('--rot', angle.toFixed(1) + 'deg');
+      shard.style.setProperty('--dy', '-' + (320 + Math.random() * 620).toFixed(0) + 'px');
+      shard.style.setProperty('--d', (Math.random() * 0.12).toFixed(3) + 's');
+      host.appendChild(shard);
+    }
+  })();
+
   function beat(){
     if(done || !ignited) return;
     startup.classList.add('tear', 'hit');
@@ -3572,7 +3767,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
     startup.classList.remove('punch', 'punch2');
     void startup.offsetWidth;                       // reflow so the animation restarts
     startup.classList.add('punch', 'tear', 'hit');
-    if(hard) startup.classList.add('punch2');
+    if(hard){ startup.classList.add('punch2', 'crack'); at(900, () => startup.classList.remove('crack')); }
     glitchSound(true);
     at(190, () => startup.classList.remove('tear'));
     at(420, () => startup.classList.remove('punch', 'hit'));
@@ -3581,7 +3776,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
     if(done) return; done = true;
     timers.forEach(clearTimeout); timers = [];
     if(bursts){ clearInterval(bursts); bursts = null; }
-    startup.classList.remove('over', 'tear', 'hit', 'punch', 'punch2');
+    startup.classList.remove('over', 'tear', 'hit', 'punch', 'punch2', 'crack');
     startup.classList.add('out');
     document.body.classList.add('startup-done');    // in case it was cut short
     setTimeout(() => { startup.style.display = 'none'; }, 560);
@@ -3607,6 +3802,11 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
     startup.classList.remove('standby');
     startup.classList.add('go');
     at(660, beat);                                   // impact of the slam
+    // One spoken word over the score: it is the drama, and it proves out loud
+    // whether the voice pipeline works before the first reply ever arrives.
+    // Only when the ignition came from a real gesture — an auto-ignition has no
+    // audio permission, and trying anyway would just report a false "blocked".
+    if(!silent) at(760, () => { if(settings.speech && speechSupported) { try{ speakAloud('Online.'); }catch(e){} } });
     at(950, () => document.body.classList.add('startup-done'));  // UI wakes underneath
     bursts = setInterval(() => { if(Math.random() < 0.42) beat(); }, 210);
     at(1800, () => punch(false));                    // first hit
@@ -3614,7 +3814,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
     at(2720, () => { if(bursts){ clearInterval(bursts); bursts = null; } startup.classList.add('over'); });
     at(2900, beat);
     at(3250, finish);                                // hard cut
-    at(6600, () => { try{ if(actx) actx.close(); }catch(e){} actx = null; });
+    at(7200, () => { try{ if(actx) actx.close(); }catch(e){} actx = null; });
   }
 
   /* sound on/off, without igniting */

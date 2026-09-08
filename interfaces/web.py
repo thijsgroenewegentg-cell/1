@@ -415,12 +415,20 @@ class WebInterface:
 
         @app.get("/", response_class=HTMLResponse)
         async def index(token: str = Query(default="")) -> Any:
-            """Serve the chat page."""
+            """Serve the chat page.
+
+            ``no-store`` matters: the page is re-read from disk per request so
+            that edits show up on refresh, but a browser (or a proxy in front of
+            one) is free to heuristic-cache a response that carries no caching
+            header at all. That silently served a stale interface after an
+            update, which reads as "the change did nothing".
+            """
             if not self._authorised(token):
                 return HTMLResponse(
                     "<h1>401</h1><p>Append ?token=… to the URL.</p>", status_code=401
                 )
-            return HTMLResponse(rendered_page())
+            return HTMLResponse(rendered_page(),
+                                headers={"Cache-Control": "no-store, must-revalidate"})
 
         @app.get("/api/status")
         async def status(token: str = Query(default="")) -> Any:
@@ -1049,7 +1057,8 @@ class WebInterface:
         @app.get("/sw.js")
         async def service_worker() -> Any:
             """Serve the offline shell worker (never behind the token gate)."""
-            return Response(content=SERVICE_WORKER, media_type="application/javascript")
+            return Response(content=SERVICE_WORKER, media_type="application/javascript",
+                            headers={"Cache-Control": "no-store, must-revalidate"})
 
         @app.get("/icon-{size}.png")
         async def icon(size: int) -> Any:
