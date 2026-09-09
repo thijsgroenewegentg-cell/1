@@ -15,9 +15,10 @@ so a macro can drive *any* module's tools.
 from __future__ import annotations
 
 import json
-from typing import Any, ClassVar, List
+import re
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
-from modules.base import BaseModule, ModuleResult, tool
+from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
 from utils.helpers import truncate
 
 
@@ -66,6 +67,37 @@ class Macros(BaseModule):
         self.store = store_cls(config.resolve(
             config.get("assistant.macros_file", "data/macros.json")
         ))
+
+    # --------------------------------------------------------- offline router
+    def offline_router(self, command: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """Route macro management without a model.
+
+        Listing and removal are deterministic; creating still needs the model
+        because the definition is a JSON script of tool steps.
+
+        Args:
+            command: The raw utterance.
+
+        Returns:
+            ``(tool_name, params)`` or ``None`` to defer to keyword scoring.
+        """
+        text = strip_command_prefix(command)
+        lowered = text.lower()
+        if any(phrase in lowered for phrase in (
+            "what macros", "list macros", "my macros", "show macros",
+            "list commands", "show me the macros", "what commands do i have",
+        )):
+            return "list_macros", {}
+        removal = re.search(
+            r"\b(?:remove|delete|forget|unarm|drop|kill)\s+(?:the\s+|my\s+|that\s+)?"
+            r"([\w -]+?)\s+macro\b",
+            lowered,
+        )
+        if removal:
+            trigger = removal.group(1).strip()
+            if trigger:
+                return "remove_macro", {"trigger": trigger}
+        return None
 
     # ----------------------------------------------------------------- tools
     @tool(

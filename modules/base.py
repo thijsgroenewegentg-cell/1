@@ -92,8 +92,8 @@ class ToolSpec:
             hint = meta.get("description", "")
             if hint:
                 lines.append(f"    · {key}: {hint}")
-        if self.examples:
-            lines.append(f"    · e.g. {self.examples[0]}")
+        for example in self.examples[:3]:
+            lines.append(f"    · e.g. {example}")
         return "\n".join(lines)
 
     def to_schema(self) -> Dict[str, Any]:

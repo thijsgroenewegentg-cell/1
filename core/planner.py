@@ -16,6 +16,7 @@ import random
 import re
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
+from core import toolcraft
 from core.intent_router import Intent
 from modules.base import ModuleResult
 from utils.helpers import extract_json, truncate
@@ -285,9 +286,24 @@ class Planner:
         history = "\n".join(transcript[-8:]) or "(nothing yet)"
         recent = self.brain._context_hint()
         recent_block = f"RECENT ACTIVITY:\n{recent}\n\n" if recent else ""
+        # Few-shot teaching: show the model how this user's kind of request
+        # maps onto real calls for the active module (see core/toolcraft).
+        worked = toolcraft.worked_examples(
+            self.brain.last_intent.module if self.brain.last_intent else "",
+            exclude_text=text,
+        )
+        worked_block = ""
+        if worked:
+            lines = ["WORKED EXAMPLES (study the mapping — same shape for your call):"]
+            lines += [
+                f'- USER: "{phrase}"\n  CALL: {call}'
+                for phrase, call in worked
+            ]
+            worked_block = "\n".join(lines) + "\n\n"
         return (
             "You are the reasoning core of JARVIS. Decide the next step.\n\n"
             f"TOOLS:\n{catalog}\n\n"
+            + worked_block
             + (f"MEMORY:\n{memory_context}\n\n" if memory_context else "")
             + recent_block
             + f"USER REQUEST: {text}\n\n"
@@ -296,12 +312,13 @@ class Planner:
             '{"thought": "one short sentence of reasoning", '
             '"action": "module.tool or null", "params": {}, '
             '"answer": "final answer if no tool is needed, else null"}\n\n'
-            "Rules: call at most one tool per step. Use a tool when you need real data or "
-            "must change something on the machine. If the scratchpad already contains the "
-            "information needed, set action to null and give the answer. Never invent "
-            "observations. If the request is vague, names no file/app/parameter, or cannot "
-            "be satisfied with the tools above, do NOT guess — set action to null and ask "
-            "one short question for the missing detail."
+            "Answer format: action must be a module.tool listed in TOOLS; "
+            "params must name ONLY that tool's parameters.\n"
+            + toolcraft.golden_block()
+            + "\nIf the request is vague, names no file/app/parameter, or "
+            "cannot be satisfied with the tools above, do NOT guess — set "
+            "action to null and ask one short question for the missing "
+            "detail."
         )
 
     async def _confirm_plan(

@@ -264,6 +264,29 @@ class FileManager(BaseModule):
         if contains and any(w in lowered for w in ("file", "files", "document")):
             return "search_content", {"text": contains.group(1).strip(), "path": location}
 
+        # Content searches inside files: "search my files for the word budget"
+        # is search_content (look inside the text), whereas a bare "find files"
+        # matches by name. The tell is naming a word/phrase/term/mention.
+        mention = re.search(
+            r"\b(?:files?|documents?)\s+(?:that|which)?\s*(?:mention|refer to)\s+"
+            r"(.+)$", lowered,
+        )
+        content = re.search(
+            r"\b(?:search|look|scan|find|grep)\s+(?:my\s+|the\s+|your\s+)?files?\s+"
+            r"for\s+(?:the\s+)?(?:word|text|phrase|term|contents?)?\s*(.+)$",
+            lowered,
+        )
+        if content and any(marker in lowered for marker in
+                           ("word", "text", "phrase", "term", "mention", "about",
+                            "says", "mentions")):
+            return "search_content", {
+                "text": content.group(1).strip(), "path": location,
+            }
+        if mention:
+            return "search_content", {
+                "text": mention.group(1).strip(), "path": location,
+            }
+
         known_extensions = {
             "pdf", "png", "jpg", "jpeg", "gif", "mp3", "mp4", "csv", "txt", "md", "doc",
             "docx", "xls", "xlsx", "ppt", "pptx", "zip", "py", "js", "ts", "json", "log",

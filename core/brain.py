@@ -36,6 +36,7 @@ from typing import (
     Tuple,
 )
 
+from core import toolcraft
 from core.config import Config
 from core.event_bus import EventBus
 from core.intent_router import INTENT_KEYWORDS, Intent, IntentRouter
@@ -1082,6 +1083,12 @@ class Brain:
         if primary and primary in self.modules:
             module = self.modules[primary]
             blocks.append(f"## {primary} (primary — prefer these)\n{module.tool_catalog()}")
+            # Usage notes for the active module (see core/toolcraft): the one
+            # thing a small local model cannot infer from a signature alone is
+            # which words from the user's sentence belong in which parameter.
+            guidance = toolcraft.module_guidance(primary)
+            if guidance:
+                blocks.append(f"## how to use the {primary} tools\n{guidance}")
         for name, module in self.modules.items():
             if name == primary:
                 continue

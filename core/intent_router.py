@@ -73,12 +73,17 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "regex for", "sql query", "bash script", "algorithm",
     ],
     "file_manager": [
-        "find file", "find all", "search files", "locate file", "organize",
+        "find file", "find all", "search files", "search my files",
+        "search files for", "find files containing", "locate file", "organize",
         "organise", "clean up folder", "summarize this document", "summarise this document",
         "read the file", "read file", "open the pdf", "pdf", "docx", "csv",
         "spreadsheet", "in my downloads", "on my desktop", "folder", "directory",
         "duplicate files", "disk usage of", "biggest file", "largest file",
         "biggest files", "largest files", "taking up space", "space hogs",
+    ],
+    "macros": [
+        "macro", "macros", "custom command", "teach you a command",
+        "when i say", "when i tell you", "set up a macro", "make a macro",
     ],
     "knowledge": [
         "my documents", "my notes folder", "in my files", "according to my",

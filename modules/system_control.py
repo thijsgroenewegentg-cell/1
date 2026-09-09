@@ -216,6 +216,18 @@ class SystemControl(BaseModule):
         url = re.search(r"(https?://\S+|www\.\S+)", text)
         if url and any(w in lowered for w in ("open", "go to", "browse")):
             return "open_url", {"url": url.group(1)}
+        # "open the url youtube.com" names a site with no scheme. Without this
+        # the launch rule below grabbed "url youtube.com" as an *app name*,
+        # which then failed to open anything. Catch the url/site/website
+        # phrasing before the app matcher gets a chance.
+        named_site = re.search(
+            r"\b(?:open|go to|browse)\s+(?:the\s+|this\s+)?"
+            r"(?:url|website|site|webpage|web page|page|address|link)\s+"
+            r"(?:for\s+)?([a-z0-9][\w.-]*(?:\.[a-z]{2,})?(?:[/?#][\w/.?=&%-]*)?)",
+            lowered,
+        )
+        if named_site:
+            return "open_url", {"url": named_site.group(1)}
 
         launch = re.search(
             r"\b(?:open|launch|start|fire up)\s+(?:the\s+|my\s+)?([\w .-]+)", lowered)
@@ -228,7 +240,11 @@ class SystemControl(BaseModule):
         if close:
             return "close_app", {"name": close.group(1).strip()}
 
-        if any(phrase in lowered for phrase in ("processes", "what's running", "task manager")):
+        if any(phrase in lowered for phrase in (
+            "processes", "what's running", "task manager",
+            "apps are running", "programs are running", "what apps are",
+            "what programs are", "which apps are open", "which programs are open",
+        )):
             return "list_processes", {}
 
         if "clipboard" in lowered:

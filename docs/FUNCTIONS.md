@@ -22,6 +22,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/personality.py`](#corepersonalitypy) — 5
 - [`core/planner.py`](#coreplannerpy) — 9
 - [`core/preferences.py`](#corepreferencespy) — 10
+- [`core/toolcraft.py`](#coretoolcraftpy) — 4
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
 - [`interfaces/web.py`](#interfaceswebpy) — 52
@@ -32,7 +33,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/file_manager.py`](#modulesfile_managerpy) — 32
 - [`modules/guardian.py`](#modulesguardianpy) — 12
 - [`modules/knowledge.py`](#modulesknowledgepy) — 20
-- [`modules/macros.py`](#modulesmacrospy) — 5
+- [`modules/macros.py`](#modulesmacrospy) — 6
 - [`modules/models.py`](#modulesmodelspy) — 17
 - [`modules/productivity.py`](#modulesproductivitypy) — 78
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
@@ -61,7 +62,8 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_config.py`](#teststest_configpy) — 27
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
-- [`tests/test_guardian.py`](#teststest_guardianpy) — 11
+- [`tests/test_function_calling.py`](#teststest_function_callingpy) — 9
+- [`tests/test_guardian.py`](#teststest_guardianpy) — 12
 - [`tests/test_health.py`](#teststest_healthpy) — 10
 - [`tests/test_install.py`](#teststest_installpy) — 17
 - [`tests/test_intent_router.py`](#teststest_intent_routerpy) — 19
@@ -86,6 +88,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
 - [`tests/test_web.py`](#teststest_webpy) — 65
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
+- [`scripts/eval_function_calling.py`](#scriptseval_function_callingpy) — 5
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
 
@@ -585,6 +588,17 @@ and marked with `·`; methods the intent router can call are marked
 - `def _phrase(self, reference: str, params: Dict[str, Any]) -> str` — Turn one routine into a natural sentence about the user.
 - `def summary(self, limit: int = 4) -> str` — A short block for the system prompt, or empty when nothing learned.
 
+## `core/toolcraft.py`
+
+*4 functions*
+
+> How JARVIS should choose and call his functions — the tool-usage curriculum.
+
+- `def golden_block() -> str` — Render the golden rules as a compact prompt section.
+- `def module_guidance(module: str) -> str` — Return the usage notes for one module, or an empty string.
+- `def worked_examples(module: str, exclude_text: str = '', limit: int = 2) -> List[Tuple[str, str]]` — Pick few-shot demonstrations for the active module.
+- `def corpus_rows() -> List[Dict[str, Any]]` — Yield every corpus row (a copy, so callers may annotate it).
+
 ## `interfaces/cli.py`
 
 *31 functions*
@@ -1039,7 +1053,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/macros.py`
 
-*5 functions*
+*6 functions*
 
 > Macros: teach JARVIS fixed "when I say X, do Y" commands.
 
@@ -1048,6 +1062,7 @@ and marked with `·`; methods the intent router can call are marked
 ### `class Macros` — Create, list and remove fixed trigger-phrase commands.
 
 - `def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None` — Resolve the shared macro file and open the store.
+- `def offline_router(self, command: str) -> Optional[Tuple[str, Dict[str, Any]]]` — Route macro management without a model.
 - `async def add_macro(self, trigger: str, definition: str) -> ModuleResult` **@tool** — Validate and store a macro from a JSON definition string.
 - `async def list_macros(self) -> ModuleResult` **@tool** — Return a readable catalogue of the armed macros.
 - `async def remove_macro(self, trigger: str) -> ModuleResult` **@tool** — Remove the macro with this trigger.
@@ -2034,9 +2049,25 @@ and marked with `·`; methods the intent router can call are marked
   · `async def decline(prompt: str) -> bool`
 - `def test_writing_inside_the_allowed_roots_is_unchallenged(tmp_path)`
 
+## `tests/test_function_calling.py`
+
+*9 functions*
+
+> The tool-usage curriculum (core/toolcraft) stays true to the real routers.
+
+- `def brain(tmp_path_factory: pytest.TempPathFactory) -> Brain` — One offline brain, shared across the whole corpus replay.
+- `def _offline_tool(brain: Brain, module: str, phrase: str) -> str` — Mirror the planner's no-model chain: router first, keywords second.
+- `def test_every_corpus_row_names_a_real_module_and_tool(brain)`
+- `def test_offline_module_promises_hold(brain, row)`
+- `def test_offline_tool_promises_hold(brain, row)`
+- `def test_worked_examples_skip_the_users_own_phrase()`
+- `def test_worked_examples_exist_for_the_main_modules(brain)`
+- `def test_the_golden_rules_render()`
+- `def test_module_guidance_names_only_real_tools(brain)` — Cross-module tool references in the guidance must exist.
+
 ## `tests/test_guardian.py`
 
-*11 functions*
+*12 functions*
 
 > The data guardian (B): snapshots, retention, restore and auto-backup.
 
@@ -2050,6 +2081,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_auto_backup_runs_a_single_daily_loop(config)`
   · `async def scenario() -> None`
 - `def test_auto_backup_is_off_by_default(config)`
+- `def test_the_backup_phrase_reaches_the_guardian_offline(config)` — The spoken backup phrase routes to guardian without any model.
 
 ## `tests/test_health.py`
 
@@ -2127,7 +2159,7 @@ and marked with `·`; methods the intent router can call are marked
 
 > The session journal (H): append-only JSON-lines file, rotation, recap.
 
-- `def _seed_day(config, day: str, texts, tools = ())` — Write journal entries for an arbitrary past day, oldest-first.
+- `def _seed_day(config, day: str, texts, tools = ()) -> None` — Write journal entries for an arbitrary past day, oldest-first.
 - `def _yesterday() -> str`
 - `def test_note_turn_appends_one_json_line_per_turn(config)`
 - `def test_note_turn_truncates_long_text_and_tools(config)`
@@ -2135,7 +2167,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_events_on_filters_by_day_and_recap_is_speakable(config)`
 - `def test_brief_line_is_blank_for_empty_days_and_compact_otherwise(config)`
 - `def test_day_before_crosses_month_boundaries()`
-- `def _brain(config)`
+- `def _brain(config) -> Any`
 - `def test_brain_answers_what_were_we_doing_yesterday(config)`
 - `def test_brain_answers_about_the_last_session(config)`
 - `def test_ordinary_small_talk_is_not_treated_as_a_recap_question(config)`
@@ -2358,7 +2390,7 @@ and marked with `·`; methods the intent router can call are marked
 
 > Boot routine (D) and proactive macro suggestions (F) on the Brain.
 
-- `def _brain(config)` — An offline Brain with every module loaded.
+- `def _brain(config) -> Any` — An offline Brain with every module loaded.
 - `def brain(config)` — An offline Brain with every module loaded.
 - `def _arm_routine(brain, name: str, step: str) -> None`
 - `def test_boot_routine_runs_the_configured_routine_once(brain, config)`
@@ -2770,6 +2802,18 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_weather_is_a_registered_tool(web)`
 - `def test_no_private_helper_is_exposed_as_a_tool(web)`
 
+## `scripts/eval_function_calling.py`
+
+*5 functions*
+
+> Score how well the offline router chain maps speech onto the right function.
+
+- `def _offline_tool(brain: Brain, module_name: str, phrase: str) -> Optional[str]` — What tool the no-model chain picks for a phrase inside one module.
+- `def _build_offline_brain() -> Brain` — Boot an assistant rooted in a throwaway directory, no model.
+- `def evaluate(brain: Brain) -> Dict[str, Any]` — Replay the corpus against the offline chain.
+- `def render(results: Dict[str, Any]) -> str` — Format the scoreboard for the terminal.
+- `def main() -> int` — Run the evaluation against a throwaway offline assistant.
+
 ## `scripts/list_functions.py`
 
 *8 functions*
@@ -2799,5 +2843,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1966 functions across 79 files.**
+**1986 functions across 82 files.**
 
