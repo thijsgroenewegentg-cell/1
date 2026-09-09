@@ -1,0 +1,411 @@
+<!doctype html>
+<!-- /interfaces/boot_sequence.html
+     Dramatic boot-up sequence for the JARVIS assistant core.
+     Self-contained, offline, zero dependencies: raw WebGL2 + a hand-rolled
+     particle sphere (no Three.js needed for 2200+ GL_POINTS). Pure #000
+     background, pure white everything, soft-sprite glow, three-phase boot:
+     expansion -> pulse -> lock. Serve statically and open in any modern
+     browser. Replay with a double-click or the 'r' key. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>JARVIS — Core Boot</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #000000; overflow: hidden; cursor: crosshair;
+  }
+  canvas#gl { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+
+  /* Soft ambient aura around the sphere, opacity driven from JS during boot. */
+  #aura {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(circle at 50% 50%,
+      rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.045) 18%,
+      rgba(255,255,255,0.012) 36%, transparent 55%);
+    opacity: 0;
+  }
+
+  .hud {
+    position: fixed; inset: 0; pointer-events: none;
+    font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    text-align: center; color: #fff; user-select: none;
+  }
+  .hud .fade { opacity: 0; transition: opacity 1.6s ease; }
+  .hud.on .fade { opacity: 1; }
+
+  .brand { position: absolute; top: 9vh; left: 0; right: 0; }
+  .title {
+    font-size: clamp(44px, 9vw, 110px);
+    font-weight: 200; letter-spacing: 0.42em; text-indent: 0.42em;
+    text-shadow: 0 0 6px #fff, 0 0 24px rgba(255,255,255,0.85),
+                 0 0 70px rgba(255,255,255,0.5);
+  }
+  .sub {
+    margin-top: 10px;
+    font-size: clamp(10px, 1.4vw, 15px);
+    font-weight: 300; letter-spacing: 0.62em; text-indent: 0.62em;
+    color: #a7adb4; text-transform: uppercase;
+  }
+
+  .status {
+    position: absolute; bottom: 7vh; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    font-size: clamp(12px, 1.6vw, 16px); font-weight: 300;
+    letter-spacing: 0.34em; text-indent: 0.34em; text-transform: uppercase;
+    color: #d5dade;
+  }
+  .status .dot {
+    width: 9px; height: 9px; border-radius: 50%; background: #46ff8a;
+    box-shadow: 0 0 6px #46ff8a, 0 0 16px rgba(70,255,138,0.8);
+    animation: pulse-dot 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { transform: scale(1);    opacity: 1; }
+    50%      { transform: scale(0.55); opacity: 0.55; }
+  }
+
+  .hint {
+    position: absolute; right: 14px; bottom: 12px;
+    font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: rgba(255,255,255,0.18); transition: color 0.6s ease, opacity 1.6s ease;
+  }
+  .hud:hover .hint { color: rgba(255,255,255,0.45); }
+
+  #err {
+    position: fixed; inset: 0; display: none; align-items: center;
+    justify-content: center; color: #fff; font: 300 14px/1.7 "Segoe UI",
+    Helvetica, Arial, sans-serif; letter-spacing: 0.1em;
+    text-align: center; padding: 24px; background: #000;
+  }
+</style>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <div id="aura"></div>
+
+  <div class="hud" id="hud">
+    <div class="brand">
+      <div class="title fade">JARVIS</div>
+      <div class="sub fade">AI Assistant Core</div>
+    </div>
+    <div class="status fade"><span class="dot"></span><span>System Online</span></div>
+    <div class="hint fade">double-click to replay &middot; r to restart</div>
+  </div>
+
+  <div id="err">WebGL is not available on this browser — the core cannot render.</div>
+
+<script>
+"use strict";
+(function () {
+  var canvas = document.getElementById("gl");
+  var gl = canvas.getContext("webgl2", {
+    antialias: false, alpha: false, powerPreference: "high-performance"
+  });
+  if (!gl) { document.getElementById("err").style.display = "flex"; return; }
+
+  var DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var W = 1, H = 1, INV_PROJ = 1; // updated by resize()
+
+  function resize() {
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width  = Math.max(1, Math.floor(W * DPR));
+    canvas.height = Math.max(1, Math.floor(H * DPR));
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    // World units per device-pixel at the sphere's depth, used to size the
+    // point sprites so the particles keep a constant on-screen size.
+    INV_PROJ = 2 * CAM_Z * Math.tan(FOV / 2);
+  }
+
+  // ------------------------------------------------------------------ shaders
+  function shader(type, src) {
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      throw new Error(gl.getShaderInfoLog(s));
+    }
+    return s;
+  }
+  function program(vs, fs) {
+    var p = gl.createProgram();
+    gl.attachShader(p, shader(gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, shader(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      throw new Error(gl.getProgramInfoLog(p));
+    }
+    return p;
+  }
+
+  var VERT = [
+    "#version 300 es", "precision highp float;",
+    "in vec4 aClip;",              // clip-space position, computed on CPU
+    "uniform float uPointPx;",
+    "void main() {",
+    "  gl_Position = aClip;",
+    "  gl_PointSize = uPointPx;",
+    "}"
+  ].join("\n");
+
+  var FRAG = [
+    "#version 300 es", "precision highp float;",
+    "uniform sampler2D uSprite;",
+    "uniform float uAlpha;",
+    "uniform float uBoost;",
+    "out vec4 outColor;",
+    "void main() {",
+    "  vec4 s = texture(uSprite, gl_PointCoord);",
+    "  outColor = vec4(vec3(1.0), s.a * uAlpha);", // white only; alpha = sprite
+    "  outColor.rgb *= uBoost;",
+    "}"
+  ].join("\n");
+
+  var prog = program(VERT, FRAG);
+  var uPx    = gl.getUniformLocation(prog, "uPointPx");
+  var uAlpha = gl.getUniformLocation(prog, "uAlpha");
+  var uBoost = gl.getUniformLocation(prog, "uBoost");
+  var uSpr   = gl.getUniformLocation(prog, "uSprite");
+
+  // ------------------------------------------------------- soft glow sprites
+  function makeSprite() {
+    var size = 64, c = document.createElement("canvas");
+    c.width = c.height = size;
+    var g = c.getContext("2d");
+    var grad = g.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+    // Crisp hot core -> fast fall -> long soft tail. Pure white.
+    grad.addColorStop(0.00, "rgba(255,255,255,1.0)");
+    grad.addColorStop(0.12, "rgba(255,255,255,0.92)");
+    grad.addColorStop(0.30, "rgba(255,255,255,0.34)");
+    grad.addColorStop(0.60, "rgba(255,255,255,0.10)");
+    grad.addColorStop(1.00, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, size, size);
+    var tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return tex;
+  }
+  var sprite = makeSprite();
+
+  // ------------------------------------------------- fibonacci sphere points
+  var N = 2200;
+  var GA = Math.PI * (3 - Math.sqrt(5));
+  var base = new Float32Array(N * 3);
+  for (var i = 0; i < N; i++) {
+    var y = 1 - (i / (N - 1)) * 2;                 // even spread top -> bottom
+    var r = Math.sqrt(1 - y * y);
+    var th = GA * i;
+    base[i*3]     = Math.cos(th) * r;
+    base[i*3 + 1] = y;
+    base[i*3 + 2] = Math.sin(th) * r;
+  }
+  // Per-particle phase so the shell can shimmer subtly in operating mode.
+  var phases = new Float32Array(N);
+  for (var j = 0; j < N; j++) phases[j] = (j / N) * 6.2831853;
+
+  // CPU-side transform target: clip-space positions, one vec4 per particle.
+  var clipMain = new Float32Array(N * 4);
+  var clipHalo = new Float32Array(N * 4);
+
+  var vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  var vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  var aClip = gl.getAttribLocation(prog, "aClip");
+  gl.enableVertexAttribArray(aClip);
+  gl.vertexAttribPointer(aClip, 4, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+
+  var coreVAO = gl.createVertexArray();
+  gl.bindVertexArray(coreVAO);
+  var coreBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, coreBuf);
+  gl.enableVertexAttribArray(aClip);
+  gl.vertexAttribPointer(aClip, 4, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+  var coreClip = new Float32Array(4);
+
+  gl.clearColor(0, 0, 0, 1);
+  gl.disable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+
+  // ---------------------------------------------------------------- timeline
+  var T = { exp: 0.6, pulsePeak: 0.9, lock: 1.0, textIn: 1.05, textDone: 1.9 };
+
+  function clamp01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
+  function step(a, b, x) { return clamp01((x - a) / (b - a)); }
+  function easeOutBack(x) {
+    var c1 = 1.35, c3 = c1 + 1;
+    x = clamp01(x);
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+
+  // ------------------------------------------------------------------ camera
+  var FOV = 46 * Math.PI / 180;
+  var CAM_Z = 3.25;              // camera sits +Z, looking at the origin
+  var NEAR = 0.1, FAR = 20;
+
+  function projectInto(clip, sx, sy, sz, cY, cX, scaleOut) {
+    // R = rotY(cY) * rotX(cX); p' = S * R * p ; view z' = z' - CAM_Z ; clip.
+    var cy = Math.cos(cY), sY = Math.sin(cY);
+    var cx = Math.cos(cX), sX = Math.sin(cX);
+    var f = 1 / Math.tan(FOV / 2);
+    var aspect = W / H;
+    var n = NEAR, fa = FAR;
+    var N4 = N * 4;
+    for (var k = 0; k < N; k++) {
+      var x = base[k*3], y = base[k*3 + 1], z = base[k*3 + 2];
+      // rotY
+      var x1 = x * cy + z * sY;
+      var z1 = -x * sY + z * cy;
+      // rotX
+      var y1 = y * cx - z1 * sX;
+      var z2 = y * sX + z1 * cx;
+      // scale
+      x1 *= sx; y1 *= sy; z2 *= sz;
+      // translate to view space
+      var zv = z2 - CAM_Z;
+      var w = -zv;                                   // clip.w
+      var o = k * 4;
+      clip[o]     = (f / aspect) * x1;
+      clip[o + 1] = f * y1;
+      clip[o + 2] = zv * ((fa + n) / (n - fa)) + (2 * fa * n) / (n - fa);
+      clip[o + 3] = w;
+    }
+    if (scaleOut) { /* reserved for halo brightness tweaks */ }
+  }
+
+  // ------------------------------------------------------------------- state
+  var hud   = document.getElementById("hud");
+  var aura  = document.getElementById("aura");
+  var clock0 = performance.now() / 1000;
+  var bootStart = null;
+  var angle = 0;
+  var mouseX = 0, mouseY = 0, smoothX = 0, smoothY = 0;
+  var last = performance.now() / 1000;
+  var fadeHandled = false;
+
+  window.addEventListener("mousemove", function (e) {
+    mouseX = (e.clientX / W) * 2 - 1;
+    mouseY = (e.clientY / H) * 2 - 1;
+  });
+  window.addEventListener("resize", resize);
+
+  // ---------------------------------------------------------------- main loop
+  function frame(nowSec) {
+    requestAnimationFrame(frame);
+    var dt = Math.min(0.05, nowSec - last);
+    last = nowSec;
+    smoothX += (mouseX - smoothX) * Math.min(1, dt * 5);
+    smoothY += (mouseY - smoothY) * Math.min(1, dt * 5);
+
+    var t = nowSec - clock0;
+    if (bootStart === null) {
+      if (t < 0.12) return;              // let the first frame settle
+      bootStart = t;
+    }
+    var b = nowSec - bootStart;          // seconds since boot began
+
+    // --- phase envelope ---------------------------------------------------
+    var sExp = step(0, T.exp, b);
+    var scale = b < T.lock ? easeOutBack(sExp) : 1;   // explosion, then hard lock
+    var sPulse = (b > T.exp && b < T.lock)
+      ? Math.sin(Math.PI * step(T.exp, T.lock, b))     // rises + falls to 1.0s
+      : 0;
+    var idling = step(T.lock, T.lock + 0.35, b);
+
+    // spin: fast vortex during expansion, decaying smoothly through the
+    // pulse so rotation is steady by the lock (spec phase 2 -> 3).
+    var sDecay = step(0, T.lock, b);
+    var spin = 7.4 * (1 - sDecay) + 0.55 * sDecay;
+    angle += spin * dt;
+    var tilt = 0.32 + smoothY * 0.4 * idling + Math.sin(b * 0.35) * 0.045 * idling;
+    var yaw = angle + smoothX * 1.2 * idling;
+
+    // brightness: build during burst, flare at the pulse, calm after lock
+    var boost = 1 + 1.9 * sPulse + 0.55 * Math.sin(Math.PI * sExp);
+    var corePulse = idling ? (1 + 0.05 * Math.sin(b * 2.6))      // ~5% breathing
+                           : (1 + 0.6 * sPulse);                  // max-bright pulse
+    corePulse *= 0.35 + 0.65 * Math.min(1, sExp * 1.4);           // grow in with burst
+    var particleSize = 1 + 0.22 * sPulse;
+    aura.style.opacity = String(clamp01(0.18 + 0.9 * sExp + 0.55 * sPulse));
+
+    // text fades in once the mechanical part has settled
+    if (!fadeHandled && b > T.textIn) { fadeHandled = true; hud.classList.add("on"); }
+
+    // --- geometry ----------------------------------------------------------
+    projectInto(clipMain, scale, scale, scale, yaw, tilt);
+    projectInto(clipHalo, scale * 1.17, scale * 1.17, scale * 1.17, yaw, tilt);
+
+    // core: single point at origin (camera straight down -Z)
+    var zv = -CAM_Z, w = -zv;
+    coreClip[0] = 0;
+    coreClip[1] = 0;
+    coreClip[2] = zv * ((FAR + NEAR) / (NEAR - FAR)) + (2 * FAR * NEAR) / (NEAR - FAR);
+    coreClip[3] = w;
+
+    // --- render ------------------------------------------------------------
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(prog);
+    gl.uniform1i(uSpr, 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, sprite);
+
+    var unitPerPx = INV_PROJ / canvas.height;   // world radius per device px
+
+    // pass 1 — crisp particle shell (normal alpha blending)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform1f(uAlpha, 1.0);
+    gl.uniform1f(uBoost, Math.min(boost, 1.35));
+    // sprite side ~7x the visual core radius: 0.010 world core * 7
+    gl.uniform1f(uPx, Math.max(4, (0.010 * 7 * particleSize) / unitPerPx));
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, clipMain, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.POINTS, 0, N);
+
+    // pass 2 — soft halo shell (additive), the "powered" glow envelope
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.uniform1f(uAlpha, 0.045 + 0.10 * sPulse);
+    gl.uniform1f(uBoost, 1.0);
+    gl.uniform1f(uPx, Math.max(4, (0.014 * 9) / unitPerPx));
+    gl.bufferData(gl.ARRAY_BUFFER, clipHalo, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.POINTS, 0, N);
+
+    // pass 3 — bright energy core at the centre (additive, intense)
+    gl.uniform1f(uAlpha, 1.0);
+    gl.uniform1f(uBoost, 1.7 + 1.5 * sPulse);
+    gl.uniform1f(uPx, Math.max(4, (0.055 * 5.5 * corePulse) / unitPerPx));
+    gl.bindVertexArray(coreVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER, coreBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, coreClip, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.POINTS, 0, 1);
+    gl.bindVertexArray(null);
+  }
+
+  resize();
+  requestAnimationFrame(frame);
+
+  // ------------------------------------------------------------------- replay
+  function restart() {
+    hud.classList.remove("on");
+    fadeHandled = false;
+    bootStart = null;
+    clock0 = performance.now() / 1000;
+    angle = 0;
+  }
+  window.addEventListener("dblclick", restart);
+  window.addEventListener("keydown", function (e) {
+    if (e.key === "r" || e.key === "R") restart();
+  });
+})();
+</script>
+</body>
+</html>
