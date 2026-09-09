@@ -134,6 +134,9 @@ def test_macro_step_failure_stops_cleanly(brain):
 
 def test_unarmed_trigger_still_routes_normally(brain):
     # No macro named "goodnight" is armed here, so the offline brain must
-    # fall back to its normal (degraded) conversational path.
+    # fall back to its normal (degraded) conversational path — which now
+    # answers goodnight properly instead of quoting a canned macro or the
+    # model-offline wall.
     reply = run(brain.process("goodnight"))
-    assert "offline" in reply.lower()
+    assert "goodnight" in reply.lower() or "sleep well" in reply.lower()
+    assert "language model is offline" not in reply

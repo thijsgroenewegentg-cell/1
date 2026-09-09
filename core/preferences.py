@@ -76,7 +76,7 @@ class Preferences:
                     return data
         except Exception:
             pass
-        return {"tool_counts": {}, "streaks": {}, "routines": {}}
+        return {"tool_counts": {}, "streaks": {}, "routines": {}, "profile": {}}
 
     def save(self) -> None:
         """Persist to disk, tolerating an unwritable location."""
@@ -87,6 +87,31 @@ class Preferences:
             )
         except Exception:
             pass
+
+    # ------------------------------------------------------- learned profile
+    def learn_user_name(self, name: str) -> None:
+        """Remember the user's name durably (survives restarts).
+
+        Args:
+            name: The name the user gave when introducing themselves.
+        """
+        name = (name or "").strip()
+        if not name:
+            return
+        profile = self._data.setdefault("profile", {})
+        if profile.get("user_name") == name:
+            return
+        profile["user_name"] = name
+        profile["name_learned_at"] = _now()
+        self.save()
+
+    def user_name(self) -> str:
+        """The name JARVIS has learned, or ``""`` when none was given yet.
+
+        Returns:
+            The stored user name.
+        """
+        return str(self._data.setdefault("profile", {}).get("user_name", "") or "")
 
     # ------------------------------------------------------------ learning
     @staticmethod

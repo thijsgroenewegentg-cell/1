@@ -11,7 +11,7 @@ and marked with `·`; methods the intent router can call are marked
 
 - [`main.py`](#mainpy) — 26
 - [`install.py`](#installpy) — 56
-- [`core/brain.py`](#corebrainpy) — 85
+- [`core/brain.py`](#corebrainpy) — 89
 - [`core/config.py`](#coreconfigpy) — 29
 - [`core/event_bus.py`](#coreevent_buspy) — 13
 - [`core/health.py`](#corehealthpy) — 11
@@ -21,7 +21,8 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/memory.py`](#corememorypy) — 69
 - [`core/personality.py`](#corepersonalitypy) — 5
 - [`core/planner.py`](#coreplannerpy) — 9
-- [`core/preferences.py`](#corepreferencespy) — 10
+- [`core/preferences.py`](#corepreferencespy) — 12
+- [`core/smalltalk.py`](#coresmalltalkpy) — 8
 - [`core/toolcraft.py`](#coretoolcraftpy) — 4
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
@@ -79,6 +80,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_sensitive_paths.py`](#teststest_sensitive_pathspy) — 16
 - [`tests/test_session.py`](#teststest_sessionpy) — 14
 - [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 16
+- [`tests/test_smartness.py`](#teststest_smartnesspy) — 22
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
 - [`tests/test_system_control.py`](#teststest_system_controlpy) — 16
 - [`tests/test_tool_registration.py`](#teststest_tool_registrationpy) — 6
@@ -196,7 +198,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*85 functions*
+*89 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
@@ -230,6 +232,10 @@ and marked with `·`; methods the intent router can call are marked
 ### `class Brain` — JARVIS's cognition: persona, routing, tool use and memory integration.
 
 - `def __init__(self, config: Config) -> None` — Build the brain and everything it owns.
+- `def user_display_name(self) -> str` — The user's name: the configured one, or the name JARVIS learned.
+- `def _handle_name_line(self, text: str) -> Optional[str]` — Learn an introduction or answer a name question, offline included.
+- `def _is_recall_question(text: str) -> bool` *staticmethod* — Whether the utterance asks to pull a stored fact back out.
+- `async def _offline_fact_recall(self, text: str) -> Optional[str]` — Answer a stored-fact question without the model, when possible.
 - `async def initialize(self) -> None` — Boot the LLM connection, memory and every enabled module.
 - `async def _load_modules(self) -> None` — Import and instantiate the modules enabled in config.yaml.
 - `async def _load_plugins(self) -> None` — Load generated skill adapters from the plugins directory.
@@ -548,7 +554,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def system_prompt(self, memory_context: str = '') -> str` — Build the JARVIS system prompt.
 - `def finalize(text: str) -> str` *staticmethod* — Strip stray formatting artefacts from a model answer.
 - `def humorous_failure(self, error: str) -> str` — Report an error gracefully, with a little personality.
-- `def offline_reply(self, text: str) -> str` — Canned reply when no LLM is reachable.
+- `def offline_reply(self, text: str) -> str` — Reply when no LLM is reachable: real small talk, honest fallback.
 
 ## `core/planner.py`
 
@@ -570,7 +576,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/preferences.py`
 
-*10 functions*
+*12 functions*
 
 > Durable habits JARVIS learns from completed interactions.
 
@@ -581,12 +587,29 @@ and marked with `·`; methods the intent router can call are marked
 - `def __init__(self, path: Path) -> None` — Open (or lazily create) the store at ``path``.
 - `def _load(self) -> Dict[str, Any]`
 - `def save(self) -> None` — Persist to disk, tolerating an unwritable location.
+- `def learn_user_name(self, name: str) -> None` — Remember the user's name durably (survives restarts).
+- `def user_name(self) -> str` — The name JARVIS has learned, or ``""`` when none was given yet.
 - `def _preference_params(params: Dict[str, Any]) -> Dict[str, Any]` *staticmethod* — Keep only the params that plausibly encode a durable preference.
 - `def observe(self, reference: str, params: Dict[str, Any]) -> None` — Record one successful tool call of ``reference`` with ``params``.
 - `def tool_counts(self) -> Dict[str, int]` — How many successful calls each tool has had.
 - `def routines(self) -> List[Tuple[str, Dict[str, Any]]]` — Learned routines as ``(reference, entry)`` pairs, most repeated first.
 - `def _phrase(self, reference: str, params: Dict[str, Any]) -> str` — Turn one routine into a natural sentence about the user.
 - `def summary(self, limit: int = 4) -> str` — A short block for the system prompt, or empty when nothing learned.
+
+## `core/smalltalk.py`
+
+*8 functions*
+
+> Offline conversational replies — JARVIS without the language model.
+
+- `def _slot(text: str, *keys: str) -> bool`
+- `def _period(now: Optional[datetime]) -> str`
+- `def _choose(lines: List[str], address: str, last: Optional[str]) -> str` — Format candidates and pick one, avoiding last turn's exact wording.
+- `def respond(text: str, address: str = 'sir', now: Optional[datetime] = None, last: Optional[str] = None) -> Optional[str]` — Answer one conversational line, or ``None`` when it needs the model.
+- `def introduction(text: str) -> Optional[str]` — Extract a name from a self-contained introduction sentence.
+- `def learnable_introduction(text: str) -> Optional[str]` — Loose name extraction for the brain's learning hook.
+- `def _extract_name(text: str) -> Optional[str]` — Legacy loose alias used by :func:`respond`.
+- `def fallback(text: str, address: str = 'sir', host: str = '') -> str` — Say the model is down — once, briefly, and not for every word.
 
 ## `core/toolcraft.py`
 
@@ -2428,6 +2451,35 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_freezing_temperatures_convert_correctly(smart)`
 - `def test_units_do_not_swallow_the_grammar(smart)`
 
+## `tests/test_smartness.py`
+
+*22 functions*
+
+> JARVIS actually being smart — chat, reasoning sharpness and remembering.
+
+- `def _fresh_brain(factory: pytest.TempPathFactory) -> Brain`
+- `def brain(tmp_path_factory: pytest.TempPathFactory) -> Brain` — One offline brain shared by the small-talk parameter tests.
+- `def fresh_brain(tmp_path_factory: pytest.TempPathFactory) -> Brain` — A clean offline brain for each name-memory test.
+- `def test_offline_small_talk_gets_a_real_reply(brain, line)`
+- `def test_offline_identity_reply_is_persona_shaped(brain)`
+- `def test_consecutive_offline_greetings_differ(brain)`
+- `def test_offline_greeting_through_a_full_turn_is_a_greeting(brain)`
+- `def test_open_ended_questions_fall_back_honestly(brain)`
+- `def test_imperative_sentences_do_not_look_like_questions(brain)` — 'call me when you're done' is not a question and not a name intro.
+- `def test_introducing_yourself_is_learned_and_acknowledged(fresh_brain)`
+- `def test_call_me_fillers_are_not_learned_as_names(fresh_brain)`
+- `def test_name_question_before_introduction_is_honest(fresh_brain)`
+- `def test_name_question_after_introduction_answers(fresh_brain)`
+- `def test_what_do_you_know_about_me(fresh_brain)`
+- `def test_the_learned_name_survives_a_restart(tmp_path_factory)`
+- `def test_learned_name_reaches_the_system_prompt(fresh_brain)`
+- `def test_stored_facts_come_back_offline(fresh_brain)` — 'remember that X' then 'what's my X' works with the model down.
+- `def test_recall_with_nothing_stored_is_honest(fresh_brain)`
+- `def test_recall_questions_are_not_stored_as_facts(fresh_brain)` — A question-shaped line must never be filed away as a fact.
+- `def test_the_system_prompt_demands_a_self_check(brain)`
+- `def test_the_react_prompt_orders_answer_first_when_possible(brain)`
+- `def test_tool_result_composition_demands_verbatim_fidelity()`
+
 ## `tests/test_smoke.py`
 
 *26 functions*
@@ -2843,5 +2895,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**1986 functions across 82 files.**
+**2022 functions across 84 files.**
 

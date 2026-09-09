@@ -313,12 +313,15 @@ class Planner:
             '"action": "module.tool or null", "params": {}, '
             '"answer": "final answer if no tool is needed, else null"}\n\n'
             "Answer format: action must be a module.tool listed in TOOLS; "
-            "params must name ONLY that tool's parameters.\n"
+            "params must name ONLY that tool's parameters. If the answer is "
+            "already in hand or no tool would improve it, set action to null "
+            "and answer directly — do not call a tool for its own sake.\n"
             + toolcraft.golden_block()
-            + "\nIf the request is vague, names no file/app/parameter, or "
-            "cannot be satisfied with the tools above, do NOT guess — set "
-            "action to null and ask one short question for the missing "
-            "detail."
+            + "\nRe-read the USER REQUEST before deciding: only call a tool "
+            "that moves you toward what was literally asked. If the request "
+            "is vague, names no file/app/parameter, or cannot be satisfied "
+            "with the tools above, do NOT guess — set action to null and ask "
+            "one short question for the missing detail."
         )
 
     async def _confirm_plan(

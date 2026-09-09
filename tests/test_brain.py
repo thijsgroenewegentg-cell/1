@@ -275,7 +275,9 @@ def test_an_interrupted_answer_says_stopped_not_offline(brain):
 
 def test_a_genuinely_offline_model_still_explains_itself(brain):
     reply = run(brain._converse("tell me a story", ""))
-    assert "ollama" in reply.lower()
+    # The old wall named Ollama; the smarter offline fallback still explains
+    # plainly that the language model is down and what still works.
+    assert "model" in reply.lower() and "offline" in reply.lower()
 
 
 def test_a_stale_stop_does_not_kill_the_next_turn(brain):
