@@ -809,10 +809,12 @@ body.degraded-open #toasts { top: 118px; }
 <body>
 <!-- Boot-up sequence: the dramatic particle-sphere core boot plays full
      screen over the console while the page finishes loading, then fades
-     away (see the small script after the iframe). Replays never happen
-     after the first dismiss. -->
+     away (see the small script after the iframe). The boot iframe only
+     advances while visible, so a background-loaded tab still plays it in
+     full when looked at. Replay any time via the power button in the top
+     bar (bootReplayBtn) or a double-click on the JARVIS brand. -->
 <div id="bootScreen" style="position:fixed;inset:0;z-index:2147483000;background:#000;opacity:1;transition:opacity .8s ease;pointer-events:auto">
-  <iframe id="bootIframe" src="/boot__TOKEN_QUERY__" title="JARVIS core boot"
+  <iframe id="bootIframe" data-src="/boot__TOKEN_QUERY__" title="JARVIS core boot"
           style="position:absolute;inset:0;width:100%;height:100%;border:0;background:#000"></iframe>
 </div>
 <style>
@@ -824,6 +826,7 @@ body.degraded-open #toasts { top: 118px; }
   var screen = document.getElementById("bootScreen");
   var frame = document.getElementById("bootIframe");
   var done = false;
+
   function dismiss() {
     if (done) return;
     done = true;
@@ -834,12 +837,32 @@ body.degraded-open #toasts { top: 118px; }
       screen.style.display = "none";
     }, 850);
   }
+  function replay() {
+    if (!done) return;            // already playing
+    done = false;
+    screen.style.display = "";
+    // Force the transition off, reload the iframe, then fade the layer in.
+    screen.classList.add("hide");
+    frame.removeAttribute("src");
+    void screen.offsetWidth;      // reflow so the class toggle registers
+    screen.classList.remove("hide");
+    frame.setAttribute("src", frame.getAttribute("data-src"));
+  }
+  window.replayBoot = replay;     // exposed for the top-bar button and tests
+
   window.addEventListener("message", function (e) {
     if (e.source === frame.contentWindow && e.data === "boot-done") dismiss();
   });
   // Safety net: if /boot is missing or never signals (offline fallback page,
   // older deployment), never trap the console behind the overlay.
   setTimeout(dismiss, 9000);
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var btn = document.getElementById("bootReplayBtn");
+    var brand = document.getElementById("brand");
+    if (btn) btn.addEventListener("click", replay);
+    if (brand) brand.addEventListener("dblclick", replay);
+  });
 })();
 </script>
 <canvas id="orb"></canvas>
@@ -862,6 +885,9 @@ body.degraded-open #toasts { top: 118px; }
     </button>
     <button class="ghost" id="panelBtn" title="Status, tools, audit (Ctrl+/)" aria-label="Open the panel">
       <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <button class="ghost" id="bootReplayBtn" title="Replay the core boot sequence" aria-label="Replay the core boot sequence">
+      <svg viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>
     </button>
   </div>
 </div>

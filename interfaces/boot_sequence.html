@@ -104,7 +104,19 @@
   var gl = canvas.getContext("webgl2", {
     antialias: false, alpha: false, powerPreference: "high-performance"
   });
-  if (!gl) { document.getElementById("err").style.display = "flex"; return; }
+  if (!gl) {
+    document.getElementById("err").style.display = "flex";
+    // Never leave an embedding console waiting on the safety timer: say the
+    // show is over shortly after the message is readable.
+    setTimeout(function () {
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage("boot-done", "*");
+        }
+      } catch (e) { /* cross-origin or sandboxed: ignore */ }
+    }, 1600);
+    return;
+  }
 
   var DPR = Math.min(window.devicePixelRatio || 1, 2);
   var W = 1, H = 1, INV_PROJ = 1; // updated by resize()
@@ -285,12 +297,29 @@
   // ------------------------------------------------------------------- state
   var hud   = document.getElementById("hud");
   var aura  = document.getElementById("aura");
-  var clock0 = performance.now() / 1000;
-  var bootStart = null;
   var angle = 0;
   var mouseX = 0, mouseY = 0, smoothX = 0, smoothY = 0;
   var last = performance.now() / 1000;
   var fadeHandled = false;
+  // Boot time accumulates only while the page is visible. If the tab (or an
+  // embedded preview pane) loads in the background, the sequence must not
+  // have already run and dismissed before the user actually looks at it.
+  var bootT = 0;
+  var started = false;
+  var CALM = !!(window.matchMedia &&
+                window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  // Tell the embedding console the show is over, once its text has had time
+  // to register. Harmless when this page is opened standalone.
+  function notifyParent(delay) {
+    setTimeout(function () {
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage("boot-done", "*");
+        }
+      } catch (e) { /* cross-origin or sandboxed: ignore */ }
+    }, delay);
+  }
 
   window.addEventListener("mousemove", function (e) {
     mouseX = (e.clientX / W) * 2 - 1;
@@ -301,17 +330,34 @@
   // ---------------------------------------------------------------- main loop
   function frame(nowSec) {
     requestAnimationFrame(frame);
-    var dt = Math.min(0.05, nowSec - last);
+    var dt = Math.min(0.05, Math.max(0, nowSec - last));
     last = nowSec;
     smoothX += (mouseX - smoothX) * Math.min(1, dt * 5);
     smoothY += (mouseY - smoothY) * Math.min(1, dt * 5);
 
-    var t = nowSec - clock0;
-    if (bootStart === null) {
-      if (t < 0.12) return;              // let the first frame settle
-      bootStart = t;
+    // Pause while the document is hidden: the boot clock only advances for
+    // visible time, so a background-loaded preview still plays in full once
+    // it is looked at.
+    if (document.visibilityState === "hidden") return;
+    if (!started) {
+      bootT += dt;
+      if (bootT < 0.12) return;     // let the first frame settle
+      started = true;
+    } else {
+      bootT += dt;
     }
-    var b = nowSec - bootStart;          // seconds since boot began
+    var b = bootT;                  // seconds of *visible* boot time
+
+    if (CALM) {
+      // Reduced motion: skip the animation, show the title once, and hand
+      // back to the console quickly.
+      if (!fadeHandled) {
+        fadeHandled = true;
+        hud.classList.add("on");
+        notifyParent(1200);
+      }
+      return;
+    }
 
     // --- phase envelope ---------------------------------------------------
     var sExp = step(0, T.exp, b);
@@ -339,16 +385,10 @@
 
     // text fades in once the mechanical part has settled
     if (!fadeHandled && b > T.textIn) {
-      fadeHandled = true; hud.classList.add("on");
-      // Tell an embedding page (the web console) the show is finished so it
-      // can fade this overlay away. Harmless when opened standalone.
-      setTimeout(function () {
-        try {
-          if (window.parent && window.parent !== window) {
-            window.parent.postMessage("boot-done", "*");
-          }
-        } catch (e) { /* cross-origin or sandboxed: ignore */ }
-      }, 1800);
+      fadeHandled = true;
+      hud.classList.add("on");
+      // Sent a beat after the text appears so the title registers first.
+      notifyParent(2600);
     }
 
     // --- geometry ----------------------------------------------------------
@@ -408,8 +448,8 @@
   function restart() {
     hud.classList.remove("on");
     fadeHandled = false;
-    bootStart = null;
-    clock0 = performance.now() / 1000;
+    bootT = 0;
+    started = false;
     angle = 0;
   }
   window.addEventListener("dblclick", restart);
