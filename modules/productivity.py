@@ -589,6 +589,14 @@ class Productivity(BaseModule):
         try:
             for row in await run_blocking(self._pop_due_reminders):
                 await self._announce(f"Reminder: {row['text']}")
+            # Open-thread nudges ride the same channel as reminders, so a
+            # "nudge me about X in 2 hours" fires without a second engine.
+            try:
+                if self.brain is not None:
+                    for message in await self.brain.due_nudge_messages():
+                        await self._announce(message)
+            except Exception as exc:
+                self.log.debug("Thread-nudge pass failed: %s", exc)
             for job in await run_blocking(self._pop_due_jobs):
                 await self._run_job(job)
             await self._flush_deferred()

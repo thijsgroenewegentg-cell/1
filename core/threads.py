@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from utils.logger import get_logger
 
@@ -112,6 +113,7 @@ def note_thread(
             path.replace(old)
         lines = (request or "")[:140], (raw or "")[:200], module or "", kind
         entry = {
+            "id": uuid.uuid4().hex[:10],
             "ts": _now(),
             "day": datetime.now().strftime("%Y-%m-%d"),
             "request": lines[0],
@@ -164,6 +166,21 @@ def _matches(record: Dict[str, Any], needle: str) -> bool:
     needle = needle.lower().strip()
     haystacks = [str(record.get("request", "")), str(record.get("reply", ""))]
     return any(needle and needle in haystack.lower() for haystack in haystacks)
+
+
+def _find_record(
+    records: List[Dict[str, Any]], needle: str
+) -> Optional[Dict[str, Any]]:
+    """The newest thread matching a number (1 = newest) or some text."""
+    if (needle or "").strip().isdigit():
+        index = int(needle.strip()) - 1
+        if 0 <= index < len(records):
+            return records[index]
+        return None
+    for record in records:  # newest first already
+        if _matches(record, needle):
+            return record
+    return None
 
 
 def close_thread(config: Any, needle: str) -> Tuple[int, int]:
@@ -223,10 +240,168 @@ def is_close_command(text: str) -> bool:
     )
 
 
+# --------------------------------------------------------------- nudges
+def nudge(
+    config: Any,
+    needle: str,
+    at: str,
+    every: str = "once",
+) -> Optional[Dict[str, Any]]:
+    """Make JARVIS keep after an open thread until it is closed.
+
+    Args:
+        config: Configuration.
+        needle: Thread number (1 = newest) or text to match.
+        at: ISO timestamp of the first nudge.
+        every: ``"once"``, ``"hourly"`` or ``"daily"``.
+
+    Returns:
+        The updated thread record, or ``None`` when nothing matched.
+    """
+    try:
+        path = _path(config)
+        if not path.exists():
+            return None
+        records = _sorted_records(path)
+        record = _find_record(records, needle)
+        if record is None:
+            return None
+        record["nudge"] = {
+            "at": at, "every": every if every in {"hourly", "daily"} else "once",
+            "fired": False,
+        }
+        _write_records(path, records)
+        return record
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Nudge store failed: %s", exc)
+        return None
+
+
+def clear_nudge(config: Any, needle: str) -> bool:
+    """Stop nudging a thread (the thread itself stays open).
+
+    Args:
+        config: Configuration.
+        needle: Thread number or text to match.
+
+    Returns:
+        True when a nudge was removed.
+    """
+    try:
+        path = _path(config)
+        if not path.exists():
+            return False
+        records = _sorted_records(path)
+        record = _find_record(records, needle)
+        if record is None or "nudge" not in record:
+            return False
+        record.pop("nudge", None)
+        _write_records(path, records)
+        return True
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Nudge clear failed: %s", exc)
+        return False
+
+
+def due(config: Any, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    """Open threads whose next nudge moment has arrived.
+
+    Args:
+        config: Configuration.
+        now: Reference moment (defaults to the current time).
+
+    Returns:
+        The due records, newest first; each still carries its ``nudge``.
+    """
+    try:
+        moment = now or datetime.now()
+        path = _path(config)
+        if not path.exists():
+            return []
+        out: List[Dict[str, Any]] = []
+        for record in _sorted_records(path):
+            nudge_state = record.get("nudge") or {}
+            if nudge_state.get("fired"):
+                continue
+            try:
+                at = datetime.fromisoformat(str(nudge_state.get("at", "")))
+            except Exception:
+                continue
+            if at <= moment:
+                out.append(record)
+        return out
+    except Exception as exc:  # pragma: no cover - reads never raise
+        logger.debug("Nudge due scan failed: %s", exc)
+        return []
+
+
+def settle(config: Any, record: Dict[str, Any], now: datetime) -> None:
+    """Advance one nudge after it fired.
+
+    Args:
+        config: Configuration.
+        record: A record returned by :func:`due`.
+        now: When it fired — also the base for the next ``hourly``/``daily``
+            slot.
+    """
+    try:
+        path = _path(config)
+        if not path.exists():
+            return
+        records = _sorted_records(path)
+        for candidate in records:
+            if candidate.get("id") and record.get("id"):
+                same = candidate.get("id") == record.get("id")
+            else:  # legacy records without an id: match on the moment+request
+                same = (candidate.get("ts") == record.get("ts")
+                        and candidate.get("request") == record.get("request"))
+            if not same:
+                continue
+            nudge_state = candidate.get("nudge") or {}
+            every = str(nudge_state.get("every", "once"))
+            if every in {"hourly", "daily"}:
+                hours = 1 if every == "hourly" else 24
+                nudge_state["at"] = (
+                    now + timedelta(hours=hours)
+                ).isoformat(timespec="seconds")
+                nudge_state["fired"] = False
+            else:
+                candidate.pop("nudge", None)
+            _write_records(path, records)
+            return
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Nudge settle failed: %s", exc)
+
+
+def _sorted_records(path: Path) -> List[Dict[str, Any]]:
+    """All thread records, newest first."""
+    records: List[Dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except Exception:
+            continue
+    records.sort(key=lambda record: str(record.get("ts", "")), reverse=True)
+    return records
+
+
+def _write_records(path: Path, records: List[Dict[str, Any]]) -> None:
+    with path.open("w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 __all__ = [
+    "clear_nudge",
     "close_thread",
+    "due",
     "is_close_command",
     "list_threads",
     "note_thread",
+    "nudge",
     "promises",
+    "settle",
 ]

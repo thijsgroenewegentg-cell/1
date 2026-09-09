@@ -21,7 +21,7 @@ import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import (
     Any,
@@ -712,6 +712,10 @@ class Brain:
         self._macro_offered_for: Optional[str] = None
         #: An outstanding "want me to make that a macro?" offer.
         self._macro_offer: Optional[Dict[str, Any]] = None
+        #: A plan-first execution waiting for approval: ``(task, plan)``.
+        self._pending_plan: Optional[Any] = None
+        #: When the silent event-rule pass last ran (avoid per-turn churn).
+        self._rules_last_pass: float = 0.0
 
     # ------------------------------------------------------------- language
     def _update_user_language(self, text: str) -> None:
@@ -1227,7 +1231,8 @@ class Brain:
             # scanning those would re-store an already-known thread. Only real
             # replies can make a new commitment.
             method = getattr(self.last_intent, "method", "") or ""
-            if method in {"threads", "explain", "review", "search-all"}:
+            if method in {"threads", "explain", "review", "search-all",
+                          "plan", "nudge", "coach", "projects", "rules"}:
                 return
             from core import threads
 
@@ -1472,6 +1477,669 @@ class Brain:
             if self.current_language() == "nl" \
             else f"Here's everything on \"{topic}\":\n{body}"
         return head
+
+    # ---------------------------------------------------------- plan first
+    async def _plan_first(self, text: str) -> Optional[str]:
+        """Plan-then-execute for compound requests, with an approval gate.
+
+        ``make a plan to X and Y`` shows a numbered preview and waits for a
+        go-ahead instead of firing both halves immediately; the approval is
+        remembered for the rest of the session.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            The preview, the executed summary, a cancellation note — or
+            ``None`` when this is not a plan turn.
+        """
+        from core import autopilot
+
+        lowered = " ".join((text or "").lower().split())
+        dutch = self.current_language() == "nl"
+
+        if self._pending_plan is not None:
+            _task, plan = self._pending_plan
+            approved = any(phrase in lowered for phrase in (
+                "go ahead", "execute the plan", "run the plan", "yes do it",
+                "proceed", "start the plan", "yes, do it",
+                "ga je gang", "voer uit", "voer het plan uit", "doe het",
+                "ja doe maar", "ga door", "start het plan", "ok", "oké",
+                "oke",
+            ))
+            if approved:
+                self._pending_plan = None
+                summary = await self._execute_plan_steps(plan)
+                return summary
+            cancelled = any(phrase in lowered for phrase in (
+                "cancel the plan", "cancel that plan", "drop the plan",
+                "never mind", "forget it", "don't do it", "skip it",
+                "annuleer", "laat maar", "vergeet het", "niet doen", "stop",
+            ))
+            if cancelled:
+                self._pending_plan = None
+                return ("Plan dropped, sir — nothing was executed."
+                        if not dutch else
+                        "Plan geannuleerd — er is niets uitgevoerd.")
+
+        markers = (
+            "make me a plan to", "make a plan to", "draw up a plan to",
+            "create a plan to", "make a plan for", "draw up a plan for",
+            "first plan it", "plan it first", "plan first", "plan this:",
+            "plan:", "walk me through a plan to",
+            "maak me een plan om", "maak een plan om", "stel een plan op om",
+            "maak een plan voor", "stel een plan op voor", "plan eerst",
+            "plan het eerst", "eerst een plan", "plan dit:", "plan:",
+        )
+        hit = next((marker for marker in markers if marker in lowered), None)
+        if hit is None:
+            return None
+        index = (text or "").lower().find(hit)
+        task = (text or "")[index + len(hit):].strip(" ?.:,!-")
+        plan = autopilot.build(self, task)
+        if not plan:
+            return None
+        self._pending_plan = (task, plan)
+        if dutch:
+            lines = [f"{number}. {module}: {segment}"
+                     for number, (module, segment) in enumerate(plan, start=1)]
+            return (
+                f"Dit is mijn plan ({len(plan)} stappen):\n"
+                + "\n".join(lines)
+                + "\nZal ik doorgaan? Zeg 'ga je gang' om uit te voeren of "
+                  "'laat maar' om te annuleren."
+            )
+        lines = [f"{number}. {module}: {segment}"
+                 for number, (module, segment) in enumerate(plan, start=1)]
+        return (
+            f"Here's my plan ({len(plan)} steps):\n"
+            + "\n".join(lines)
+            + "\nShall I go ahead? Say 'go ahead' to execute, or 'cancel' "
+              "to drop it."
+        )
+
+    async def _execute_plan_steps(self, plan: Any) -> str:
+        """Run every planned step through the normal planner, then summarize."""
+        from core import autopilot
+
+        replies: List[str] = []
+        for module, segment in plan:
+            intent = Intent(module, 1.0, "planned step", method="plan")
+            try:
+                reply = await self.planner.run(segment, intent, "", None)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive
+                await self._record_failure(
+                    text=segment, error=str(exc), module=module
+                )
+                reply = f"The {module} step hit a snag: {exc}."
+            replies.append(str(reply or ""))
+        summary = autopilot.render(plan, replies)
+        if self.current_language() == "nl":
+            done = [
+                f"{index}. {reply}"
+                for index, reply in enumerate(replies, start=1)
+                if reply and str(reply).strip()
+            ]
+            if not done:
+                return "Klaar — elke stap kwam leeg terug, dat is verdacht."
+            return f"Klaar in één keer. {len(done)} stap(pen):\n" + "\n".join(done)
+        return summary
+
+    # ----------------------------------------------------------- nudge me
+    async def _handle_nudges(self, text: str) -> Optional[str]:
+        """Attach a nudge schedule to an open thread.
+
+        ``nudge me about the report in 2 hours`` / ``blijf me herinneren aan
+        de offerte morgen om 9:00`` arms the thread; JARVIS's scheduler then
+        reminds you (once, hourly or daily) until the thread is closed.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A confirmation or usage hint, or ``None`` when not a nudge turn.
+        """
+        from core import threads
+
+        lowered = " ".join((text or "").lower().split())
+        dutch = self.current_language() == "nl"
+        trigger = any(phrase in lowered for phrase in (
+            "nudge me", "nudge thread", "nudge number", "nudge about",
+            "chase me", "bug me", "remind me again", "keep after me",
+            "blijf me herinneren", "herinner me nogmaals", "herinner me straks",
+            "herinner me morgen", "houd me scherp", "nudge",
+        ))
+        if not trigger:
+            return None
+        at = None
+        every = "once"
+        if "hourly" in lowered or "elk uur" in lowered or "ieder uur" in lowered:
+            every = "hourly"
+        if "daily" in lowered or "dagelijks" in lowered or "elke dag" in lowered:
+            every = "daily"
+        from utils.helpers import parse_when
+
+        candidate = self._time_expression(lowered)
+        if candidate:
+            moment = parse_when(candidate)
+            if moment is not None:
+                at = moment.isoformat(timespec="seconds")
+        if not at:
+            if every == "hourly":
+                at = (datetime.now() + timedelta(hours=1)).isoformat(
+                    timespec="seconds")
+            elif every == "daily":
+                at = (datetime.now() + timedelta(days=1)).isoformat(
+                    timespec="seconds")
+        # A number only counts as a thread reference when it is framed as
+        # one ("nummer 1", "thread 2") — a clock like "morgen om 9:00" must
+        # never be read as thread number 9. Fall back to a subject match,
+        # then to the newest thread.
+        needle = ""
+        framed = re.search(
+            r"\b(?:nummer|thread|item|zaak|nudge)\s*#?\s*(\d+)", lowered
+        )
+        if framed:
+            needle = framed.group(1)
+        else:
+            subject = re.search(
+                r"\b(?:about|over|omtrent|betreffende|aangaande)\s+"
+                r"([a-z0-9' ]+?)\s+(?:in\s+\d|tomorrow|morgen|at\s+\d|"
+                r"om\s+\d|over\s+\d|overmorgen|vanavond|vandaag|next|"
+                r"volgende|vanaf)", lowered,
+            )
+            if subject and len(subject.group(1).strip()) >= 3:
+                needle = subject.group(1).strip()
+        if not needle:
+            needle = "1"
+        if not at:
+            if dutch:
+                return ("Ik snap welke zaak je bedoelt, maar niet wanneer ik "
+                        "moet porren. Zeg bijvoorbeeld: 'blijf me herinneren "
+                        "aan nummer 1 over 2 uur' of '… morgen om 9:00'.")
+            return ("I get which thread you mean, but not when to nudge you. "
+                    "Say e.g. 'nudge me about number 1 in 2 hours' or "
+                    "'… tomorrow at 9am'.")
+        record = await run_blocking(threads.nudge, self.config, needle, at, every)
+        if record is None:
+            return ("Nothing matched that thread — 'what's still open?' shows "
+                    "the list with numbers."
+                    if not dutch else
+                    "Niets gevonden dat daarbij past — 'wat staat er nog "
+                    "open?' toont de lijst met nummers.")
+        try:
+            clock = self._format_clock(at, dutch)
+        except Exception:
+            clock = at
+        cadence = {"once": "", "hourly": " — every hour" if not dutch else
+                   " — elk uur", "daily": " — daily" if not dutch else
+                   " — dagelijks"}.get(every, "")
+        request = str(record.get("request", ""))[:80]
+        if dutch:
+            return (f"Prima. Ik blijf je porren over \"{request}\" vanaf "
+                    f"{clock}{cadence}. Zeg 'is geregeld' zodra het klaar is "
+                    "— dan stop ik.")
+        return (f"Done — I'll nudge you about \"{request}\" from {clock}"
+                f"{cadence}. Say 'that's sorted' once it's handled and I'll "
+                "stop.")
+
+    @staticmethod
+    def _format_clock(at: str, dutch: bool) -> str:
+        """Render an ISO timestamp as 'Wednesday 14:30' or a Dutch variant."""
+        try:
+            moment = datetime.fromisoformat(at)
+        except Exception:
+            return at
+        if not dutch:
+            return moment.strftime("%A %H:%M")
+        days = {
+            0: "maandag", 1: "dinsdag", 2: "woensdag", 3: "donderdag",
+            4: "vrijdag", 5: "zaterdag", 6: "zondag",
+        }
+        return f"{days.get(moment.weekday(), '')} {moment:%H:%M}".strip()
+
+    @staticmethod
+    def _time_expression(lowered: str) -> Optional[str]:
+        """Pull the first parseable time phrase out of a nudge request.
+
+        Dutch phrasings ("over 2 uur", "morgen om 9:00") are translated to
+        the English forms :func:`utils.helpers.parse_when` understands.
+
+        Args:
+            lowered: The user's utterance, lowercased and collapsed.
+
+        Returns:
+            A time phrase, or ``None`` when nothing time-like was found.
+        """
+        patterns = (
+            r"\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}",
+            r"\bin\s+\d+\s+(?:minute|minutes|min|hour|hours|hrs?|day|days|"
+            r"week|weeks|second|seconds)\b",
+            r"\bover\s+\d+\s+(?:minuut|minuten|uur|uren|dag|dagen|week|weken|"
+            r"seconde|seconden)\b",
+            r"\btomorrow\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b",
+            r"\btomorrow\b",
+            r"\bmorgen(?:ochtend|middag|avond)?\s+om\s+\d{1,2}(?::\d{2})?"
+            r"\s*(?:u|uur)?\b",
+            r"\bvanavond\s+om\s+\d{1,2}(?::\d{2})?\s*(?:u|uur)?\b",
+            r"\b(morgen|vanavond|vandaag|tonight|today)\b",
+            r"\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b",
+            r"\bom\s+\d{1,2}(?::\d{2})?\s*(?:u|uur)?\b",
+            r"\b\d{1,2}:\d{2}\b",
+            r"\bnext\s+\w+\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b",
+        )
+        candidate = ""
+        for pattern in patterns:
+            match = re.search(pattern, lowered)
+            if match:
+                candidate = match.group(0).strip()
+                break
+        if not candidate:
+            return None
+        # Normalize Dutch clocks first: "om 9 uur" -> "at 9:00", so the later
+        # word-for-word translation never sees a dangling "uur".
+        candidate = re.sub(
+            r"\bom\s+(\d{1,2}):(\d{2})\s*(?:u|uur)?", r"at \1:\2", candidate
+        )
+        candidate = re.sub(
+            r"\bom\s+(\d{1,2})\s*(?:u|uur)?", r"at \1:00", candidate
+        )
+        words = {
+            "minuten": "minutes", "minuut": "minute", "uren": "hours",
+            "uur": "hours", "dagen": "days", "dag": "day",
+            "weken": "weeks", "week": "week", "seconden": "seconds",
+            "seconde": "second", "over": "in", "morgen": "tomorrow",
+            "vanavond": "tonight", "vandaag": "today",
+            "morgenochtend": "tomorrow morning", "morgenmiddag": "tomorrow",
+            "morgenavond": "tonight",
+        }
+        converted = " ".join(words.get(word, word) for word in candidate.split())
+        # "tomorrow morning" alone is not parseable; pin a sensible clock.
+        converted = converted.replace("tomorrow morning", "tomorrow 9:00")
+        if not re.search(r"\d", converted) and "tomorrow" in converted:
+            converted = "tomorrow 9:00"
+        elif converted == "tonight":
+            converted = "tonight 20:00"
+        return converted
+
+    async def due_nudge_messages(self) -> List[str]:
+        """Messages for every nudge that has come due (scheduler polls this).
+
+        Returns:
+            Spoken lines for the scheduler to announce; each due nudge is
+            advanced (once = removed, hourly/daily = rescheduled).
+        """
+        from core import threads
+
+        messages: List[str] = []
+        now = datetime.now()
+        for record in await run_blocking(threads.due, self.config, now):
+            request = str(record.get("request", ""))[:80]
+            messages.append(
+                f"Nudge: \"{request}\" is still open — say 'that's sorted' "
+                "or 'is geregeld' once it's handled."
+            )
+            await run_blocking(threads.settle, self.config, record, now)
+        return messages
+
+    # ------------------------------------------------------------ projects
+    async def _handle_projects(self, text: str) -> Optional[str]:
+        """Project contexts: focus, report and per-project overviews.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A ready reply, or ``None`` when this is not a project turn.
+        """
+        from core import projects
+
+        lowered = " ".join((text or "").lower().split())
+        dutch = self.current_language() == "nl"
+
+        active_now = await run_blocking(projects.active, self.config)
+        if any(phrase in lowered for phrase in (
+            "which project", "what project", "current project",
+            "what am i focusing on", "welk project", "waar ben ik mee bezig",
+            "wat is mijn huidige project", "waar focus ik op",
+        )):
+            if not active_now:
+                return ("No project context right now — say 'focus on the "
+                        "bike project' to start one."
+                        if not dutch else
+                        "Geen projectcontext actief — zeg 'focus op het "
+                        "fietsproject' om er een te starten.")
+            display = await run_blocking(
+                projects.display_name, self.config, active_now
+            )
+            return (f"Focused on: {display}."
+                    if not dutch else
+                    f"Focus staat op: {display}.")
+
+        if any(phrase in lowered for phrase in (
+            "focus off", "stop focus", "turn focus off", "leave the project",
+            "focus uit", "stop de focus", "focus weg", "focus eraf",
+        )):
+            was = await run_blocking(projects.display_name,
+                                     self.config, active_now) if active_now else ""
+            await run_blocking(projects.deactivate, self.config)
+            if not was:
+                return ("No project context was active anyway."
+                        if not dutch else
+                        "Er was toch geen projectcontext actief.")
+            return (f"Left the {was} project — no more tagging."
+                    if not dutch else
+                    f"Focus op {was} uitgezet — ik tag niets meer.")
+
+        overview_match = re.search(
+            r"\b(?:what's open in|what is open in|wat staat er open in|"
+            r"wat staat er nog open in|overzicht van project)\s+"
+            r"(?:the\s+|project\s+|het\s+)?(.+?)\s*$", lowered,
+        )
+        focus_on = next((phrase for phrase in (
+            "focus on the ", "focus on ", "focus op het ", "focus op ",
+            "start working on the ", "start working on ", "werk aan project ",
+            "set project to ",
+        ) if phrase in lowered), None)
+        name = None
+        if overview_match and overview_match.group(1).strip().lower() not in {
+            "de", "het", "the", "", "mij", "me", "algemeen",
+            "het algemeen", "general", "totaal", "total",
+        }:
+            name = overview_match.group(1).strip()
+        elif focus_on and not any(phrase in lowered for phrase in (
+            "focus off", "stop focus",
+        )):
+            tail = lowered.split(focus_on, 1)[1].strip()
+            if tail and tail not in {"off", "uit"}:
+                name = tail
+        if focus_on and name is None:
+            return ("Which project? Say 'focus on the bike project'."
+                    if not dutch else
+                    "Welk project? Zeg 'focus op het fietsproject'.")
+        if name is not None:
+            display = name
+            if overview_match:
+                slug = await run_blocking(projects.display_name,
+                                          self.config, name)
+                display = slug if slug == name else name
+                overview = await run_blocking(
+                    projects.project_overview, self.config, name
+                )
+                counts = overview["counts"]
+                lines: List[str] = []
+                if dutch:
+                    lines.append(
+                        f"Project \"{display}\" — openstaand: "
+                        f"{counts['todos']} taak/taakjes, "
+                        f"{counts['reminders']} herinnering(en), "
+                        f"{counts['notes']} notitie(s), "
+                        f"{counts['facts']} feit(en)."
+                    )
+                else:
+                    lines.append(
+                        f"Project \"{display}\" — open: {counts['todos']} "
+                        f"todo(s), {counts['reminders']} reminder(s), "
+                        f"{counts['notes']} note(s), {counts['facts']} "
+                        f"fact(s)."
+                    )
+                for label, rows in (
+                    ("todos", overview["todos"]),
+                    ("reminders", overview["reminders"]),
+                    ("notes", overview["notes"]),
+                    ("facts", overview["facts"]),
+                ):
+                    for row in rows:
+                        when = f" ({row['when'][:16]})" if row["when"] else ""
+                        lines.append(f"  • {label}: {row['text'][:80]}{when}")
+                if not any(overview[key] for key in
+                           ("todos", "reminders", "notes", "facts")):
+                    lines.append(
+                        "Nothing tagged here yet — say something and I'll "
+                        "tag it while we're focused."
+                        if not dutch else
+                        "Nog niets getagd in dit project — terwijl we "
+                        "focussen tag ik alles wat je toevoegt."
+                    )
+                return "\n".join(lines)
+            slug = await run_blocking(projects.activate, self.config, name)
+            display = await run_blocking(
+                projects.display_name, self.config, slug
+            )
+            return (f"Focused on {display} — new todos, notes, reminders "
+                    "and facts are tagged with it from now on. Say 'focus "
+                    "off' to leave."
+                    if not dutch else
+                    f"Focus op {display} — nieuwe taken, notities, "
+                    "herinneringen en feiten worden er vanaf nu mee getagd. "
+                    "Zeg 'focus uit' om te stoppen.")
+        return None
+
+    async def _tag_project_rows(self) -> None:
+        """Tag rows created during this turn when a project context is active."""
+        try:
+            from core import projects
+
+            if not await run_blocking(projects.active, self.config):
+                return
+            await run_blocking(projects.tag_new_rows, self.config)
+        except Exception as exc:  # pragma: no cover - never break a turn
+            logger.debug("Project tagging pass failed: %s", exc)
+
+    # ----------------------------------------------------------- event rules
+    async def _handle_rules(self, text: str) -> Optional[str]:
+        """Create, list, remove and check JARVIS's standing event rules.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A ready reply, or ``None`` when this is not a rules turn.
+        """
+        from core import rules
+
+        lowered = " ".join((text or "").lower().split())
+        dutch = self.current_language() == "nl"
+
+        # "check my rules" contains "my rules" — the run branch must win over
+        # the plain listing branch, so gate listing on not-checking.
+        checking = any(phrase in lowered for phrase in (
+            "check my rules", "run my rules", "check rules", "check the rules",
+            "controleer mijn regels", "voer mijn regels uit", "check regels",
+        ))
+        if any(phrase in lowered for phrase in (
+            "list my rules", "my rules", "show my rules", "what rules do i have",
+            "wat zijn mijn regels", "mijn regels", "welke regels heb ik",
+            "toon mijn regels",
+        )) and not checking:
+            records = await run_blocking(rules.list_rules, self.config)
+            if not records:
+                return ("No event rules yet. Teach me one: 'when a new file "
+                        "matching *.pdf lands in Downloads, move it to "
+                        "Documents'."
+                        if not dutch else
+                        "Nog geen regels. Leer me er een: 'wanneer een nieuw "
+                        "bestand dat op *.pdf lijkt in Downloads komt, "
+                        "verplaats het naar Documenten'.")
+            lines = [f"{index}. {await run_blocking(rules.describe, record)}"
+                     for index, record in enumerate(records, start=1)]
+            return ("Rules — say the number or 'remove rule 1' to delete "
+                    "one:\n" + "\n".join(lines)
+                    if not dutch else
+                    "Regels — zeg 'verwijder regel 1' om er een te wissen:\n"
+                    + "\n".join(lines))
+
+        remove = re.search(
+            r"\b(?:remove|delete|verwijder|wis)\s+(?:rule|regel)\s+"
+            r"([0-9A-Za-z -]+?)\s*$", lowered,
+        )
+        if remove and remove.group(1).strip():
+            needle = remove.group(1).strip()
+            removed = await run_blocking(
+                rules.remove_rule, self.config, needle
+            )
+            if removed:
+                return (f"Removed {removed} rule(s)."
+                        if not dutch else
+                        f"{removed} regel(s) verwijderd.")
+            return ("No rule matched that — 'list my rules' shows them "
+                    "numbered."
+                    if not dutch else
+                    "Geen regel gevonden — 'mijn regels' toont ze genummerd.")
+
+        if any(phrase in lowered for phrase in (
+            "check my rules", "run my rules", "check rules", "check the rules",
+            "controleer mijn regels", "voer mijn regels uit", "check regels",
+        )):
+            fired = await run_blocking(rules.run_once, self.config, reply=True)
+            if not fired:
+                return ("Rules checked — nothing fired this time."
+                        if not dutch else
+                        "Regels gecheckt — er is niets afgegaan.")
+            lines = [f"  • {item['text']}" for item in fired]
+            return (f"Rules fired {len(fired)} action(s):\n" + "\n".join(lines)
+                    if not dutch else
+                    f"Regels: {len(fired)} actie(s) uitgevoerd:\n"
+                    + "\n".join(lines))
+
+        created = self._parse_rule_request(text)
+        if created is None:
+            return None
+        kind, trigger, action = created
+        rule = await run_blocking(
+            rules.add_rule, self.config, kind=kind, trigger=trigger,
+            action=action,
+        )
+        description = await run_blocking(rules.describe, rule)
+        if dutch:
+            return (f"Regel opgeslagen: {description}. Zeg 'controleer mijn "
+                    "regels' om hem nu te laten lopen, of 'mijn regels' om "
+                    "alles te zien.")
+        return (f"Rule stored: {description}. Say 'check my rules' to run "
+                "it now, or 'list my rules' to see everything.")
+
+    @staticmethod
+    def _parse_rule_request(
+        text: str,
+    ) -> Optional[Any]:
+        """Turn a 'when X, do Y' phrase into (kind, trigger, action).
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            ``(kind, trigger, action)`` or ``None`` when nothing matched.
+        """
+        source = text or ""
+
+        # --- file rules ------------------------------------------------
+        # EN: "when a new file matching '*.pdf' lands in ~/Downloads,
+        #      move it to ~/Documents"  (copy / delete also understood)
+        file_en = re.search(
+            r"\bwhen(?:ever)? a new file (?:matching|that matches) "
+            r"['\"]?([^'\"]+)['\"]? lands in ([^,]+), "
+            r"(move|copy|delete) it (?:to )?([^,]+?)\s*$",
+            source, re.IGNORECASE,
+        )
+        file_nl = re.search(
+            r"\bwanneer een nieuw bestand dat (?:op|aan) ['\"]?([^'\"]+)"
+            r"['\"]? (?:lijkt|matcht) in ([^,]+) (?:komt|verschijnt), "
+            r"(?:verplaats|kopieer|verwijder|zet) (?:het|hem)?\s*"
+            r"(?:naar|in|weg)?\s*([^,]+?)\s*$", source, re.IGNORECASE,
+        )
+        file_match = file_en or file_nl
+        if file_match:
+            pattern, folder, verb, destination = file_match.groups()
+            action_kind = "move"
+            if verb.lower() in {"copy", "kopieer"}:
+                action_kind = "copy"
+            elif verb.lower() in {"delete", "verwijder"}:
+                action_kind = "delete"
+            action: Dict[str, Any] = {"kind": action_kind}
+            if action_kind != "delete":
+                dest = Path(destination.strip().strip("\"'")).expanduser()
+                action["to"] = str(dest)
+            folder_path = Path(folder.strip().strip("\"'")).expanduser()
+            trigger = {"folder": str(folder_path), "pattern": pattern.strip()}
+            return "file", trigger, action
+
+        # --- keyword rules ---------------------------------------------
+        # EN: "when a note mentions 'deadline', add a todo"
+        # NL: "als een notitie 'deadline' noemt, maak er een taak van"
+        keyword_en = re.search(
+            r"\bwhen(?:ever)? (?:a|my|the)?\s*"
+            r"(note|todo)\s+(?:mentions|mentioning|contains)\s*"
+            r"['\"]?([^'\"]+)['\"]?\s*[,.]?\s*"
+            r"(?:add|create|make)\s+(?:a\s+)?(todo|reminder)\b",
+            source, re.IGNORECASE,
+        )
+        keyword_nl = re.search(
+            r"\bals een (notitie|taak) ['\"]?([^'\"]+)['\"]? "
+            r"(?:noemt|bevat|vermeldt)\s*[,.]?\s*"
+            r"(?:maak|voeg|zet|plan) er (?:een|gewoon)?\s*"
+            r"(taak|herinnering)\s+(?:van|bij)\b", source, re.IGNORECASE,
+        )
+        keyword_match = keyword_en or keyword_nl
+        if keyword_match:
+            source_word, word, target = keyword_match.groups()
+            table = "notes" if source_word.lower() in {"note", "notitie"} \
+                else "todos"
+            kind_action = (
+                "reminder" if target.lower() in {"reminder", "herinnering"}
+                else "todo"
+            )
+            action = {"kind": kind_action,
+                      "text": f"follow up on '{word.strip()}'"}
+            trigger = {"table": table, "word": word.strip()}
+            return "keyword", trigger, action
+        return None
+
+    # ------------------------------------------------------- improvement coach
+    async def _handle_coach(self, text: str) -> Optional[str]:
+        """Serve the improvement-coach briefing.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            The coaching digest, or ``None`` when not a coaching turn.
+        """
+        lowered = " ".join((text or "").lower().split())
+        if not any(phrase in lowered for phrase in (
+            "what should we improve", "what can we improve",
+            "improvement coach", "coach me", "what did you learn from your "
+            "mistakes",
+            "wat kunnen we verbeteren", "wat moeten we verbeteren",
+            "verbeterpunten", "coach mij", "verbetercoach",
+            "wat leer je van je fouten",
+        )):
+            return None
+        from core import coach
+
+        digest = await run_blocking(coach.digest, self, self.current_language())
+        return digest or None
+
+    # ------------------------------------------------------- after the turn
+    async def _after_turn_housekeeping(self) -> None:
+        """Silent local bookkeeping after a successful turn.
+
+        Project contexts tag rows created by the turn just finished, and the
+        event-rule watchers run (throttled) so file/keyword rules fire while
+        JARVIS is being used — never louder than a debug line.
+        """
+        await self._tag_project_rows()
+        try:
+            now = time.monotonic()
+            if now - self._rules_last_pass < 20:
+                return
+            self._rules_last_pass = now
+            from core import rules
+
+            await run_blocking(rules.run_once, self.config, reply=False)
+        except Exception as exc:  # pragma: no cover - never break a turn
+            logger.debug("Event-rule pass failed: %s", exc)
 
     # ------------------------------------------------------------------ setup
     async def initialize(self) -> None:
@@ -2126,6 +2794,7 @@ class Brain:
             )
             await self._journal_turn(text, response)
             await self._note_thread_after_turn(text, response)
+            await self._after_turn_housekeeping()
             await self.events.publish(
                 "turn.finished", source="brain", text=text, response=response,
                 seconds=elapsed,
@@ -2239,6 +2908,12 @@ class Brain:
                                       method="past-recall")
             return past_reply
 
+        plan_reply = await self._plan_first(text)
+        if plan_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "planned execution",
+                                      method="plan")
+            return plan_reply
+
         autopilot_reply = await self._autopilot_run(text)
         if autopilot_reply is not None:
             self.last_intent = Intent("conversation", 1.0, "compound task",
@@ -2247,11 +2922,25 @@ class Brain:
 
         # Open threads ("what's still open?") and explaining the last turn are
         # deterministic and answered from his own records.
+        # Project overviews ("what's open in the X project") must win over
+        # the open-thread list, whose trigger is a substring of that phrase.
+        project_reply = await self._handle_projects(text)
+        if project_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "project context",
+                                      method="projects")
+            return project_reply
+
         thread_reply = await self._handle_threads(text)
         if thread_reply is not None:
             self.last_intent = Intent("conversation", 1.0, "open threads",
                                       method="threads")
             return thread_reply
+
+        nudge_reply = await self._handle_nudges(text)
+        if nudge_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "nudge schedule",
+                                      method="nudge")
+            return nudge_reply
 
         explain_reply = self._explain_last(text)
         if explain_reply is not None:
@@ -2265,6 +2954,18 @@ class Brain:
             self.last_intent = Intent("conversation", 1.0, "self review",
                                       method="review")
             return review_reply
+
+        coach_reply = await self._handle_coach(text)
+        if coach_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "improvement coach",
+                                      method="coach")
+            return coach_reply
+
+        rules_reply = await self._handle_rules(text)
+        if rules_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "event rules",
+                                      method="rules")
+            return rules_reply
 
         search_reply = await self._unified_search(text)
         if search_reply is not None:

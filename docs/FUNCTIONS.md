@@ -12,7 +12,8 @@ and marked with `·`; methods the intent router can call are marked
 - [`main.py`](#mainpy) — 26
 - [`install.py`](#installpy) — 56
 - [`core/autopilot.py`](#coreautopilotpy) — 4
-- [`core/brain.py`](#corebrainpy) — 105
+- [`core/brain.py`](#corebrainpy) — 117
+- [`core/coach.py`](#corecoachpy) — 3
 - [`core/config.py`](#coreconfigpy) — 29
 - [`core/corrections.py`](#corecorrectionspy) — 1
 - [`core/event_bus.py`](#coreevent_buspy) — 13
@@ -26,8 +27,10 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/personality.py`](#corepersonalitypy) — 5
 - [`core/planner.py`](#coreplannerpy) — 9
 - [`core/preferences.py`](#corepreferencespy) — 14
+- [`core/projects.py`](#coreprojectspy) — 15
+- [`core/rules.py`](#corerulespy) — 13
 - [`core/smalltalk.py`](#coresmalltalkpy) — 9
-- [`core/threads.py`](#corethreadspy) — 8
+- [`core/threads.py`](#corethreadspy) — 15
 - [`core/toolcraft.py`](#coretoolcraftpy) — 4
 - [`core/unified_search.py`](#coreunified_searchpy) — 12
 - [`interfaces/cli.py`](#interfacesclipy) — 31
@@ -96,6 +99,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
 - [`tests/test_wave2_features.py`](#teststest_wave2_featurespy) — 17
+- [`tests/test_wave3_features.py`](#teststest_wave3_featurespy) — 16
 - [`tests/test_web.py`](#teststest_webpy) — 65
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/eval_function_calling.py`](#scriptseval_function_callingpy) — 5
@@ -217,7 +221,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*105 functions*
+*117 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
@@ -271,6 +275,18 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _self_review(self, text: str) -> Optional[str]` — A compact briefing about JARVIS himself, from stored data.
 - `def _search_topic(text: str) -> Optional[str]` *staticmethod* — Pull the topic out of a search-everything phrase.
 - `async def _unified_search(self, text: str) -> Optional[str]` — Search everything for the topic the user is trying to place.
+- `async def _plan_first(self, text: str) -> Optional[str]` — Plan-then-execute for compound requests, with an approval gate.
+- `async def _execute_plan_steps(self, plan: Any) -> str` — Run every planned step through the normal planner, then summarize.
+- `async def _handle_nudges(self, text: str) -> Optional[str]` — Attach a nudge schedule to an open thread.
+- `def _format_clock(at: str, dutch: bool) -> str` *staticmethod* — Render an ISO timestamp as 'Wednesday 14:30' or a Dutch variant.
+- `def _time_expression(lowered: str) -> Optional[str]` *staticmethod* — Pull the first parseable time phrase out of a nudge request.
+- `async def due_nudge_messages(self) -> List[str]` — Messages for every nudge that has come due (scheduler polls this).
+- `async def _handle_projects(self, text: str) -> Optional[str]` — Project contexts: focus, report and per-project overviews.
+- `async def _tag_project_rows(self) -> None` — Tag rows created during this turn when a project context is active.
+- `async def _handle_rules(self, text: str) -> Optional[str]` — Create, list, remove and check JARVIS's standing event rules.
+- `def _parse_rule_request(text: str) -> Optional[Any]` *staticmethod* — Turn a 'when X, do Y' phrase into (kind, trigger, action).
+- `async def _handle_coach(self, text: str) -> Optional[str]` — Serve the improvement-coach briefing.
+- `async def _after_turn_housekeeping(self) -> None` — Silent local bookkeeping after a successful turn.
 - `async def initialize(self) -> None` — Boot the LLM connection, memory and every enabled module.
 - `async def _load_modules(self) -> None` — Import and instantiate the modules enabled in config.yaml.
 - `async def _load_plugins(self) -> None` — Load generated skill adapters from the plugins directory.
@@ -335,6 +351,16 @@ and marked with `·`; methods the intent router can call are marked
 - `async def morning_brief(self, timeout: float = 25.0) -> str` — Assemble the day's briefing from the productivity module.
 - `async def status_report(self) -> Dict[str, Any]` — Collect a full status snapshot for the CLI ``status`` command.
 - `def speakable(self, text: str) -> str` — Strip markdown so the TTS engine reads clean prose.
+
+## `core/coach.py`
+
+*3 functions*
+
+> Improvement coach — JARVIS reads his own records and suggests habits.
+
+- `def _stale_days(config: Any, record: Dict[str, Any]) -> Optional[int]` — Whole days since an open thread was noted (None when unknown).
+- `def _failure_signatures(config: Any, limit: int = 60) -> List[Dict[str, Any]]` — Group the recent failure log into (module, error) signatures.
+- `def digest(brain: Any, language: str = 'en') -> str` — Build the coaching briefing from JARVIS's own stored records.
 
 ## `core/config.py`
 
@@ -663,6 +689,48 @@ and marked with `·`; methods the intent router can call are marked
 - `def _phrase(self, reference: str, params: Dict[str, Any]) -> str` — Turn one routine into a natural sentence about the user.
 - `def summary(self, limit: int = 4) -> str` — A short block for the system prompt, or empty when nothing learned.
 
+## `core/projects.py`
+
+*15 functions*
+
+> Project contexts — tag your data by what you are working on.
+
+- `def _path(config: Any) -> Path`
+- `def _load(config: Any) -> Dict[str, Any]`
+- `def _save(config: Any, state: Dict[str, Any]) -> None`
+- `def _slug(name: str) -> str` — A safe, searchable tag for a project name.
+- `def _max_rowids(config: Any) -> Dict[str, int]` — Current high-water rowid per tagged table (activation snapshot).
+- `def activate(config: Any, name: str) -> str` — Start working inside a project context.
+- `def deactivate(config: Any) -> None` — Leave the current project context.
+- `def active(config: Any) -> str` — The project context currently in force (empty when none).
+- `def list_projects(config: Any) -> List[Dict[str, str]]` — Every known project with its display name and creation date.
+- `def display_name(config: Any, name: str) -> str` — The human name stored for a project slug, or the slug itself.
+- `def _ensure_schema(connection: sqlite3.Connection) -> None`
+- `def _connect(config: Any) -> sqlite3.Connection`
+- `def _append_tag(existing: Optional[str], slug: str) -> str`
+- `def tag_new_rows(config: Any, project: str = '') -> int` — Tag rows created since the last pass with a project context.
+- `def project_overview(config: Any, name: str, limit: int = 8) -> Dict[str, List[Dict[str, str]]]` — Open items of one project, grouped by store.
+
+## `core/rules.py`
+
+*13 functions*
+
+> Event rules — "when X, do Y", watched locally and offline.
+
+- `def _path(config: Any) -> Path`
+- `def _now() -> str`
+- `def add_rule(config: Any, kind: str, trigger: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]` — Store one rule and return it.
+- `def list_rules(config: Any) -> List[Dict[str, Any]]` — Every rule, newest first.
+- `def _rewrite(config: Any, records: List[Dict[str, Any]]) -> None`
+- `def describe(rule: Dict[str, Any]) -> str` — One human line for a rule, used in listings and confirmations.
+- `def remove_rule(config: Any, needle: str) -> int` — Delete rules matching a number (1 = newest) or some text.
+- `def _folder(text: str) -> Optional[Path]`
+- `def _run_file_rule(rule: Dict[str, Any]) -> List[str]`
+- `def _ensure_db_schema(connection: sqlite3.Connection) -> None`
+- `def _run_keyword_rule(config: Any, rule: Dict[str, Any]) -> List[str]` — Watch a store table for rows containing the trigger word.
+- `def _keyword_action(connection: sqlite3.Connection, action: Dict[str, Any], source: str) -> str` — Carry out a keyword rule's action for one matching row.
+- `def run_once(config: Any, reply: bool = False) -> List[Dict[str, Any]]` — Run every enabled rule once and report what happened.
+
 ## `core/smalltalk.py`
 
 *9 functions*
@@ -681,7 +749,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/threads.py`
 
-*8 functions*
+*15 functions*
 
 > Open threads — the loose ends JARVIS promised to come back to.
 
@@ -691,8 +759,15 @@ and marked with `·`; methods the intent router can call are marked
 - `def note_thread(config: Any, request: str, response: str, module: str = '', kind: str = 'promise') -> bool` — Store one open thread if the reply committed to a follow-up.
 - `def list_threads(config: Any, limit: int = 12) -> List[Dict[str, Any]]` — The newest open threads.
 - `def _matches(record: Dict[str, Any], needle: str) -> bool`
+- `def _find_record(records: List[Dict[str, Any]], needle: str) -> Optional[Dict[str, Any]]` — The newest thread matching a number (1 = newest) or some text.
 - `def close_thread(config: Any, needle: str) -> Tuple[int, int]` — Close threads matching a number (1 = newest) or some text.
 - `def is_close_command(text: str) -> bool` — Whether an utterance reads as closing loose ends rather than a promise.
+- `def nudge(config: Any, needle: str, at: str, every: str = 'once') -> Optional[Dict[str, Any]]` — Make JARVIS keep after an open thread until it is closed.
+- `def clear_nudge(config: Any, needle: str) -> bool` — Stop nudging a thread (the thread itself stays open).
+- `def due(config: Any, now: Optional[datetime] = None) -> List[Dict[str, Any]]` — Open threads whose next nudge moment has arrived.
+- `def settle(config: Any, record: Dict[str, Any], now: datetime) -> None` — Advance one nudge after it fired.
+- `def _sorted_records(path: Path) -> List[Dict[str, Any]]` — All thread records, newest first.
+- `def _write_records(path: Path, records: List[Dict[str, Any]]) -> None`
 
 ## `core/toolcraft.py`
 
@@ -2917,6 +2992,29 @@ and marked with `·`; methods the intent router can call are marked
 - `def __init__(self, config: Any) -> None`
 - `def current_language(self) -> str`
 
+## `tests/test_wave3_features.py`
+
+*16 functions*
+
+> The five follow-up capabilities (round 3), all verifiable with no LLM.
+
+- `def _fresh(factory: pytest.TempPathFactory) -> Brain`
+- `def brain(tmp_path_factory: pytest.TempPathFactory) -> Brain` — A clean offline brain per test.
+- `def _seed_thread(brain: Brain, request: str = 'the report for tuesday', reply: str = "I'll look into the report and come back to you, sir.") -> None` — Store an open thread exactly as the after-turn note would.
+- `def _ensure_db(config) -> Path`
+- `def test_plan_first_previews_then_executes_after_approval(brain)`
+- `def test_plan_first_cancel_drops_without_executing(brain)`
+- `def test_nudge_store_cycle_pure(config)`
+- `def test_nudge_flow_dutch_and_clock_parsing(brain)`
+- `def test_due_nudge_messages_reschedule(brain)`
+- `def test_file_rule_moves_matching_files_once(config, tmp_path: Path)`
+- `def test_keyword_rule_creates_todo_from_note(config)`
+- `def test_rule_create_list_remove_via_brain(config, tmp_path: Path)`
+- `def test_coach_digest_points_at_repeated_failures(brain)`
+- `def test_coach_digest_clean_and_stale_thread(brain)`
+- `def test_projects_tag_only_future_rows(config)`
+- `def test_projects_flow_overview_beats_thread_list(brain)`
+
 ## `tests/test_web.py`
 
 *65 functions*
@@ -3049,5 +3147,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**2107 functions across 92 files.**
+**2173 functions across 96 files.**
 

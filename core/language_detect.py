@@ -26,7 +26,9 @@ _STOPWORDS: Dict[str, List[str]] = {
         "om", "of", "toen", "later", "zeg", "zeggen", "bedoel", "doe",
         "doen", "geef", "maak", "zoek", "vind", "zet", "herinner", "voeg",
         "wie", "wiens", "hem", "haar", "hun", "ons", "onze", "jou",
-        "waarom", "wilt", "zou", "zouden", "kunt", "geen",
+        "waarom", "wilt", "zou", "zouden", "kunt", "geen", "blijf", "blijft",
+        "herinneren", "aan", "nummer", "nogmaals", "weer", "deze",
+        "zodra", "klaar", "werk", "vanaf", "na",
     ],
     "en": [
         "the", "a", "an", "and", "of", "to", "you", "your", "that", "what",
