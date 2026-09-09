@@ -28,7 +28,10 @@ _STOPWORDS: Dict[str, List[str]] = {
         "wie", "wiens", "hem", "haar", "hun", "ons", "onze", "jou",
         "waarom", "wilt", "zou", "zouden", "kunt", "geen", "blijf", "blijft",
         "herinneren", "aan", "nummer", "nogmaals", "weer", "deze",
-        "zodra", "klaar", "werk", "vanaf", "na",
+        "zodra", "klaar", "werk", "vanaf", "na", "alle", "alles", "taken",
+        "taak", "verwijder", "verwijderen", "over", "gedaan", "herinnering",
+        "herinneringen", "uitstellen", "onthoud", "bewaar", "vergeet",
+        "brief", "weet", "vertel", "vraag", "geef",
     ],
     "en": [
         "the", "a", "an", "and", "of", "to", "you", "your", "that", "what",
@@ -38,6 +41,7 @@ _STOPWORDS: Dict[str, List[str]] = {
         "it", "on", "in", "at", "but", "also", "there", "they", "we",
         "tell", "make", "find", "set", "remind", "add", "show", "open",
         "search", "today", "yesterday", "tomorrow", "now", "then", "later",
+        "over",
     ],
     "de": [
         "ich", "du", "der", "die", "das", "und", "von", "mit", "nicht",

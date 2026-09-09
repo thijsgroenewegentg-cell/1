@@ -162,8 +162,11 @@ def test_stored_facts_come_back_offline(fresh_brain):
 
 
 def test_recall_with_nothing_stored_is_honest(fresh_brain):
+    # "what's my wifi password" is a vault phrase now; with nothing stored
+    # the vault must admit it does not know (no offline wall, no guessing).
     reply = run(fresh_brain.process("what's my wifi password"))
-    assert "don't have anything on file" in reply
+    assert ("don't have anything on file" in reply
+            or "don't know the wifi password" in reply)
     assert "language model is offline" not in reply
 
 

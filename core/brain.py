@@ -714,6 +714,8 @@ class Brain:
         self._macro_offer: Optional[Dict[str, Any]] = None
         #: A plan-first execution waiting for approval: ``(task, plan)``.
         self._pending_plan: Optional[Any] = None
+        #: A bulk action waiting for approval: ``(callable args dict)``.
+        self._pending_bulk: Optional[Any] = None
         #: When the silent event-rule pass last ran (avoid per-turn churn).
         self._rules_last_pass: float = 0.0
 
@@ -2848,6 +2850,17 @@ class Brain:
             self.last_intent = Intent("macros", 1.0, "armed macro", method="macro")
             return await self._execute_macro(macro, text)
 
+        # Wave-4 deterministic features (bulk actions, topic dossiers,
+        # self-healing retries, the end-of-day recap and the local vault) are
+        # model-free: preview-before-apply, offline briefs from his own
+        # stores, corrected retry suggestions, and secret storage that never
+        # leaves this machine.
+        wave4_reply = await self._wave4_dispatch(text)
+        if wave4_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "wave-4 feature",
+                                      method="wave4")
+            return wave4_reply
+
         # Name introductions and name questions are deterministic, durable and
         # model-free: "my name is Alice" is stored, "what's my name?" answered.
         name_reply = self._handle_name_line(text)
@@ -3826,6 +3839,503 @@ class Brain:
                 "text": truncate(text, 260),
             }
         )
+
+
+    # ------------------------------------------------------------- wave 4
+    # Bulk & batch actions, topic dossiers, self-healing retries, the
+    # end-of-day recap and the local vault. Every one of these is a plain
+    # deterministic, offline path over JARVIS's own stores.
+
+    async def _wave4_dispatch(self, text: str) -> Optional[str]:
+        """Route the deterministic wave-4 features, newest hooks first.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A ready reply when one of the wave-4 features claims the turn,
+            otherwise ``None`` so normal processing continues.
+        """
+        dutch = self.current_language() == "nl"
+        try:
+            reply = self._wave4_pending_bulk(text, dutch)
+            if reply is not None:
+                return reply
+            reply = await self._wave4_vault(text, dutch)
+            if reply is not None:
+                return reply
+            reply = await self._wave4_bulk(text, dutch)
+            if reply is not None:
+                return reply
+            reply = await self._wave4_heal(text, dutch)
+            if reply is not None:
+                return reply
+            reply = await self._wave4_dossier(text, dutch)
+            if reply is not None:
+                return reply
+            return await self._wave4_recap(text, dutch)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("Wave-4 dispatch failed: %s", exc)
+            return None
+
+    # -------------------------------------------------------------- bulk
+    @staticmethod
+    def _bulk_parts(text: str) -> Optional[Dict[str, Any]]:
+        """Classify a bulk command into (op, scope, project, everything).
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A descriptor dict, or ``None`` when the line is not a bulk
+            command we should claim (file talk, how-to questions, timers).
+        """
+        lowered = " ".join((text or "").lower().split())
+        if re.search(r"\b(how (do|to|would)|hoe (kan|moet|zou)|what is|"
+                     r"wat is|which file)\b", lowered):
+            return None
+        op = None
+        if re.search(r"\b(snooze|uitstellen?|uitstel)\b", lowered) or (
+                re.search(r"\bstel\w*\b", lowered) and "uit" in lowered):
+            op = "snooze"
+        elif re.search(r"\b(delete|verwijder|wis|schrap)\b", lowered):
+            op = "delete"
+        elif re.search(r"\b(complete|afvinken|afvink|afronden)\b", lowered) \
+                or re.search(r"\b(tick off|check off)\b", lowered) \
+                or re.search(r"\bvink\w*\b", lowered):
+            op = "complete"
+        if op is None:
+            return None
+        # Words that point at files/other things rather than the stores.
+        if re.search(r"\b(file|bestand|download|photo|foto|document|image|"
+                     r"afbeelding|video|folder|map|dit|dat|that|this|"
+                     r"minuten?|seconds?|hours?|minute|second|hour)\b",
+                     lowered) and not re.search(
+                r"\b(todos?|tasks?|taken?|reminders?|herinneringen?|"
+                r"notities?|notes?)\b", lowered):
+            return None
+        scope = "todos"
+        if re.search(r"\b(reminders?|herinneringen?|alarms?)\b", lowered):
+            scope = "reminders"
+        elif re.search(r"\b(notes?|notities?|aantekeningen?)\b", lowered):
+            scope = "notes"
+        elif op == "snooze":
+            # Only reminders can be snoozed here; if the sentence clearly
+            # names todos, leave it to the model rather than guessing.
+            if re.search(r"\b(todos?|tasks?|taken?)\b", lowered):
+                return None
+            scope = "reminders"
+        connectors = {"the", "de", "het", "mijn", "my", "een", "a", "an",
+                      "in", "op", "van", "voor", "alle", "al", "open", "and",
+                      "tick", "off", "check", "complete", "afvinken",
+                      "verwijder", "delete", "snooze", "everything", "every",
+                      "all", "done", "doe", "maar", "tag", "tagged", "met"}
+        words = lowered.split()
+        project = ""
+        # "project bike" / "the bike project" / "fietsproject". Prefer the
+        # word(s) right after the word "project", then two name-words before
+        # it (skipping articles/connectors).
+        if "project" in words:
+            index = words.index("project")
+            name_words: List[str] = []
+            for word in words[index + 1:]:
+                if word in connectors:
+                    break
+                name_words.append(word)
+                if len(name_words) >= 2:
+                    break
+            if name_words:
+                project = " ".join(name_words)
+            else:
+                for word in reversed(words[:index]):
+                    if word in connectors:
+                        if name_words:
+                            break
+                        continue
+                    name_words.insert(0, word)
+                    if len(name_words) >= 2:
+                        break
+                if name_words:
+                    project = " ".join(name_words)
+        if not project:
+            match = re.search(r"\b([a-z0-9][a-z0-9\-_]{1,20})project\b",
+                              lowered)
+            if match:
+                project = match.group(1)
+        if not project:
+            match = re.search(r"\btag(?:ged)?\s+(?:with\s+|met\s+|op\s+)?"
+                              r"([a-z0-9 .\-_]+?)\s*(?:\.|$)", lowered)
+            if match:
+                project = match.group(1).strip()
+        everything = bool(re.search(
+            r"\b(everything|every|all|alle|alles|openstaande)\b", lowered)
+        ) or "my" in lowered or "mijn" in lowered or bool(project)
+        if not everything and not project and scope == "reminders":
+            # "snooze the reminders" needs a target: ask instead of guessing.
+            return {"op": op, "scope": scope, "project": "", "ask": True}
+        return {"op": op, "scope": scope, "project": project,
+                "everything": everything, "ask": False}
+
+    def _bulk_preview(self, parts: Dict[str, Any], count: int,
+                      rows: List[str], dutch: bool) -> str:
+        """Human wording for a preview / confirmation / result."""
+        op = parts["op"]
+        project = parts["project"]
+        scope = parts["scope"]
+        where = f" in '{project}'" if project else ""
+        items = {"todos": ("open todos", "openstaande taken"),
+                 "reminders": ("reminders", "herinneringen"),
+                 "notes": ("notes", "notities")}[scope]
+        listed = ", ".join(f'"{row}"' for row in rows[:5])
+        more = f" (+{count - len(rows[:5])} more)" if count > len(rows[:5]) else ""
+        listed = f"{listed}{more}"
+        if dutch:
+            verbs = {"complete": ("afronden", "afgerond", "af te ronden"),
+                     "delete": ("verwijderen", "verwijderd", "te verwijderen"),
+                     "snooze": ("uitstellen", "uitgesteld", "uit te stellen")}
+            base, _done, _infinitive = verbs[op]
+            if op == "snooze":
+                return (f"Voorvertoning: ik zou {count} {items[1]}{where} "
+                        f"uitstellen tot morgen 09:00: {listed}. "
+                        f"Zeg 'ja' om door te voeren.")
+            return (f"Voorvertoning: ik zou {count} {items[1]}{where} {base}: "
+                    f"{listed}. Zeg 'ja' om door te voeren.")
+        verbs = {"complete": ("complete", "completed"),
+                 "delete": ("delete", "deleted"),
+                 "snooze": ("snooze", "snoozed")}
+        base, _done = verbs[op]
+        if op == "snooze":
+            return (f"Preview: I would snooze {count} {items[0]}{where} until "
+                    f"tomorrow 09:00: {listed}. Reply 'yes' to apply.")
+        return (f"Preview: I would {base} {count} {items[0]}{where}: "
+                f"{listed}. Reply 'yes' to apply.")
+
+    def _bulk_done(self, parts: Dict[str, Any], count: int,
+                   dutch: bool) -> str:
+        """Wording for an applied bulk action."""
+        op = parts["op"]
+        project = parts["project"]
+        scope = parts["scope"]
+        where = f" in '{project}'" if project else ""
+        items = {"todos": ("open todo(s)", "openstaande ta(a)k(en)"),
+                 "reminders": ("reminder(s)", "herinnering(en)"),
+                 "notes": ("note(s)", "notitie(s)")}[scope]
+        if dutch:
+            done = {"complete": "afgerond", "delete": "verwijderd",
+                    "snooze": "uitgesteld"}[op]
+            when = " naar morgen 09:00" if op == "snooze" else ""
+            return f"Klaar: {count} {items[1]}{where}{when} {done}."
+        done = {"complete": "completed", "delete": "deleted",
+                "snooze": "snoozed"}[op]
+        when = " until tomorrow 09:00" if op == "snooze" else ""
+        return f"Done: {done} {count} {items[0]}{where}{when}."
+
+    def _bulk_none(self, parts: Dict[str, Any], dutch: bool) -> str:
+        """Wording when a bulk action matches nothing."""
+        op = parts["op"]
+        scope = parts["scope"]
+        project = parts["project"]
+        where = f" in '{project}'" if project else ""
+        if dutch:
+            verbs = {"complete": "af te ronden", "delete": "te verwijderen",
+                     "snooze": "uit te stellen"}
+            return (f"Niets om {verbs[op]}: geen openstaande "
+                    f"{'herinneringen' if scope == 'reminders' else 'taken'}"
+                    f"{where}. Alles al klaar.")
+        verbs = {"complete": "complete", "delete": "delete", "snooze": "snooze"}
+        what = "unfired reminders" if scope == "reminders" else "open todos"
+        return (f"Nothing to {verbs[op]}: no {what}{where} match right now.")
+
+    def _wave4_pending_bulk(self, text: str, dutch: bool) -> Optional[str]:
+        """Resolve a yes/no/preview answer to an offered bulk preview."""
+        if self._pending_bulk is None:
+            return None
+        lowered = " ".join((text or "").lower().split()).strip(" .!?,")
+        negative = lowered in NEGATIVE or any(
+            lowered.startswith(word + " ") for word in NEGATIVE
+        ) or lowered in {"nee", "nope"} or lowered.startswith("nee ")
+        if negative:
+            self._pending_bulk = None
+            return ("Understood — I did not change anything."
+                    if not dutch else
+                    "Begrepen — ik heb niets gewijzigd.")
+        preview_again = bool(re.search(
+            r"\b(preview|voorvertoning|show me)\b", text, re.I))
+        affirmative = lowered in AFFIRMATIVE or any(
+            lowered.startswith(word) for word in ("yes", "yeah", "yep",
+                                                  "do it", "go ahead",
+                                                  "doe maar", "ga je gang")
+        ) or lowered in {"ja", "ok", "oke", "okay", "bevestig", "prima"} \
+            or lowered.startswith(("ja ", "ok ", "oke "))
+        if not (affirmative or preview_again):
+            return None
+        parts = dict(self._pending_bulk)
+        if preview_again:
+            dry = self._run_bulk(parts, dry_run=True)
+            count = int(dry.get("count") or 0)
+            if count == 0:
+                self._pending_bulk = None
+                return self._bulk_none(parts, dutch)
+            return self._bulk_preview(parts, count,
+                                      [str(r) for r in dry.get("rows", [])],
+                                      dutch)
+        self._pending_bulk = None
+        result = self._run_bulk(parts, dry_run=False)
+        count = int(result.get("count") or 0)
+        if count == 0:
+            return self._bulk_none(parts, dutch)
+        return self._bulk_done(parts, count, dutch)
+
+    def _run_bulk(self, parts: Dict[str, Any], dry_run: bool) -> Dict[str, Any]:
+        """Run one classified bulk action against the local database."""
+        from core import bulk
+        op = parts["op"]
+        scope = parts["scope"]
+        project = parts["project"]
+        everything = parts["everything"]
+        if op == "complete":
+            return bulk.complete_todos(self.config, project=project,
+                                       everything=everything,
+                                       dry_run=dry_run)
+        if op == "snooze":
+            return bulk.snooze_reminders(self.config, project=project,
+                                         everything=everything,
+                                         dry_run=dry_run)
+        return bulk.delete_rows(self.config, table=scope, project=project,
+                                everything=everything, dry_run=dry_run)
+
+    async def _wave4_bulk(self, text: str, dutch: bool) -> Optional[str]:
+        """Preview-and-apply bulk actions (complete/delete/snooze)."""
+        parts = self._bulk_parts(text)
+        if parts is None:
+            return None
+        if parts.get("ask"):
+            return ("Which reminders do you mean? Say 'snooze all reminders' "
+                    "or name a project, e.g. 'snooze the bike reminders'."
+                    if not dutch else
+                    "Welke herinneringen bedoel je? Zeg 'stel alle "
+                    "herinneringen uit' of noem een project, bijv. 'stel de "
+                    "fietsherinneringen uit'.")
+        preview = self._run_bulk(parts, dry_run=True)
+        count = int(preview.get("count") or 0)
+        if count == 0:
+            return self._bulk_none(parts, dutch)
+        # Explicit confirmation in the same breath? Apply immediately.
+        lowered = " ".join((text or "").lower().split())
+        confirmed = bool(re.search(
+            r"\b(yes|yeah|ja|do it|doe maar|ga je gang|bevestig|graag|"
+            r"alsjeblieft|please)\b", lowered))
+        if confirmed or count <= 4:
+            result = self._run_bulk(parts, dry_run=False)
+            count = int(result.get("count") or 0)
+            if count == 0:
+                return self._bulk_none(parts, dutch)
+            return self._bulk_done(parts, count, dutch)
+        self._pending_bulk = parts
+        rows = [str(r) for r in preview.get("rows", [])]
+        return self._bulk_preview(parts, count, rows, dutch)
+
+    # -------------------------------------------------------------- dossier
+    async def _wave4_dossier(self, text: str, dutch: bool) -> Optional[str]:
+        """Assemble the compact 'fill me in on X' brief."""
+        from core import dossier as dossier_module
+        lowered = " ".join((text or "").lower().split())
+        patterns = (
+            r"\bdossier\s+(?:over\s+|op\s+)?(.+?)\s*$",
+            r"\bbrief (?:me|mij)\s+(?:over|op)\s+(.+?)\s*$",
+            r"\bbrief me\s+in\s+over\s+(.+?)\s*$",
+            r"\bfill me in\s+on\s+(.+?)\s*$",
+            r"\bcatch me up\s+on\s+(.+?)\s*$",
+            r"\bupdate me\s+on\s+(.+?)\s*$",
+            r"\bbijpraten\s+over\s+(.+?)\s*$",
+            r"\bhoe staat het (?:met|erbij) (?:met )?(?:de|het|mijn|my)?\s*"
+            r"(.+?)\s*$",
+            r"\bwaar staan we met\s+(.+?)\s*$",
+        )
+        topic = None
+        for pattern in patterns:
+            match = re.search(pattern, lowered, re.I)
+            if match and match.group(1).strip():
+                topic = match.group(1).strip()
+                break
+        if topic is None:
+            return None
+        topic = re.sub(r"\b(de|het|the|mijn|my)\s+$", "", topic).strip()
+        if not dutch:
+            topic = re.sub(r"^(?:the|a|an)\s+", "", topic)
+        if len(topic) < 2:
+            return None
+        content = await run_blocking(
+            dossier_module.dossier, self.config, topic,
+            "nl" if dutch else "en",
+        )
+        if content is None:
+            return (f"I have nothing on file about '{topic}' yet."
+                     if not dutch else
+                    f"Ik heb nog niets over '{topic}' opgeslagen.")
+        return content
+
+    # ---------------------------------------------------------------- healer
+    async def _wave4_heal(self, text: str, dutch: bool) -> Optional[str]:
+        """Suggest a corrected second try after a logged failure."""
+        from core import healer
+        lowered = " ".join((text or "").lower().split())
+        retry = bool(re.search(
+            r"\b(try that again|try again|retry|probeer (het )?opnieuw|"
+            r"nog eens|opnieuw)\b", lowered))
+        open_ask = bool(re.search(
+            r"\b(open that one|die andere|the closest match|instead)\b",
+            lowered))
+        if not (retry or open_ask):
+            return None
+        latest = await run_blocking(healer.latest, self.config)
+        if latest is None:
+            return None
+        if retry and not open_ask:
+            return ("Go ahead — repeat the request now that the cause is "
+                    "fixed and I will take it from there."
+                    if not dutch else
+                    "Ga je gang — herhaal je verzoek nu de oorzaak verholpen "
+                    "is en ik pak het op.")
+        suggestion = await run_blocking(
+            healer.advice, self.config, latest, "nl" if dutch else "en"
+        )
+        if suggestion is None:
+            return None
+        # Only claim when the user is still pointing at the same target.
+        failed_path = await run_blocking(
+            healer.referenced_path, str(latest.get("text", ""))
+        )
+        current_path = await run_blocking(
+            healer.referenced_path, text
+        )
+        if current_path is not None and current_path.exists():
+            return None  # the target exists again — normal paths handle it
+        if current_path is None or (
+                failed_path is not None
+                and current_path.name != failed_path.name
+                and not open_ask):
+            return None
+        return suggestion
+
+    # ----------------------------------------------------------------- recap
+    async def _wave4_recap(self, text: str, dutch: bool) -> Optional[str]:
+        """Short end-of-day recap, newest first, fully offline."""
+        from core import recap as recap_module
+        lowered = " ".join((text or "").lower().split())
+        if not any(phrase in lowered for phrase in (
+            "recap my day", "day recap", "recap today", "recap the day",
+            "how was my day", "wat heb ik vandaag gedaan", "dagoverzicht",
+            "hoe was mijn dag", "vat mijn dag samen", "einde van de dag",
+            "end of day recap",
+        )):
+            return None
+        content = await run_blocking(
+            recap_module.recap, self.config, "nl" if dutch else "en"
+        )
+        if not content or not content.strip():
+            return ("Nothing recorded today — a quiet day."
+                    if not dutch else
+                    "Vandaag niets vastgelegd — een rustige dag.")
+        return content
+
+    # ----------------------------------------------------------------- vault
+    async def _wave4_vault(self, text: str, dutch: bool) -> Optional[str]:
+        """Local-only secret vault: remember / what is / forget."""
+        from core import vault as vault_module
+        lowered = " ".join((text or "").lower().split())
+        # Secrets we should not steal from the identity/memory handlers.
+        guarded = ("name", "naam", "favorite color", "favourite colour",
+                   "lievelingskleur", "birthday", "verjaardag", "email",
+                   "e-mail", "address", "adres", "phone", "telefoon",
+                   "number", "nummer")
+        secret = None
+        value = None
+        action = None
+        # Words that reveal a *secret* is meant rather than an ordinary fact
+        # ("where is my bike?" must never hit the vault).
+        secret_vibe = bool(re.search(
+            r"\b(password|wachtwoord|code|pin|pincode|key|sleutel|secret|"
+            r"geheim|login|account|wifi|creditcard|rekeningnummer|"
+            r"wifi-wachtwoord)\b", lowered))
+        # store: "remember my wifi password is hunter2" (or without the value)
+        if re.search(r"\b(remember|onthoud|bewaar)\b", lowered):
+            match = re.search(
+                r"\b(?:remember|onthoud|bewaar)\s+(?:that\s+)?"
+                r"(?:the\s+|de\s+|het\s+)?(?:my\s+|mijn\s+)?"
+                r"([a-z0-9 .\-_]+?)\s+(?:is|=)\s+(.+?)\s*$", text, re.I)
+            if match:
+                action, secret, value = (
+                    "store", match.group(1).strip().lower(),
+                    match.group(2).strip(),
+                )
+            else:
+                match = re.search(
+                    r"\b(?:remember|onthoud|bewaar)\s+(?:that\s+)?"
+                    r"(?:the\s+|de\s+|het\s+)?(?:my\s+|mijn\s+)?"
+                    r"([a-z0-9 .\-_]+?)\s*$", text, re.I)
+                if match and secret_vibe:
+                    action, secret = (
+                        "store", match.group(1).strip().lower(),
+                    )
+        # get: "what is my wifi password" / "wat is mijn wifi wachtwoord"
+        if action is None:
+            match = re.search(
+                r"\b(?:what is|what's|whats|wat is|waar is)\s+"
+                r"(?:the\s+|de\s+|het\s+)?(?:my\s+|mijn\s+)?"
+                r"([a-z0-9 .\-_]+?)\s*\??$", text, re.I)
+            if match:
+                action, secret = "get", match.group(1).strip().lower()
+        # forget: "forget the wifi password" / "vergeet het wifi wachtwoord"
+        if action is None:
+            match = re.search(
+                r"\b(?:forget|vergeet|remove|verwijder)\s+"
+                r"(?:the\s+|de\s+|het\s+)?(?:my\s+|mijn\s+)?"
+                r"([a-z0-9 .\-_]+?)\s*\??$", text, re.I)
+            if match:
+                action, secret = "forget", match.group(1).strip().lower()
+        if secret is None or secret in guarded or secret in {
+                "it", "dit", "dat", "that", "this", "them", "everything",
+                "alles", "all", "al"}:
+            return None
+        known = vault_module.get(self.config, secret) is not None
+        if action == "forget":
+            if not known and not secret_vibe:
+                return None
+            removed = vault_module.forget(self.config, secret)
+            if removed:
+                return (f"Forgotten: {secret}. It is gone from the vault file."
+                        if not dutch else
+                        f"Vergeten: {secret}. Weg uit het kluisbestand.")
+            return (f"I don't keep a '{secret}' — say 'remember my {secret} "
+                    "is …' to store it." if not dutch else
+                    f"Ik bewaar geen '{secret}' — zeg 'onthoud mijn {secret} "
+                    "is …' om hem op te slaan.")
+        if action == "get":
+            found = vault_module.get(self.config, secret)
+            if found is None:
+                if not secret_vibe:
+                    return None  # ordinary knowledge question — not ours
+                return (f"I don't know the {secret} yet — say 'remember my "
+                        f"{secret} is …' and I'll keep it in the vault."
+                        if not dutch else
+                        f"Ik weet de {secret} nog niet — zeg 'onthoud mijn "
+                        f"{secret} is …' en ik bewaar hem in het kluisje.")
+            return (f"Your {secret} is {found}." if not dutch
+                    else f"Je {secret} is {found}.")
+        # store, possibly missing the actual value.
+        if value is None:
+            if not secret_vibe:
+                return None  # a memory line ("remember that I …") — not ours
+            return (f"What is the {secret}? Tell me 'remember my {secret} "
+                    "is …'." if not dutch else
+                    f"Wat is de {secret}? Zeg me 'onthoud mijn {secret} is …'.")
+        vault_module.store(self.config, secret, value)
+        return (f"Remembered your {secret}. It lives only in the vault file "
+                "on this machine — not in notes or logs."
+                if not dutch else
+                f"Onthouden: je {secret}. Dit staat alleen in het "
+                "kluisbestand op deze machine — niet in notities of logs.")
 
     # --------------------------------------------------------- follow-up state
     async def _resolve_pending(self, text: str) -> Optional[str]:

@@ -12,12 +12,15 @@ and marked with `·`; methods the intent router can call are marked
 - [`main.py`](#mainpy) — 26
 - [`install.py`](#installpy) — 56
 - [`core/autopilot.py`](#coreautopilotpy) — 4
-- [`core/brain.py`](#corebrainpy) — 117
+- [`core/brain.py`](#corebrainpy) — 129
+- [`core/bulk.py`](#corebulkpy) — 8
 - [`core/coach.py`](#corecoachpy) — 3
 - [`core/config.py`](#coreconfigpy) — 29
 - [`core/corrections.py`](#corecorrectionspy) — 1
+- [`core/dossier.py`](#coredossierpy) — 4
 - [`core/event_bus.py`](#coreevent_buspy) — 13
 - [`core/failures.py`](#corefailurespy) — 4
+- [`core/healer.py`](#corehealerpy) — 4
 - [`core/health.py`](#corehealthpy) — 11
 - [`core/intent_router.py`](#coreintent_routerpy) — 8
 - [`core/journal.py`](#corejournalpy) — 10
@@ -28,11 +31,13 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/planner.py`](#coreplannerpy) — 9
 - [`core/preferences.py`](#corepreferencespy) — 14
 - [`core/projects.py`](#coreprojectspy) — 15
+- [`core/recap.py`](#corerecappy) — 3
 - [`core/rules.py`](#corerulespy) — 13
 - [`core/smalltalk.py`](#coresmalltalkpy) — 9
 - [`core/threads.py`](#corethreadspy) — 15
 - [`core/toolcraft.py`](#coretoolcraftpy) — 4
 - [`core/unified_search.py`](#coreunified_searchpy) — 12
+- [`core/vault.py`](#corevaultpy) — 11
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
 - [`interfaces/web.py`](#interfaceswebpy) — 53
@@ -100,6 +105,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
 - [`tests/test_wave2_features.py`](#teststest_wave2_featurespy) — 17
 - [`tests/test_wave3_features.py`](#teststest_wave3_featurespy) — 16
+- [`tests/test_wave4_features.py`](#teststest_wave4_featurespy) — 20
 - [`tests/test_web.py`](#teststest_webpy) — 65
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/eval_function_calling.py`](#scriptseval_function_callingpy) — 5
@@ -221,7 +227,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*117 functions*
+*129 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
@@ -339,6 +345,18 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _boot_routine_answer(self, text: str) -> Optional[str]` — Answer the boot-routine question from the stored routine.
 - `async def boot_routine(self) -> str` — Run the configured boot routine once, when out of quiet hours.
 - `def _record_tool(self, reference: str, params: Dict[str, Any], result: ModuleResult) -> None` — Remember one tool call so the next turn can say "that one".
+- `async def _wave4_dispatch(self, text: str) -> Optional[str]` — Route the deterministic wave-4 features, newest hooks first.
+- `def _bulk_parts(text: str) -> Optional[Dict[str, Any]]` *staticmethod* — Classify a bulk command into (op, scope, project, everything).
+- `def _bulk_preview(self, parts: Dict[str, Any], count: int, rows: List[str], dutch: bool) -> str` — Human wording for a preview / confirmation / result.
+- `def _bulk_done(self, parts: Dict[str, Any], count: int, dutch: bool) -> str` — Wording for an applied bulk action.
+- `def _bulk_none(self, parts: Dict[str, Any], dutch: bool) -> str` — Wording when a bulk action matches nothing.
+- `def _wave4_pending_bulk(self, text: str, dutch: bool) -> Optional[str]` — Resolve a yes/no/preview answer to an offered bulk preview.
+- `def _run_bulk(self, parts: Dict[str, Any], dry_run: bool) -> Dict[str, Any]` — Run one classified bulk action against the local database.
+- `async def _wave4_bulk(self, text: str, dutch: bool) -> Optional[str]` — Preview-and-apply bulk actions (complete/delete/snooze).
+- `async def _wave4_dossier(self, text: str, dutch: bool) -> Optional[str]` — Assemble the compact 'fill me in on X' brief.
+- `async def _wave4_heal(self, text: str, dutch: bool) -> Optional[str]` — Suggest a corrected second try after a logged failure.
+- `async def _wave4_recap(self, text: str, dutch: bool) -> Optional[str]` — Short end-of-day recap, newest first, fully offline.
+- `async def _wave4_vault(self, text: str, dutch: bool) -> Optional[str]` — Local-only secret vault: remember / what is / forget.
 - `async def _resolve_pending(self, text: str) -> Optional[str]` — Handle a yes/no answer to a previously offered action.
 - `async def _status(self, message: str) -> None` — Emit a spoken/printed progress update if a hook is installed.
 - `async def _handle_memory_intent(self, text: str, memory_context: str) -> str` — Store, recall or forget memories based on natural phrasing.
@@ -351,6 +369,21 @@ and marked with `·`; methods the intent router can call are marked
 - `async def morning_brief(self, timeout: float = 25.0) -> str` — Assemble the day's briefing from the productivity module.
 - `async def status_report(self) -> Dict[str, Any]` — Collect a full status snapshot for the CLI ``status`` command.
 - `def speakable(self, text: str) -> str` — Strip markdown so the TTS engine reads clean prose.
+
+## `core/bulk.py`
+
+*8 functions*
+
+> Bulk & batch actions across the productivity stores.
+
+- `def _connect(config: Any) -> sqlite3.Connection`
+- `def _tag_like(project: str) -> str`
+- `def _ensure_schema(config: Any) -> None` — Make sure the tables and their tags column exist before any query.
+- `def complete_todos(config: Any, project: str = '', everything: bool = False, dry_run: bool = True) -> Dict[str, Any]` — Mark open todos done (optionally only those tagged with a project).
+- `def delete_rows(config: Any, table: str, project: str = '', everything: bool = False, done_only: bool = False, dry_run: bool = True) -> Dict[str, Any]` — Delete todos/reminders/notes, filtered by project tag or everything.
+- `def snooze_reminders(config: Any, project: str = '', everything: bool = False, until: Optional[str] = None, dry_run: bool = True) -> Dict[str, Any]` — Push unfired reminders to a later due time (default tomorrow 09:00).
+- `def _act(config: Any, table: str, action: str, where: str, params: List[Any], stamp: str, dry_run: bool) -> Dict[str, Any]` — Shared worker: preview or apply one bulk action.
+- `def _primary(connection: sqlite3.Connection, table: str) -> str` — The rowid-based primary key of a table (works for all three).
 
 ## `core/coach.py`
 
@@ -413,6 +446,16 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def parse(text: Optional[str]) -> Optional[str]` — Recognise one standing correction and normalise it into a rule.
 
+## `core/dossier.py`
+
+*4 functions*
+
+> Topic dossiers — "catch me up on X" from everything JARVIS knows.
+
+- `def _tokens(topic: str) -> List[str]`
+- `def _scan_sqlite(db_path: Any, tokens: List[str]) -> Dict[str, List[Dict[str, str]]]` — Facts and notes that mention the topic.
+- `def dossier(config: Any, topic: str, language: str = 'en', limit: int = 5) -> Optional[str]` — Build the "fill me in on X" brief.
+
 ## `core/event_bus.py`
 
 *13 functions*
@@ -448,6 +491,17 @@ and marked with `·`; methods the intent router can call are marked
 - `def note_failure(config: Any, text: str, error: str, module: str = '') -> None` — Append one failure record.
 - `def recent(config: Any, limit: int = _SUMMARY_LIMIT) -> List[Dict[str, Any]]` — The newest failure records, oldest first within the returned slice.
 - `def summary(config: Any, limit: int = _SUMMARY_LIMIT) -> Optional[str]` — A short spoken-friendly diagnosis of recent failures.
+
+## `core/healer.py`
+
+*4 functions*
+
+> Self-healing retries — turn logged failures into corrected second tries.
+
+- `def latest(config: Any) -> Optional[dict]` — The most recent failure record, if any.
+- `def referenced_path(text: str) -> Optional[Path]` — The file/folder a failed request was about, when it named one.
+- `def candidates(config: Any, failure: dict, max_results: int = 3) -> List[str]` — Similar files/folders near the path a failed request named.
+- `def advice(config: Any, failure: dict, language: str = 'en') -> Optional[str]` — One human suggestion for what to try next after a failure.
 
 ## `core/health.py`
 
@@ -711,6 +765,16 @@ and marked with `·`; methods the intent router can call are marked
 - `def tag_new_rows(config: Any, project: str = '') -> int` — Tag rows created since the last pass with a project context.
 - `def project_overview(config: Any, name: str, limit: int = 8) -> Dict[str, List[Dict[str, str]]]` — Open items of one project, grouped by store.
 
+## `core/recap.py`
+
+*3 functions*
+
+> End-of-day recap — what *you* got done today.
+
+- `def _day_bounds(now: Optional[datetime] = None) -> tuple[str, str]`
+- `def recap(config: Any, language: str = 'en', now: Optional[datetime] = None) -> str` — Build the day recap.
+- `def _overdue_reminders(config: Any, moment: datetime) -> List[Dict[str, Any]]` — Unfired reminders whose due moment has passed.
+
 ## `core/rules.py`
 
 *13 functions*
@@ -797,6 +861,24 @@ and marked with `·`; methods the intent router can call are marked
 - `def render(hits: List[Dict[str, str]], language: str = 'en') -> str` — Format hits into a grouped, spoken-friendly answer.
   · `def header(source: str) -> str`
 - `def json_dump(hits: List[Dict[str, str]]) -> str` — JSON form for callers that want structured output.
+
+## `core/vault.py`
+
+*11 functions*
+
+> Local secret vault — codes you do not want in plain notes.
+
+- `def _path(config: Any) -> Path`
+- `def _key(config: Any) -> bytes`
+- `def _scramble(value: str, key: bytes) -> str`
+- `def _unscramble(blob: str, key: bytes) -> Optional[str]`
+- `def store(config: Any, name: str, value: str) -> str` — Put one secret in the vault (overwrites an existing entry).
+- `def get(config: Any, name: str) -> Optional[str]` — Read a secret back, or ``None`` when it is not in the vault.
+- `def forget(config: Any, name: str) -> bool` — Remove a secret from the vault.
+- `def labels(config: Any) -> List[str]` — The vault's entry labels (never their values).
+- `def _label(name: str) -> str`
+- `def _load(config: Any) -> Dict[str, Any]`
+- `def _save(config: Any, state: Dict[str, Any]) -> None`
 
 ## `interfaces/cli.py`
 
@@ -3015,6 +3097,33 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_projects_tag_only_future_rows(config)`
 - `def test_projects_flow_overview_beats_thread_list(brain)`
 
+## `tests/test_wave4_features.py`
+
+*20 functions*
+
+> The five follow-up capabilities (round 4), all verifiable with no LLM.
+
+- `def _fresh(factory: pytest.TempPathFactory) -> Brain`
+- `def brain(tmp_path_factory: pytest.TempPathFactory) -> Brain` — A clean offline brain per test.
+- `def _ensure_db(config) -> Path` — Create the canonical schema (plus facts) through the modules' own code.
+- `def _insert_todos(config, names: list[str], tag: str = 'bike', done: bool = False) -> None`
+- `def test_bulk_preview_then_apply_completes_project_todos(brain)`
+- `def test_bulk_delete_rows_removes_only_matching_scope(brain)`
+- `def test_bulk_snooze_reminders_moves_unfired_to_next_morning(brain)`
+- `def test_bulk_migrates_legacy_database_without_tags_column(tmp_path)`
+- `def test_brain_bulk_previews_many_rows_then_applies_on_yes(brain)`
+- `def test_brain_bulk_small_changes_apply_directly_and_report_counts(brain)`
+- `def test_dossier_assembles_brief_from_own_stores(brain)`
+- `def test_dossier_returns_none_when_topic_unknown_or_filler(brain)`
+- `def test_brain_dossier_nl_and_en(brain)`
+- `def test_healer_finds_closest_file_after_moved_target(brain, tmp_path)`
+- `def test_brain_try_that_again_after_failure(brain)`
+- `def test_recap_tallies_today_across_stores(brain)`
+- `def test_brain_recap_nl_phrase(brain)`
+- `def test_vault_roundtrip_local_obfuscated_file(brain)`
+- `def test_brain_vault_store_get_forget(brain)`
+- `def test_brain_vault_nl_and_identity_guard(brain)`
+
 ## `tests/test_web.py`
 
 *65 functions*
@@ -3147,5 +3256,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**2173 functions across 96 files.**
+**2235 functions across 102 files.**
 
