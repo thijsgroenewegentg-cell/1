@@ -3451,7 +3451,11 @@ class Brain:
         Returns:
             The help text to show and speak.
         """
-        lines: List[str] = [f"Here's what I can do, {self.config.user_address()}:"]
+        dutch = self.current_language() == "nl"
+        if dutch:
+            lines: List[str] = [f"Hier is wat ik kan, {self.config.user_address()}:"]
+        else:
+            lines = [f"Here's what I can do, {self.config.user_address()}:"]
         for name in sorted(self.modules):
             module = self.modules[name]
             description = (getattr(module, "description", "") or "").strip()
@@ -3462,12 +3466,56 @@ class Brain:
                 example = truncate(str(examples[0]).strip(), 60)
             line = f"• {name}" + (f" — {desc}" if desc else "")
             if example:
-                line += f' (try: "{example}")'
+                line += (f" (probeer: \"{example}\")" if dutch
+                         else f' (try: "{example}")')
             lines.append(line)
-        lines.append(
-            "I also remember long-term facts, answer from your files, and hold "
-            "macros: say 'when I say X, do Y' to teach me a fixed command."
-        )
+        if dutch:
+            lines.append(
+                "Ik onthoud ook feiten voor de lange termijn, beantwoord "
+                "vragen uit je bestanden en ken macro's: zeg 'wanneer ik X "
+                "zeg, doe Y' om een vaste opdracht te leren."
+            )
+            lines.append("En vijf extra's die direct werken:")
+            lines.append("• Bulkacties — 'vink alles af in het "
+                "fietsproject', 'verwijder elke taak met tag X', 'stel alle "
+                "herinneringen uit tot morgen'. Eerst een voorvertoning "
+                "zodra er meer dan een paar rijen veranderen.")
+            lines.append("• Topic-dossiers — 'brief me over X' maakt een "
+                "compact dossier uit dagboek, feiten, notities en "
+                "openstaande beloftes.")
+            lines.append("• Zelfherstellende retries — na een mislukte "
+                "actie stel ik de meest gelijkende bestanden voor; zeg "
+                "'probeer opnieuw' zodra de oorzaak verholpen is.")
+            lines.append("• Dagoverzicht — 'wat heb ik vandaag gedaan' "
+                "geeft de avondsamenvatting.")
+            lines.append("• Lokaal kluisje — 'onthoud mijn wifi-wachtwoord "
+                "is …', 'wat is mijn wifi-wachtwoord', 'vergeet het "
+                "wifi-wachtwoord'. Geheimen staan alleen in een klein "
+                "versleuteld bestand op deze machine — nooit in notities, "
+                "logs of de cloud.")
+        else:
+            lines.append(
+                "I also remember long-term facts, answer from your files, "
+                "and hold macros: say 'when I say X, do Y' to teach me a "
+                "fixed command."
+            )
+            lines.append("Plus five instant extras:")
+            lines.append("• Bulk actions — 'tick off everything in the bike "
+                "project', 'delete every todo tagged X', 'snooze all "
+                "reminders until tomorrow'. A preview appears first "
+                "whenever more than a few rows are affected.")
+            lines.append("• Topic dossiers — 'fill me in on X' assembles a "
+                "compact brief from the journal, facts, notes and open "
+                "threads.")
+            lines.append("• Self-healing retries — after a failed action I "
+                "suggest the closest file or folder; say 'try that again' "
+                "once you've fixed the cause.")
+            lines.append("• Day recap — 'recap my day' gives the evening "
+                "summary of what got done and what still dangles.")
+            lines.append("• Local vault — 'remember my wifi password is …', "
+                "'what's my wifi password', 'forget the wifi password'. "
+                "Secrets live only in a small obfuscated file on this "
+                "machine — never in notes, logs or the cloud.")
         return "\n".join(lines)
 
     # ------------------------------------------------------------ read-aloud

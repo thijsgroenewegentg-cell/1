@@ -790,6 +790,17 @@ body.degraded-open #toasts { top: 118px; }
 }
  .hl { background: rgba(239,68,68,0.18); outline: 1px solid rgba(239,68,68,0.40); border-radius: 4px; padding: 0 2px; }
 
+/* Suggestion chips — wave-4 examples shown until the first message is sent. */
+#chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
+  max-width: min(680px, 92vw); margin: 0 0 10px; }
+.chip { font-size: 12px; line-height: 1.4; color: var(--dim);
+  border: 1px solid var(--line); background: var(--glass); padding: 5px 11px;
+  border-radius: var(--r-sm); cursor: pointer;
+  transition: color .15s, border-color .15s, transform .15s; }
+.chip:hover { color: var(--live); border-color: rgba(var(--tint), .5);
+  transform: translateY(-1px); }
+body.talked #chips { display: none; }
+
 /* --- b/w + red theme overrides (user asked black/white with hints of red) --- */
 #brand{ border-color: rgba(255,255,255,.10) !important; }
 #brand span{ color:#fff !important; }
@@ -903,6 +914,13 @@ body.degraded-open #toasts { top: 118px; }
 <div id="rail" aria-live="polite"></div>
 
 <div id="dock">
+  <div id="chips" aria-label="Try asking">
+    <button class="chip" data-send="Recap my day">Recap my day</button>
+    <button class="chip" data-send="Wat heb ik vandaag gedaan">Wat heb ik vandaag gedaan</button>
+    <button class="chip" data-send="vink alles af in het fietsproject">vink alles af in het fietsproject</button>
+    <button class="chip" data-send="brief me over de verbouwing">brief me over de verbouwing</button>
+    <button class="chip" data-send="what's my wifi password">what's my wifi password</button>
+  </div>
   <div id="typed">
     <input id="input" placeholder="Type instead…" autocomplete="off" aria-label="Message">
     <button id="sendBtn" title="Send" aria-label="Send">↵</button>
@@ -2085,6 +2103,7 @@ function setBusy(value) {
 function send(text) {
   text = (text || "").trim();
   if (!text || busy) return;
+  document.body.classList.add("talked");  // hide the suggestion chips
   if (!socket || socket.readyState !== 1) { toast("Not connected yet.", true); return; }
   trace("me", escapeHtml(text));
   remember("me", text);
@@ -2390,6 +2409,11 @@ const QUICK = [
   { label: "How much disk space is left?", hint: "storage", kind: "ask" },
   { label: "What have you done that needed permission?", hint: "audit", kind: "ask" },
   { label: "Show me your own code map", hint: "self", kind: "ask" },
+  { label: "Recap my day", hint: "dagoverzicht · wat heb ik vandaag gedaan", kind: "ask" },
+  { label: "tick off everything in the bike project", hint: "bulk action · preview first", kind: "ask" },
+  { label: "brief me over de verbouwing", hint: "topic dossier · fill me in on X", kind: "ask" },
+  { label: "what's my wifi password", hint: "local vault · secret stays here", kind: "ask" },
+  { label: "try that again", hint: "self-healing retry after a failure", kind: "ask" },
 ];
 let options = [], cursor = 0, toolCache = null;
 
@@ -2450,6 +2474,12 @@ function runOption(index) {
   closePalette();
   send(item.label);
 }
+
+/* Suggestion chips next to the dock: click one to ask it verbatim. */
+document.addEventListener("click", (event) => {
+  const chip = event.target.closest && event.target.closest(".chip");
+  if (chip) send(chip.getAttribute("data-send") || chip.textContent.trim());
+});
 
 /* ------------------------------------------------------------- panels */
 function togglePanel(force) {
