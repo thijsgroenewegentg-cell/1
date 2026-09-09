@@ -11,22 +11,25 @@ and marked with `·`; methods the intent router can call are marked
 
 - [`main.py`](#mainpy) — 26
 - [`install.py`](#installpy) — 56
-- [`core/brain.py`](#corebrainpy) — 89
+- [`core/autopilot.py`](#coreautopilotpy) — 4
+- [`core/brain.py`](#corebrainpy) — 95
 - [`core/config.py`](#coreconfigpy) — 29
+- [`core/corrections.py`](#corecorrectionspy) — 1
 - [`core/event_bus.py`](#coreevent_buspy) — 13
+- [`core/failures.py`](#corefailurespy) — 4
 - [`core/health.py`](#corehealthpy) — 11
 - [`core/intent_router.py`](#coreintent_routerpy) — 8
-- [`core/journal.py`](#corejournalpy) — 9
+- [`core/journal.py`](#corejournalpy) — 10
 - [`core/macros.py`](#coremacrospy) — 11
 - [`core/memory.py`](#corememorypy) — 69
 - [`core/personality.py`](#corepersonalitypy) — 5
 - [`core/planner.py`](#coreplannerpy) — 9
-- [`core/preferences.py`](#corepreferencespy) — 12
+- [`core/preferences.py`](#corepreferencespy) — 14
 - [`core/smalltalk.py`](#coresmalltalkpy) — 8
 - [`core/toolcraft.py`](#coretoolcraftpy) — 4
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
-- [`interfaces/web.py`](#interfaceswebpy) — 52
+- [`interfaces/web.py`](#interfaceswebpy) — 53
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 36
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
@@ -82,6 +85,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_smart_assistant.py`](#teststest_smart_assistantpy) — 16
 - [`tests/test_smartness.py`](#teststest_smartnesspy) — 22
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
+- [`tests/test_super_smart.py`](#teststest_super_smartpy) — 15
 - [`tests/test_system_control.py`](#teststest_system_controlpy) — 16
 - [`tests/test_tool_registration.py`](#teststest_tool_registrationpy) — 6
 - [`tests/test_units.py`](#teststest_unitspy) — 96
@@ -196,9 +200,20 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def disable(cls) -> None` *classmethod* — Strip every escape sequence (used for dumb terminals and pipes).
 
+## `core/autopilot.py`
+
+*4 functions*
+
+> One-shot compound tasks — the cross-module autopilot.
+
+- `def _has_verb(segment: str) -> bool`
+- `def split(text: str) -> List[str]` — Split a request on step connectors.
+- `def build(brain: Any, text: str) -> Optional[List[Tuple[str, str]]]` — Turn a compound request into an ordered plan of ``(module, step)``.
+- `def render(steps: List[Tuple[str, str]], replies: List[str]) -> str` — Format an executed plan into a single summary reply.
+
 ## `core/brain.py`
 
-*89 functions*
+*95 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
@@ -236,6 +251,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def _handle_name_line(self, text: str) -> Optional[str]` — Learn an introduction or answer a name question, offline included.
 - `def _is_recall_question(text: str) -> bool` *staticmethod* — Whether the utterance asks to pull a stored fact back out.
 - `async def _offline_fact_recall(self, text: str) -> Optional[str]` — Answer a stored-fact question without the model, when possible.
+- `def _handle_correction(self, text: str) -> Optional[str]` — Store a standing correction, or list the ones already learned.
+- `async def _record_failure(self, text: str, error: str, module: str = '') -> None` — Append one failure to the durable log (never raises).
+- `async def _failure_report(self, text: str) -> Optional[str]` — Answer a what-went-wrong question from the durable failure log.
+- `def _friendly_stamp(day: str, ts: str) -> str` *staticmethod* — Render a journal day as 'Wednesday 9 September'.
+- `async def _past_recall(self, text: str) -> Optional[str]` — Answer a what-did-I-say-about-X question with journal receipts.
+- `async def _autopilot_run(self, text: str) -> Optional[str]` — Execute a compound request across modules in one pass.
 - `async def initialize(self) -> None` — Boot the LLM connection, memory and every enabled module.
 - `async def _load_modules(self) -> None` — Import and instantiate the modules enabled in config.yaml.
 - `async def _load_plugins(self) -> None` — Load generated skill adapters from the plugins directory.
@@ -344,6 +365,14 @@ and marked with `·`; methods the intent router can call are marked
 
 *(no methods)*
 
+## `core/corrections.py`
+
+*1 functions*
+
+> Turn the user's corrections into durable standing rules.
+
+- `def parse(text: Optional[str]) -> Optional[str]` — Recognise one standing correction and normalise it into a rule.
+
 ## `core/event_bus.py`
 
 *13 functions*
@@ -368,6 +397,17 @@ and marked with `·`; methods the intent router can call are marked
 - `def recent(self, name: str = '', limit: int = 20) -> List[Event]` — Return the most recent events, newest last.
 - `def clear(self) -> None` — Forget the history (handlers stay subscribed).
 - `async def close(self) -> None` — Wait for any fire-and-forget deliveries still in flight.
+
+## `core/failures.py`
+
+*4 functions*
+
+> A compact, durable record of JARVIS's own stumbles.
+
+- `def _failures_path(config: Any) -> Path` — The JSON-lines file, stored beside the session journal.
+- `def note_failure(config: Any, text: str, error: str, module: str = '') -> None` — Append one failure record.
+- `def recent(config: Any, limit: int = _SUMMARY_LIMIT) -> List[Dict[str, Any]]` — The newest failure records, oldest first within the returned slice.
+- `def summary(config: Any, limit: int = _SUMMARY_LIMIT) -> Optional[str]` — A short spoken-friendly diagnosis of recent failures.
 
 ## `core/health.py`
 
@@ -410,7 +450,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/journal.py`
 
-*9 functions*
+*10 functions*
 
 > A tiny, always-on session journal so JARVIS can answer "what were we doing?".
 
@@ -423,6 +463,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def day_before(day: str, delta: int = 1) -> str` — Return the date ``delta`` days before ``day``.
 - `def recap(config: Any, day: str, sample: int = 4) -> str` — Summarise one day of activity as a spoken sentence.
 - `def brief_line(config: Any, day: str) -> str` — A one-liner for the morning briefing about the previous day.
+- `def search(config: Any, topic: str, limit: int = 5) -> List[Dict[str, Any]]` — Find journal entries mentioning a topic, newest first.
 
 ## `core/macros.py`
 
@@ -576,7 +617,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/preferences.py`
 
-*12 functions*
+*14 functions*
 
 > Durable habits JARVIS learns from completed interactions.
 
@@ -589,6 +630,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def save(self) -> None` — Persist to disk, tolerating an unwritable location.
 - `def learn_user_name(self, name: str) -> None` — Remember the user's name durably (survives restarts).
 - `def user_name(self) -> str` — The name JARVIS has learned, or ``""`` when none was given yet.
+- `def learn_correction(self, rule: str) -> bool` — Store one standing correction, deduplicated and capped.
+- `def corrections(self, limit: int = MAX_CORRECTIONS) -> List[str]` — The stored standing corrections, newest first.
 - `def _preference_params(params: Dict[str, Any]) -> Dict[str, Any]` *staticmethod* — Keep only the params that plausibly encode a durable preference.
 - `def observe(self, reference: str, params: Dict[str, Any]) -> None` — Record one successful tool call of ``reference`` with ``params``.
 - `def tool_counts(self) -> Dict[str, int]` — How many successful calls each tool has had.
@@ -765,7 +808,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*52 functions*
+*53 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
@@ -789,6 +832,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def _build_app(self) -> Any` — Construct the FastAPI application.
   · `def rendered_page() -> str` — Return the interface with its placeholders filled in.
   · `async def index(token: str = Query(default='')) -> Any` — Serve the chat page.
+  · `async def boot_page(token: str = Query(default='')) -> Any` — Serve the boot-up sequence page (shown inside the console).
   · `async def status(token: str = Query(default='')) -> Any` — Report assistant status and a greeting.
   · `async def dashboard(token: str = Query(default='')) -> Any` — Idle-home cards: tasks, reminders, weather, system, self-check.
   · `async def ask(request: Request, token: str = Query(default='')) -> Any` — Answer a single question over plain JSON (no streaming).
@@ -2512,6 +2556,28 @@ and marked with `·`; methods the intent router can call are marked
 - `async def main() -> int` — Run the whole suite and report.
 - `def test_everything() -> None` — Pytest entry point.
 
+## `tests/test_super_smart.py`
+
+*15 functions*
+
+> The four 'super smart' capabilities, all verifiable with no LLM.
+
+- `def _fresh(factory: pytest.TempPathFactory) -> Brain`
+- `def brain(tmp_path_factory: pytest.TempPathFactory) -> Brain` — A clean offline brain per test.
+- `def test_compound_request_runs_both_modules_offline(brain)`
+- `def test_autopilot_skips_same_module_compounds(brain)` — Two steps on one module stay single-module (existing path owns them).
+- `def test_autopilot_skips_chatty_compounds(brain)`
+- `def test_autopilot_plan_splitter_is_deterministic(brain)`
+- `def test_a_correction_is_stored_and_listed(brain)`
+- `def test_social_noise_is_never_stored(brain)`
+- `def test_duplicate_correction_is_reported(brain)`
+- `def test_corrections_reach_the_system_prompt(brain)`
+- `def test_a_logged_failure_is_answerable(brain)`
+- `def test_clean_bill_of_health_when_nothing_failed(brain)`
+- `def test_journal_receipts_answer_past_questions(brain)`
+- `def test_past_recall_with_nothing_on_file_is_honest(brain)`
+- `def test_time_anchored_questions_do_not_hijack(brain)`
+
 ## `tests/test_system_control.py`
 
 *16 functions*
@@ -2895,5 +2961,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**2022 functions across 84 files.**
+**2056 functions across 88 files.**
 

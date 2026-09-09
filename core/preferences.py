@@ -113,6 +113,45 @@ class Preferences:
         """
         return str(self._data.setdefault("profile", {}).get("user_name", "") or "")
 
+    #: How many standing corrections are kept before the oldest is dropped.
+    MAX_CORRECTIONS = 16
+
+    def learn_correction(self, rule: str) -> bool:
+        """Store one standing correction, deduplicated and capped.
+
+        Args:
+            rule: The normalised one-line rule (see :mod:`core.corrections`).
+
+        Returns:
+            True when the rule was newly added, False when it was a duplicate.
+        """
+        rule = (rule or "").strip()
+        if not rule:
+            return False
+        profile = self._data.setdefault("profile", {})
+        entries = profile.setdefault("corrections", [])
+        for entry in entries:
+            if str(entry.get("rule", "")).strip().lower() == rule.lower():
+                return False
+        entries.append({"rule": rule, "at": _now()})
+        if len(entries) > self.MAX_CORRECTIONS:
+            del entries[:-self.MAX_CORRECTIONS]
+        self.save()
+        return True
+
+    def corrections(self, limit: int = MAX_CORRECTIONS) -> List[str]:
+        """The stored standing corrections, newest first.
+
+        Args:
+            limit: How many to return.
+
+        Returns:
+            One-line rules as plain strings.
+        """
+        entries = list(self._data.setdefault("profile", {}).get("corrections", []))
+        entries.sort(key=lambda entry: str(entry.get("at", "")), reverse=True)
+        return [str(entry.get("rule", "")) for entry in entries[:limit]]
+
     # ------------------------------------------------------------ learning
     @staticmethod
     def _preference_params(params: Dict[str, Any]) -> Dict[str, Any]:

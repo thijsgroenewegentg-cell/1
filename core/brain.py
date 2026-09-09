@@ -847,6 +847,218 @@ class Brain:
         facts = " — ".join(str(hit.text) for hit in hits[:3])
         return f"From what you've told me: {facts}."
 
+    # ------------------------------------------------------ super-smart hooks
+    # Four deterministic capabilities that need no model: learning from
+    # corrections, mining his own failures, recall-with-receipts from the
+    # journal, and one-shot cross-module compound tasks (see
+    # :mod:`core.autopilot`). Each returns a ready reply or ``None`` so the
+    # normal classifier keeps full control when nothing matches.
+
+    def _handle_correction(self, text: str) -> Optional[str]:
+        """Store a standing correction, or list the ones already learned.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A ready reply, or ``None`` when this is not a correction turn.
+        """
+        from core import corrections as correction_parser
+
+        lowered = " ".join((text or "").lower().split())
+        listing = any(phrase in lowered for phrase in (
+            "what did i correct you about",
+            "what have you learned from my corrections",
+            "what have you learned from my feedback",
+            "what rules have i taught you",
+            "list my corrections",
+            "what have i told you to stop doing",
+        ))
+        if listing:
+            rules = self.preferences.corrections()
+            if not rules:
+                return (
+                    "You haven't corrected me yet — I've been on my best "
+                    "behaviour. Tell me what to do differently and I'll keep "
+                    "it on file."
+                )
+            return "Standing corrections you've taught me:\n" + "\n".join(
+                f"- {rule}" for rule in rules
+            )
+        rule = correction_parser.parse(text)
+        if rule is None:
+            return None
+        if not self.preferences.learn_correction(rule):
+            return (
+                f"Already on it — {rule.rstrip('.')} is already in my "
+                "standing orders."
+            )
+        return (
+            f"Understood — noted: {rule.rstrip('.')}. I'll follow that from "
+            "now on; correct me any time and I'll adjust."
+        )
+
+    async def _record_failure(self, *, text: str, error: str, module: str = "") -> None:
+        """Append one failure to the durable log (never raises)."""
+        from core import failures
+
+        try:
+            await run_blocking(
+                failures.note_failure, self.config, text=text, error=error,
+                module=module,
+            )
+        except Exception:  # pragma: no cover - best-effort bookkeeping
+            logger.debug("Failure record write failed: %s", error)
+
+    async def _failure_report(self, text: str) -> Optional[str]:
+        """Answer a what-went-wrong question from the durable failure log.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A spoken diagnosis, or ``None`` when this is not such a question.
+        """
+        from core import failures
+
+        lowered = " ".join((text or "").lower().split())
+        asks = any(phrase in lowered for phrase in (
+            "why did you fail", "what went wrong", "any errors lately",
+            "have you been failing", "have you been making mistakes",
+            "errors recently", "did you make any mistakes", "diagnose yourself",
+            "what have you gotten wrong", "what have you got wrong",
+        ))
+        if not asks:
+            return None
+        diagnosis = await run_blocking(failures.summary, self.config)
+        if not diagnosis:
+            return (
+                "Clean bill of health, sir — nothing on my failure log. "
+                "I've been behaving myself."
+            )
+        return diagnosis
+
+    @staticmethod
+    def _friendly_stamp(day: str, ts: str) -> str:
+        """Render a journal day as 'Wednesday 9 September'."""
+        raw = (day or (ts or "")[:10] or "").strip()
+        try:
+            moment = datetime.strptime(raw, "%Y-%m-%d")
+        except Exception:
+            return raw or "earlier"
+        return f"{moment:%A} {moment.day} {moment:%B}"
+
+    async def _past_recall(self, text: str) -> Optional[str]:
+        """Answer a what-did-I-say-about-X question with journal receipts.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A cited reply, or ``None`` when this is not such a question.
+        """
+        from core import journal
+
+        lowered = " ".join((text or "").lower().split())
+        triggers = (
+            "what did i say about", "what did i tell you about",
+            "what did i mention about", "what did i ask about",
+            "what did we talk about", "what have we talked about",
+            "what do i have on file about", "what do you have about",
+            "when did i last mention", "when did i last say",
+            "when did i talk about", "search the journal",
+            "search my journal", "search the history", "search our history",
+        )
+        if not any(trigger in lowered for trigger in triggers):
+            return None
+        match = (
+            re.search(r"\babout\s+(.+?)\s*[?.!]*$", text, re.IGNORECASE)
+            or re.search(
+                r"\bsearch\s+(?:the\s+|my\s+|our\s+)?"
+                r"(?:journal|history)\s+(?:for\s+)?(.+?)\s*[?.!]*$",
+                text, re.IGNORECASE,
+            )
+        )
+        if not match:
+            return None
+        topic = match.group(1).strip().strip('"\'')
+        if not topic or len(topic) > 90:
+            return None
+        time_only = {"yesterday", "today", "tonight", "recently", "earlier",
+                     "last week", "this week", "last night", "last time"}
+        first = topic.lower().rstrip(",").split()[0]
+        if first in time_only and len(topic.split()) <= 2:
+            return None  # time anchor but no real subject — let chat handle it
+
+        hits = await run_blocking(journal.search, self.config, topic, 5)
+        if hits:
+            lines = []
+            for index, entry in enumerate(hits):
+                when = self._friendly_stamp(
+                    str(entry.get("day", "")), str(entry.get("ts", ""))
+                )
+                said = str(entry.get("text", "")).strip()[:120]
+                answered = str(entry.get("response", "")).strip()[:90]
+                base = f'- {when}: you said "{said}"'
+                if answered and index < 2 and answered not in said:
+                    base += f' — and I answered "{answered}"'
+                lines.append(base)
+            return (
+                f"Here's what's on record about \"{topic}\":\n"
+                + "\n".join(lines)
+            )
+        # No journal entries: fall back to long-term memory facts.
+        if getattr(self.memory, "enabled", False):
+            try:
+                hits = await self.memory.recall(text, k=3, min_score=0.05)
+            except Exception:
+                hits = []
+            if hits:
+                facts = " — ".join(str(hit.text) for hit in hits[:3])
+                return (
+                    f"No journal entries mention \"{topic}\", but it is on "
+                    f"file: {facts}."
+                )
+        return (
+            f"Nothing on record about \"{topic}\" yet — I only know what "
+            "we've discussed or what you've asked me to remember."
+        )
+
+    async def _autopilot_run(self, text: str) -> Optional[str]:
+        """Execute a compound request across modules in one pass.
+
+        See :mod:`core.autopilot` for the splitter. Each step runs through
+        the normal planner (LLM when available, offline routers otherwise),
+        so existing tooling — confirmations, injection gates, macros — applies
+        to every step unchanged.
+
+        Args:
+            text: The user's request.
+
+        Returns:
+            The combined summary, or ``None`` when this is not a compound
+            request.
+        """
+        from core import autopilot
+
+        plan = autopilot.build(self, text)
+        if not plan:
+            return None
+        replies: List[str] = []
+        for module, segment in plan:
+            intent = Intent(module, 1.0, "autopilot step", method="autopilot")
+            try:
+                reply = await self.planner.run(segment, intent, "", None)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive
+                await self._record_failure(
+                    text=segment, error=str(exc), module=module
+                )
+                reply = f"The {module} step hit a snag: {exc}."
+            replies.append(str(reply or ""))
+        return autopilot.render(plan, replies)
+
     # ------------------------------------------------------------------ setup
     async def initialize(self) -> None:
         """Boot the LLM connection, memory and every enabled module."""
@@ -1470,6 +1682,13 @@ class Brain:
                 await self.events.publish(
                     "error.raised", source="brain", error=str(exc), text=text
                 )
+                # Keep a durable record so "what went wrong?" can be answered
+                # honestly later instead of guessed.
+                await self._record_failure(
+                    text=text,
+                    error=str(exc),
+                    module=self.last_intent.module if self.last_intent else "",
+                )
                 response = (
                     f"Something went sideways in my reasoning: {exc}. "
                     "I've logged it; try rephrasing and I'll behave."
@@ -1580,6 +1799,35 @@ class Brain:
             self.last_intent = Intent("conversation", 1.0, "boot routine info",
                                       method="boot-info")
             return boot_answer
+
+        # ---- super-smart deterministic hooks (all model-free) -------------
+        # Standing corrections ("use km, not miles") are learned durably and
+        # can be listed; failure questions read his own log; past questions
+        # are answered from the journal with dates; compound requests ("set a
+        # timer AND clean my downloads") run across modules in one pass.
+        correction_reply = self._handle_correction(text)
+        if correction_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "standing correction",
+                                      method="correction")
+            return correction_reply
+
+        failure_reply = await self._failure_report(text)
+        if failure_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "failure autopsy",
+                                      method="autopsy")
+            return failure_reply
+
+        past_reply = await self._past_recall(text)
+        if past_reply is not None:
+            self.last_intent = Intent("memory", 0.9, "journal past recall",
+                                      method="past-recall")
+            return past_reply
+
+        autopilot_reply = await self._autopilot_run(text)
+        if autopilot_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "compound task",
+                                      method="autopilot")
+            return autopilot_reply
 
         # Long-term recall and intent classification are independent, so run
         # them together: the embedding search hides behind the router round

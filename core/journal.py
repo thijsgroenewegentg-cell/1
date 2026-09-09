@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -233,10 +234,55 @@ def brief_line(config: Any, day: str) -> str:
     return line
 
 
+def search(config: Any, topic: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Find journal entries mentioning a topic, newest first.
+
+    Keyword search over the journal lines (user text and replies) — no model,
+    no vector store. Used to answer "what did I say about X?" with receipts.
+
+    Args:
+        config: Configuration holding ``assistant.journal_file``.
+        topic: What the user is asking about (a phrase or several words).
+        limit: Maximum entries to return.
+
+    Returns:
+        Matching entries (newest first), each a dict with ``ts``, ``day``,
+        ``module``, ``text`` and ``response``.
+    """
+    raw = (topic or "").strip().lower()
+    if not raw:
+        return []
+    # Stopwords add noise; only content words count as searchable tokens.
+    stop = {
+        "about", "and", "the", "that", "with", "from", "was", "were", "did",
+        "you", "your", "i", "my", "me", "we", "it", "is", "are", "on", "in",
+        "for", "of", "a", "an", "to", "have", "has", "had", "what", "when",
+        "say", "said", "tell", "told", "talked", "mention", "mentioned",
+        "remember", "do", "does", "this", "these", "those", "there", "not",
+    }
+    tokens = [word for word in re.findall(r"[a-z0-9']+", raw)
+              if word not in stop and len(word) > 2]
+    if not tokens:
+        return []
+
+    scored: List[tuple] = []
+    for entry in _load(config):
+        haystack = (
+            f"{entry.get('text', '')} {entry.get('response', '')}".lower()
+        )
+        hits = sum(1 for word in tokens if word in haystack)
+        if not hits:
+            continue
+        scored.append((hits, str(entry.get("ts", "")), entry))
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [entry for _hits, _ts, entry in scored[:limit]]
+
+
 __all__ = [
     "brief_line",
     "day_before",
     "events_on",
     "note_turn",
     "recap",
+    "search",
 ]

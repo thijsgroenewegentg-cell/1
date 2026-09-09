@@ -125,6 +125,14 @@ class Personality:
                     "(offer these first, keep following them until told otherwise):",
                     habits,
                 ]
+            corrections = learned.corrections()
+            if corrections:
+                lines += [
+                    "",
+                    f"Standing corrections {user_name} gave you — follow these "
+                    "until told otherwise:",
+                    "\n".join(f"- {rule}" for rule in corrections),
+                ]
         return "\n".join(lines)
 
     @staticmethod
