@@ -13,9 +13,11 @@ user:
 
 assistant:
   name: "JARVIS"
-  language: "en"                          # en, nl, de, fr, es, it, pt, pl, sv, …
-                                          #   picks the Whisper model, the TTS
-                                          #   voice and the reply language
+  language: "auto"                        # "auto" answers each message in the
+                                          #   language the user wrote it in
+                                          #   (detected offline); or pin it, e.g.
+                                          #   "nl" / "en" / "de" …  also picks
+                                          #   the Whisper model and the TTS voice
   personality: "witty"     # witty | professional | minimal
   sarcasm: 0.35            # 0.0 (dry) .. 1.0 (insufferable)
   greet_on_start: true

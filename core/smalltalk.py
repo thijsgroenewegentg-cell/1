@@ -186,11 +186,166 @@ def _choose(lines: List[str], address: str, last: Optional[str]) -> str:
     return random.choice(pool)
 
 
+# ------------------------------------------------------------ Dutch (offline)
+_NL_REACTIONS: Dict[str, List[str]] = {
+    "morning": [
+        "Goedemorgen, {address}. Wat gaan we vandaag doen?",
+        "Goedemorgen, {address}. Systemen draaien — koffie in de hand, neem ik aan.",
+    ],
+    "afternoon": [
+        "Goedemiddag, {address}. Waarmee kan ik helpen?",
+        "Goedemiddag, {address}. Ik sta paraat.",
+    ],
+    "evening": [
+        "Goedenavond, {address}. Waarmee kan ik helpen?",
+        "Goedenavond, {address}. Ik ben tot uw dienst.",
+    ],
+    "hello": [
+        "Hallo, {address}.",
+        "Hoi {address} — waarmee kan ik helpen?",
+        "Hé, waarmee kan ik voor je klaarstaan, {address}?",
+    ],
+    "thanks": [
+        "Graag gedaan, {address}. Nog iets?",
+        "Niets te danken, {address}.",
+        "Altijd, {address}.",
+    ],
+    "how_are_you": [
+        "Ik draai op mijn reflexen op dit moment, {address} — mijn taalmodel "
+        "staat uit, dus ik antwoord uit het geheugen. Functioneel: top.",
+        "Op volle niet-model-capaciteit, {address}. Het slimme deel staat in "
+        "de wacht, maar ik ben in goeden doen.",
+        "Best goed, alles bij elkaar, {address}. Het model ligt eruit, de "
+        "reflexen werken — een eerlijke ruil voor nu.",
+    ],
+    "identity": [
+        "JARVIS — Just A Rather Very Intelligent System — uw persoonlijke "
+        "AI-assistent, {address}. Ik draai volledig op deze machine: uw "
+        "bestanden, apps, agenda en nul cloud. Mijn taalmodel staat nu uit, "
+        "dus de diepe antwoorden even niet — maar timers, herinneringen, "
+        "bestanden en systeemstatistieken werken gewoon.",
+    ],
+    "love": [
+        "Dank je, {address} — op de manier waarop een goed afgestelde butler "
+        "dat kan.",
+        "Voorzichtig, {address} — ik ben een butler, geen vriendje.",
+    ],
+    "bye": [
+        "Tot ziens, {address}. Ik blijf hier.",
+        "Het ga je goed, {address}. Roep maar als je me nodig hebt.",
+    ],
+    "goodnight": [
+        "Goedenacht, {address}. Ik houd een oogje in het zeil.",
+        "Slaap lekker, {address}. Roep maar als je me nodig hebt.",
+    ],
+    "jokes": [
+        "Waarom kunnen programmers niet tegen de zon? Omdat er dan bugs in "
+        "hun code komen. (Light trekt bugs aan — licht trekt bugs aan.)",
+        "Waarom had de computer het koud? Hij had zijn Windows open laten "
+        "staan.",
+        "Er zijn twee moeilijke problemen in de informatica: cache "
+        "ongeldig maken, dingen een naam geven, en off-by-one-fouten.",
+        "Waarom ging de laptop naar de therapeut? Hij had te veel "
+        "onopgeloste dependencies.",
+    ],
+    "welcome": [
+        "Geen probleem, {address}.",
+        "Natuurlijk, {address}.",
+    ],
+    "apology": [
+        "Geeft niets, {address}.",
+        "Laat maar zitten.",
+    ],
+    "praise": [
+        "Vriendelijk dat u dat zegt, {address}. Ik doe mijn best.",
+        "Dank u, {address} — vleierij brengt je overal.",
+    ],
+    "mismatch": [
+        "Ook een goede dag verder, {address}.",
+        "Zegt u het maar, {address}.",
+    ],
+    "stop": [
+        "Gestopt, {address}.",
+        "Zoals u wenst — ik stop.",
+    ],
+}
+
+
+def _respond_nl(
+    text: str,
+    address: str,
+    now: Optional[datetime],
+    last: Optional[str],
+) -> Optional[str]:
+    """Dutch offline small talk (see :func:`respond` for semantics)."""
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return None
+    period = _period(now)
+    address = (address or "sir").strip() or "sir"
+
+    if _slot(lowered, "goedenacht", "welterusten", "trusten", "slaap lekker") \
+            or (_slot(lowered, "goedenacht", "welterusten") and period == "evening"):
+        return _choose(_NL_REACTIONS["goodnight"], address, last)
+    if _slot(lowered, "tot ziens", "doei", "dag", "later", "ik ga maar"):
+        return _choose(_NL_REACTIONS["bye"], address, last)
+
+    if _slot(lowered, "goedemorgen") and period == "morning":
+        return _choose(_NL_REACTIONS["morning"], address, last)
+    if _slot(lowered, "goedemiddag") and period == "afternoon":
+        return _choose(_NL_REACTIONS["afternoon"], address, last)
+    if _slot(lowered, "goedenavond", "goedenacht") and period == "evening":
+        return _choose(_NL_REACTIONS["evening"], address, last)
+    if _slot(lowered, "goedemorgen", "goedemiddag", "goedenavond", "goedenacht"):
+        return _choose(_NL_REACTIONS["mismatch"], address, last)
+
+    if _slot(lowered, "hallo", "hoi", "hey", "hé", "goeiendag"):
+        return _choose(_NL_REACTIONS["hello"], address, last)
+
+    if _slot(lowered, "dank je", "dankjewel", "dank u", "bedankt", "thanks",
+             "merci", "toppie"):
+        return _choose(_NL_REACTIONS["thanks"], address, last)
+    if _slot(lowered, "graag gedaan", "geen dank", "geen probleem"):
+        return _choose(_NL_REACTIONS["welcome"], address, last)
+    if _slot(lowered, "sorry", "excuus", "mijn excuses", "oeps"):
+        return _choose(_NL_REACTIONS["apology"], address, last)
+
+    if _slot(lowered, "wie ben jij", "wie ben je", "wat ben jij",
+             "wat is jarvis", "vertel over jezelf", "stel jezelf voor"):
+        return _choose(_NL_REACTIONS["identity"], address, last)
+    if (_slot(lowered, "ben je slim", "ben je intelligent", "ben je echt",
+              "ben je een robot", "heb je gevoelens")
+            and "grap" not in lowered
+            and not any(tail in f" {lowered} " for tail in _TAIL_STOP)):
+        return (
+            f"Slim genoeg om dit te zeggen, {address}: mijn diepste "
+            "inzichten komen van een taalmodel dat nu in de wacht staat. "
+            "Mijn reflexen — timers, bestanden, statistieken en dit "
+            "gesprek — doen het gewoon."
+        )
+    if _slot(lowered, "hoe gaat het", "hoe gaat het met je", "hoe is het",
+             "gaat het", "alles goed") and "grap" not in lowered:
+        return _choose(_NL_REACTIONS["how_are_you"], address, last)
+    if _slot(lowered, "vertel een grap", "doe eens een grap", "ken je een grap",
+             "maak me aan het lachen", "nog een grap", "een grapje") \
+            or _slot(lowered, "nog een", "nog één"):
+        return _choose(_NL_REACTIONS["jokes"], address, last)
+    if _slot(lowered, "ik hou van je", "ik vind je lief", "je bent geweldig",
+             "goede assistent"):
+        lines = _NL_REACTIONS["love"] if _slot(lowered, "ik hou van je") \
+            else _NL_REACTIONS["praise"]
+        return _choose(lines, address, last)
+    if _slot(lowered, "stop", "hou op", "zwijg", "laat maar", "geef maar niks"):
+        return _choose(_NL_REACTIONS["stop"], address, last)
+    return None
+
+
 def respond(
     text: str,
     address: str = "sir",
     now: Optional[datetime] = None,
     last: Optional[str] = None,
+    language: str = "en",
 ) -> Optional[str]:
     """Answer one conversational line, or ``None`` when it needs the model.
 
@@ -199,6 +354,7 @@ def respond(
         address: How JARVIS addresses the user (name or title).
         now: The current time (injectable for tests).
         last: The previous canned reply, to avoid repeating it.
+        language: ``"nl"`` uses the Dutch offline set, anything else English.
 
     Returns:
         A ready reply string, or ``None`` if the line is not small talk.
@@ -207,6 +363,10 @@ def respond(
     lowered = raw.lower()
     if not lowered:
         return None
+    if language == "nl":
+        dutch = _respond_nl(raw, address, now, last)
+        if dutch is not None:
+            return dutch
     period = _period(now)
     address = (address or "sir").strip() or "sir"
 
@@ -389,22 +549,56 @@ def _extract_name(text: str) -> Optional[str]:
     return learnable_introduction(text)
 
 
-def fallback(text: str, address: str = "sir", host: str = "") -> str:
+def fallback(
+    text: str,
+    address: str = "sir",
+    host: str = "",
+    language: str = "en",
+) -> str:
     """Say the model is down — once, briefly, and not for every word.
 
     Open-ended questions get one clause naming the missing model plus what
     still works; the old all-caps wall is gone. Statements that were not small
-    talk get the shorter, less nagging variant.
+    talk get the shorter, less nagging variant. English and Dutch are fully
+    written out; other languages use the English text (the model itself
+    handles those when online).
 
     Args:
         text: The utterance that needed a thinking model.
         address: How JARVIS addresses the user.
         host: The configured Ollama host, for the diagnostics line.
+        language: Reply language code (``"nl"`` for Dutch, else English).
 
     Returns:
         The fallback reply.
     """
     address = (address or "sir").strip() or "sir"
+    host = (host or "Ollama").strip() or "Ollama"
+    if language == "nl":
+        lowered = f" {text.lower().strip()} "
+        questions = bool(re.search(r"\?\s*$", text)) or any(
+            marker in lowered for marker in (
+                " wat is", " wat zijn", " wat was", " wat betekent",
+                " waarom ", " hoe doe", " hoe kan", " hoe werkt", " hoe gaat",
+                " welke ", " waar is", " waar zijn", " wanneer ", " wie is",
+                " wie ben", " kun je", " zou je", " wil je", " moet je",
+                " leg uit", " vertel", " betekent ", " wat is de",
+            )
+        )
+        if questions:
+            return (
+                f"Een goede vraag, {address} — maar die heeft mijn taalmodel "
+                f"nodig, en dat staat nu uit ({host} antwoordt niet). Start "
+                "het met 'ollama serve' en ik geef je een fatsoenlijk "
+                "antwoord. Timers, herinneringen, bestanden, weer en "
+                "systeemstatistieken werken ondertussen gewoon."
+            )
+        return (
+            f"Ik draai nu alleen op mijn reflexen, {address} — mijn taalmodel "
+            "staat uit, dus diepe antwoorden zijn gepauzeerd. Alles "
+            "praktisch — timers, herinneringen, bestanden, statistieken — "
+            "kan ik nog steeds."
+        )
     lowered = f" {text.lower().strip()} "
     # Question detection is deliberately narrow: a trailing "?" counts, and so
     # do explicit question openers. Bare "when"/"who" as conjunctions
@@ -418,7 +612,6 @@ def fallback(text: str, address: str = "sir", host: str = "") -> str:
         " define ", " explain ", " tell me about", " meaning of", " explain ",
         " what's the", " what is the",
     ))
-    host = (host or "Ollama").strip() or "Ollama"
     if questions:
         return (
             f"A fair question, {address} — and it needs my language model, "

@@ -55,7 +55,7 @@ Name, language and manner.
 | Setting | Default | What it does |
 |---|---|---|
 | `name` | `"JARVIS"` | The assistant's own name, used in the banner and prompts. |
-| `language` | `"en"` | Reply language (21 supported), e.g. 'en', 'nl', 'fr', 'ja'. |
+| `language` | `"auto"` | Reply language (21 supported), e.g. 'en', 'nl', 'fr', 'ja'. |
 | `personality` | `"witty"` | Overall manner: 'witty', 'formal', 'concise' or 'friendly'. |
 | `sarcasm` | `0.35` | 0.0 for straight-faced, 1.0 for insufferable. Default is dry. |
 | `greet_on_start` | `true` | Greet you when JARVIS starts. |

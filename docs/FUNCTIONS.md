@@ -12,7 +12,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`main.py`](#mainpy) — 26
 - [`install.py`](#installpy) — 56
 - [`core/autopilot.py`](#coreautopilotpy) — 4
-- [`core/brain.py`](#corebrainpy) — 95
+- [`core/brain.py`](#corebrainpy) — 105
 - [`core/config.py`](#coreconfigpy) — 29
 - [`core/corrections.py`](#corecorrectionspy) — 1
 - [`core/event_bus.py`](#coreevent_buspy) — 13
@@ -20,13 +20,16 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/health.py`](#corehealthpy) — 11
 - [`core/intent_router.py`](#coreintent_routerpy) — 8
 - [`core/journal.py`](#corejournalpy) — 10
+- [`core/language_detect.py`](#corelanguage_detectpy) — 3
 - [`core/macros.py`](#coremacrospy) — 11
 - [`core/memory.py`](#corememorypy) — 69
 - [`core/personality.py`](#corepersonalitypy) — 5
 - [`core/planner.py`](#coreplannerpy) — 9
 - [`core/preferences.py`](#corepreferencespy) — 14
-- [`core/smalltalk.py`](#coresmalltalkpy) — 8
+- [`core/smalltalk.py`](#coresmalltalkpy) — 9
+- [`core/threads.py`](#corethreadspy) — 8
 - [`core/toolcraft.py`](#coretoolcraftpy) — 4
+- [`core/unified_search.py`](#coreunified_searchpy) — 12
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
 - [`interfaces/web.py`](#interfaceswebpy) — 53
@@ -92,6 +95,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
 - [`tests/test_vision.py`](#teststest_visionpy) — 15
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
+- [`tests/test_wave2_features.py`](#teststest_wave2_featurespy) — 17
 - [`tests/test_web.py`](#teststest_webpy) — 65
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/eval_function_calling.py`](#scriptseval_function_callingpy) — 5
@@ -213,10 +217,11 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*95 functions*
+*105 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
+- `def _looks_dutch(text: str) -> bool` — Quick NL sniff used before classification (e.g. for name intros).
 - `def _compact(value: Any, depth: int = 0) -> Any` — Shrink a tool's data to something worth putting on a socket.
 
 ### `class OllamaClient` — Async client for a local Ollama server.
@@ -247,6 +252,8 @@ and marked with `·`; methods the intent router can call are marked
 ### `class Brain` — JARVIS's cognition: persona, routing, tool use and memory integration.
 
 - `def __init__(self, config: Config) -> None` — Build the brain and everything it owns.
+- `def _update_user_language(self, text: str) -> None` — Roll the detected language forward from one user utterance.
+- `def current_language(self) -> str` — The language JARVIS should reply in right now.
 - `def user_display_name(self) -> str` — The user's name: the configured one, or the name JARVIS learned.
 - `def _handle_name_line(self, text: str) -> Optional[str]` — Learn an introduction or answer a name question, offline included.
 - `def _is_recall_question(text: str) -> bool` *staticmethod* — Whether the utterance asks to pull a stored fact back out.
@@ -257,6 +264,13 @@ and marked with `·`; methods the intent router can call are marked
 - `def _friendly_stamp(day: str, ts: str) -> str` *staticmethod* — Render a journal day as 'Wednesday 9 September'.
 - `async def _past_recall(self, text: str) -> Optional[str]` — Answer a what-did-I-say-about-X question with journal receipts.
 - `async def _autopilot_run(self, text: str) -> Optional[str]` — Execute a compound request across modules in one pass.
+- `async def _handle_threads(self, text: str) -> Optional[str]` — List or close JARVIS's open threads (promises to come back).
+- `async def _note_thread_after_turn(self, request: str, response: str) -> None` — Store a thread when this turn's reply committed to a follow-up.
+- `def _brief_params(params: Any) -> str` *staticmethod*
+- `def _explain_last(self, text: str) -> Optional[str]` — Explain what JARVIS just did, step by step, from his own records.
+- `async def _self_review(self, text: str) -> Optional[str]` — A compact briefing about JARVIS himself, from stored data.
+- `def _search_topic(text: str) -> Optional[str]` *staticmethod* — Pull the topic out of a search-everything phrase.
+- `async def _unified_search(self, text: str) -> Optional[str]` — Search everything for the topic the user is trying to place.
 - `async def initialize(self) -> None` — Boot the LLM connection, memory and every enabled module.
 - `async def _load_modules(self) -> None` — Import and instantiate the modules enabled in config.yaml.
 - `async def _load_plugins(self) -> None` — Load generated skill adapters from the plugins directory.
@@ -465,6 +479,16 @@ and marked with `·`; methods the intent router can call are marked
 - `def brief_line(config: Any, day: str) -> str` — A one-liner for the morning briefing about the previous day.
 - `def search(config: Any, topic: str, limit: int = 5) -> List[Dict[str, Any]]` — Find journal entries mentioning a topic, newest first.
 
+## `core/language_detect.py`
+
+*3 functions*
+
+> Fast, offline detection of the language the user is writing in.
+
+- `def _tokens(text: str) -> List[str]`
+- `def detect_language(text: str, fallback: str = 'en') -> str` — Guess the language of ``text`` from stopword frequencies.
+- `def user_language(history: List[str], fallback: str = 'en') -> str` — The language of a short conversation window (last non-empty turns).
+
 ## `core/macros.py`
 
 *11 functions*
@@ -641,18 +665,34 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/smalltalk.py`
 
-*8 functions*
+*9 functions*
 
 > Offline conversational replies — JARVIS without the language model.
 
 - `def _slot(text: str, *keys: str) -> bool`
 - `def _period(now: Optional[datetime]) -> str`
 - `def _choose(lines: List[str], address: str, last: Optional[str]) -> str` — Format candidates and pick one, avoiding last turn's exact wording.
-- `def respond(text: str, address: str = 'sir', now: Optional[datetime] = None, last: Optional[str] = None) -> Optional[str]` — Answer one conversational line, or ``None`` when it needs the model.
+- `def _respond_nl(text: str, address: str, now: Optional[datetime], last: Optional[str]) -> Optional[str]` — Dutch offline small talk (see :func:`respond` for semantics).
+- `def respond(text: str, address: str = 'sir', now: Optional[datetime] = None, last: Optional[str] = None, language: str = 'en') -> Optional[str]` — Answer one conversational line, or ``None`` when it needs the model.
 - `def introduction(text: str) -> Optional[str]` — Extract a name from a self-contained introduction sentence.
 - `def learnable_introduction(text: str) -> Optional[str]` — Loose name extraction for the brain's learning hook.
 - `def _extract_name(text: str) -> Optional[str]` — Legacy loose alias used by :func:`respond`.
-- `def fallback(text: str, address: str = 'sir', host: str = '') -> str` — Say the model is down — once, briefly, and not for every word.
+- `def fallback(text: str, address: str = 'sir', host: str = '', language: str = 'en') -> str` — Say the model is down — once, briefly, and not for every word.
+
+## `core/threads.py`
+
+*8 functions*
+
+> Open threads — the loose ends JARVIS promised to come back to.
+
+- `def _path(config: Any) -> Path`
+- `def _now() -> str`
+- `def promises(response: str) -> List[str]` — Any promise phrase found in a reply (for tests and bookkeeping).
+- `def note_thread(config: Any, request: str, response: str, module: str = '', kind: str = 'promise') -> bool` — Store one open thread if the reply committed to a follow-up.
+- `def list_threads(config: Any, limit: int = 12) -> List[Dict[str, Any]]` — The newest open threads.
+- `def _matches(record: Dict[str, Any], needle: str) -> bool`
+- `def close_thread(config: Any, needle: str) -> Tuple[int, int]` — Close threads matching a number (1 = newest) or some text.
+- `def is_close_command(text: str) -> bool` — Whether an utterance reads as closing loose ends rather than a promise.
 
 ## `core/toolcraft.py`
 
@@ -664,6 +704,24 @@ and marked with `·`; methods the intent router can call are marked
 - `def module_guidance(module: str) -> str` — Return the usage notes for one module, or an empty string.
 - `def worked_examples(module: str, exclude_text: str = '', limit: int = 2) -> List[Tuple[str, str]]` — Pick few-shot demonstrations for the active module.
 - `def corpus_rows() -> List[Dict[str, Any]]` — Yield every corpus row (a copy, so callers may annotate it).
+
+## `core/unified_search.py`
+
+*12 functions*
+
+> One query, everything searched — offline.
+
+- `def _tokens(query: str) -> List[str]`
+- `def _day(ts: str) -> str`
+- `def _hit(source: str, when: str, text: str, detail: str = '') -> Dict[str, str]`
+- `def _scan_sqlite(db_path: Path, tokens: List[str]) -> List[Dict[str, str]]` — Match open todos, reminders, notes, facts and past conversations.
+- `def _scan_journal(config: Any, tokens: List[str]) -> List[Dict[str, str]]`
+- `def _scan_profile(brain: Any, tokens: List[str]) -> List[Dict[str, str]]`
+- `def _scan_macros(brain: Any, tokens: List[str]) -> List[Dict[str, str]]`
+- `def search_all(brain: Any, query: str) -> List[Dict[str, str]]` — Search every local source for ``query``.
+- `def render(hits: List[Dict[str, str]], language: str = 'en') -> str` — Format hits into a grouped, spoken-friendly answer.
+  · `def header(source: str) -> str`
+- `def json_dump(hits: List[Dict[str, str]]) -> str` — JSON form for callers that want structured output.
 
 ## `interfaces/cli.py`
 
@@ -2829,6 +2887,36 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_every_way_of_saying_off_is_understood(config, spelling)`
 - `def test_the_doctor_calls_a_disabled_wake_word_healthy(config, tmp_path)`
 
+## `tests/test_wave2_features.py`
+
+*17 functions*
+
+> The five follow-up capabilities, all verifiable with no LLM.
+
+- `def _fresh(factory: pytest.TempPathFactory) -> Brain`
+- `def brain(tmp_path_factory: pytest.TempPathFactory) -> Brain` — A clean offline brain per test.
+- `def _journal_path(config) -> Path`
+- `def test_threads_promises_dutch_and_english(config)`
+- `def test_thread_close_command_detection()`
+- `def test_promise_detection_regexes()`
+- `def test_unified_search_hits_every_source(config)`
+- `def test_language_detection()`
+- `def test_smalltalk_dutch_catalog_and_english_unharmed()`
+- `def test_dutch_thread_flow_review_and_search_offline(brain)`
+- `def test_explain_last_turn_with_and_without_tools(brain)`
+- `def test_no_offline_network_or_new_dependencies(brain)` — Hooks only read local files/DBs; nothing may phone home.
+
+### `class _Prefs`
+
+- `def user_name(self) -> str`
+- `def corrections(self) -> List[str]`
+- `def routines(self) -> List[Tuple[str, Dict[str, Any]]]`
+
+### `class _BrainStub` — Enough of a Brain for the pure store scans (no modules, no model).
+
+- `def __init__(self, config: Any) -> None`
+- `def current_language(self) -> str`
+
 ## `tests/test_web.py`
 
 *65 functions*
@@ -2961,5 +3049,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**2056 functions across 88 files.**
+**2107 functions across 92 files.**
 

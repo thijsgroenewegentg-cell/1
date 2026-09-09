@@ -99,7 +99,10 @@ class Personality:
                 "9. When genuinely useful, add one short proactive suggestion at the end."
             )
 
-        instruction = language_instruction(self.brain.config.get("assistant.language", "en"))
+        # Follow the user's language: a configured assistant.language wins;
+        # "auto" resolves to whatever the user has been writing in (see
+        # Brain.current_language / core.language_detect).
+        instruction = language_instruction(self.brain.current_language())
         if instruction:
             rules = sum(1 for line in lines if re.match(r"^\d+\. ", line))
             lines.append(f"{rules + 1}. {instruction}")
@@ -171,9 +174,12 @@ class Personality:
         # Address by the name the user introduced with when no title/name is
         # configured — "Good morning, Alice" beats "Good morning, sir".
         address = self.brain.user_display_name()
+        language = self.brain.current_language()
         from core import smalltalk
 
-        reply = smalltalk.respond(text, address=address, last=self._last_smalltalk)
+        reply = smalltalk.respond(
+            text, address=address, last=self._last_smalltalk, language=language
+        )
         if reply:
             self._last_smalltalk = reply
             return reply
@@ -181,6 +187,7 @@ class Personality:
             text,
             address=address,
             host=str(self.brain.llm.host),
+            language=language,
         )
 
 

@@ -56,6 +56,15 @@ from utils.helpers import (
 from utils.logger import get_logger
 from utils.security import RiskLevel, SecurityGuard, scan_untrusted, wrap_untrusted
 
+
+def _looks_dutch(text: str) -> bool:
+    """Quick NL sniff used before classification (e.g. for name intros)."""
+    lowered = (text or "").lower()
+    return any(word in lowered for word in (
+        "ik heet", "mijn naam", "heet ik", "noem me", "wat is mijn",
+        "hoe heet", "weet je", "ken je mijn",
+    ))
+
 #: Tool references that can change the world (used by the injection gate on top
 #: of the explicit ``dangerous=True`` flag).
 SENSITIVE_TOOL_PATTERN = re.compile(
@@ -676,6 +685,10 @@ class Brain:
         #: The user's most recent utterance, kept so "that"/"it" in the next
         #: one can point at it (short-term context store; see ``_context_hint``).
         self._current_user_text: str = ""
+        #: Rolling language the user writes in, detected per turn (model-free,
+        #: see :mod:`core.language_detect`). Empty until confidently detected;
+        #: :meth:`current_language` falls back to config or English.
+        self._user_language: str = ""
         #: Tool calls made while answering the current turn, in order. Used to
         #: resolve "that file" / "again, but slower" and to narrate macros.
         self._current_turn_tools: List[Dict[str, Any]] = []
@@ -684,7 +697,7 @@ class Brain:
         self.last_tools: List[Dict[str, Any]] = []
         #: Short echo of the last few completed turns (utterance, reply).
         self.turn_log: Deque[Dict[str, str]] = deque(maxlen=10)
-        self.last_turn: Dict[str, str] = {}
+        self.last_turn: Dict[str, Any] = {}
         #: The last non-empty text JARVIS itself spoke, so "again" can repeat
         #: the previous answer instead of guessing at the subject.
         self.last_response: str = ""
@@ -699,6 +712,37 @@ class Brain:
         self._macro_offered_for: Optional[str] = None
         #: An outstanding "want me to make that a macro?" offer.
         self._macro_offer: Optional[Dict[str, Any]] = None
+
+    # ------------------------------------------------------------- language
+    def _update_user_language(self, text: str) -> None:
+        """Roll the detected language forward from one user utterance."""
+        try:
+            from core.language_detect import detect_language
+
+            if not text or len(text.strip()) < 8:
+                return
+            code = detect_language(text, fallback=self._user_language or "en")
+            if code and code in {"nl", "en", "de", "fr", "es", "it"}:
+                self._user_language = code
+        except Exception:  # pragma: no cover - detection is best-effort
+            pass
+
+    def current_language(self) -> str:
+        """The language JARVIS should reply in right now.
+
+        A configured ``assistant.language`` wins. ``auto`` follows the
+        language detected from recent user turns (defaults to English until
+        something else is detected).
+
+        Returns:
+            A two-letter code such as ``"en"`` or ``"nl"``.
+        """
+        configured = str(
+            self.config.get("assistant.language", "auto") or "auto"
+        ).strip().lower()
+        if configured and configured != "auto":
+            return configured
+        return self._user_language or "en"
 
     # ------------------------------------------------------------- identity
     def user_display_name(self) -> str:
@@ -745,11 +789,34 @@ class Brain:
         raw = (text or "").strip()
         if not raw:
             return None
+        # Dutch introductions: "ik heet X", "mijn naam is X", "noem me X".
+        nl = self.current_language() == "nl" or _looks_dutch(raw)
+        nl_name = None
+        if nl:
+            import re as _re
+
+            first = _re.search(
+                r"\b(?:ik heet|mijn naam is|ik ben)\s+"
+                r"([A-Z][A-Za-z' -]{1,24})\s*[.!]?$", raw,
+            )
+            second = _re.search(
+                r"\bnoem me\s+(?:maar\s+)?([A-Z][A-Za-z' -]{1,24})\s*[.!]?$",
+                raw,
+            )
+            if first:
+                nl_name = first.group(1).strip()
+            elif second:
+                nl_name = second.group(1).strip()
         # Introductions first — a name is something to remember, not chat about.
-        name = smalltalk.learnable_introduction(raw)
+        name = smalltalk.learnable_introduction(raw) or nl_name
         if name:
             self.preferences.learn_user_name(name.split()[0].strip(".,;:!?"))
             display = self.user_display_name()
+            if nl:
+                return (
+                    f"Aangenaam, {name.split()[0]}. Ik noem je voortaan "
+                    f"{display} — en ik onthoud het, met of zonder taalmodel."
+                )
             return (
                 f"Pleased to meet you, {name.split()[0]}. I'll call you "
                 f"{display} from now on — and I'll remember, model or no model."
@@ -758,15 +825,25 @@ class Brain:
         name_question = (
             lowered in {"what's my name", "what is my name", "who am i",
                         "what do you call me", "do you remember my name",
-                        "do you know my name", "whats my name"}
+                        "do you know my name", "whats my name",
+                        "wat is mijn naam", "hoe heet ik", "wie ben ik",
+                        "weet je mijn naam", "ken je mijn naam"}
             or lowered.startswith("what's my name?")
             or lowered.startswith("do you know my name")
+            or lowered.startswith("weet je mijn naam")
         )
         if name_question:
             display = self.user_display_name()
             learned = self.preferences.user_name()
             if learned:
+                if nl:
+                    return f"Je heet {display}. Dat weet ik nog — je hebt het me zelf verteld."
                 return f"You're {display}. I remember — you told me yourself."
+            if nl:
+                return (
+                    "Je hebt me je naam nog niet verteld. Zeg 'ik heet …' en "
+                    "ik onthoud het — zelfs zonder taalmodel."
+                )
             if display and display.lower() not in {"sir", "user", "jarvis"}:
                 return f"You're {display}, if your configuration is to be believed."
             return (
@@ -1058,6 +1135,343 @@ class Brain:
                 reply = f"The {module} step hit a snag: {exc}."
             replies.append(str(reply or ""))
         return autopilot.render(plan, replies)
+
+    # ------------------------------------------------------ open threads
+    async def _handle_threads(self, text: str) -> Optional[str]:
+        """List or close JARVIS's open threads (promises to come back).
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A ready reply, or ``None`` when this is not a thread turn.
+        """
+        from core import threads
+
+        lowered = " ".join((text or "").lower().split())
+        listing = any(phrase in lowered for phrase in (
+            "what's still open", "what is still open", "what's outstanding",
+            "open threads", "what did you promise", "pending items",
+            "wat staat er nog open", "wat staat er open", "wat stond er open",
+            "welke beloftes", "wat moet je nog doen", "openstaande zaken",
+            "wat beloofde je",
+        ))
+        if listing:
+            records = await run_blocking(threads.list_threads, self.config)
+            dutch = self.current_language() == "nl"
+            if not records:
+                if dutch:
+                    return (
+                        "Niets openstaand — ik heb geen zaken openstaan. "
+                        "Beloof ik iets, dan hou ik het bij en vraag je "
+                        "gewoon 'wat staat er nog open?'."
+                    )
+                return (
+                    "Nothing dangling, sir — no open threads. If I promise "
+                    "something, I'll keep it on file and you can ask "
+                    "'what's still open?' anytime."
+                )
+            lines = []
+            for index, record in enumerate(records, start=1):
+                when = self._friendly_stamp(
+                    str(record.get("day", "")), str(record.get("ts", ""))
+                )
+                request = str(record.get("request", ""))[:110]
+                reply = str(record.get("reply", ""))[:100]
+                if dutch:
+                    lines.append(
+                        f"{index}. {when} — jij vroeg: \"{request}\". Ik zei: "
+                        f"\"{reply}\""
+                    )
+                else:
+                    lines.append(
+                        f"{index}. {when} — you asked: \"{request}\". "
+                        f"I said: \"{reply}\""
+                    )
+            if dutch:
+                return (
+                    f"Openstaande zaken ({len(records)}). Zeg het nummer of "
+                    "'is geregeld' zodra het klaar is:\n" + "\n".join(lines)
+                )
+            return (
+                f"Open threads — {len(records)}. Say the number or 'that's "
+                "sorted' once done:\n" + "\n".join(lines)
+            )
+        if threads.is_close_command(lowered):
+            # Close by the number in the request, otherwise the newest one.
+            number = re.search(r"#?(\d+)", text)
+            needle = number.group(1) if number else "1"
+            removed, _remaining = await run_blocking(
+                threads.close_thread, self.config, needle
+            )
+            if removed:
+                if self.current_language() == "nl":
+                    return f"Afgevinkt — {removed} openstaande zaak afgerond."
+                return f"Closed {removed} thread(s). Nice and tidy."
+            if self.current_language() == "nl":
+                return (
+                    "Niets gevonden dat daarbij past — 'wat staat er nog "
+                    "open?' toont de lijst met nummers."
+                )
+            return (
+                "Nothing matched that thread — 'what's still open?' shows "
+                "the list with numbers."
+            )
+        return None
+
+    async def _note_thread_after_turn(self, request: str, response: str) -> None:
+        """Store a thread when this turn's reply committed to a follow-up."""
+        try:
+            # Replies from his own hooks quote older text (a thread list quotes
+            # the original promise; "what did you do" quotes past replies), so
+            # scanning those would re-store an already-known thread. Only real
+            # replies can make a new commitment.
+            method = getattr(self.last_intent, "method", "") or ""
+            if method in {"threads", "explain", "review", "search-all"}:
+                return
+            from core import threads
+
+            if not threads.promises(response):
+                return
+            module = self.last_intent.module if self.last_intent else ""
+            await run_blocking(
+                threads.note_thread, self.config, request=request,
+                response=response, module=module,
+            )
+        except Exception:  # pragma: no cover - best-effort
+            logger.debug("Thread note after turn failed.")
+
+    # ------------------------------------------------- explain the last turn
+    @staticmethod
+    def _brief_params(params: Any) -> str:
+        params = params or {}
+        if not isinstance(params, dict):
+            return str(params)[:90]
+        return ", ".join(
+            f"{key}={str(value)[:40]}" for key, value in list(params.items())[:4]
+        )
+
+    def _explain_last(self, text: str) -> Optional[str]:
+        """Explain what JARVIS just did, step by step, from his own records.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A ready reply, or ``None`` when this is not such a request.
+        """
+        lowered = " ".join((text or "").lower().split())
+        asks = any(phrase in lowered for phrase in (
+            "what did you just do", "what did you do", "what have you just done",
+            "explain what you did", "explain your last action", "which tools did you use",
+            "what did you run", "show me what you did",
+            "wat heb je net gedaan", "wat deed je net", "wat heb je gedaan",
+            "welke tools heb je gebruikt", "leg uit wat je deed",
+            "wat heb je uitgevoerd",
+        ))
+        if not asks:
+            return None
+        # Tools are filed per turn in ``last_turn``, so a pure-chat turn
+        # between two tool turns explains itself honestly ("no tools were
+        # needed") instead of repeating the older action.
+        last_turn = self.last_turn or {}
+        tools = list(last_turn.get("tools") or [])
+        if not tools:
+            question = str(last_turn.get("user", ""))[:120]
+            answer = str(last_turn.get("response", ""))[:160]
+            if self.current_language() == "nl":
+                if question:
+                    return (
+                        f"Het laatste wat ik deed was antwoorden op: "
+                        f"\"{question}\" — met: \"{answer}\". Daar waren "
+                        "geen tools voor nodig."
+                    )
+                return "Er valt nog niets uit te leggen, er is nog geen actie geweest."
+            if question:
+                return (
+                    f"The last thing I did was answer: \"{question}\" — "
+                    f"with: \"{answer}\". No tools were needed."
+                )
+            return "I haven't done anything yet worth explaining, sir."
+        intro = "Here's exactly what I did last turn:"
+        if self.current_language() == "nl":
+            intro = "Dit is precies wat ik net heb gedaan:"
+        lines = []
+        for item in tools:
+            tool = str(item.get("tool", ""))
+            brief = self._brief_params(item.get("params"))
+            status = "ok" if item.get("ok") else "FAILED"
+            out = str(item.get("text", ""))[:110]
+            lines.append(f"  • {tool}({brief}) -> {status}"
+                         + (f": {out}" if out else ""))
+        if not lines:
+            return None
+        return intro + "\n" + "\n".join(lines)
+
+    # --------------------------------------------------------- self-review
+    async def _self_review(self, text: str) -> Optional[str]:
+        """A compact briefing about JARVIS himself, from stored data.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A ready review, or ``None`` when this is not a review request.
+        """
+        from core import failures, threads
+
+        lowered = " ".join((text or "").lower().split())
+        asks = any(phrase in lowered for phrase in (
+            "review yourself", "give me a review", "self review", "review your stats",
+            "how am i using you", "what have you learned", "your statistics",
+            "report on yourself", "tell me about your stats",
+            "geef me een overzicht", "overzicht van jezelf", "wat heb je geleerd",
+            "hoe gebruik ik je", "wat zijn je statistieken", "reflecteer op jezelf",
+            "wat weet je over jezelf",
+        ))
+        if not asks:
+            return None
+        nl = self.current_language() == "nl"
+
+        records = await run_blocking(threads.list_threads, self.config)
+        failures_recent = await run_blocking(failures.recent, self.config)
+        uptime_seconds = int(time.time() - getattr(self, "started_at", time.time()))
+        routines = self.preferences.routines()[:4]
+        corrections = self.preferences.corrections()[:4]
+
+        lines = []
+        name = self.user_display_name()
+        if nl:
+            lines.append(f"Overzicht voor {name}:")
+            lines.append(f"- actief sinds {uptime_seconds // 60} minuten geleden, "
+                         f"{self.turn_count} beurt(en) gedraaid")
+            lines.append(f"- {len(routines)} vaste gewoonte(s) gezien"
+                         + (f", o.a. {routines[0][0]}" if routines else ""))
+            lines.append(f"- {len(corrections)} correctie(s) van jou overgenomen"
+                         + (f", o.a.: {corrections[0]}" if corrections else ""))
+            lines.append(f"- {len(records)} openstaande belofte(s)"
+                         + (f", nieuwste: {str(records[0].get('request', ''))[:60]}"
+                            if records else ""))
+            lines.append(f"- {len(failures_recent)} recente fout(en) in het log"
+                         if failures_recent else "- geen recente fouten in het log")
+        else:
+            lines.append(f"Quick review for {name}:")
+            lines.append(f"- running {uptime_seconds // 60} minute(s), "
+                         f"{self.turn_count} turn(s) handled")
+            lines.append(f"- {len(routines)} routine(s) learned"
+                         + (f", e.g. {routines[0][0]}" if routines else ""))
+            lines.append(f"- {len(corrections)} standing correction(s) from you"
+                         + (f", e.g.: {corrections[0]}" if corrections else ""))
+            lines.append(f"- {len(records)} open thread(s)"
+                         + (f", newest: {str(records[0].get('request', ''))[:60]}"
+                            if records else ""))
+            lines.append(f"- {len(failures_recent)} failure(s) logged"
+                         if failures_recent else "- no recent failures logged")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------- unified search
+    @staticmethod
+    def _search_topic(text: str) -> Optional[str]:
+        """Pull the topic out of a search-everything phrase.
+
+        Understands both the preposition style (``search everywhere for X``,
+        ``zoek overal naar X``) and the Dutch/English ``waar/where … ook
+        alweer`` construction (``waar stond X ook alweer?``).
+
+        Args:
+            text: The user's utterance (with the trigger phrase).
+
+        Returns:
+            The bare topic, or ``None`` when nothing usable follows.
+        """
+        lowered = " ".join((text or "").lower().split())
+        topic = ""
+        # Preposition markers: "for X", "over X", "naar X", "voor X"…
+        for marker in ("overal naar ", "overal voor ", "alles voor ",
+                       "all my stuff about ", "everything for ",
+                       "everywhere for ", "search all my ",
+                       "everything about ", "everything on ",
+                       "for ", "over ", "naar ", "voor ", "in "):
+            index = lowered.rfind(marker)
+            if index >= 0:
+                topic = lowered[index + len(marker):]
+                break
+        if not topic:
+            # "waar staat X ook alweer", "where did I put X (again)?" …
+            match = re.search(
+                r"\bwaar\s+(?:heb ik|had ik|staat|stond|staat er|stond er|"
+                r"vind ik|vind ik terug|schreef ik|zei ik|liet ik)\s*"
+                r"(?:het\s+)?(?:nog\s+)?(.+?)\s*$", lowered,
+            )
+            if not match:
+                match = re.search(
+                    r"\bwhere did i (?:put|write|say|leave)\s+(.+?)\s*$",
+                    lowered,
+                )
+            if match:
+                topic = match.group(1)
+            else:
+                # Fall back to anything after the very first trigger word.
+                match = re.search(
+                    r"\b(?:zoek overal|zoek alles|search everywhere|"
+                    r"search everything)\s+(.+?)\s*$", lowered,
+                )
+                if match:
+                    topic = match.group(1)
+        topic = re.sub(
+            r"\s+(?:ook alweer|nog alweer|alweer|nog eens|nog even|nog|"
+            r"again|once more)\s*$", "", topic,
+        ).strip(" ?.!:,-")
+        if len(topic) < 2:
+            return None
+        if topic.split()[0] in {"de", "het", "een", "the", "a", "an"}:
+            topic = " ".join(topic.split()[1:])
+        if topic in {"alles", "everything", "overal", "stuff", "dingen", ""}:
+            return None
+        return topic
+
+    async def _unified_search(self, text: str) -> Optional[str]:
+        """Search everything for the topic the user is trying to place.
+
+        Args:
+            text: The user's utterance.
+
+        Returns:
+            A grouped list of hits, or ``None`` when this is not a search-everything
+            request.
+        """
+        from core import unified_search
+
+        lowered = " ".join((text or "").lower().split())
+        triggers = (
+            "search everywhere", "search everything", "search all my",
+            "where did i put", "where did i write", "where did i say",
+            "where did i leave", "waar stond", "waar staat", "zoek overal",
+            "zoek alles", "zoek in alles", "waar had ik", "waar schreef ik",
+            "waar zei ik", "waar vind ik terug", "waar heb ik",
+        )
+        if not any(trigger in lowered for trigger in triggers):
+            return None
+        topic = self._search_topic(text)
+        if not topic:
+            return None
+        hits = await run_blocking(unified_search.search_all, self, topic)
+        if not hits:
+            nl = self.current_language() == "nl"
+            return (
+                f"Niets gevonden over \"{topic}\" — ook niet in taken, "
+                "herinneringen, aantekeningen of het dagboek."
+                if nl else
+                f"Nothing on \"{topic}\" anywhere — tasks, reminders, notes, "
+                "journal or memory."
+            )
+        body = await run_blocking(
+            unified_search.render, hits, self.current_language()
+        )
+        head = f"Gevonden over \"{topic}\":\n{body}" \
+            if self.current_language() == "nl" \
+            else f"Here's everything on \"{topic}\":\n{body}"
+        return head
 
     # ------------------------------------------------------------------ setup
     async def initialize(self) -> None:
@@ -1650,6 +2064,7 @@ class Brain:
         text = (text or "").strip()
         if not text:
             return "You'll have to actually say something, sir."
+        self._update_user_language(text)
 
         async with self._busy:
             self._cancel.clear()
@@ -1710,6 +2125,7 @@ class Brain:
                 text, response, self.last_intent.module if self.last_intent else ""
             )
             await self._journal_turn(text, response)
+            await self._note_thread_after_turn(text, response)
             await self.events.publish(
                 "turn.finished", source="brain", text=text, response=response,
                 seconds=elapsed,
@@ -1828,6 +2244,33 @@ class Brain:
             self.last_intent = Intent("conversation", 1.0, "compound task",
                                       method="autopilot")
             return autopilot_reply
+
+        # Open threads ("what's still open?") and explaining the last turn are
+        # deterministic and answered from his own records.
+        thread_reply = await self._handle_threads(text)
+        if thread_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "open threads",
+                                      method="threads")
+            return thread_reply
+
+        explain_reply = self._explain_last(text)
+        if explain_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "explain last action",
+                                      method="explain")
+            return explain_reply
+
+        # Self-review briefings and unified search both read every local store.
+        review_reply = await self._self_review(text)
+        if review_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "self review",
+                                      method="review")
+            return review_reply
+
+        search_reply = await self._unified_search(text)
+        if search_reply is not None:
+            self.last_intent = Intent("conversation", 1.0, "unified search",
+                                      method="search-all")
+            return search_reply
 
         # Long-term recall and intent classification are independent, so run
         # them together: the embedding search hides behind the router round
@@ -2159,7 +2602,7 @@ class Brain:
         self._current_turn_tools = []
         if tools:
             self.last_tools = tools
-        self.last_turn = {"user": text, "response": response}
+        self.last_turn = {"user": text, "response": response, "tools": tools}
         if response.strip():
             self.last_response = response.strip()
         self.last_module_hint = self.last_intent.module if self.last_intent else "conversation"
