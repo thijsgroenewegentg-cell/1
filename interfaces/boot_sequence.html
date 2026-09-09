@@ -338,7 +338,18 @@
     aura.style.opacity = String(clamp01(0.18 + 0.9 * sExp + 0.55 * sPulse));
 
     // text fades in once the mechanical part has settled
-    if (!fadeHandled && b > T.textIn) { fadeHandled = true; hud.classList.add("on"); }
+    if (!fadeHandled && b > T.textIn) {
+      fadeHandled = true; hud.classList.add("on");
+      // Tell an embedding page (the web console) the show is finished so it
+      // can fade this overlay away. Harmless when opened standalone.
+      setTimeout(function () {
+        try {
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage("boot-done", "*");
+          }
+        } catch (e) { /* cross-origin or sandboxed: ignore */ }
+      }, 1800);
+    }
 
     // --- geometry ----------------------------------------------------------
     projectInto(clipMain, scale, scale, scale, yaw, tilt);

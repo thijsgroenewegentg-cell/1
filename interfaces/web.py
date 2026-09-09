@@ -154,6 +154,9 @@ self.addEventListener("fetch", event => {
 #: edited and read like a document instead of a Python string.
 APP_FILE = Path(__file__).with_name("app.html")
 
+#: The dramatic boot-up sequence shown full-screen while the console loads.
+BOOT_FILE = Path(__file__).with_name("boot_sequence.html")
+
 #: Shown only if that file is missing from an installation.
 FALLBACK_PAGE = """<!doctype html><meta charset="utf-8">
 <title>__TITLE__</title>
@@ -557,6 +560,20 @@ class WebInterface:
                 )
             return HTMLResponse(rendered_page(),
                                 headers={"Cache-Control": "no-store, must-revalidate"})
+
+        @app.get("/boot", response_class=HTMLResponse)
+        async def boot_page(token: str = Query(default="")) -> Any:
+            """Serve the boot-up sequence page (shown inside the console)."""
+            if not self._authorised(token):
+                return HTMLResponse("<h1>401</h1><p>Append ?token=…</p>",
+                                    status_code=401)
+            try:
+                content = BOOT_FILE.read_text(encoding="utf-8")
+            except Exception:  # pragma: no cover - only when the file is lost
+                content = ("<!doctype html><body style=\"background:#000;"
+                           "color:#fff\">boot unavailable</body>")
+            return HTMLResponse(content,
+                                headers={"Cache-Control": "no-store"})
 
         @app.get("/api/status")
         async def status(token: str = Query(default="")) -> Any:

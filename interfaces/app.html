@@ -807,6 +807,41 @@ body.degraded-open #toasts { top: 118px; }
 </style>
 </head>
 <body>
+<!-- Boot-up sequence: the dramatic particle-sphere core boot plays full
+     screen over the console while the page finishes loading, then fades
+     away (see the small script after the iframe). Replays never happen
+     after the first dismiss. -->
+<div id="bootScreen" style="position:fixed;inset:0;z-index:2147483000;background:#000;opacity:1;transition:opacity .8s ease;pointer-events:auto">
+  <iframe id="bootIframe" src="/boot__TOKEN_QUERY__" title="JARVIS core boot"
+          style="position:absolute;inset:0;width:100%;height:100%;border:0;background:#000"></iframe>
+</div>
+<style>
+  #bootScreen.hide { opacity: 0; pointer-events: none; }
+</style>
+<script>
+(function () {
+  "use strict";
+  var screen = document.getElementById("bootScreen");
+  var frame = document.getElementById("bootIframe");
+  var done = false;
+  function dismiss() {
+    if (done) return;
+    done = true;
+    screen.classList.add("hide");
+    setTimeout(function () {
+      // Stop the renderer and drop the layer entirely.
+      frame.removeAttribute("src");
+      screen.style.display = "none";
+    }, 850);
+  }
+  window.addEventListener("message", function (e) {
+    if (e.source === frame.contentWindow && e.data === "boot-done") dismiss();
+  });
+  // Safety net: if /boot is missing or never signals (offline fallback page,
+  // older deployment), never trap the console behind the overlay.
+  setTimeout(dismiss, 9000);
+})();
+</script>
 <canvas id="orb"></canvas>
 <div id="halo" aria-hidden="true"></div>
 <div id="grid" aria-hidden="true"></div>
