@@ -302,8 +302,10 @@ class MicrophoneListener:
             import sounddevice as sd
             device_name = get_input_device()
             device = resolve_audio_device(device_name, "input")
+            mic_label = device_name or "System default"
             if device is not None:
-                self.owner.log(f"SYS: Microphone: {device_name}")
+                mic_label += f" (PortAudio index {device})"
+            self.owner.log(f"SYS: Microphone: {mic_label}")
 
             def callback(indata, frames, timing, status):
                 if status:
@@ -522,7 +524,27 @@ class LocalAssistant:
         self.log(f"SYS: Voice set to {get_voice()}.")
 
     def _on_audio_device_change(self) -> None:
-        self.log("SYS: Audio device changes apply to the next microphone stream.")
+        """Reconnect the live microphone after the user picks a device."""
+        self.log("SYS: Reconnecting microphone with the selected device…")
+
+        def restart():
+            old = self._audio
+            if old is not None:
+                old.stop()
+            time.sleep(0.15)
+            if self.stop_event.is_set():
+                return
+            listener = MicrophoneListener(self)
+            self._audio = listener
+            listener.start()
+            while True:
+                try:
+                    listener.feed_remote_audio(self._remote_audio_buffer.get_nowait())
+                except queue.Empty:
+                    break
+            self.log("SYS: Microphone stream restarted.")
+
+        threading.Thread(target=restart, daemon=True, name="mark-mic-restart").start()
 
     def _configure_dashboard(self) -> None:
         """Create the optional dashboard object without opening its port."""

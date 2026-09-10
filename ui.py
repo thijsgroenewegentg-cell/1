@@ -1834,6 +1834,7 @@ class AudioDeviceOverlay(_HudOverlay):
     webcam'."""
 
     picked = pyqtSignal()      # emitted after Apply, when something changed
+    test_done = pyqtSignal(bool, str)
     _OW = 460
 
     def __init__(self, parent=None):
@@ -1904,12 +1905,32 @@ class AudioDeviceOverlay(_HudOverlay):
         self._out_box = _row("SPEAKERS — what JARVIS talks through",
                              "output", get_output_device())
 
-        note = QLabel("Applying reconnects the session. Your conversation is kept.")
+        note = QLabel("Applying reconnects the microphone stream. Your conversation is kept.")
         note.setWordWrap(True)
         note.setFont(QFont("Courier New", 7))
         note.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
         lay.addSpacing(6)
         lay.addWidget(note)
+
+        self._test_label = QLabel("No microphone test run yet.")
+        self._test_label.setWordWrap(True)
+        self._test_label.setFont(QFont("Courier New", 8))
+        self._test_label.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
+        lay.addWidget(self._test_label)
+
+        test_btn = QPushButton("◉  TEST MICROPHONE")
+        test_btn.setFixedHeight(30)
+        test_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        test_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.ACC2};
+                border: 1px solid {C.BORDER}; border-radius: 3px; }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; border-color: {C.ACC2}; }}
+        """)
+        test_btn.clicked.connect(self._test_microphone)
+        self._test_btn = test_btn
+        lay.addWidget(test_btn)
+        self.test_done.connect(self._show_test_result)
 
         row = QHBoxLayout(); row.setSpacing(8)
         ok = QPushButton("▸  APPLY")
@@ -1936,6 +1957,60 @@ class AudioDeviceOverlay(_HudOverlay):
         cancel.clicked.connect(self.hide)
         row.addWidget(cancel)
         lay.addLayout(row)
+
+    def _test_microphone(self):
+        """Capture a short local sample and report whether signal arrives."""
+        self._test_btn.setEnabled(False)
+        self._test_label.setText("Listening for 2 seconds… speak now.")
+        self._test_label.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
+        selected = self._in_box.currentData() or ""
+
+        def worker():
+            peak = 0.0
+            frames = 0
+            try:
+                import sounddevice as sd
+                from core.audio_devices import resolve
+
+                device = resolve(selected, "input")
+
+                def callback(indata, count, timing, status):
+                    nonlocal peak, frames
+                    frames += int(count)
+                    try:
+                        values = indata[:, 0]
+                        if len(values):
+                            peak = max(peak, max(abs(float(v)) for v in values))
+                    except Exception:
+                        pass
+
+                with sd.InputStream(
+                    samplerate=16000,
+                    channels=1,
+                    dtype="float32",
+                    blocksize=1024,
+                    device=device,
+                    callback=callback,
+                ):
+                    time.sleep(2.0)
+
+                if frames == 0:
+                    ok, msg = False, "No audio frames arrived. Check OS microphone permission/device."
+                elif peak < 0.008:
+                    ok, msg = False, "The microphone opened, but no voice signal was detected."
+                else:
+                    ok, msg = True, f"Microphone signal detected (peak {peak:.3f})."
+            except Exception as exc:
+                ok, msg = False, f"Microphone test failed: {exc}"
+            self.test_done.emit(ok, msg)
+
+        threading.Thread(target=worker, daemon=True, name="mark-mic-test").start()
+
+    def _show_test_result(self, ok: bool, message: str):
+        self._test_btn.setEnabled(True)
+        self._test_label.setText(message)
+        color = C.GREEN if ok else C.RED
+        self._test_label.setStyleSheet(f"color: {color}; background: transparent;")
 
     def _apply(self):
         from memory.config_manager import (

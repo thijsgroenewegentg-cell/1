@@ -51,9 +51,20 @@ The **Remote Control** button in the HUD starts the optional LAN dashboard on de
 
 The remote dashboard needs the optional packages in `requirements.txt` (`fastapi`, `uvicorn`, `cryptography`, `python-multipart` and `qrcode[pil]`). If they were skipped during installation, run `pip install -r requirements.txt` and restart MARK. The dashboard is intended for a trusted local network; use the HTTPS certificate files in `config/certs/` if you need encrypted transport on the LAN.
 
+### Included plugins
+
+The `plugins/` folder now includes two safe, credential-free examples:
+
+- `git_helper.py` — read-only repository status, diff summary, log, branches, remotes and root lookup.
+- `media_control.py` — open/search Spotify and control playback using the native player tools available on Windows, macOS or Linux.
+
+Plugins are discovered on the next launch and can be enabled or disabled from **⚙ → PLUGINS**. The upstream MARK repository only provides the template, so these are included directly in this Ollama build rather than downloaded from an unverified plugin marketplace.
+
 ## Voice
 
 Ollama returns text, so MARK uses `edge-tts` for natural spoken replies without an API key. It needs internet access for synthesis. If Edge TTS is unavailable, MARK tries the local `pyttsx3` system voice. Microphone transcription uses `faster-whisper` and downloads its model once on first voice use; typed commands work without a microphone.
+
+If MARK does not hear you, open **⚙ → AUDIO DEVICES**, select the actual microphone, press **TEST MICROPHONE**, then press **APPLY**. Applying now reconnects the live microphone stream. Also check that the HUD button says **MICROPHONE ACTIVE**, and that your operating system has granted MARK microphone permission. The Activity Log will show the PortAudio/device error when the stream cannot open.
 
 ## AMD GPU
 
