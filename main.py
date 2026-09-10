@@ -334,6 +334,11 @@ class MicrophoneListener:
         self._diag_frames = 0
         self._diag_peak = 0.0
         self._diag_status = ""
+        self._noise_floor = _VAD_START * 0.5
+        self._barge_frames = 0
+        self._barge_buffer: list[np.ndarray] = []
+        self._noise_samples: list[float] = []
+        self._last_barge = 0.0
 
     def start(self) -> None:
         # Keep the VAD/Whisper consumer independent from sounddevice. This lets
@@ -445,20 +450,44 @@ class MicrophoneListener:
             except Exception:
                 pass
 
-            # Barge-in: a clearly louder user utterance interrupts thinking or
-            # TTS immediately. Quiet frames are discarded so MARK's own voice
-            # does not feed back into Whisper.
+            # Barge-in: require a sustained, clearly louder utterance instead
+            # of one hot microphone frame. A single-frame trigger made speaker
+            # bleed, keyboard clicks and HVAC noise interrupt MARK constantly.
+            # The higher threshold while TTS is playing is intentional: it
+            # preserves barge-in for a nearby user while rejecting most echo.
+            if level < max(_VAD_START * 2.0, self._noise_floor * 2.5):
+                self._noise_floor = (self._noise_floor * 0.98) + (level * 0.02)
             if self.owner.is_busy:
-                if (not self.owner.ui.muted and level >= _VAD_START * 1.5
-                        and not recording):
-                    self.owner.interrupt()
-                    recording = [frame]
-                    silent = 0
-                    started_at = time.monotonic()
+                threshold = max(_VAD_START * 2.5, self._noise_floor * 4.0)
+                if self.owner._speaking.is_set():
+                    threshold = max(threshold, 0.045)
+                if (not self.owner.ui.muted and level >= threshold
+                        and time.monotonic() - self._last_barge > 0.8):
+                    self._barge_frames += 1
+                    self._barge_buffer.append(frame)
+                    self._barge_buffer = self._barge_buffer[-8:]
+                    if self._barge_frames >= 5:  # roughly 320 ms at 16 kHz
+                        self._last_barge = time.monotonic()
+                        self.owner.interrupt()
+                        recording = list(self._barge_buffer)
+                        self._barge_buffer.clear()
+                        self._barge_frames = 0
+                        silent = 0
+                        started_at = time.monotonic()
                 else:
+                    self._barge_frames = 0
+                    self._barge_buffer.clear()
                     recording.clear()
                     silent = 0
                 continue
+            self._barge_frames = 0
+            self._barge_buffer.clear()
+            if not recording and not self.owner.ui.muted:
+                self._noise_samples.append(level)
+                self._noise_samples = self._noise_samples[-40:]
+                if len(self._noise_samples) >= 10:
+                    ordered = sorted(self._noise_samples)
+                    self._noise_floor = ordered[len(ordered) // 2]
             if self.owner.ui.muted:
                 recording.clear()
                 silent = 0

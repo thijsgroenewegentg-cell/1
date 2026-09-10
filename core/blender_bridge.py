@@ -44,7 +44,9 @@ def _settings(overrides: dict | None = None) -> dict:
 def configuration_error(settings: dict | None = None) -> str | None:
     value = settings or _settings()
     if not value.get("token"):
-        return "Blender is not configured: set MARK_BLENDER_TOKEN in MARK's launch environment."
+        return ("Blender is not configured: MARK_BLENDER_TOKEN is missing from this MARK process. "
+                "Set the same token in Blender's MARK Bridge preferences and in MARK's launch environment, then restart MARK. "
+                "The token is never stored in config files.")
     if value.get("host") not in {"127.0.0.1", "localhost"}:
         return "For safety, the Blender bridge only permits a loopback host."
     return None
@@ -87,7 +89,9 @@ def call(action: str, parameters: dict | None = None,
             return False, str(response.get("error") or "Blender rejected the action.")
         return True, str(response.get("result") or "Blender action completed.")
     except (ConnectionRefusedError, TimeoutError, socket.timeout):
-        return False, "Could not reach Blender. Enable the MARK Bridge add-on and start its local server."
+        return False, (f"Could not reach Blender at {settings['host']}:{settings['port']}. "
+                       "Enable the MARK Bridge add-on, set its token, click Start MARK Bridge, "
+                       "and confirm that MARK uses the same loopback port.")
     except json.JSONDecodeError:
         return False, "Blender returned malformed bridge data."
     except OSError as exc:

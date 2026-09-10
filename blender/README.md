@@ -8,7 +8,10 @@
 2. Select `blender/mark_bridge.py`.
 3. Enable **MARK Local Bridge**.
 4. Set a long random token in the add-on preferences or the **MARK** sidebar panel.
-5. Set the same value as `MARK_BLENDER_TOKEN` in the environment used to launch MARK.
+5. Set the same value as `MARK_BLENDER_TOKEN` in the environment used to launch MARK. The variable must be visible to the MARK process; setting it only inside Blender is not enough.
+   - PowerShell: `$env:MARK_BLENDER_TOKEN = "your-long-random-token"; python main.py`
+   - Windows cmd: `set MARK_BLENDER_TOKEN=your-long-random-token && python main.py`
+   - Linux/macOS: `MARK_BLENDER_TOKEN="your-long-random-token" python main.py`
 6. Open the 3D View sidebar with **N**, choose the **MARK** tab, and click **Start MARK Bridge**.
 
 The server listens only on `127.0.0.1` (default port `8765`). MARK's **PLUGIN SETTINGS → BLENDER — LOCAL BRIDGE** panel lets you change the non-secret host and port.
