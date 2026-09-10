@@ -86,6 +86,11 @@ from core.llm_client import (
 from core.plugin_loader import discover_plugins
 from core.stt import WhisperSTT
 from core.tts import EdgeTTSEngine, SystemTTSEngine, TTSPlayer
+from core.wake_word import (
+    WakeWordDetector,
+    install_and_download as wake_install,
+    is_ready as wake_is_ready,
+)
 from actions.screen_processor import _capture_camera, _capture_screen
 from actions.system_monitor import SystemMonitor, get_system_status
 from actions.proactive import ProactiveEngine
@@ -309,8 +314,20 @@ class MicrophoneListener:
             except queue.Empty:
                 continue
 
-            # Never feed the assistant's own TTS back into Whisper.
-            if self.owner.is_busy:
+            # Never feed the assistant's own TTS back into Whisper, and honor
+            # the HUD mute button for the microphone as well.
+            if self.owner.is_busy or self.owner.ui.muted:
+                recording.clear()
+                silent = 0
+                continue
+
+            # In sleep mode audio stays on this machine and goes only to the
+            # optional wake-word detector; it is never transcribed or sent to
+            # Ollama.
+            if self.owner._wake_enabled and not self.owner._awake:
+                detector = self.owner._wake_detector
+                if detector is not None:
+                    detector.feed((frame * 32767).astype(np.int16))
                 recording.clear()
                 silent = 0
                 continue
@@ -372,7 +389,8 @@ class LocalAssistant:
         self._system_monitor = SystemMonitor()
         self._proactive = ProactiveEngine()
         self._wake_enabled = bool(get_wake_word_enabled())
-        self._awake = True
+        self._awake = not self._wake_enabled
+        self._wake_detector: WakeWordDetector | None = None
 
         # Wire UI callbacks before action discovery so a plugin can use the HUD.
         self.ui.on_text_command = self._on_ui_text
@@ -405,13 +423,9 @@ class LocalAssistant:
         self._tool_names = {t["function"]["name"] for t in self._tools}
         self._tts = self._make_tts()
 
-        # Wake-word controls stay opt-in. core.wake_word can be installed from
-        # the original settings drawer; normal Ollama operation never needs it.
-        self.ui.wake_get_state = lambda: {
-            "enabled": self._wake_enabled,
-            "awake": self._awake,
-            "ready": False,
-        }
+        # Wake-word controls stay opt-in. The model is downloaded only when the
+        # user enables it from the settings drawer.
+        self.ui.wake_get_state = self._wake_state
         self.ui.on_wake_toggle = self._toggle_wake
         self.ui.on_wake_manual = self._toggle_awake
 
@@ -461,13 +475,44 @@ class LocalAssistant:
         self.log("SYS: Remote dashboard is not enabled in the local-only build.")
         return None
 
+    def _wake_state(self) -> dict:
+        ready = bool(self._wake_detector and self._wake_detector.ready) or wake_is_ready()
+        return {"enabled": self._wake_enabled, "awake": self._awake, "ready": ready}
+
+    def _ensure_wake_detector(self) -> bool:
+        if self._wake_detector is None:
+            self._wake_detector = WakeWordDetector(
+                on_detect=self._on_wake_detected,
+                logger=lambda msg: self.log(f"SYS: {msg}"),
+            )
+        if not self._wake_detector.ready:
+            return self._wake_detector.start()
+        return True
+
+    def _on_wake_detected(self) -> None:
+        self._awake = True
+        self._last_user_speech = time.monotonic()
+        self.ui.set_state("LISTENING")
+        self.log("SYS: Wake word detected — listening.")
+
     def _toggle_wake(self, enabled: bool) -> str:
         if enabled:
-            self.log("SYS: Wake word is optional and requires the openwakeword model download.")
-            return "need_download"
+            if not wake_is_ready():
+                self.log("SYS: Wake word needs its one-time local model download.")
+                return "need_download"
+            if not self._ensure_wake_detector():
+                return "need_download"
+            self._wake_enabled = True
+            self._awake = False
+            save_wake_word_enabled(True)
+            self.ui.set_state("SLEEPING")
+            return "enabled"
         self._wake_enabled = False
         self._awake = True
         save_wake_word_enabled(False)
+        if self._wake_detector:
+            self._wake_detector.stop()
+        self.ui.set_state("LISTENING")
         return "disabled"
 
     def _toggle_awake(self) -> None:
@@ -568,7 +613,7 @@ class LocalAssistant:
                 self.ui.set_state("LISTENING")
 
     def speak(self, text: str) -> None:
-        if not text:
+        if not text or self.ui.muted:
             return
         self._speaking.set()
         self.ui.set_state("SPEAKING")
@@ -736,8 +781,16 @@ class LocalAssistant:
         configure_audio_devices(SEND_SAMPLE_RATE, RECEIVE_SAMPLE_RATE)
         server_ok = self._check_server()
         self._reset_messages()
+        if self._wake_enabled:
+            if self._ensure_wake_detector():
+                self._awake = False
+            else:
+                self.log("WRN: Wake word is enabled but its detector is unavailable; disabling it.")
+                self._wake_enabled = False
+                self._awake = True
+                save_wake_word_enabled(False)
         if server_ok:
-            self.ui.set_state("LISTENING")
+            self.ui.set_state("SLEEPING" if self._wake_enabled else "LISTENING")
             self.log("SYS: MARK online — local Ollama mode.")
             threading.Thread(target=self._startup_briefing, daemon=True, name="mark-briefing").start()
         else:
