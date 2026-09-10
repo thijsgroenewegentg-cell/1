@@ -31,6 +31,25 @@ def installer():
 
 
 # ------------------------------------------------------------------ arguments
+def test_doctor_and_check_flags_are_accepted(installer):
+    doctor = installer.parse_arguments(["--doctor"])
+    assert doctor.doctor is True
+    assert doctor.check is False
+    check = installer.parse_arguments(["--check"])
+    assert check.check is True
+
+
+def test_repair_keeps_the_full_profile(installer):
+    # A previous full install used to lose voice packages on --repair.
+    args = installer.parse_arguments(["--repair"])
+    assert installer.pick_profile(args, assume_yes=True) == "full"
+
+
+def test_repair_can_still_be_minimal(installer):
+    args = installer.parse_arguments(["--repair", "--minimal"])
+    assert installer.pick_profile(args, assume_yes=True) == "minimal"
+
+
 def test_everything_is_accepted(installer):
     arguments = installer.parse_arguments(["--everything", "-y"])
     assert arguments.everything is True

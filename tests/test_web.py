@@ -38,6 +38,17 @@ def test_local_addresses_include_something_usable():
     addresses = local_addresses(8123)
     assert addresses
     assert all("8123" in address for address in addresses)
+    assert any("localhost" in address for address in addresses)
+    assert not any("169.254." in address for address in addresses)
+
+
+def test_link_local_addresses_are_not_pairing_targets():
+    from interfaces.web import _reachable_lan
+
+    assert _reachable_lan("192.168.1.20")
+    assert not _reachable_lan("169.254.0.21")
+    assert not _reachable_lan("127.0.0.1")
+    assert not _reachable_lan("0.0.0.0")
 
 
 @pytest.mark.parametrize("size", [180, 192, 512])

@@ -1726,6 +1726,18 @@ class WebInterface:
             self._server.should_exit = True
 
 
+def _reachable_lan(address: str) -> bool:
+    """True when ``address`` is worth putting on a pairing QR.
+
+    Link-local 169.254/16 is what you get with no DHCP — a phone cannot
+    open it. Loopback is already listed separately as localhost.
+    """
+    host = (address or "").split("%")[0].strip().lower()
+    if not host or host.startswith("127.") or host in {"::1", "0.0.0.0", "::"}:
+        return False
+    return not (host.startswith("169.254.") or host.startswith("fe80:"))
+
+
 def local_addresses(port: int) -> List[str]:
     """Best-effort list of URLs this machine can be reached on.
 
@@ -1744,7 +1756,7 @@ def local_addresses(port: int) -> List[str]:
         probe.connect(("8.8.8.8", 80))
         address = probe.getsockname()[0]
         probe.close()
-        if address and not address.startswith("127."):
+        if address and _reachable_lan(address):
             urls.insert(0, f"http://{address}:{port}/")
     except Exception:
         pass

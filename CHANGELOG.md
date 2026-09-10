@@ -77,6 +77,11 @@ The first release meant for other people's machines.
   On a phone the transcript stays visible.
 - **Chips vs briefing.** Suggestion chips hide while a caption is on
   screen, so they cannot stripe through the morning brief.
+- **Installer.** `--doctor` and `--check` diagnose without reinstalling.
+  `--repair` keeps the full profile (it used to silently drop to standard).
+  After install, the web console is the default start, not the terminal.
+- **Pairing QR.** Link-local 169.254 addresses are skipped so a phone is
+  not sent a URL it cannot open.
 - **A local journal and a day recap.** Every turn is logged on this machine;
   "what did I do today" or "recap my day" sums up what got done and what
   still dangles.

@@ -29,6 +29,8 @@ Useful flags::
     python3 install.py --no-ollama       # skip the LLM engine entirely
     python3 install.py --model mistral   # pull a different model
     python3 install.py --repair          # reinstall packages into an existing venv
+    python3 install.py --doctor          # diagnose an existing install, change nothing
+    python3 install.py --check           # only check Python, disk, RAM and internet
     python3 install.py --help            # everything else
 """
 
@@ -562,6 +564,7 @@ def create_venv(venv_dir: Path, recreate: bool) -> Optional[Path]:
 
     if python.exists():
         ok(f"reusing the existing environment at {venv_dir.name}/")
+        info("already installed — --repair refreshes packages, --doctor checks what's missing")
         return python
 
     info("creating the virtual environment (a few seconds)…")
@@ -1443,7 +1446,9 @@ def final_summary(started: float, model: str, profile: str) -> None:
     print(f"    {Colour.BLUE}{runner} main.py --cli{Colour.RESET}"
           f"        text interface")
     print(f"    {Colour.BLUE}{runner} main.py --web{Colour.RESET}"
-          f"        chat from your phone on the same Wi-Fi")
+          f"        cinema console in the browser (phone on the same Wi-Fi too)")
+    print(f"    {Colour.BLUE}{runner} main.py --doctor{Colour.RESET}"
+          f"     what is still missing")
     print(f"    {Colour.BLUE}{runner} main.py --say \"what time is it\"{Colour.RESET}")
     if IS_WINDOWS:
         print(f"    {Colour.BLUE}scripts\\jarvis.bat{Colour.RESET}"
@@ -1495,6 +1500,9 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "  python3 install.py --yes           no questions, sensible defaults\n"
             "  python3 install.py --minimal       text only, ~120 MB\n"
             "  python3 install.py --repair        reinstall packages, keep everything else\n"
+            "  python3 install.py --everything    audio libs, every model, every capability\n"
+            "  python3 install.py --doctor        diagnose an existing install\n"
+            "  python3 install.py --check         only check the machine\n"
         ),
     )
     profile = parser.add_mutually_exclusive_group()
@@ -1527,8 +1535,28 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
                         help="delete and rebuild the virtual environment")
     parser.add_argument("--repair", action="store_true",
                         help="reinstall packages only (implies --yes)")
+    parser.add_argument("--doctor", action="store_true",
+                        help="diagnose an existing install and exit")
+    parser.add_argument("--check", action="store_true",
+                        help="only check Python, disk, RAM and internet")
     parser.set_defaults(profile=None)
     return parser.parse_args(list(argv) if argv is not None else None)
+
+
+def pick_profile(arguments: argparse.Namespace, assume_yes: bool) -> str:
+    """Which package profile this run should install.
+
+    ``--repair`` used to silently pick *standard*, so a full install lost
+    voice packages on the next refresh. Repair now keeps *full* unless the
+    user passes ``--minimal`` / ``--standard``.
+    """
+    if getattr(arguments, "everything", False):
+        return "full"
+    if arguments.profile:
+        return arguments.profile
+    if arguments.repair:
+        return "full"
+    return choose_profile(assume_yes)
 
 
 def choose_profile(assume_yes: bool) -> str:
@@ -1555,6 +1583,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     enable_colour()
     banner()
 
+    if arguments.check:
+        return 0 if check_environment() else 1
+
+    if arguments.doctor:
+        python = venv_python(Path(arguments.venv))
+        if not python.exists():
+            fail("no virtual environment yet — run python3 install.py first.")
+            return 1
+        run_doctor(python)
+        return 0
+
     started = time.time()
     everything = bool(arguments.everything)
     total_steps = 9 if everything else 7
@@ -1563,12 +1602,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not check_environment():
         return 1
 
-    profile = arguments.profile or ("standard" if arguments.repair else None)
-    if everything:
-        profile = "full"
-    if profile is None:
-        print()
-        profile = choose_profile(assume_yes)
+    profile = pick_profile(arguments, assume_yes)
     ok(f"profile: {profile} — {PROFILE_BLURB[profile]}")
 
     if everything:
@@ -1653,7 +1687,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                   "everything" if everything else profile)
 
     if not assume_yes and sys.stdin.isatty():
-        if ask_yes_no("Start JARVIS now?", default=True):
+        if ask_yes_no("Start the web console now?", default=True):
+            print()
+            run_live([str(python), "main.py", "--web"], timeout=86400)
+        elif ask_yes_no("Start the text interface instead?", default=False):
             print()
             run_live([str(python), "main.py", "--cli"], timeout=86400)
         elif IS_WINDOWS:

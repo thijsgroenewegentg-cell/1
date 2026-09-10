@@ -99,6 +99,8 @@ python3 install.py --full         # + voice, wake word, Whisper  (the default)
 python3 install.py --everything   # the lot: audio libraries, all models, every capability
 python3 install.py --no-ollama    # skip the LLM engine for now
 python3 install.py --repair       # reinstall packages into an existing install
+python3 install.py --doctor       # diagnose an existing install, change nothing
+python3 install.py --check        # only check Python, disk, RAM and internet
 python3 install.py --help         # all the flags
 ```
 
