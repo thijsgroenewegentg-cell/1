@@ -569,8 +569,18 @@ def test_whisper_boot_grows_without_a_whiteout(web):
     assert "const WHISPER = true" in page
     assert "const BOOT_MS = 3400" in page
     assert "window.restartIgnition" in page
-    # Overlay must not cover the canvas on first load.
-    assert 'id="bootScreen" class="hide"' in page
+    assert "bootScreen" not in page
+    assert "say(data.greeting" not in page
+
+
+def test_legacy_boot_page_is_debug_only(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    assert client.get("/boot", params={"token": web.token}).status_code == 404
+    shown = client.get("/boot", params={"token": web.token, "debug": "1"})
+    assert shown.status_code == 200
+    assert "JARVIS" in shown.text or "boot" in shown.text.lower()
 
 
 def test_cinema_idle_hides_chrome_until_you_reach(web):
@@ -579,7 +589,7 @@ def test_cinema_idle_hides_chrome_until_you_reach(web):
 
     page = TestClient(web.app).get("/", params={"token": web.token}).text
     style = page.split("<style>", 1)[1].split("</style>", 1)[0]
-    assert "body.awake.quiet #dock" in style
+    assert "body.awake.quiet" in style
     assert "setCinemaQuiet" in page
     assert "reachChrome" in page
 
@@ -595,7 +605,7 @@ def test_the_centred_dock_keeps_its_offset_under_reduced_motion(web):
     page = TestClient(web.app).get("/", params={"token": web.token}).text
     style = page.split("<style>", 1)[1].split("</style>", 1)[0]
     reduced = style.split("prefers-reduced-motion", 1)[1]
-    assert "translate(-50%, -50%) !important" in reduced
+    assert "translate(-50%, 0) !important" in reduced
 
 
 # ------------------------------------------------------- layout collisions
@@ -649,7 +659,7 @@ def test_the_answer_is_centred_below_the_console(web):
     # its bottom tracks the dock so the caption stays just above the controls.
     assert "justify-content: flex-end" in stage
     assert "bottom: calc(" in stage
-    # Dock is now lower (around 62%/55%), so the 50% anchor moved.
+    # Dock sits at the bottom (7vh); the stage tracks it with calc().
     assert "flex-end" in stage
 
 

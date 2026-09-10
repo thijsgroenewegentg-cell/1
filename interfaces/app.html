@@ -87,8 +87,8 @@ body.awake #rail { opacity: 1; transform: none; }
 /* The dock is centred with a translate, so it cannot use `transform: none`
    here — that would snap it back to the top-left corner. It carries its own
    centring offset through both the hidden and revealed states. */
-#dock { transform: translate(-50%, calc(-50% + 6px)); }
-body.awake #dock { opacity: 1; transform: translate(-50%, -50%); }
+#dock { transform: translate(-50%, 6px); }
+body.awake #dock { opacity: 1; transform: translate(-50%, 0); }
 /* Staggered so the interface assembles piece by piece rather than popping
    in as one block. */
 body.awake #brand { transition-delay: .05s; }
@@ -123,11 +123,6 @@ body.awake.quiet .controls .round:not(#mic) {
 body.awake.quiet .controls {
   padding: 8px;
   gap: 0;
-}
-body.awake.quiet #dock {
-  top: auto;
-  bottom: 7vh;
-  transform: translate(-50%, 0);
 }
 body.awake.quiet #caption.dim {
   opacity: 0;
@@ -310,7 +305,7 @@ button { cursor: pointer; border: 0; background: none; }
    than floating at the bottom of the screen. */
 #stage {
   position: fixed; left: 0; right: 0; z-index: 2;
-  bottom: calc(38% + 66.5px); display: flex; flex-direction: column;
+  bottom: calc(7vh + 92px); display: flex; flex-direction: column;
   align-items: center; justify-content: flex-end; padding: 0 24px 12px;
   pointer-events: none;
 }
@@ -497,7 +492,7 @@ body.history-open #history { transform: none; }
    edge. The orb is lifted above it and the caption reads below it, so the
    page has one clear vertical spine: sphere, controls, answer. */
 #dock {
-  position: fixed; left: 50%; top: 62%; transform: translate(-50%, -50%); z-index: 5;
+  position: fixed; left: 50%; top: auto; bottom: 7vh; transform: translate(-50%, 0); z-index: 5;
   display: flex; flex-direction: column; align-items: center; gap: 13px;
 }
 .controls {
@@ -825,15 +820,19 @@ body.degraded-open #toasts { top: 118px; }
     box-shadow: var(--shadow-md); mask-image: none;
   }
   #rail .line { text-align: left; font-size: 12.5px; line-height: 1.45; }
-  /* Narrow screens need the console a little higher, so the caption above
-     it is not squeezed against the orb. */
-  #dock { top: 46%; }
-  #stage { bottom: calc(54% + 66.5px); }
+  /* Dock sits on top of the transcript, not in the middle of the orb. */
+  #dock { top: auto; bottom: calc(31vh + 18px); transform: translate(-50%, 0); }
+  #stage { bottom: calc(31vh + 110px); }
   #caption { font-size: 18px; }
   #top { padding: 14px 16px; }
   #tileLabel { top: 54px; left: 16px; }
   #brand { font-size: 9.5px; letter-spacing: .3em; }
   #chips { max-width: 92vw; }
+  /* Cinema hides the desktop rail; a phone has nowhere else to read. */
+  body.awake.quiet #rail {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   body, .toast, .line, #palette { animation: none !important; transition: none !important; }
@@ -845,7 +844,7 @@ body.degraded-open #toasts { top: 118px; }
   /* The dock is centred with a translate — clearing its transform would
      fling it to the top-left corner, so it keeps the centring offset. */
   #dock, body.awake #dock {
-    opacity: 1 !important; transform: translate(-50%, -50%) !important;
+    opacity: 1 !important; transform: translate(-50%, 0) !important;
     transition: none !important;
   }
   /* The new entrances animate blur and transform, which is exactly the kind
@@ -896,58 +895,6 @@ body.talked #chips { display: none; }
 </style>
 </head>
 <body>
-<!-- Boot-up sequence: the dramatic particle-sphere core boot plays full
-     screen over the console while the page finishes loading, then fades
-     away (see the small script after the iframe). The boot iframe only
-     advances while visible, so a background-loaded tab still plays it in
-     full when looked at. Replay any time via the power button in the top
-     bar (bootReplayBtn) or a double-click on the JARVIS brand. -->
-<div id="bootScreen" class="hide" style="position:fixed;inset:0;z-index:2147483000;background:#000;opacity:0;transition:opacity .8s ease;pointer-events:none;display:none">
-  <iframe id="bootIframe" data-src="/boot__TOKEN_QUERY__" title="JARVIS core boot"
-          style="position:absolute;inset:0;width:100%;height:100%;border:0;background:#000"></iframe>
-</div>
-<style>
-  #bootScreen.hide { opacity: 0; pointer-events: none; }
-</style>
-<script>
-(function () {
-  "use strict";
-  var screen = document.getElementById("bootScreen");
-  var frame = document.getElementById("bootIframe");
-  var done = false;
-
-  function dismiss() {
-    if (done) return;
-    done = true;
-    screen.classList.add("hide");
-    setTimeout(function () {
-      // Stop the renderer and drop the layer entirely.
-      frame.removeAttribute("src");
-      screen.style.display = "none";
-    }, 850);
-  }
-  function replay() {
-    // Whisper boot lives on the orb canvas, not the titled overlay.
-    if (window.restartIgnition) window.restartIgnition();
-  }
-  window.replayBoot = replay;     // exposed for the top-bar button and tests
-  dismiss();
-
-  window.addEventListener("message", function (e) {
-    if (e.source === frame.contentWindow && e.data === "boot-done") dismiss();
-  });
-  // Safety net: if /boot is missing or never signals (offline fallback page,
-  // older deployment), never trap the console behind the overlay.
-  setTimeout(dismiss, 9000);
-
-  document.addEventListener("DOMContentLoaded", function () {
-    var btn = document.getElementById("bootReplayBtn");
-    var brand = document.getElementById("brand");
-    if (btn) btn.addEventListener("click", replay);
-    if (brand) brand.addEventListener("dblclick", replay);
-  });
-})();
-</script>
 <canvas id="orb"></canvas>
 <div id="halo" aria-hidden="true"></div>
 <div id="grid" aria-hidden="true"></div>
@@ -3614,13 +3561,10 @@ fetch("/api/status" + auth).then((response) => response.json())
   .then((data) => {
     renderChips(data.suggestions);
     if (!data.greeting) return;
-    // Hold the greeting until the chrome has assembled, so it doesn't appear
-    // on a caption that is still invisible. The pulse rides the settle, which
-    // makes the greeting feel like the reason the orb flared.
+    // Cinema: no caption dump. A pulse (and optional speech) is the greeting.
     const wait = Math.max(0, bootStart ? BOOT_MS * 0.92 - (performance.now() - bootStart) : 0);
     setTimeout(() => {
-      say(data.greeting, { fade: 20000 }); pulse(true);
-      // Speak it too — armAudio() releases it the moment a gesture allows.
+      pulse(true);
       if (settings.speech) speakAloud(data.greeting);
     }, CALM ? 0 : wait);
   })
@@ -3639,6 +3583,11 @@ function restartIgnition() {
   setTimeout(() => setCinemaQuiet(true), CALM ? 400 : BOOT_MS * BEATS.rebound + 900);
 }
 window.restartIgnition = restartIgnition;
+window.replayBoot = restartIgnition;
+const bootReplayBtn = $("bootReplayBtn");
+if (bootReplayBtn) bootReplayBtn.addEventListener("click", restartIgnition);
+const brandEl = $("brand");
+if (brandEl) brandEl.addEventListener("dblclick", restartIgnition);
 setTimeout(() => document.body.classList.add("awake"), CALM ? 0 : BOOT_MS * BEATS.rebound);
 setTimeout(() => setCinemaQuiet(true), CALM ? 400 : BOOT_MS * BEATS.rebound + 900);
 document.addEventListener("mousemove", reachChrome, { passive: true });

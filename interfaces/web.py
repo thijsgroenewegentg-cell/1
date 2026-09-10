@@ -579,11 +579,14 @@ class WebInterface:
                                 headers={"Cache-Control": "no-store, must-revalidate"})
 
         @app.get("/boot", response_class=HTMLResponse)
-        async def boot_page(token: str = Query(default="")) -> Any:
-            """Serve the boot-up sequence page (shown inside the console)."""
+        async def boot_page(token: str = Query(default=""),
+                            debug: str = Query(default="")) -> Any:
+            """Legacy titled boot card. Hidden unless ``?debug=1``."""
             if not self._authorised(token):
                 return HTMLResponse("<h1>401</h1><p>Append ?token=…</p>",
                                     status_code=401)
+            if str(debug).lower() not in {"1", "true", "yes"}:
+                return HTMLResponse("", status_code=404)
             try:
                 content = BOOT_FILE.read_text(encoding="utf-8")
             except Exception:  # pragma: no cover - only when the file is lost
