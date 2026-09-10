@@ -890,7 +890,10 @@ async def test_web_interface(root: Path, host: str) -> None:
     check("web app built", server.app is not None)
     check("token enforced", not server._authorised("") and server._authorised("s3cret"))
     check("url includes the token", "token=s3cret" in server.url, server.url)
-    check("local_addresses", any(str(server.port) in url for url in local_addresses(server.port)))
+    advertised = local_addresses(server.port)
+    check("local_addresses", advertised == [] or any(str(server.port) in url for url in advertised))
+    check("no loopback advertised",
+          not any("localhost" in url or "127.0.0.1" in url for url in advertised))
 
     try:
         from fastapi.testclient import TestClient

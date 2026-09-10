@@ -335,10 +335,14 @@ class Jarvis:
             self.web = server
             self._web_task = asyncio.create_task(server.serve())
             await asyncio.sleep(0.6)  # let it bind, so the address we print is real
+            shown = False
             for address in local_addresses(server.port):
                 suffix = f"?token={server.token}" if server.token else ""
                 if self.cli is not None:
                     self.cli.success(f"Web interface: {address}{suffix}")
+                    shown = True
+            if self.cli is not None and not shown:
+                self.cli.success(f"Web console on port {server.port}.")
         except Exception as exc:
             logger.warning("Could not start the web interface: %s", exc)
             if self.cli is not None:
@@ -362,9 +366,13 @@ class Jarvis:
         self.web = server
         assert self.cli is not None
         self.cli.banner()
+        shown = False
         for address in local_addresses(server.port):
             suffix = f"?token={server.token}" if server.token else ""
             self.cli.success(f"Web interface: {address}{suffix}")
+            shown = True
+        if not shown:
+            self.cli.success(f"Web console on port {server.port}.")
         if not server.token:
             self.cli.warn(
                 "No web_ui.token set — anyone on your network can talk to JARVIS."

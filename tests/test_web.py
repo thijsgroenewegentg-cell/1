@@ -36,9 +36,9 @@ def test_the_module_is_importable_under_both_names():
 
 def test_local_addresses_include_something_usable():
     addresses = local_addresses(8123)
-    assert addresses
     assert all("8123" in address for address in addresses)
-    assert any("localhost" in address for address in addresses)
+    assert not any("localhost" in address for address in addresses)
+    assert not any("127.0.0.1" in address for address in addresses)
     assert not any("169.254." in address for address in addresses)
 
 
@@ -821,18 +821,23 @@ def test_status_includes_a_pair_url(web):
     from fastapi.testclient import TestClient
 
     payload = TestClient(web.app).get("/api/status", params={"token": web.token}).json()
-    assert payload["pair"]["url"]
-    assert "token=" in payload["pair"]["url"]
-    assert str(web.port) in payload["pair"]["url"]
+    url = payload["pair"]["url"]
+    assert "localhost" not in url
+    assert "127.0.0.1" not in url
+    if url:
+        assert "token=" in url
+        assert str(web.port) in url
 
 
 def test_the_pairing_qr_is_an_svg(web):
     from fastapi.testclient import TestClient
 
     response = TestClient(web.app).get("/api/pair.svg", params={"token": web.token})
-    assert response.status_code == 200
-    assert "svg" in response.headers["content-type"]
-    assert b"<svg" in response.content
+    assert response.status_code in {200, 204}
+    if response.status_code == 200:
+        assert "svg" in response.headers["content-type"]
+        assert b"<svg" in response.content
+        assert b"localhost" not in response.content
 
 
 def test_the_page_has_a_pair_slot_and_restores_history(web):

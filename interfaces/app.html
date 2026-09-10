@@ -1027,7 +1027,7 @@ body.reading #chips { display: none; }
       <div class="stat"><span>Turns</span><span id="statTurns">0</span></div>
       <div class="stat"><span>Last reply</span><span id="statLast">—</span></div>
       <div class="stat"><span>Rendering</span><span id="statFps">—</span></div>
-      <div class="head">Phone</div>
+      <div class="head" id="pairHead">Phone</div>
       <div id="pairBox" style="display:flex;gap:12px;align-items:flex-start;margin:8px 0 12px">
         <img id="pairQr" alt="Pairing QR" width="120" height="120"
              style="background:#fff;border-radius:8px;width:120px;height:120px;flex:none">
@@ -2854,12 +2854,18 @@ async function loadStatus() {
       }
     } catch (err) { /* private mode / no sessionStorage */ }
     const pair = data.pair || {};
-    if (pair.url) {
-      const shown = String(pair.url).replace(/^https?:\/\//, "");
+    const raw = String(pair.url || "");
+    const usable = raw && !/localhost|127\.0\.0\.1/i.test(raw);
+    const box = $("pairBox");
+    const head = $("pairHead");
+    if (box) box.style.display = usable ? "flex" : "none";
+    if (head) head.style.display = usable ? "" : "none";
+    if (usable) {
+      const shown = raw.replace(/^https?:\/\//, "");
       $("pairUrl").textContent = shown;
-      $("pairUrl").title = pair.url;
+      $("pairUrl").title = raw;
       $("pairQr").src = "/api/pair.svg" + auth;
-      $("pairCopy").dataset.url = pair.url;
+      $("pairCopy").dataset.url = raw;
     }
     applySpeechSupport(data.speech !== false);
     try {

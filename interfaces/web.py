@@ -357,7 +357,7 @@ class WebInterface:
     @property
     def url(self) -> str:
         """The address to open in a browser."""
-        host = "localhost" if self.host in {"0.0.0.0", "::"} else self.host
+        host = "127.0.0.1" if self.host in {"0.0.0.0", "::"} else self.host
         suffix = f"?token={self.token}" if self.token else ""
         return f"http://{host}:{self.port}/{suffix}"
 
@@ -603,7 +603,10 @@ class WebInterface:
             try:
                 from utils.qr import svg as qr_svg
 
-                image = qr_svg(self.pair_url())
+                target = self.pair_url()
+                if not target:
+                    return Response(status_code=204)
+                image = qr_svg(target)
             except Exception as exc:
                 logger.debug("QR encode failed: %s", exc)
                 raise HTTPException(status_code=503, detail="qr unavailable") from exc
@@ -1686,17 +1689,19 @@ class WebInterface:
         )
 
     def pair_urls(self) -> List[str]:
-        """LAN/localhost URLs that open this console, token included."""
+        """Reachable LAN URLs for a phone. Never loopback — that looks unfinished."""
         suffix = f"?token={self.token}" if self.token else ""
-        return [url.rstrip("/") + "/" + suffix for url in local_addresses(self.port)]
+        out: List[str] = []
+        for url in local_addresses(self.port):
+            if "localhost" in url or "127.0.0.1" in url:
+                continue
+            out.append(url.rstrip("/") + "/" + suffix)
+        return out
 
     def pair_url(self) -> str:
-        """Best URL to show on the pairing QR (LAN first, else localhost)."""
+        """LAN URL for the pairing QR, or empty when this machine has none."""
         urls = self.pair_urls()
-        for url in urls:
-            if "localhost" not in url and "127.0.0.1" not in url:
-                return url
-        return urls[0] if urls else self.url
+        return urls[0] if urls else ""
 
     def _hello_payload(self) -> Dict[str, Any]:
         """Session snapshot sent the moment a browser connects.
@@ -1730,7 +1735,7 @@ def _reachable_lan(address: str) -> bool:
     """True when ``address`` is worth putting on a pairing QR.
 
     Link-local 169.254/16 is what you get with no DHCP — a phone cannot
-    open it. Loopback is already listed separately as localhost.
+    open it. Loopback is never advertised.
     """
     host = (address or "").split("%")[0].strip().lower()
     if not host or host.startswith("127.") or host in {"::1", "0.0.0.0", "::"}:
@@ -1745,11 +1750,11 @@ def local_addresses(port: int) -> List[str]:
         port: The port the server is listening on.
 
     Returns:
-        A list of ``http://…`` URLs, LAN address first when discoverable.
+        LAN ``http://…`` URLs. Loopback is omitted on purpose.
     """
     import socket
 
-    urls = [f"http://localhost:{port}/"]
+    urls: List[str] = []
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         probe.settimeout(0.2)
@@ -1757,7 +1762,7 @@ def local_addresses(port: int) -> List[str]:
         address = probe.getsockname()[0]
         probe.close()
         if address and _reachable_lan(address):
-            urls.insert(0, f"http://{address}:{port}/")
+            urls.append(f"http://{address}:{port}/")
     except Exception:
         pass
     return urls
