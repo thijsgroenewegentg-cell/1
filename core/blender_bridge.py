@@ -327,8 +327,21 @@ def list_tools(overrides: dict | None = None) -> tuple[bool, str]:
         return False, error
     try:
         tools = _get_client(settings).list_tools()
-        names = [str(tool.get("name")) for tool in tools]
-        return True, "Blender MCP tools:\n" + ("\n".join(f"- {name}" for name in names) if names else "(none)")
+        rows = []
+        for tool in tools:
+            name = str(tool.get("name", "")).strip()
+            description = " ".join(str(tool.get("description", "")).split())
+            schema = tool.get("inputSchema") or tool.get("input_schema")
+            schema_text = ""
+            if isinstance(schema, dict):
+                schema_text = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))[:1200]
+            row = f"- {name}"
+            if description:
+                row += f": {description[:260]}"
+            if schema_text:
+                row += f"\n  arguments: {schema_text}"
+            rows.append(row)
+        return True, "Blender MCP tools:\n" + ("\n".join(rows) if rows else "(none)")
     except Exception as exc:
         return False, _explain_connection_error(settings, exc)
 
