@@ -1122,6 +1122,9 @@ let socket = null, busy = false, replyText = "", turns = 0, retry = 0;
 let tokenSeen = false;
 // null until /api/status answers; false means Ollama is not running.
 let llmOnline = null;
+// Mirrors llmOnline === false for the render loop: the orb's resting look
+// follows it, so the sphere admits when only reflexes are available.
+let degradedMode = false;
 let captionTimer = null, turnStarted = 0;
 // Speech defaults ON unless the visitor explicitly turned it off, so JARVIS
 // actually talks when you start it up instead of waiting to be discovered.
@@ -1165,6 +1168,10 @@ const COLOURS = {
   think:  [206, 208, 214],
   speak:  [239, 68, 68],
   lost:   [220, 38, 38],
+  // No language model reachable: the sphere rests cooler and dimmer than a
+  // fully able idle, so the centrepiece does not outclaim what the degraded
+  // banner honestly reports.
+  degraded: [156, 159, 166],
 };
 
 /* ---------------------------------------------------------------- noise
@@ -1228,10 +1235,6 @@ let frameTimes = [], lastFrame = performance.now(), fps = 60;
 //: Idle animation is slow and ambient, so 30fps is indistinguishable from
 //: unthrottled — and roughly a sixth of the GPU work.
 const IDLE_FRAME_MS = 1000 / 30;
-//: The centred console's footprint, used to work out how much room is left
-//: above it for the sphere. Kept in sync with #dock: the 60px control row,
-//: a 13px gap and the ~20px keyboard hint.
-const DOCK_HEIGHT = 93;
 //: Breathing room between the orb's lowest crest and the controls.
 const DOCK_GAP = 20;
 //: Clearance below the top bar (module tiles and wordmark).
@@ -1388,11 +1391,13 @@ function draw(now) {
   // TOP_MARGIN keeps the sphere clear of the tiles and wordmark in the top
   // bar; without it the band maths pushes the crest flush to y=0.
   const bandTop = TOP_MARGIN;
-  // Must track the #dock rule, including the narrow-screen override that
-  // lifts it to 44% — otherwise the sphere and the console disagree about
-  // where the middle of the page is.
-  const dockCentre = height * (width <= 860 ? 0.55 : 0.62);
-  const bandBottom = dockCentre - DOCK_HEIGHT / 2 - DOCK_GAP;
+  // Measure the dock itself instead of re-stating its CSS position and
+  // height as constants. The constants had to be hand-synced with the
+  // #dock rules — including the narrow-screen override — and the chips and
+  // the typing bar grow the dock beyond its resting footprint anyway. One
+  // layout read per frame: the canvas never touches layout, so it cannot
+  // thrash.
+  const bandBottom = Math.max(bandTop + 60, $("dock").getBoundingClientRect().top - DOCK_GAP);
   const centreY = (bandTop + bandBottom) / 2;
   // Fill the band rather than merely fitting inside it. The 1.26 divisor
   // reserves room for the widest noise crest, but only a handful of points
@@ -1434,12 +1439,16 @@ function draw(now) {
   // rather than Math.random so it cannot flicker differently frame to frame
   // at low framerates.
   const shakeAmp = flash * 26;
-  const shakeX = Math.sin(orb.time * 97.3) * shakeAmp;
-  const shakeY = Math.cos(orb.time * 113.7) * shakeAmp;
+  // prefers-reduced-motion: the idle tumble, the ignition shake and the
+  // noise swell all drop to near-still — state colour still reads, but
+  // nothing keeps churning at the visitor who asked for calm.
+  const shakeX = CALM ? 0 : Math.sin(orb.time * 97.3) * shakeAmp;
+  const shakeY = CALM ? 0 : Math.cos(orb.time * 113.7) * shakeAmp;
   // Spin screams during the rush, freezes in the silence, brakes after.
   const bootSpin = held ? 0 : (1 - rush) * 0.34 * (boot < BEATS.rush ? 1 : 0) + flash * 0.3;
   orb.spin += held ? 0
-    : 0.0022 + orb.energy * 0.028 + orb.pulse * 0.02 + bootSpin;
+    : (CALM ? 0.0005 : 0.0022) + orb.energy * (CALM ? 0.008 : 0.028)
+    + orb.pulse * 0.02 + bootSpin;
 
   const wanted = COLOURS[orb.hue] || COLOURS.idle;
   for (let i = 0; i < 3; i++) paint[i] += (wanted[i] - paint[i]) * 0.14;
@@ -1541,7 +1550,8 @@ function draw(now) {
   }
   let brightest = 0;
   const flow = orb.time * 0.26;
-  const swell = NOISE_AMOUNT + orb.energy * 0.55 + orb.pulse * 0.45;
+  const swell = (CALM ? NOISE_AMOUNT * 0.55 : NOISE_AMOUNT)
+    + orb.energy * (CALM ? 0.2 : 0.55) + orb.pulse * 0.45;
   // A shockwave front sweeping outward from the core after every pulse. It
   // travels through the shell as a ring of displacement, so a reply visibly
   // detonates instead of merely brightening.
@@ -1716,6 +1726,11 @@ function mood(hue, energy) {
   // only reacting to the continuous energy value.
   document.body.dataset.mood = hue;
 }
+//: The resting look. When no language model is reachable the sphere rests
+//: in the dimmer degraded temperature instead of the able-bodied idle.
+function restMood() {
+  mood(degradedMode ? "degraded" : "idle", degradedMode ? 0.06 : 0);
+}
 function pulse(burst) {
   // A swell through the shell rather than a shower of comets: the sphere
   // itself reacts, which is the whole idea of the new look.
@@ -1819,17 +1834,32 @@ function setContentful(on) {
    characters per frame, re-rendered through light() so lists and code
    build themselves while the text lands. Esc completes it instantly. */
 let revealTimer = null, revealText = "";
+//: The orb's red "alive" state used to ride the LLM's token stream only, so
+//: on the deterministic path — no model, one-block replies — the sphere
+//: never spoke at all. Voice and typewriter now carry the mood instead.
+let voiceActive = false;
+function voiceMood(on) {
+  voiceActive = on;
+  if (busy) return;                     // the turn's own state wins while working
+  if (on) mood("speak", 0.45);
+  else if (!revealTimer) restMood();
+}
 function reveal(text) {
   stopReveal();
   revealText = String(text || "");
   if (!revealText) { say(text, { fade: 30000 }); return; }
+  mood("speak", 0.4);                   // JARVIS is delivering his answer
   let shown = 0;
   const step = Math.max(2, Math.round(revealText.length / 110));
   const tick = () => {
     shown = Math.min(revealText.length, shown + step);
     say(revealText.slice(0, shown), { cursor: shown < revealText.length });
     if (shown < revealText.length) revealTimer = setTimeout(tick, 16);
-    else { revealTimer = null; say(revealText, { fade: 30000 }); }
+    else {
+      revealTimer = null;
+      say(revealText, { fade: 30000 });
+      if (!busy && !voiceActive) restMood();
+    }
   };
   tick();
 }
@@ -1840,6 +1870,7 @@ function finishReveal() {
   stopReveal();
   if (revealText) say(revealText, { fade: 30000 });
   revealText = "";
+  if (!busy && !voiceActive) restMood();
 }
 
 //: A live elapsed-time readout beside the state label. A tool that takes
@@ -2089,7 +2120,7 @@ function connect() {
     // JARVIS answers only reflex commands, so say which of the two it is.
     $("topState").textContent = llmOnline === false ? "no model" : "online";
     $("topState").classList.toggle("degraded", llmOnline === false);
-    retry = 0; mood("idle", 0); pulse();
+    retry = 0; restMood(); pulse();
   };
   socket.onclose = () => {
     $("link").classList.remove("on"); $("topState").textContent = "reconnecting";
@@ -2198,7 +2229,12 @@ function setBusy(value) {
   // turnStarted must be set *before* status(), which reads it to seed the
   // elapsed clock — otherwise the readout counts from the previous turn.
   if (value) { turnStarted = performance.now(); mood("think", 0.5); status("thinking"); }
-  else { mood("idle", 0); status(""); }
+  else {
+    // A running typewriter or the assistant's own voice owns the mood right
+    // now; only settle to rest when neither is speaking.
+    if (!revealTimer && !voiceActive) restMood();
+    status("");
+  }
 }
 
 function send(text) {
@@ -2284,8 +2320,9 @@ function speakWithBrowser(text) {
     // Chrome fires onstart only if the utterance was really allowed to run.
     // No start within 1.5s means the frame swallowed it.
     let started = false;
-    line.onstart = () => { started = true; };
-    line.onerror = () => { if (!started) reportAudioBlocked(); };
+    line.onstart = () => { started = true; voiceMood(true); };
+    line.onend = () => voiceMood(false);
+    line.onerror = () => { voiceMood(false); if (!started) reportAudioBlocked(); };
     setTimeout(() => {
       // Queued or still speaking means it worked, just slowly — only a synth
       // that is neither is proof the frame refused the audio.
@@ -2357,6 +2394,11 @@ function speakAloud(text) {
     // to the browser's own voice rather than going silent for the whole
     // session, and fold the failure into the control without a toast per reply.
     audio.addEventListener("error", () => { applySpeechSupport(false); speakWithBrowser(text); });
+    // While his voice plays, the sphere wears the speaking colour — even on
+    // one-block replies that never streamed a single token.
+    audio.addEventListener("play", () => voiceMood(true));
+    audio.addEventListener("pause", () => voiceMood(false));
+    audio.addEventListener("ended", () => voiceMood(false));
     audio.play().catch(() => { if (!speakWithBrowser(text)) applySpeechSupport(false); });
     return;
   }
@@ -2471,7 +2513,7 @@ async function finishRecording(stream) {
   if (wc) { wc.style.opacity = "0"; const c = wc.getContext("2d"); if (c) c.clearRect(0,0,68,68); }
   if (context) { context.close().catch(() => {}); context = null; }
   $("mic").classList.remove("recording");
-  if (!chunks.length) { mood("idle", 0); status(""); return; }
+  if (!chunks.length) { restMood(); status(""); return; }
   $("mic").classList.add("busy");
   status("transcribing");
   mood("think", 0.35);
@@ -2483,14 +2525,14 @@ async function finishRecording(stream) {
     const data = await response.json();
     if (!response.ok || data.error) {
       toast(data.detail || data.error || "Transcription failed.", true);
-      mood("idle", 0); status("");
+      restMood(); status("");
     } else if (!data.text) {
-      say("I heard nothing, sir.", { dim: true, fade: 4000 }); mood("idle", 0); status("");
+      say("I heard nothing, sir.", { dim: true, fade: 4000 }); restMood(); status("");
     } else {
       send(data.text);
     }
   } catch (err) {
-    toast(err.message, true); mood("idle", 0); status("");
+    toast(err.message, true); restMood(); status("");
   } finally {
     $("mic").classList.remove("busy");
   }
@@ -2652,6 +2694,15 @@ async function loadStatus() {
     });
     const totalTools = Object.values(toolCounts).reduce((sum, n) => sum + (Number(n) || 0), 0);
     llmOnline = llm.online !== false;
+    // Keep the orb's resting look honest: switch temperature the moment the
+    // model comes or goes, but only while at rest — never stomp on an active
+    // listen/think/speak state.
+    const wasDegraded = degradedMode;
+    degradedMode = !llmOnline;
+    if (wasDegraded !== degradedMode &&
+        (document.body.dataset.mood === "idle" || document.body.dataset.mood === "degraded")) {
+      restMood();
+    }
     if ($("topState").textContent !== "reconnecting") {
       $("topState").textContent = llmOnline ? "online" : "no model";
       $("topState").classList.toggle("degraded", !llmOnline);
