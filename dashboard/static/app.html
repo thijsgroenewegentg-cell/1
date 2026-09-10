@@ -8,15 +8,20 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:      #07090f;
-      --surface: rgba(255,255,255,0.04);
-      --border:  rgba(255,255,255,0.07);
-      --accent:  #6366f1;
-      --adim:    rgba(99,102,241,0.14);
-      --text:    #dde3ed;
-      --muted:   #5e6a7e;
-      --green:   #22c55e;
-      --gdim:    rgba(34,197,94,0.14);
+      --bg:       #0a0e14;
+      --surface:  #111720;
+      --surface-2:#161e29;
+      --border:   #26313f;
+      --border-hi:#3a4b62;
+      --accent:   #8faeff;
+      --adim:     rgba(143,174,255,0.14);
+      --text:     #d8e2f2;
+      --muted:    #718096;
+      --subtle:   #a3b1c6;
+      --green:    #63d6a1;
+      --gdim:     rgba(99,214,161,0.13);
+      --warning:  #f0c875;
+      --danger:   #f2798c;
     }
     html, body {
       height: 100%; background: var(--bg); color: var(--text);
@@ -131,26 +136,276 @@
       pointer-events:none; white-space:nowrap;
     }
     #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+    /* ── APPLICATION SHELL ─────────────────────────────────────────────────── */
+    body { color: var(--text); }
+    header {
+      min-height: 72px; padding: 12px 20px; gap: 12px;
+      background: rgba(10,14,20,0.96); border-bottom-color: var(--border);
+    }
+    .brand-mark {
+      width: 38px; height: 38px; display: grid; place-items: center; flex-shrink: 0;
+      color: #f4f7fb; background: #1a2945; border: 1px solid #657bb0;
+      border-radius: 12px; font-size: 17px; font-weight: 750;
+    }
+    .brand-copy { display: flex; flex-direction: column; gap: 1px; }
+    .logo { font-size: 15px; letter-spacing: 4px; line-height: 1.1; }
+    .logo em { color: var(--accent); }
+    .topbar-sub { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 1.3px; }
+    .topbar-session {
+      display: flex; align-items: center; gap: 7px; color: var(--muted);
+      font-size: 9px; font-weight: 700; letter-spacing: 1.2px;
+    }
+    .topbar-session .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+    .topbar-session .status-dot.on { background: var(--green); box-shadow: 0 0 0 4px var(--gdim); }
+    .pill { padding: 5px 11px; background: var(--surface); border-color: var(--border); }
+    .pill.on { background: var(--gdim); border-color: rgba(99,214,161,0.3); color: var(--green); }
+    .pill.on .dot { background: var(--green); }
+    .enc-badge.on { background: var(--gdim); border-color: rgba(99,214,161,0.28); color: var(--green); }
+    .enc-badge.off { background: rgba(242,121,140,0.09); border-color: rgba(242,121,140,0.26); color: var(--danger); }
+    .url { background: var(--surface); border-color: var(--border); color: var(--muted); }
+
+    #app-shell {
+      flex: 1; min-height: 0; display: grid;
+      grid-template-columns: 216px minmax(0, 1fr) 268px;
+      background: var(--bg);
+    }
+    #nav-rail, #context-rail { min-width: 0; min-height: 0; overflow-y: auto; }
+    #nav-rail {
+      display: flex; flex-direction: column; gap: 16px; padding: 18px 14px 14px;
+      background: #0d1219; border-right: 1px solid var(--border);
+    }
+    .rail-brand { padding: 3px 8px 5px; }
+    .eyebrow, .card-kicker, .nav-heading {
+      color: var(--muted); font-size: 9px; font-weight: 750;
+      letter-spacing: 1.6px; text-transform: uppercase;
+    }
+    .rail-brand .eyebrow { color: var(--accent); }
+    .rail-brand p { color: var(--subtle); font-size: 12px; margin-top: 5px; }
+    .rail-nav { display: flex; flex-direction: column; gap: 3px; }
+    .nav-heading { padding: 0 10px 6px; }
+    .rail-item {
+      width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 10px;
+      border: 1px solid transparent; border-radius: 9px; background: transparent;
+      color: var(--muted); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+      transition: background .15s, border-color .15s, color .15s;
+    }
+    .rail-item:hover { color: var(--text); background: var(--surface); border-color: var(--border); }
+    .rail-item.active { color: var(--text); background: var(--adim); border-color: rgba(143,174,255,.24); }
+    .rail-icon { width: 18px; color: var(--muted); text-align: center; font-size: 14px; }
+    .rail-item.active .rail-icon { color: var(--accent); }
+    .rail-spacer { flex: 1; min-height: 14px; }
+    .rail-card, .side-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 11px;
+    }
+    .rail-card { padding: 11px 12px; }
+    .rail-state { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; }
+    .rail-state strong { color: var(--green); font-size: 11px; letter-spacing: .8px; }
+    .rail-state .state-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+    .rail-state .state-dot.on { background: var(--green); }
+    .rail-card p { color: var(--muted); font-size: 10px; line-height: 1.45; margin-top: 6px; }
+    .rail-footer { color: var(--muted); font-size: 9px; line-height: 1.55; padding: 0 8px; }
+
+    #workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+    .workspace-toolbar {
+      flex-shrink: 0; min-height: 66px; display: flex; align-items: center; gap: 12px;
+      padding: 14px 22px; border-bottom: 1px solid var(--border); background: var(--bg);
+    }
+    .workspace-title { color: var(--text); font-size: 17px; font-weight: 650; }
+    .workspace-subtitle { color: var(--muted); font-size: 11px; margin-top: 3px; }
+    .workspace-meta { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 1px; }
+    .meta-chip { padding: 5px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+    .meta-chip.accent { color: var(--accent); border-color: rgba(143,174,255,.24); background: var(--adim); }
+    main { padding: 18px 22px 12px; gap: 12px; }
+    .welcome-card {
+      align-self: stretch; padding: 18px 20px; border: 1px solid var(--border);
+      border-radius: 14px; background: linear-gradient(135deg, rgba(143,174,255,.12), rgba(17,23,32,.8) 55%);
+    }
+    .welcome-card h1 { color: var(--text); font-size: 19px; font-weight: 650; margin: 7px 0 6px; }
+    .welcome-card.has-activity { display: none; }
+    .welcome-card p { color: var(--subtle); font-size: 12px; line-height: 1.55; max-width: 620px; }
+    .welcome-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+    .quick-prompt {
+      padding: 7px 10px; color: var(--muted); background: rgba(10,14,20,.55);
+      border: 1px solid var(--border); border-radius: 7px; font-size: 10px; cursor: pointer;
+    }
+    .quick-prompt:hover { color: var(--text); border-color: var(--accent); }
+    .msg { max-width: min(760px, 82%); padding: 12px 15px; border-radius: 13px; }
+    .msg-j { background: var(--adim); border-color: rgba(143,174,255,.2); }
+    .msg-u { background: var(--surface); border-color: var(--border); }
+    .msg-sys { max-width: 100%; }
+
+    #context-rail {
+      padding: 18px 14px 14px; display: flex; flex-direction: column; gap: 11px;
+      background: #0d1219; border-left: 1px solid var(--border);
+    }
+    .context-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 2px 2px 4px; }
+    .context-heading h2 { color: var(--text); font-size: 12px; font-weight: 650; }
+    .context-heading span { color: var(--muted); font-size: 9px; letter-spacing: 1px; }
+    .side-card { padding: 12px; }
+    .side-card + .side-card { margin-top: 0; }
+    .side-value { color: var(--text); font-size: 14px; font-weight: 650; margin-top: 7px; }
+    .side-detail { color: var(--muted); font-size: 10px; line-height: 1.45; margin-top: 4px; }
+    .side-divider { height: 1px; background: var(--border); margin: 11px 0; }
+    .task-row { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .task-icon { width: 19px; height: 19px; display: grid; place-items: center; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; }
+    .health-list { display: flex; flex-direction: column; gap: 10px; margin-top: 11px; }
+    .health-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; }
+    .health-name { display: flex; align-items: center; gap: 7px; }
+    .health-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+    .health-dot.on { background: var(--green); }
+    .health-row strong { color: var(--subtle); font-size: 9px; letter-spacing: .7px; }
+    .recovery-card { background: rgba(240,200,117,.06); border-color: rgba(240,200,117,.22); }
+    .recovery-card .side-value { color: var(--warning); font-size: 11px; }
+    .recovery-card .side-detail { color: #aaa17d; }
+    .activity-line { color: var(--subtle); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+    .activity-line.empty { color: var(--muted); }
+
+    footer { padding: 12px 18px 14px; gap: 8px; background: #0d1219; border-top-color: var(--border); }
+    #inp { padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+    #inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(143,174,255,.1); }
+    .btn-send { background: var(--accent); color: #0a0e14; }
+    .btn-attach, #mic-btn { background: var(--surface); border-color: var(--border); }
+    .btn-attach:hover, #mic-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    @media (max-width: 1120px) {
+      #app-shell { grid-template-columns: 190px minmax(0, 1fr); }
+      #context-rail { display: none; }
+    }
+    @media (max-width: 720px) {
+      html, body { min-height: 100%; height: auto; overflow: auto; }
+      header { min-height: 64px; padding: 10px 12px; }
+      .brand-mark { width: 32px; height: 32px; border-radius: 10px; font-size: 15px; }
+      .topbar-sub, .topbar-session, .url { display: none; }
+      #app-shell { display: flex; flex-direction: column; min-height: calc(100vh - 64px); }
+      #nav-rail { order: 0; flex: 0 0 auto; padding: 8px 10px; border-right: none; border-bottom: 1px solid var(--border); overflow-x: auto; }
+      .rail-brand, .rail-card, .rail-footer, .nav-heading { display: none; }
+      .rail-nav { flex-direction: row; gap: 5px; min-width: max-content; }
+      .rail-item { width: auto; padding: 8px 10px; font-size: 11px; white-space: nowrap; }
+      .rail-item span:last-child { display: none; }
+      .rail-spacer { display: none; }
+      #workspace { min-height: calc(100vh - 116px); }
+      .workspace-toolbar { padding: 12px 14px; min-height: 58px; }
+      .workspace-title { font-size: 15px; }
+      .workspace-subtitle { font-size: 10px; }
+      .workspace-meta { display: none; }
+      main { padding: 14px 12px 10px; }
+      .welcome-card { padding: 15px; }
+      .welcome-card h1 { font-size: 17px; }
+      .msg { max-width: 92%; font-size: 13px; }
+      footer { padding: 10px 10px 12px; flex-wrap: wrap; }
+      #inp { min-width: 0; order: 0; flex-basis: calc(100% - 52px); }
+      .btn-send { order: 1; }
+      .btn-attach, #mic-btn, .btn-wake { order: 2; }
+    }
   </style>
 </head>
 <body>
   <div id="toast"></div>
   <header>
-    <div class="logo"><em>J</em>ARVIS</div>
+    <div class="brand-mark" aria-hidden="true">M</div>
+    <div class="brand-copy">
+      <div class="logo"><em>J</em>ARVIS</div>
+      <div class="topbar-sub">LOCAL INTELLIGENT WORKSPACE</div>
+    </div>
     <div class="pill" id="pill"><span class="dot"></span><span id="st">Connecting</span></div>
     <div class="enc-badge" id="enc">AES-256</div>
     <div class="spacer"></div>
+    <div class="topbar-session"><span class="status-dot" id="header-dot"></span><span id="header-session">REMOTE SESSION</span></div>
     <div class="url">__IP__:__PORT__</div>
   </header>
-  <main id="feed"></main>
-  <footer>
-    <input id="inp" placeholder="Send a command to JARVIS…" autocomplete="off">
-    <label class="btn-attach" for="file-inp" title="Send file">📎</label>
-    <input type="file" id="file-inp" multiple accept="*/*" style="display:none">
-    <button id="mic-btn" onclick="doMic()" title="Voice command">🎤</button>
-    <button class="btn btn-wake" id="wake" onclick="doWake()">WAKE</button>
-    <button class="btn btn-send" onclick="doSend()">SEND</button>
-  </footer>
+
+  <div id="app-shell">
+    <aside id="nav-rail" aria-label="Workspace navigation">
+      <div class="rail-brand">
+        <div class="eyebrow">MARK remote</div>
+        <p>Secure companion dashboard</p>
+      </div>
+      <nav class="rail-nav" aria-label="Workspace">
+        <div class="nav-heading">Workspace</div>
+        <button class="rail-item active" data-view="overview"><span class="rail-icon">⌂</span><span>Overview</span></button>
+        <button class="rail-item" data-view="conversation"><span class="rail-icon">✦</span><span>Conversation</span></button>
+        <button class="rail-item" data-view="tasks"><span class="rail-icon">✓</span><span>Tasks</span></button>
+        <button class="rail-item" data-view="blender"><span class="rail-icon">◇</span><span>Blender</span></button>
+        <button class="rail-item" data-view="vision"><span class="rail-icon">◌</span><span>Vision</span></button>
+        <button class="rail-item" data-view="memory"><span class="rail-icon">▣</span><span>Memory</span></button>
+        <button class="rail-item" data-view="workflows"><span class="rail-icon">⌁</span><span>Workflows</span></button>
+        <button class="rail-item" data-view="settings"><span class="rail-icon">⚙</span><span>Settings</span></button>
+      </nav>
+      <div class="rail-spacer"></div>
+      <div class="rail-card">
+        <div class="card-kicker">Session</div>
+        <div class="rail-state"><strong id="rail-session">CONNECTING</strong><span class="state-dot" id="rail-dot"></span></div>
+        <p id="rail-session-detail">Waiting for the local relay.</p>
+      </div>
+      <div class="rail-footer">Local-first controls · confirmation gates remain active</div>
+    </aside>
+
+    <section id="workspace" aria-label="Conversation workspace">
+      <div class="workspace-toolbar">
+        <div>
+          <div class="workspace-title">Conversation</div>
+          <div class="workspace-subtitle">Streamed responses, tool progress and secure file exchange</div>
+        </div>
+        <div class="workspace-meta">
+          <span class="meta-chip accent" id="event-count">0 EVENTS</span>
+          <span class="meta-chip">LOCAL RELAY</span>
+        </div>
+      </div>
+      <main id="feed">
+        <section class="welcome-card" id="welcome-card">
+          <div class="eyebrow">Active session</div>
+          <h1>What would you like to work on?</h1>
+          <p>Use the command bar to talk to MARK, send a project file, or start a voice session. The desktop assistant remains the source of truth for tools and confirmations.</p>
+          <div class="welcome-actions">
+            <button class="quick-prompt" data-prompt="Give me a concise status update">Ask for a status update</button>
+            <button class="quick-prompt" data-prompt="What can you help me with?">See what MARK can do</button>
+          </div>
+        </section>
+      </main>
+      <footer>
+        <input id="inp" placeholder="Ask MARK anything…" autocomplete="off" aria-label="Command">
+        <label class="btn-attach" for="file-inp" title="Send file" aria-label="Send file">📎</label>
+        <input type="file" id="file-inp" multiple accept="*/*" style="display:none">
+        <button id="mic-btn" onclick="doMic()" title="Voice command" aria-label="Voice command">🎤</button>
+        <button class="btn btn-wake" id="wake" onclick="doWake()">WAKE</button>
+        <button class="btn btn-send" onclick="doSend()">SEND</button>
+      </footer>
+    </section>
+
+    <aside id="context-rail" aria-label="Session context">
+      <div class="context-heading"><h2>Context</h2><span>LIVE</span></div>
+      <section class="side-card">
+        <div class="card-kicker">Session state</div>
+        <div class="side-value" id="context-state">CONNECTING</div>
+        <div class="side-detail" id="context-detail">Opening a secure connection to the local assistant.</div>
+      </section>
+      <section class="side-card">
+        <div class="card-kicker">Active task</div>
+        <div class="side-divider"></div>
+        <div class="task-row"><span class="task-icon">✓</span><span id="task-state">No active task</span></div>
+        <div class="side-detail">Task plans and confirmation requests will appear in the conversation.</div>
+      </section>
+      <section class="side-card">
+        <div class="card-kicker">Service health</div>
+        <div class="health-list">
+          <div class="health-row"><span class="health-name"><span class="health-dot" id="health-channel"></span>Secure channel</span><strong id="health-channel-text">CONNECTING</strong></div>
+          <div class="health-row"><span class="health-name"><span class="health-dot" id="health-encryption"></span>Message encryption</span><strong id="health-encryption-text">CHECKING</strong></div>
+          <div class="health-row"><span class="health-name"><span class="health-dot" id="health-voice"></span>Voice input</span><strong id="health-voice-text">READY</strong></div>
+        </div>
+      </section>
+      <section class="side-card">
+        <div class="card-kicker">Recent activity</div>
+        <div class="side-divider"></div>
+        <div class="activity-line empty" id="last-event">No events yet</div>
+      </section>
+      <section class="side-card recovery-card">
+        <div class="card-kicker">Recovery</div>
+        <div class="side-value">Confirmation gates enabled</div>
+        <div class="side-detail">Mutating actions remain reviewable. If the relay drops, reconnect from this page.</div>
+      </section>
+    </aside>
+  </div>
 
   <script>
     // ── Auth — bearer token ───────────────────────────────────────────────────
@@ -200,19 +455,95 @@
     if (_encReady) { encBadge.className = 'enc-badge on'; }
     else           { encBadge.className = 'enc-badge off'; encBadge.textContent = 'NO ENC'; }
 
-    // ── WebSocket ─────────────────────────────────────────────────────────────
+    // ── Remote shell state ───────────────────────────────────────────────────
     const feed  = document.getElementById('feed');
     const pill  = document.getElementById('pill');
     const stTxt = document.getElementById('st');
     const wake  = document.getElementById('wake');
+    const contextState = document.getElementById('context-state');
+    const contextDetail = document.getElementById('context-detail');
+    const railSession = document.getElementById('rail-session');
+    const railSessionDetail = document.getElementById('rail-session-detail');
+    const headerDot = document.getElementById('header-dot');
+    const headerSession = document.getElementById('header-session');
+    const channelDot = document.getElementById('health-channel');
+    const channelText = document.getElementById('health-channel-text');
+    const encryptionDot = document.getElementById('health-encryption');
+    const encryptionText = document.getElementById('health-encryption-text');
+    const voiceDot = document.getElementById('health-voice');
+    const voiceText = document.getElementById('health-voice-text');
+    const lastEvent = document.getElementById('last-event');
+    const eventCount = document.getElementById('event-count');
+    const welcomeCard = document.getElementById('welcome-card');
+    let _eventCount = 0;
 
+    function _setHealth(dot, label, text, online) {
+      if (dot) dot.classList.toggle('on', Boolean(online));
+      if (label) label.textContent = text;
+    }
+
+    function _setConnection(online) {
+      _setHealth(channelDot, channelText, online ? 'ONLINE' : 'OFFLINE', online);
+      if (headerDot) headerDot.classList.toggle('on', Boolean(online));
+      if (headerSession) headerSession.textContent = online ? 'REMOTE SESSION' : 'RECONNECT REQUIRED';
+      if (railSession) railSession.textContent = online ? 'CONNECTED' : 'OFFLINE';
+      if (railSessionDetail) railSessionDetail.textContent = online
+        ? 'Secure local relay is available.'
+        : 'Connection lost — refresh to reconnect.';
+      if (contextState && !online) contextState.textContent = 'OFFLINE';
+      if (contextDetail && !online) contextDetail.textContent = 'Reconnect to restore the local assistant session.';
+      if (contextState && online && contextState.textContent === 'OFFLINE') contextState.textContent = 'CONNECTED';
+    }
+
+    function _recordActivity(text) {
+      _eventCount += 1;
+      if (eventCount) eventCount.textContent = `${_eventCount} EVENT${_eventCount === 1 ? '' : 'S'}`;
+      if (lastEvent) {
+        lastEvent.textContent = String(text || '').slice(0, 180);
+        lastEvent.classList.remove('empty');
+      }
+      if (welcomeCard) welcomeCard.classList.add('has-activity');
+    }
+
+    _setHealth(encryptionDot, encryptionText, _encReady ? 'AES-256' : 'DISABLED', _encReady);
+    _setHealth(voiceDot, voiceText, 'READY', true);
+
+    // Navigation changes context without bypassing the command and confirmation
+    // paths owned by the desktop assistant.
+    document.querySelectorAll('.rail-item').forEach(item => {
+      item.addEventListener('click', () => {
+        document.querySelectorAll('.rail-item').forEach(node => node.classList.remove('active'));
+        item.classList.add('active');
+        const view = item.dataset.view;
+        if (view === 'overview') {
+          feed.scrollTop = 0;
+          return;
+        }
+        if (view === 'conversation') {
+          document.getElementById('inp').focus();
+          return;
+        }
+        const label = item.querySelector('span:last-child')?.textContent || view;
+        toast(`${label} context selected`);
+        document.getElementById('inp').focus();
+      });
+    });
+    document.querySelectorAll('.quick-prompt').forEach(button => {
+      button.addEventListener('click', () => {
+        const input = document.getElementById('inp');
+        input.value = button.dataset.prompt || '';
+        input.focus();
+      });
+    });
+
+    // ── WebSocket ─────────────────────────────────────────────────────────────
     const _wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
     const _wsUrl   = `${_wsProto}://${location.host}/ws?token=${encodeURIComponent(_authToken)}`;
     const ws       = new WebSocket(_wsUrl);
 
-    ws.onopen    = () => { sys('Remote session active.'); toast('Connected to JARVIS'); };
-    ws.onclose   = () => sys('Connection lost — refresh to reconnect.');
-    ws.onerror   = () => sys('Connection error.');
+    ws.onopen    = () => { _setConnection(true); sys('Remote session active.'); toast('Connected to JARVIS'); };
+    ws.onclose   = () => { _setConnection(false); sys('Connection lost — refresh to reconnect.'); };
+    ws.onerror   = () => { _setConnection(false); sys('Connection error.'); };
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
       if (m.type === 'log')           append(m.speaker, m.text);
@@ -223,11 +554,21 @@
     };
 
     function setStatus(s) {
-      if (s === 'active') {
+      const active = s === 'active';
+      if (active) {
         pill.className = 'pill on'; stTxt.textContent = 'Active'; wake.classList.remove('show');
       } else {
         pill.className = 'pill'; stTxt.textContent = 'Sleeping'; wake.classList.add('show');
       }
+      if (contextState) contextState.textContent = active ? 'ACTIVE' : 'SLEEPING';
+      if (contextDetail) contextDetail.textContent = active
+        ? 'MARK is ready for commands and tool progress.'
+        : 'Wake MARK from the command bar when you are ready.';
+      if (railSession) railSession.textContent = active ? 'ACTIVE' : 'SLEEPING';
+      if (railSessionDetail) railSessionDetail.textContent = active
+        ? 'Assistant state is active.'
+        : 'Assistant is waiting for a wake signal.';
+      if (document.getElementById('rail-dot')) document.getElementById('rail-dot').classList.toggle('on', active);
     }
 
     function append(speaker, text) {
@@ -241,12 +582,14 @@
       }
       feed.appendChild(d);
       feed.scrollTop = feed.scrollHeight;
+      _recordActivity(`${speaker === 'jarvis' ? 'MARK' : 'You'}: ${text}`);
     }
 
     function sys(text) {
       const d = document.createElement('div');
       d.className = 'msg msg-sys'; d.textContent = text;
       feed.appendChild(d); feed.scrollTop = feed.scrollHeight;
+      _recordActivity(text);
     }
 
     function esc(s) {
@@ -418,6 +761,7 @@
       micBtn.innerHTML = '🎤';
       micBtn.title     = 'Voice — tap to speak';
       micBtn.classList.remove('recording');
+      _setHealth(voiceDot, voiceText, 'READY', true);
     }
 
     // Float32 PCM → resample to 16 kHz + convert to Int16
@@ -534,6 +878,7 @@
         micBtn.innerHTML = '⏹';
         micBtn.title     = 'Tap to stop';
         micBtn.classList.add('recording');
+        _setHealth(voiceDot, voiceText, 'LISTENING', true);
         sys('Voice live — speak now');
         toast('🎤 Live');
       };

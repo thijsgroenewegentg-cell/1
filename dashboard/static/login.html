@@ -7,17 +7,18 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:     #07090f;
-      --card:   rgba(255,255,255,0.04);
-      --border: rgba(255,255,255,0.08);
-      --accent: #6366f1;
-      --adim:   rgba(99,102,241,0.15);
-      --text:   #dde3ed;
-      --muted:  #5e6a7e;
+      --bg:     #0a0e14;
+      --card:   #111720;
+      --surface:#161e29;
+      --border: #26313f;
+      --accent: #8faeff;
+      --adim:   rgba(143,174,255,0.14);
+      --text:   #d8e2f2;
+      --muted:  #718096;
     }
     html, body {
       height: 100%;
-      background: var(--bg);
+      background: radial-gradient(circle at 50% 0%, #151f31 0%, var(--bg) 42%);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       display: flex;
@@ -25,24 +26,30 @@
       justify-content: center;
     }
     .card {
-      width: 340px;
-      padding: 44px 36px;
-      background: var(--card);
+      width: min(380px, calc(100vw - 28px));
+      padding: 38px 34px 32px;
+      background: rgba(17,23,32,0.94);
       border: 1px solid var(--border);
-      border-radius: 22px;
+      border-radius: 18px;
+      box-shadow: 0 24px 70px rgba(0,0,0,.32);
       text-align: center;
     }
+    .brand-mark {
+      width: 42px; height: 42px; display: grid; place-items: center;
+      margin: 0 auto 14px; color: #f4f7fb; background: #1a2945;
+      border: 1px solid #657bb0; border-radius: 13px; font-size: 18px; font-weight: 750;
+    }
     .logo {
-      font-size: 28px;
+      font-size: 24px;
       font-weight: 700;
-      letter-spacing: 10px;
-      margin-bottom: 6px;
+      letter-spacing: 5px;
+      margin-bottom: 7px;
     }
     .logo em { color: var(--accent); font-style: normal; }
     .sub {
       font-size: 11px;
       color: var(--muted);
-      letter-spacing: 3px;
+      letter-spacing: 1.8px;
       text-transform: uppercase;
       margin-bottom: 10px;
     }
@@ -59,7 +66,7 @@
     .key-input {
       width: 100%;
       padding: 18px 14px;
-      background: rgba(255,255,255,0.05);
+      background: var(--surface);
       border: 1.5px solid var(--border);
       border-radius: 14px;
       color: var(--text);
@@ -81,7 +88,7 @@
     .key-input:focus {
       border-color: var(--accent);
       background: var(--adim);
-      box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+      box-shadow: 0 0 0 3px rgba(143,174,255,0.10);
     }
     .err {
       font-size: 12px;
@@ -93,7 +100,7 @@
       width: 100%;
       padding: 14px;
       background: var(--accent);
-      color: #fff;
+      color: #0a0e14;
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 3px;
@@ -118,7 +125,7 @@
       text-align: left;
     }
     .voice-note code {
-      background: rgba(255,255,255,0.07);
+      background: var(--surface);
       padding: 1px 4px;
       border-radius: 3px;
       font-family: 'Courier New', monospace;
@@ -134,8 +141,9 @@
 </head>
 <body>
   <div class="card" id="card">
+    <div class="brand-mark" aria-hidden="true">M</div>
     <div class="logo"><em>J</em>ARVIS</div>
-    <div class="sub">Remote Access</div>
+    <div class="sub">Secure remote session</div>
     <p id="reconnecting">Reconnecting…</p>
     <p class="hint">Press <strong style="color:var(--text)">Remote Control</strong> in the JARVIS desktop app to get a QR code or session key.</p>
     <div class="key-wrap">
