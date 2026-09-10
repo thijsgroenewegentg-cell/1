@@ -49,6 +49,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         #: Remind the model of the previous turn's tools/params so "that
         #: file"/"again" can resolve instead of being a fresh guess.
         "context_hints": True,
+        #: Say one short, language-matched line the moment a slower task
+        #: starts (a search, a file read, code work), so there is never a
+        #: silent gap between request and result. Instant actions stay quiet.
+        "instant_ack": True,
+        #: Compress the running session once it passes this many turns: the
+        #: oldest turns become one session-summary memory so a conversation
+        #: can last for hours without losing its shape.
+        "session_compress_after": 16,
+        #: How many of the newest turns stay verbatim after a compression.
+        "session_keep_recent": 10,
         #: Emit a completion notification (voice + web) when the user asked
         #: to be pinged ("ping me when the render is done").
         "notify_when_asked": True,

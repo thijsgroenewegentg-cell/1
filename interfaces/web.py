@@ -575,6 +575,21 @@ class WebInterface:
             return HTMLResponse(content,
                                 headers={"Cache-Control": "no-store"})
 
+        @app.get("/api/pair.svg")
+        async def pair_svg(token: str = Query(default="")) -> Any:
+            """QR code that opens this console on a phone."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                from utils.qr import svg as qr_svg
+
+                image = qr_svg(self.pair_url())
+            except Exception as exc:
+                logger.debug("QR encode failed: %s", exc)
+                raise HTTPException(status_code=503, detail="qr unavailable") from exc
+            return Response(content=image, media_type="image/svg+xml",
+                            headers={"Cache-Control": "no-store"})
+
         @app.get("/api/status")
         async def status(token: str = Query(default="")) -> Any:
             """Report assistant status and a greeting."""
@@ -649,6 +664,7 @@ class WebInterface:
                     # Language-aware starter questions; the console renders
                     # them as chips next to the dock.
                     "suggestions": self.brain.suggestions(),
+                    "pair": {"url": self.pair_url(), "urls": self.pair_urls()},
                 }
             )
 
@@ -1302,6 +1318,10 @@ class WebInterface:
             self.clients += 1
             logger.info("Web client connected (%d active).", self.clients)
             try:
+                await websocket.send_text(json.dumps(self._hello_payload()))
+            except Exception:
+                logger.debug("Could not send session hello", exc_info=True)
+            try:
                 while True:
                     raw = await websocket.receive_text()
                     try:
@@ -1405,7 +1425,7 @@ class WebInterface:
         def relay(event: Any) -> None:
             """Push one event out to the sockets, best effort."""
             if event.name not in {"turn.intent", "tool.called", "tool.result",
-                                  "error.raised"}:
+                                  "error.raised", "turn.ack"}:
                 return
             payload = json.dumps({"type": "event", "name": event.name, "data": event.data})
             for socket in list(self._sockets):
@@ -1582,6 +1602,41 @@ class WebInterface:
             "on 'connecting'. Fix with: pip install 'uvicorn[standard]>=0.29' "
             "(or: pip install websockets)"
         )
+
+    def pair_urls(self) -> List[str]:
+        """LAN/localhost URLs that open this console, token included."""
+        suffix = f"?token={self.token}" if self.token else ""
+        return [url.rstrip("/") + "/" + suffix for url in local_addresses(self.port)]
+
+    def pair_url(self) -> str:
+        """Best URL to show on the pairing QR (LAN first, else localhost)."""
+        urls = self.pair_urls()
+        for url in urls:
+            if "localhost" not in url and "127.0.0.1" not in url:
+                return url
+        return urls[0] if urls else self.url
+
+    def _hello_payload(self) -> Dict[str, Any]:
+        """Session snapshot sent the moment a browser connects.
+
+        A dropped socket or a phone refresh used to wipe the visible
+        conversation even though the brain still had it. This restores it.
+        """
+        history: List[Dict[str, str]] = []
+        summary = ""
+        try:
+            memory = getattr(self.brain, "memory", None)
+            if memory is not None:
+                history = memory.session_history(16)
+                summary = str(getattr(memory, "conversation_summary", "") or "")
+        except Exception:
+            logger.debug("Could not snapshot session history", exc_info=True)
+        return {
+            "type": "hello",
+            "history": history,
+            "summary": summary,
+            "turns": int(getattr(self.brain, "turn_count", 0) or 0),
+        }
 
     async def stop(self) -> None:
         """Ask the server to shut down."""

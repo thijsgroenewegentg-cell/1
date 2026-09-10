@@ -804,6 +804,58 @@ class Memory:
         )
         return True
 
+    def compress_offline_if_needed(self) -> bool:
+        """Fold oldest turns into a running summary without a language model.
+
+        The RAM window is a fixed deque; without this, hours of conversation
+        silently drop off the left when Ollama is down. The briefing is
+        prepended to future prompts the same way the LLM summary is.
+
+        Returns:
+            True when turns were compressed.
+        """
+        trigger = max(4, int(self.config.get("assistant.session_compress_after", 16) or 16))
+        keep = max(2, int(self.config.get("assistant.session_keep_recent", 8) or 8))
+        if keep >= trigger:
+            keep = max(2, trigger // 2)
+        if len(self.short_term) < trigger:
+            return False
+        extra = len(self.short_term) - keep
+        if extra <= 0:
+            return False
+        drained = self.short_term.drain_oldest(extra)
+        if not drained:
+            return False
+        bullets = [
+            f"- {truncate(item.user, 80)} → {truncate(item.assistant, 80)}"
+            for item in drained
+        ]
+        chunk = "Earlier this session:\n" + "\n".join(bullets[-16:])
+        if self.conversation_summary:
+            chunk = truncate(self.conversation_summary, 400) + "\n" + chunk
+        self.conversation_summary = truncate(chunk, 1200)
+        logger.debug("Offline session compressed (%d turns folded).", len(drained))
+        return True
+
+    def session_history(self, limit: int = 16) -> List[Dict[str, str]]:
+        """Recent turns as HUD history entries (``me`` / ``ai``).
+
+        Args:
+            limit: Maximum number of exchanges to include.
+
+        Returns:
+            A list of ``{who, text}`` dicts, oldest first.
+        """
+        rows: List[Dict[str, str]] = []
+        for item in self.short_term.to_list()[-max(1, int(limit)):]:
+            user = str(item.get("user") or "").strip()
+            assistant = str(item.get("assistant") or "").strip()
+            if user:
+                rows.append({"who": "me", "text": user})
+            if assistant:
+                rows.append({"who": "ai", "text": assistant})
+        return rows
+
     # -- long term ----------------------------------------------------------
     async def remember(
         self,

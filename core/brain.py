@@ -2813,6 +2813,13 @@ class Brain:
                 )
             if self.llm.available and (self._upkeep_task is None or self._upkeep_task.done()):
                 self._upkeep_task = self._spawn(self._background_upkeep(text, response))
+            elif not self.llm.available:
+                # Unlimited sessions without a model: fold the oldest turns
+                # into a briefing so they are not silently dropped.
+                try:
+                    self.memory.compress_offline_if_needed()
+                except Exception:
+                    logger.debug("Offline session compression failed", exc_info=True)
             return response
 
     async def _background_upkeep(self, user_text: str, response: str) -> None:
@@ -3044,7 +3051,18 @@ class Brain:
                     return recall_reply
             return await self._converse(text, memory_context, on_token)
 
-        if speak_status and self.speaker_hook:
+        # One short, language-matched line the moment a slower task starts —
+        # the interface shows and speaks it instantly, then the real answer
+        # follows. Instant actions stay quiet; the old generic "working on
+        # it" is only the fallback for voices this table does not cover.
+        ack = ""
+        if self.config.get("assistant.instant_ack", True):
+            ack = self._ack_line(intent.module)
+        if ack:
+            self.events.emit("turn.ack", source="brain", text=ack, module=intent.module)
+            if speak_status:
+                await self._status(ack)
+        elif speak_status and self.speaker_hook:
             await self._status(f"Working on it, {self.config.user_address()}.")
 
         return await self._react(text, intent, memory_context, on_token)
@@ -3545,6 +3563,44 @@ class Brain:
             "what's my wifi password",
             "what can you do?",
         ]
+
+    def _ack_line(self, module: str) -> str:
+        """One short, language-matched acknowledgment for a slower task.
+
+        Instant actions stay quiet; slower modules get one line so the
+        silence between request and answer never feels like deafness.
+
+        Args:
+            module: The module the turn was routed to.
+
+        Returns:
+            The acknowledgment, or an empty string for instant actions.
+        """
+        kinds = {
+            "web_search": "search",
+            "knowledge": "files",
+            "file_manager": "files",
+            "code_assistant": "code",
+            "blender": "blender",
+        }
+        kind = kinds.get(module)
+        if not kind:
+            return ""
+        if self.current_language() == "nl":
+            lines = {
+                "search": "Ik zoek het voor je op…",
+                "files": "Ik kijk er even naar…",
+                "code": "Ik bekijk de code…",
+                "blender": "Ik start Blender op…",
+            }
+        else:
+            lines = {
+                "search": "On it — looking that up…",
+                "files": "On it — going through that now…",
+                "code": "On it — taking a look at the code…",
+                "blender": "On it — spinning up Blender…",
+            }
+        return lines[kind]
 
     # ------------------------------------------------------------ read-aloud
     def _read_request(self, text: str) -> bool:

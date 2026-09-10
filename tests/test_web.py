@@ -762,3 +762,41 @@ def test_the_dashboard_degrades_when_everything_is_off(config):
         assert payload["cards"] == []
     finally:
         run(brain.shutdown())
+
+
+def test_status_includes_a_pair_url(web):
+    from fastapi.testclient import TestClient
+
+    payload = TestClient(web.app).get("/api/status", params={"token": web.token}).json()
+    assert payload["pair"]["url"]
+    assert "token=" in payload["pair"]["url"]
+    assert str(web.port) in payload["pair"]["url"]
+
+
+def test_the_pairing_qr_is_an_svg(web):
+    from fastapi.testclient import TestClient
+
+    response = TestClient(web.app).get("/api/pair.svg", params={"token": web.token})
+    assert response.status_code == 200
+    assert "svg" in response.headers["content-type"]
+    assert b"<svg" in response.content
+
+
+def test_the_page_has_a_pair_slot_and_restores_history(web):
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert 'id="pairQr"' in page
+    assert "restoreHistory" in page
+    assert 'data.name === "turn.ack"' in page
+
+
+def test_a_new_socket_gets_the_session_hello(web):
+    from fastapi.testclient import TestClient
+
+    web.brain.memory.short_term.add("hello there", "good evening, sir")
+    client = TestClient(web.app)
+    with client.websocket_connect(f"/ws?token={web.token}") as socket:
+        hello = socket.receive_json()
+    assert hello["type"] == "hello"
+    assert any(entry.get("text") == "hello there" for entry in hello["history"])

@@ -189,3 +189,22 @@ def test_shutting_down_gives_the_file_handles_back(tmp_path):
     run(sessions())
     gc.collect()
     assert descriptors() - before < 8, "sessions are leaking file descriptors"
+
+
+def test_offline_compression_keeps_recent_turns(memory, config):
+    config.set("assistant.session_compress_after", 6)
+    config.set("assistant.session_keep_recent", 3)
+    for number in range(8):
+        memory.short_term.add(f"q{number}", f"a{number}")
+    assert memory.compress_offline_if_needed() is True
+    assert len(memory.short_term) == 3
+    assert "q7" in memory.short_term.transcript()
+    assert "q0" in memory.conversation_summary
+    assert memory.compress_offline_if_needed() is False
+
+
+def test_session_history_alternates_speakers(memory):
+    memory.short_term.add("hello", "good evening")
+    rows = memory.session_history()
+    assert rows[0] == {"who": "me", "text": "hello"}
+    assert rows[1] == {"who": "ai", "text": "good evening"}

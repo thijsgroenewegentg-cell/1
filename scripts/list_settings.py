@@ -94,6 +94,17 @@ DESCRIPTIONS: Dict[str, str] = {
         "Remind the model what the previous turn did (tools and parameters), "
         "so 'that file' / 'again' resolve instead of being guessed fresh."
     ),
+    "assistant.instant_ack": (
+        "Speak one short, language-matched line the moment a slower task "
+        "starts (search, files, code), so there is never a silent gap."
+    ),
+    "assistant.session_compress_after": (
+        "Fold the oldest turns into a session briefing after this many "
+        "exchanges, so a conversation can last for hours."
+    ),
+    "assistant.session_keep_recent": (
+        "How many of the newest turns stay verbatim after a compression."
+    ),
     "assistant.notify_when_asked": (
         "Emit a voice + web completion ping when the request asked for one "
         "('ping me when the render is done')."

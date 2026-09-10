@@ -1009,6 +1009,16 @@ body.talked #chips { display: none; }
       <div class="stat"><span>Turns</span><span id="statTurns">0</span></div>
       <div class="stat"><span>Last reply</span><span id="statLast">—</span></div>
       <div class="stat"><span>Rendering</span><span id="statFps">—</span></div>
+      <div class="head">Phone</div>
+      <div id="pairBox" style="display:flex;gap:12px;align-items:flex-start;margin:8px 0 12px">
+        <img id="pairQr" alt="Pairing QR" width="120" height="120"
+             style="background:#fff;border-radius:8px;width:120px;height:120px;flex:none">
+        <div style="min-width:0">
+          <div class="stat"><span>Link</span><span id="pairUrl">—</span></div>
+          <button class="ghost" id="pairCopy" type="button"
+                  style="margin-top:8px;padding:4px 10px;border-radius:8px;border:1px solid #262626">copy link</button>
+        </div>
+      </div>
       <div class="head">Settings</div>
       <div class="switch"><span>Read replies aloud</span><button id="setSpeech">off</button></div>
       <div class="head">Voice</div>
@@ -1898,6 +1908,11 @@ function status(text) {
 function showDoing(tool) {
   const box = $("doing");
   if (!tool) { box.classList.remove("show"); return; }
+  if (/\s/.test(String(tool))) {
+    box.innerHTML = escapeHtml(String(tool));
+    box.classList.add("show");
+    return;
+  }
   const parts = String(tool).split(".");
   const module = parts.shift() || tool;
   const action = parts.join(".") || "running";
@@ -2078,6 +2093,13 @@ function remember(who, what) {
   list.scrollTop = list.scrollHeight;
 }
 
+function restoreHistory(entries) {
+  if (!entries || !entries.length || conversation.length) return;
+  const list = $("historyList");
+  if (list) list.innerHTML = "";
+  entries.forEach((entry) => remember(entry.who, entry.text || entry.what || ""));
+}
+
 function toggleHistory(force) {
   const open = force === undefined ? !document.body.classList.contains("history-open") : force;
   document.body.classList.toggle("history-open", open);
@@ -2176,6 +2198,14 @@ function handle(data) {
       pulse();
     } else if (data.name === "tool.result") {
       showCards(renderCard(data.data.tool, data.data.data));
+    } else if (data.name === "turn.ack") {
+      const line = String((data.data && data.data.text) || "");
+      if (line) {
+        showDoing(line);
+        status("working");
+        mood("think", 0.4);
+        trace("sys", escapeHtml(line));
+      }
     } else if (data.name === "error.raised") {
       trace("err", escapeHtml(String(data.data.error || "").slice(0, 90)));
     }
@@ -2753,6 +2783,14 @@ async function loadStatus() {
       turns = data.turns;
       $("statTurns").textContent = turns;
     }
+    const pair = data.pair || {};
+    if (pair.url) {
+      const shown = String(pair.url).replace(/^https?:\/\//, "");
+      $("pairUrl").textContent = shown;
+      $("pairUrl").title = pair.url;
+      $("pairQr").src = "/api/pair.svg" + auth;
+      $("pairCopy").dataset.url = pair.url;
+    }
     applySpeechSupport(data.speech !== false);
     try {
       const c = data.tts_cache || {};
@@ -3148,6 +3186,12 @@ addEventListener("keyup", (event) => {
   if (event.code === "Space" && spaceHeld) { spaceHeld = false; stopRecording(); }
 });
 
+$("pairCopy").addEventListener("click", async () => {
+  const url = $("pairCopy").dataset.url || "";
+  if (!url) return;
+  try { await navigator.clipboard.writeText(url); toast("link copied"); }
+  catch (err) { toast(url); }
+});
 $("panelBtn").addEventListener("click", () => togglePanel());
 $("toolSearch").addEventListener("input", drawTools);
 $("auditRefresh").addEventListener("click", loadAudit);
@@ -3670,6 +3714,21 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
     const tryBegin = () => {
       if(begun) return;
       if(begin()) EVENTS.forEach((name) => document.removeEventListener(name, tryBegin));
+    };
+    EVENTS.forEach((name) => document.addEventListener(name, tryBegin, { passive: true }));
+    // Some browsers change their mind a moment later; ask again without noise.
+    [1200, 4000, 9000].forEach((ms) => setTimeout(() => {
+      if(begun || !ctx) return;
+      try{ const woke = ctx.resume(); if(woke && woke.then) woke.then(tryBegin).catch(() => {}); else tryBegin(); }
+      catch(e){ tryBegin(); }
+    }, ms));
+  }
+})();
+
+</script>
+</body>
+</html>
+ner(name, tryBegin));
     };
     EVENTS.forEach((name) => document.addEventListener(name, tryBegin, { passive: true }));
     // Some browsers change their mind a moment later; ask again without noise.

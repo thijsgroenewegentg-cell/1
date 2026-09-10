@@ -32,11 +32,21 @@ The first release meant for other people's machines.
   asking or with `/audit`.
 - **`install.py --everything`**: audio libraries, every model, every capability,
   and a closing diagnosis of whatever is still missing.
-- **`docs/CONFIGURATION.md`**: all 225 settings with their real defaults,
+- **`docs/CONFIGURATION.md`**: all 228 settings with their real defaults,
   generated from the code so they cannot drift.
 - **It speaks your language.** Replies follow the language you write in —
   Dutch, English and more — with `assistant.language` as a fixed override.
   The help text and the console's starter questions follow it too.
+- **Instant acknowledgment.** A slower task (search, files, code) gets one
+  short line in your language the moment it starts, so the silence never
+  feels like deafness. Instant actions stay quiet.
+- **Unlimited sessions, even offline.** Once the window fills, oldest turns
+  fold into a running briefing instead of falling off the deque. A dropped
+  socket or a phone refresh restores the visible conversation from that
+  window.
+- **QR pairing.** The status panel shows a scannable code (and a copyable
+  link) so a phone on the same network opens the console without typing a
+  URL.
 - **A local journal and a day recap.** Every turn is logged on this machine;
   "what did I do today" or "recap my day" sums up what got done and what
   still dangles.

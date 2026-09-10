@@ -612,3 +612,27 @@ def test_boot_status_never_waits_on_the_model(brain, monkeypatch):
 def test_morning_brief_always_returns_speechable_text(brain):
     brief = run(brain.morning_brief(timeout=5.0))
     assert isinstance(brief, str) and brief.strip()
+
+
+def test_instant_actions_get_no_acknowledgment(brain):
+    assert brain._ack_line("productivity") == ""
+    assert brain._ack_line("system_control") == ""
+
+
+def test_slower_tasks_get_a_short_acknowledgment(brain):
+    line = brain._ack_line("web_search")
+    assert line
+    assert "…" in line or "..." in line
+
+
+def test_the_acknowledgment_follows_dutch(brain):
+    brain.config.set("assistant.language", "nl")
+    assert "zoek" in brain._ack_line("web_search").lower()
+
+
+def test_a_search_turn_emits_an_ack_event(brain):
+    seen = []
+    brain.events.subscribe("turn.ack", lambda event: seen.append(event.data))
+    run(brain.process("search the web for rust iterators"))
+    assert seen
+    assert seen[0].get("text")

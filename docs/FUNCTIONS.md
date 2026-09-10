@@ -12,7 +12,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`main.py`](#mainpy) — 26
 - [`install.py`](#installpy) — 56
 - [`core/autopilot.py`](#coreautopilotpy) — 4
-- [`core/brain.py`](#corebrainpy) — 130
+- [`core/brain.py`](#corebrainpy) — 131
 - [`core/bulk.py`](#corebulkpy) — 8
 - [`core/coach.py`](#corecoachpy) — 3
 - [`core/config.py`](#coreconfigpy) — 29
@@ -26,7 +26,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/journal.py`](#corejournalpy) — 10
 - [`core/language_detect.py`](#corelanguage_detectpy) — 3
 - [`core/macros.py`](#coremacrospy) — 11
-- [`core/memory.py`](#corememorypy) — 69
+- [`core/memory.py`](#corememorypy) — 71
 - [`core/personality.py`](#corepersonalitypy) — 5
 - [`core/planner.py`](#coreplannerpy) — 9
 - [`core/preferences.py`](#corepreferencespy) — 14
@@ -40,7 +40,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/vault.py`](#corevaultpy) — 11
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
-- [`interfaces/web.py`](#interfaceswebpy) — 53
+- [`interfaces/web.py`](#interfaceswebpy) — 57
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 36
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
@@ -64,13 +64,14 @@ and marked with `·`; methods the intent router can call are marked
 - [`utils/helpers.py`](#utilshelperspy) — 36
 - [`utils/language.py`](#utilslanguagepy) — 8
 - [`utils/logger.py`](#utilsloggerpy) — 3
+- [`utils/qr.py`](#utilsqrpy) — 16
 - [`utils/scheduler.py`](#utilsschedulerpy) — 26
 - [`utils/security.py`](#utilssecuritypy) — 18
 - [`tests/fake_blender.py`](#testsfake_blenderpy) — 22
 - [`tests/mock_ollama.py`](#testsmock_ollamapy) — 10
 - [`tests/test_assistant_features.py`](#teststest_assistant_featurespy) — 14
 - [`tests/test_blender.py`](#teststest_blenderpy) — 67
-- [`tests/test_brain.py`](#teststest_brainpy) — 70
+- [`tests/test_brain.py`](#teststest_brainpy) — 74
 - [`tests/test_cli.py`](#teststest_clipy) — 15
 - [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 15
 - [`tests/test_communications.py`](#teststest_communicationspy) — 8
@@ -85,12 +86,13 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_journal.py`](#teststest_journalpy) — 14
 - [`tests/test_knowledge.py`](#teststest_knowledgepy) — 15
 - [`tests/test_macros.py`](#teststest_macrospy) — 11
-- [`tests/test_memory.py`](#teststest_memorypy) — 23
+- [`tests/test_memory.py`](#teststest_memorypy) — 25
 - [`tests/test_models.py`](#teststest_modelspy) — 7
 - [`tests/test_orb_ui.py`](#teststest_orb_uipy) — 5
 - [`tests/test_plugins.py`](#teststest_pluginspy) — 18
 - [`tests/test_preferences.py`](#teststest_preferencespy) — 8
 - [`tests/test_productivity.py`](#teststest_productivitypy) — 28
+- [`tests/test_qr.py`](#teststest_qrpy) — 5
 - [`tests/test_self_improve.py`](#teststest_self_improvepy) — 21
 - [`tests/test_sensitive_paths.py`](#teststest_sensitive_pathspy) — 16
 - [`tests/test_session.py`](#teststest_sessionpy) — 14
@@ -108,7 +110,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_wave3_features.py`](#teststest_wave3_featurespy) — 16
 - [`tests/test_wave4_features.py`](#teststest_wave4_featurespy) — 20
 - [`tests/test_wave4_ui.py`](#teststest_wave4_uipy) — 11
-- [`tests/test_web.py`](#teststest_webpy) — 65
+- [`tests/test_web.py`](#teststest_webpy) — 69
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/eval_function_calling.py`](#scriptseval_function_callingpy) — 5
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
@@ -229,7 +231,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*130 functions*
+*131 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
@@ -338,6 +340,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def _is_help_request(self, text: str) -> bool` — Recognise a capabilities/help request.
 - `def help_text(self) -> str` — Describe the loaded capabilities with concrete example phrases.
 - `def suggestions(self) -> List[str]` — Starter questions the web console shows as clickable chips.
+- `def _ack_line(self, module: str) -> str` — One short, language-matched acknowledgment for a slower task.
 - `def _read_request(self, text: str) -> bool` — True when the utterance asks for text to be read out loud.
 - `def _read_target(self, text: str) -> Optional[str]` — Find the file the user wants read aloud.
 - `async def _read_aloud(self, text: str) -> Optional[str]` — Answer a read-it-to-me request with chunked plain text.
@@ -595,7 +598,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/memory.py`
 
-*69 functions*
+*71 functions*
 
 > Dual memory system for JARVIS.
 
@@ -672,6 +675,8 @@ and marked with `·`; methods the intent router can call are marked
   · `def _load() -> List[Dict[str, Any]]`
 - `def context_messages(self, limit: int = 10) -> List[Dict[str, str]]` — Recent turns as chat messages, trimmed to the character budget.
 - `async def summarize_if_needed(self, llm: Any) -> bool` — Compress the oldest half of the window into a running summary.
+- `def compress_offline_if_needed(self) -> bool` — Fold oldest turns into a running summary without a language model.
+- `def session_history(self, limit: int = 16) -> List[Dict[str, str]]` — Recent turns as HUD history entries (``me`` / ``ai``).
 - `async def remember(self, text: str, category: str = 'fact', importance: float = 0.5, source: str = 'conversation', metadata: Optional[Dict[str, Any]] = None) -> bool` — Store a durable memory.
 - `def _persist_fact(self, doc_id: str, text: str, category: str, importance: float, source: str) -> None` — Mirror a memory into the SQLite ``facts`` table.
 - `async def recall(self, query: str, k: Optional[int] = None, min_score: Optional[float] = None) -> List[MemoryHit]` — Semantic search over long-term memory.
@@ -1026,7 +1031,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*53 functions*
+*57 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
@@ -1051,6 +1056,7 @@ and marked with `·`; methods the intent router can call are marked
   · `def rendered_page() -> str` — Return the interface with its placeholders filled in.
   · `async def index(token: str = Query(default='')) -> Any` — Serve the chat page.
   · `async def boot_page(token: str = Query(default='')) -> Any` — Serve the boot-up sequence page (shown inside the console).
+  · `async def pair_svg(token: str = Query(default='')) -> Any` — QR code that opens this console on a phone.
   · `async def status(token: str = Query(default='')) -> Any` — Report assistant status and a greeting.
   · `async def dashboard(token: str = Query(default='')) -> Any` — Idle-home cards: tasks, reminders, weather, system, self-check.
   · `async def ask(request: Request, token: str = Query(default='')) -> Any` — Answer a single question over plain JSON (no streaming).
@@ -1084,6 +1090,9 @@ and marked with `·`; methods the intent router can call are marked
   · `async def pump() -> None` — Forward tokens to the socket in order.
 - `async def serve(self) -> None` — Run the HTTP server until :meth:`stop` is called.
 - `def _check_websocket_support() -> None` *staticmethod* — Warn when uvicorn cannot do WebSockets, before it silently fails.
+- `def pair_urls(self) -> List[str]` — LAN/localhost URLs that open this console, token included.
+- `def pair_url(self) -> str` — Best URL to show on the pairing QR (LAN first, else localhost).
+- `def _hello_payload(self) -> Dict[str, Any]` — Session snapshot sent the moment a browser connects.
 - `async def stop(self) -> None` — Ask the server to shut down.
 
 ## `modules/base.py`
@@ -1865,6 +1874,29 @@ and marked with `·`; methods the intent router can call are marked
 
 - `def format(self, record: logging.LogRecord) -> str`
 
+## `utils/qr.py`
+
+*16 functions*
+
+> Tiny QR encoder (byte mode, versions 1-5, ECC-L) producing an SVG.
+
+- `def _gf_tables() -> Tuple[List[int], List[int]]` — Build GF(256) exp/log tables for Reed-Solomon (poly 0x11d).
+- `def _gf_mul(left: int, right: int) -> int` — Multiply two GF(256) elements.
+- `def _rs_generator(nsym: int) -> List[int]` — Generator polynomial of degree ``nsym``.
+- `def _rs_encode(data: Sequence[int], nsym: int) -> List[int]` — Systematic Reed-Solomon remainder of length ``nsym``.
+- `def _bits_from_bytes(data: Sequence[int]) -> List[int]` — Expand bytes into a list of bits, MSB first.
+- `def _encode_payload(text: str, version: int) -> List[int]` — Byte-mode data + ECC codewords for one version.
+- `def _size(version: int) -> int` — Module count along one side.
+- `def _reserve(version: int) -> List[List[Optional[int]]]` — Blank matrix with function patterns painted and reserved.
+  · `def fill(x: int, y: int, w: int, h: int, bit: Optional[int]) -> None`
+  · `def finder(x: int, y: int) -> None`
+- `def _place(grid: List[List[Optional[int]]], bits: List[int], mask: int) -> None` — Zigzag-place data bits, applying ``mask``.
+- `def _format_bits(mask: int) -> List[int]` — 15-bit format information for ECC-L + ``mask``.
+- `def _paint_format(grid: List[List[Optional[int]]], mask: int) -> None` — Write format information around the finders.
+- `def _penalty(grid: List[List[int]]) -> int` — QR penalty score; lower is better.
+- `def encode(text: str) -> List[List[int]]` — Return a 0/1 QR matrix for ``text``.
+- `def svg(text: str, module: int = 6, border: int = 4) -> str` — Render ``text`` as a crisp SVG QR code.
+
 ## `utils/scheduler.py`
 
 *26 functions*
@@ -2103,7 +2135,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_brain.py`
 
-*70 functions*
+*74 functions*
 
 > Unit tests for core/brain.py and the pieces it delegates to.
 
@@ -2177,6 +2209,10 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_boot_status_never_waits_on_the_model(brain, monkeypatch)` — The boot line is instant and local — a silent audio pipe must show at once.
   · `def should_not_be_called(*args: object, **kwargs: object) -> object`
 - `def test_morning_brief_always_returns_speechable_text(brain)`
+- `def test_instant_actions_get_no_acknowledgment(brain)`
+- `def test_slower_tasks_get_a_short_acknowledgment(brain)`
+- `def test_the_acknowledgment_follows_dutch(brain)`
+- `def test_a_search_turn_emits_an_ack_event(brain)`
 
 ## `tests/test_cli.py`
 
@@ -2501,7 +2537,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_memory.py`
 
-*23 functions*
+*25 functions*
 
 > Unit tests for core/memory.py.
 
@@ -2528,6 +2564,8 @@ and marked with `·`; methods the intent router can call are marked
   · `def descriptors() -> int`
   · `def build(index: int) -> Config`
   · `async def sessions() -> None`
+- `def test_offline_compression_keeps_recent_turns(memory, config)`
+- `def test_session_history_alternates_speakers(memory)`
 
 ## `tests/test_models.py`
 
@@ -2629,6 +2667,18 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_weekly_digest_with_an_empty_week_is_still_calm(config)`
 - `def test_daily_briefing_folds_in_the_review_on_its_day(config)`
 - `def test_daily_briefing_skips_the_review_on_other_days(config)`
+
+## `tests/test_qr.py`
+
+*5 functions*
+
+> The pairing QR encoder has to work with no extra packages.
+
+- `def test_a_short_payload_makes_a_version_1_matrix()`
+- `def test_finder_patterns_are_present()`
+- `def test_encoding_is_deterministic()`
+- `def test_a_lan_url_fits_in_version_5()`
+- `def test_svg_is_a_real_image()`
 
 ## `tests/test_self_improve.py`
 
@@ -3159,7 +3209,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*65 functions*
+*69 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -3225,6 +3275,10 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_dashboard_requires_the_token_and_returns_cards(web, config)`
 - `def test_the_dashboard_card_shows_open_tasks(web, config)`
 - `def test_the_dashboard_degrades_when_everything_is_off(config)`
+- `def test_status_includes_a_pair_url(web)`
+- `def test_the_pairing_qr_is_an_svg(web)`
+- `def test_the_page_has_a_pair_slot_and_restores_history(web)`
+- `def test_a_new_socket_gets_the_session_hello(web)`
 
 ## `tests/test_web_search.py`
 
@@ -3289,5 +3343,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**2252 functions across 104 files.**
+**2290 functions across 106 files.**
 
