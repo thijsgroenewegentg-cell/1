@@ -53,7 +53,7 @@ The **Remote Control** button in the HUD starts the optional LAN dashboard on de
 
 The remote dashboard needs the optional packages in `requirements.txt` (`fastapi`, `uvicorn`, `cryptography`, `python-multipart` and `qrcode[pil]`). If they were skipped during installation, run `pip install -r requirements.txt` and restart MARK. The dashboard is intended for a trusted local network; use the HTTPS certificate files in `config/certs/` if you need encrypted transport on the LAN.
 
-The main HUD uses a black, low-distraction particle-orb visualizer: a depth-shaded dotted sphere, restrained blue/indigo glow and compact instrument readouts. The orb keeps the existing microphone/TTS amplitude response, listening/thinking/speaking/muted states, confirmation overlays and accessibility controls, while the surrounding panels remain available for chat, logs and settings. The header status strip reports Ollama, microphone, Edge TTS, vision, Blender and Internet degradation states. **◈ CONTROL CENTER** opens dedicated Task Plan, Timeline, Memory, Workflows and Blender tabs with safe pause/continue/rollback, forget, workflow editing/replay, checkpoints and render/undo controls. Click or focus the orb and press Space/Enter to interrupt a response; when idle, the same control toggles the microphone. During MARK speech, the strip explicitly shows that voice input can barge in and stop generation.
+The main HUD uses a black, low-distraction particle-orb visualizer: a depth-shaded dotted sphere, restrained blue/indigo glow and compact instrument readouts. The orb keeps the existing microphone/TTS amplitude response, listening/thinking/speaking/muted states, confirmation overlays and accessibility controls, while the surrounding panels remain available for chat, logs and settings. The header status strip reports Ollama, microphone, Edge TTS, vision, Blender, optional ComfyUI and Internet degradation states. **◈ CONTROL CENTER** opens dedicated Task Plan, Timeline, Memory, Workflows and Blender tabs with safe pause/continue/rollback, forget, workflow editing/replay, checkpoints and render/undo controls. Click or focus the orb and press Space/Enter to interrupt a response; when idle, the same control toggles the microphone. During MARK speech, the strip explicitly shows that voice input can barge in and stop generation.
 
 ### Included plugins
 
@@ -64,7 +64,8 @@ The `plugins/` folder includes safe examples:
 - `blender_control.py` — authenticated localhost Blender bridge with allowlisted scene/object/material/camera/light/modifier/render operations; mutating operations require confirmation.
 - `local_calendar.py` — private local `calendar.ics` events with add, list, today, find and remove operations. It defaults to `Documents/MARK/calendar.ics`; set `MARK_CALENDAR_FILE` to use another local file. Add/remove are confirmation-gated.
 - `email_client.py` — optional IMAP/SMTP inbox, search, read and send support. It never stores credentials in the repository, requires `MARK_EMAIL_IMAP_HOST`, `MARK_EMAIL_SMTP_HOST`, `MARK_EMAIL_USERNAME` and `MARK_EMAIL_PASSWORD` in the launch environment, and puts every send behind MARK's on-screen confirmation gate.
-- `media_control.py` — open/search Spotify and control playback using the native player tools available on Windows, macOS or Linux.
+- `media_control.py` — open/search Spotify, show now-playing/status data, control playback, volume, shuffle and repeat using native player tools available on Windows, macOS or Linux. It uses no Spotify API credential.
+- `comfyui_image.py` — loopback-only ComfyUI image generation with a bounded standard workflow, optional explicitly selected local API workflow, queue/history/status, confirmation-gated GPU jobs and safe image downloads under the user home folder.
 
 Plugins are discovered on the next launch and can be enabled or disabled from **⚙ → PLUGINS**. The new **INSTALL LOCAL PLUGIN** button and `core/plugin_installer.py` accept only a local Python file, inspect its literal metadata and syntax without importing it, show a source preview and its SHA-256, require a human confirmation, copy it into `plugins/`, and record the approved hash in the ignored local `config/plugin_trust.json`. Built-in plugins are covered by the committed `core/trusted_plugins.json` manifest. Trust enforcement is enabled by default and can be deliberately disabled from the plugin manager for local development; changes take effect after restart. No arbitrary URL download or silent third-party install is performed.
 
@@ -75,6 +76,10 @@ python -m core.plugin_installer /path/to/plugin.py
 ```
 
 Restart MARK after installation so the self-describing plugin loader can discover the new tool. Direct files dropped into `plugins/` are blocked by default until installed or explicitly allowed in development mode. **⚙ → PLUGIN SETTINGS** now provides local calendar path/default-duration fields and non-secret email host/port/username fields; the email password remains environment-only.
+
+### ComfyUI image generation
+
+Install and run ComfyUI locally, normally on `127.0.0.1:8188`. Open **⚙ → PLUGIN SETTINGS → COMFYUI — LOCAL IMAGE GENERATION**, click **TEST COMFYUI CONNECTION**, and enter the exact checkpoint filename from ComfyUI's `models/checkpoints` directory. Then ask MARK to generate an image. MARK uses a standard-node workflow by default, waits for the result, and saves supported images under `Documents/MARK/comfyui`. GPU jobs and downloads always show a confirmation card first. Advanced users may select an API-format workflow JSON under their home folder; MARK still rejects remote workflow URLs and non-loopback servers.
 
 The upstream MARK repository only provides the template, so these tools are included directly in this Ollama build rather than downloaded from an unverified plugin marketplace.
 

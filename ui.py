@@ -3637,7 +3637,8 @@ class MainWindow(QMainWindow):
         self._service_statuses: dict[str, dict] = {
             key: {"label": label, "state": "STARTING", "detail": ""}
             for key, label in (("OLLAMA", "OLLAMA"), ("MIC", "MIC"), ("TTS", "EDGE TTS"),
-                               ("VISION", "VISION"), ("BLENDER", "BLENDER"), ("INTERNET", "INTERNET"))
+                               ("VISION", "VISION"), ("BLENDER", "BLENDER"), ("COMFYUI", "COMFYUI"),
+                               ("INTERNET", "INTERNET"))
         }
 
         central = QWidget()

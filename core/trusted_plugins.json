@@ -2,6 +2,9 @@
   "blender_control": {
     "sha256": "78e7d6f87ec38eb10be1627862c2680145ab2b4d26a430100adbd5cb426dbc28"
   },
+  "comfyui_image": {
+    "sha256": "a1f08cce12033aceeb253b5a287562d9160af125d3303722681af1a5ba48afa3"
+  },
   "email_client": {
     "sha256": "f27a2fb6ac3cc33bf05f5c2674d73f60897ef0556de6271071c6e326a2427c1c"
   },
@@ -12,7 +15,7 @@
     "sha256": "d51331f2cb815d571ffa6d51e72d81092e7ae4bba600a3f910e0f9168a0644a5"
   },
   "media_control": {
-    "sha256": "261b905f14425e8fe6377b76bc8c9a23a90ec1c9200ad4edcd072b5934acbe6f"
+    "sha256": "d4135766b521e916e18f8058222f79f4e3d1b7ef4633ec3bc75810baed7300d5"
   },
   "project_helper": {
     "sha256": "f71449ccf749d2c9fac6eab74740bc9c77adf3af0e96b2fa01e8f1dc921374e4"

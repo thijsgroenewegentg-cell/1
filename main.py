@@ -618,6 +618,7 @@ class LocalAssistant:
         except Exception as exc:
             blender_error = str(exc)
         self.ui.set_service_status("BLENDER", "READY" if not blender_error else "OFFLINE", blender_error or "Authenticated loopback Blender Bridge configured.")
+        self.ui.set_service_status("COMFYUI", "OPTIONAL", "Local ComfyUI is optional. Configure it under Plugin Settings before generating images.")
 
         # Wake-word controls stay opt-in. The model is downloaded only when the
         # user enables it from the settings drawer.
@@ -1246,7 +1247,7 @@ class LocalAssistant:
         changed = action.lower() in {
             "create", "update", "complete", "fail", "skip", "confirm", "restore", "delete",
             "add", "remove", "write", "edit", "run", "build", "install", "update", "render",
-            "save", "save_blend", "create_cube", "create_sphere", "create_cylinder", "create_camera",
+            "save", "save_blend", "generate", "download", "create_cube", "create_sphere", "create_cylinder", "create_camera",
             "create_light", "create_collection", "duplicate_object", "set_transform", "set_material",
             "add_modifier", "delete_object", "look_at", "set_active_camera", "set_render_settings", "scene_checkpoint", "undo", "replay",
         }
@@ -1418,6 +1419,10 @@ class LocalAssistant:
                 if name == "blender_control":
                     failed = "failed" in str(result).lower() or "could not" in str(result).lower() or "not configured" in str(result).lower()
                     self.ui.set_service_status("BLENDER", "OFFLINE" if failed else "READY", str(result)[:280])
+                if name == "comfyui_image":
+                    lower_result = str(result).lower()
+                    failed = any(marker in lower_result for marker in ("failed", "could not", "not configured", "unavailable", "rejected", "does not exist"))
+                    self.ui.set_service_status("COMFYUI", "OFFLINE" if failed else "READY", str(result)[:280])
                 self._record_operation(name, args, result)
                 return result
             return f"Unknown tool: {name}"
