@@ -181,6 +181,19 @@ class Personality:
             text, address=address, last=self._last_smalltalk, language=language
         )
         if reply:
+            lowered = (text or "").strip().lower()
+            greeting = any(word in f" {lowered} " for word in (
+                "hello", "hi ", "hey", "good morning", "good afternoon",
+                "good evening", "hallo", "hoi", "goedemorgen", "goedemiddag",
+                "goedenavond",
+            ))
+            if greeting:
+                try:
+                    spoken = self.brain.presence_spoken()
+                except Exception:
+                    spoken = ""
+                if spoken and spoken not in reply:
+                    reply = f"{reply} {spoken}"
             self._last_smalltalk = reply
             return reply
         return smalltalk.fallback(

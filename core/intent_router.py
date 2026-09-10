@@ -105,6 +105,8 @@ INTENT_KEYWORDS: Dict[str, List[str]] = {
         "bpy", "glb", "gltf", "obj file", "fbx", "mesh", "geometry nodes",
         "keyframe", "viewport", "cycles", "eevee", "uv map", "rig ",
         "rendered", "renders", "render folder",
+        "3d scène", "maak een kubus", "maak een bol", "maak een donut",
+        "verbind blender", "blender openen",
     ],
     "communications": [
         "my email", "my inbox", "unread mail", "any new mail", "check mail",
@@ -188,6 +190,8 @@ DECISIVE_PHRASES: Dict[str, Tuple[str, ...]] = {
         "in blender", "with blender", "blender file", ".blend", "render frame",
         "render the animation", "3d scene", "3d model", "export to glb",
         "open blender", "launch blender", "connect to blender", "use blender",
+        "verbind blender", "maak een 3d", "maak een scene", "maak een scène",
+        "blender openen",
     ),
     "file_manager": (
         "find all pdf", "find every pdf", "organize my", "organise my",

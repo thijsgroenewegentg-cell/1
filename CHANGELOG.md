@@ -85,7 +85,15 @@ The first release meant for other people's machines.
 - **Tool use.** When the model is up it is not overruled by a keyword
   guess. After every tool the planner thinks again instead of stopping
   on the first system_control/productivity hit, and identical calls are
-  not repeated.
+  not repeated. Two tasks joined by "and" are two steps.
+- **Memory that shows up.** The greeting and the model prompt now include
+  yesterday's journal, open threads and the last Blender scene, without
+  being asked.
+- **Dutch canned lines.** The greeting, journal recap, planner status and
+  Blender connect/build phrases follow `assistant.language`.
+- **Blender actually builds.** A cube, sphere, donut, cylinder or Suzanne
+  is built (and preview-rendered) without a language model. "verbind
+  blender" / "connect to blender" talks to the real runtime.
 - **A local journal and a day recap.** Every turn is logged on this machine;
   "what did I do today" or "recap my day" sums up what got done and what
   still dangles.

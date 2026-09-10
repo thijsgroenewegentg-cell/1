@@ -411,10 +411,10 @@ class Planner:
         """Give the user a spoken heads-up for slower tools."""
         slow = ("search", "scrape", "summarize", "news", "weather", "organize", "run_")
         if step == 1 and any(token in reference for token in slow):
-            await self.brain._status(random.choice([
-                "One moment.",
-                "Working on it.",
-                "Give me a second, sir.",
-            ]))
+            if getattr(self.brain, "current_language", lambda: "en")() == "nl":
+                lines = ["Eén moment.", "Ik ben ermee bezig.", "Een seconde."]
+            else:
+                lines = ["One moment.", "Working on it.", "Give me a second, sir."]
+            await self.brain._status(random.choice(lines))
 
 __all__ = ["MAX_REACT_STEPS", "Planner", "TokenCallback"]

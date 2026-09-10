@@ -3035,6 +3035,9 @@ class Brain:
                 memory_context = await mem_task
             except Exception as exc:
                 logger.debug("Memory context build failed: %s", exc)
+        presence = self.presence_block()
+        if presence:
+            memory_context = (presence + "\n\n" + memory_context).strip()
 
         if intent.module == "memory":
             return await self._handle_memory_intent(text, memory_context)
@@ -3555,15 +3558,15 @@ class Brain:
         if self.current_language() == "nl":
             return [
                 "Wat heb ik vandaag gedaan",
-                "vink alles af in het fietsproject",
-                "brief me over de verbouwing",
+                "maak een rode kubus in blender",
+                "verbind blender",
                 "wat is mijn wifi-wachtwoord",
                 "wat kun je allemaal",
             ]
         return [
             "Recap my day",
-            "tick off everything in the bike project",
-            "fill me in on the renovation",
+            "make a red cube in blender",
+            "connect to blender",
             "what's my wifi password",
             "what can you do?",
         ]
@@ -4750,27 +4753,79 @@ class Brain:
 
 
     # ----------------------------------------------------------------- extras
+    def presence_block(self) -> str:
+        """What is already on file, for the model and the greeting."""
+        from core import presence
+
+        last = ""
+        blender = self.modules.get("blender")
+        if blender is not None:
+            last = str(getattr(blender, "last_blend", "") or "")
+        habits = ""
+        learned = getattr(self, "preferences", None)
+        if learned is not None:
+            try:
+                habits = learned.summary(limit=2)
+            except Exception:
+                habits = ""
+        dutch = self.current_language() == "nl"
+        return presence.block(
+            self.config, dutch=dutch, blender_last=last, habits=habits
+        )
+
+    def presence_spoken(self) -> str:
+        """One greeting sentence from the journal / open threads / last scene."""
+        from core import presence
+
+        last = ""
+        blender = self.modules.get("blender")
+        if blender is not None:
+            last = str(getattr(blender, "last_blend", "") or "")
+        return presence.spoken(
+            self.config,
+            dutch=self.current_language() == "nl",
+            blender_last=last,
+        )
+
     async def greeting(self) -> str:
         """Compose the start-up greeting."""
         address = self.config.user_address()
         hour = datetime.now().hour
-        part = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+        dutch = self.current_language() == "nl"
+        if dutch:
+            part = "Goedemorgen" if hour < 12 else "Goedemiddag" if hour < 18 else "Goedenavond"
+        else:
+            part = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+        nudge = self.presence_spoken()
+        extra = f" {nudge}" if nudge else ""
         if not self.llm.available:
+            if dutch:
+                return (
+                    f"{part}, {address}. Systemen deels online — geen taalmodel, "
+                    f"dus ik draai op reflexen.{extra}"
+                )
             return (
                 f"{part}, {address}. Systems partially online — no language model detected, "
-                "so I'm running on reflexes alone."
+                f"so I'm running on reflexes alone.{extra}"
             )
-        base = f"{part}, {address}. All systems online."
+        if dutch:
+            base = f"{part}, {address}. Alle systemen online.{extra}"
+        else:
+            base = f"{part}, {address}. All systems online.{extra}"
         try:
+            lang = "Dutch" if dutch else "English"
             spice = await self.llm.complete(
-                f"In one short sentence (max 18 words), greet {address} as JARVIS at start-up. "
-                f"It is {friendly_time()}. Be dry and witty. No emoji, no quotes.",
+                f"In one short sentence (max 18 words) in {lang}, greet {address} as JARVIS "
+                f"at start-up. It is {friendly_time()}. Be dry and witty. No emoji, no quotes.",
                 system=self.system_prompt(),
                 temperature=0.9,
                 max_tokens=60,
             )
             if spice.strip():
-                return self._finalize(spice)
+                line = self._finalize(spice)
+                if extra and extra.strip() not in line:
+                    return f"{line}{extra}"
+                return line
         except Exception:
             pass
         return base

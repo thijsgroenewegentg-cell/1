@@ -34,7 +34,8 @@ GOLDEN_RULES: Tuple[str, ...] = (
     "ACTIVITY/MEMORY — never invent files, names, times, durations or numbers.",
     "Call at most one tool per step. After every Observation, decide: "
     "does it satisfy the USER REQUEST? If yes, answer from it. If no, "
-    "take another step. Never stop without reading what the tool returned.",
+    "take another step. Never stop without reading what the tool returned. "
+    "Two tasks joined by 'and'/'en' are two steps, in order.",
     "Prefer the primary module's tools. Reach into another module only when "
     "the request clearly needs it.",
     "If a tool call failed, never repeat it with identical parameters: "
@@ -115,7 +116,10 @@ MODULE_GUIDANCE: Dict[str, str] = {
         "Everything here needs the user's real accounts configured."
     ),
     "blender": (
-        "Take blend_file paths from the request verbatim; when none is named "
+        "blender_status / connect-to-blender first if they ask whether Blender "
+        "is there. make_scene(description=the user's words) to BUILD something "
+        "(a cube, donut, scene) — do not talk about Blender instead of calling "
+        "it. Take blend_file paths from the request verbatim; when none is named "
         "and the last turn named one, reuse it — otherwise ask. scene_info "
         "and list_renders before claiming what is in a scene; render() for "
         "frames/animations, export_model for formats, run_script only for "
@@ -307,6 +311,14 @@ EXAMPLES: List[Dict[str, Any]] = [
      "offline": "tool"},
     {"phrase": "what's in my blender scene", "module": "blender",
      "tool": "scene_info", "params": {}, "offline": "module"},
+    {"phrase": "make a red cube in blender", "module": "blender",
+     "tool": "make_scene", "params": {"description": "a red cube"},
+     "offline": "tool"},
+    {"phrase": "connect to blender", "module": "blender",
+     "tool": "blender_status", "params": {}, "offline": "tool"},
+    {"phrase": "maak een rode kubus in blender", "module": "blender",
+     "tool": "make_scene", "params": {"description": "een rode kubus"},
+     "offline": "tool"},
     # --------------------------------------------------------------- knowledge
     {"phrase": "ask my documents about the contract", "module": "knowledge",
      "tool": "ask_documents", "params": {"question": "about the contract"},

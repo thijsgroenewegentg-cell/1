@@ -215,6 +215,33 @@ LOOK_PRESETS: Dict[str, str] = {
 }
 
 
+
+#: Shapes we can build without asking the language model. Keys are
+#: English and Dutch words the user actually says.
+PRIMITIVE_SHAPES = {
+    "cube": "cube", "kubus": "cube", "box": "cube", "blok": "cube",
+    "sphere": "uv_sphere", "bol": "uv_sphere", "ball": "uv_sphere",
+    "bal": "uv_sphere",
+    "cylinder": "cylinder", "cilinder": "cylinder", "buis": "cylinder",
+    "cone": "cone", "kegel": "cone",
+    "torus": "torus", "donut": "torus", "doughnut": "torus",
+    "monkey": "monkey", "suzanne": "monkey", "aap": "monkey",
+    "plane": "plane", "vlak": "plane", "grondvlak": "plane",
+}
+PRIMITIVE_COLORS = {
+    "red": (0.85, 0.08, 0.08, 1.0), "rood": (0.85, 0.08, 0.08, 1.0),
+    "blue": (0.12, 0.28, 0.85, 1.0), "blauw": (0.12, 0.28, 0.85, 1.0),
+    "green": (0.12, 0.7, 0.22, 1.0), "groen": (0.12, 0.7, 0.22, 1.0),
+    "yellow": (0.9, 0.8, 0.1, 1.0), "geel": (0.9, 0.8, 0.1, 1.0),
+    "white": (0.9, 0.9, 0.9, 1.0), "wit": (0.9, 0.9, 0.9, 1.0),
+    "black": (0.04, 0.04, 0.04, 1.0), "zwart": (0.04, 0.04, 0.04, 1.0),
+    "orange": (0.9, 0.4, 0.08, 1.0), "oranje": (0.9, 0.4, 0.08, 1.0),
+    "purple": (0.5, 0.15, 0.7, 1.0), "paars": (0.5, 0.15, 0.7, 1.0),
+    "gold": (0.85, 0.65, 0.15, 1.0), "goud": (0.85, 0.65, 0.15, 1.0),
+    "silver": (0.7, 0.7, 0.75, 1.0), "zilver": (0.7, 0.7, 0.75, 1.0),
+}
+
+
 class Blender(BaseModule):
     """3D work: render scenes, run Blender Python, inspect and export models."""
 
@@ -604,14 +631,19 @@ class Blender(BaseModule):
                ("is blender installed", "blender version", "blender status",
                 "which blender", "do you have blender", "connect to blender",
                 "use blender", "can you use blender", "blender available",
-                "is blender working", "find blender")):
+                "is blender working", "find blender",
+                "verbind blender", "verbind met blender", "koppel blender",
+                "heb je blender", "is blender geinstalleerd",
+                "is blender geïnstalleerd", "blender beschikbaar")):
             return "blender_status", {}
 
         # Launching the application itself ("open Blender") must not fall
         # through to make_scene or the generic keyword picker.
         if any(phrase in lowered for phrase in
                ("open blender", "launch blender", "start blender",
-                "open up blender", "fire up blender")) and ".blend" not in lowered:
+                "open up blender", "fire up blender",
+                "open blender", "start blender", "blender openen",
+                "open blender eens")) and ".blend" not in lowered:
             return "open_blender", {"blend_file": ""}
 
         if any(phrase in lowered for phrase in
@@ -651,9 +683,15 @@ class Blender(BaseModule):
                 "execute in blender")):
             return "run_script", {"script": text}
 
+        if self._parse_primitive(text) is not None:
+            return "make_scene", {"description": text}
+
         if any(phrase in lowered for phrase in
                ("3d scene", "3d model", "make a scene", "build a scene",
-                "model of a", "in blender")):
+                "model of a", "in blender",
+                "3d scène", "3d scene", "maak een scene", "maak een scène",
+                "bouw een scene", "bouw een scène", "maak een 3d",
+                "modelleer een")):
             return "make_scene", {"description": text}
 
         return None
@@ -1325,6 +1363,80 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
         ]
         return truncate("\n".join(lines), 3000)
 
+
+    # -------------------------------------------------------- primitive scenes
+    def _parse_primitive(self, description: str) -> Optional[Dict[str, Any]]:
+        """Recognise a cube/sphere/donut-style request, or return None."""
+        lowered = f" {(description or '').lower()} "
+        shape = ""
+        shape_word = ""
+        for word, ident in PRIMITIVE_SHAPES.items():
+            if f" {word} " in lowered or f" {word}s " in lowered:
+                shape = ident
+                shape_word = word
+                break
+        if not shape:
+            return None
+        color_name = ""
+        color = None
+        for word, rgba in PRIMITIVE_COLORS.items():
+            if f" {word} " in lowered:
+                color_name = word
+                color = rgba
+                break
+        ground = any(token in lowered for token in (
+            " on a plane", " on a floor", " on a ground",
+            " op een vlak", " op een vloer", " op een plane",
+        ))
+        return {
+            "shape": shape,
+            "word": shape_word,
+            "color": color,
+            "color_name": color_name,
+            "ground": ground,
+        }
+
+    def _primitive_script(self, spec: Dict[str, Any]) -> str:
+        """Write bpy that builds one primitive, a camera and a light."""
+        shape = spec["shape"]
+        name = str(spec.get("word") or shape).title()
+        color = spec.get("color")
+        ground = bool(spec.get("ground"))
+        lines = [
+            "import bpy",
+            f"bpy.ops.mesh.primitive_{shape}_add(location=(0, 0, 1))",
+            "obj = bpy.context.object",
+            "if obj is not None:",
+            f"    obj.name = {name!r}",
+        ]
+        if color is not None:
+            rgba = tuple(float(v) for v in color)
+            lines += [
+                "    try:",
+                "        mat = bpy.data.materials.new(name='JARVISColor')",
+                "        try:",
+                "            mat.use_nodes = True",
+                "            bsdf = mat.node_tree.nodes.get('Principled BSDF')",
+                f"            if bsdf is not None: bsdf.inputs['Base Color'].default_value = {rgba!r}",
+                "        except Exception:",
+                f"            mat.diffuse_color = {rgba!r}",
+                "        data = getattr(obj, 'data', None)",
+                "        if data is not None and hasattr(data, 'materials'):",
+                "            if data.materials:",
+                "                data.materials[0] = mat",
+                "            else:",
+                "                data.materials.append(mat)",
+                "    except Exception:",
+                "        pass",
+            ]
+        if ground:
+            lines.append("bpy.ops.mesh.primitive_plane_add(size=4, location=(0, 0, 0))")
+        lines += [
+            "bpy.ops.object.camera_add(location=(6.5, -6.5, 4.5))",
+            "bpy.ops.object.light_add(location=(3.5, 3.5, 8))",
+        ]
+        return "\n".join(lines) + "\n"
+
     # ------------------------------------------------------------ scene build
     @tool(
         description=(
@@ -1365,10 +1477,15 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
         """
         if self.find_runtime() is None:
             return self._missing()
-        if self.llm is None or not getattr(self.llm, "available", False):
+        spec = self._parse_primitive(description)
+        primitive_source = self._primitive_script(spec) if spec else ""
+        if not primitive_source and (
+            self.llm is None or not getattr(self.llm, "available", False)
+        ):
             return ModuleResult.fail(
                 "Building a scene from a description needs the language model, sir. "
-                "Start Ollama, or give me a bpy script and I'll run it."
+                "Start Ollama, or ask for a cube, sphere, donut, cylinder or Suzanne "
+                "and I'll build it without one."
             )
         preset = str(look or "").strip().lower()
         if preset and preset not in LOOK_PRESETS:
@@ -1376,7 +1493,10 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
                 f"Unknown look '{look}', sir. Try {', '.join(sorted(LOOK_PRESETS))}."
             )
 
-        prompt = (
+        if primitive_source:
+            source = primitive_source
+        else:
+            prompt = (
             "Write a Blender Python (bpy) script for Blender 4.x that builds this "
             f"scene:\n\n{description}\n\n"
             "Rules:\n"
@@ -1390,10 +1510,10 @@ scene.render.image_settings.file_format = {FORMATS.get(image_format.lower(), "PN
             "5. No rendering and no saving: I do that myself.\n"
             "6. Return one ```python block and nothing else."
         )
-        raw = await self.llm.complete(prompt, temperature=0.2, max_tokens=1600)
-        source = await self._resolve_script(raw)
-        if not source.strip():
-            return ModuleResult.fail("The model didn't give me a usable script.")
+            raw = await self.llm.complete(prompt, temperature=0.2, max_tokens=1600)
+            source = await self._resolve_script(raw)
+            if not source.strip():
+                return ModuleResult.fail("The model didn't give me a usable script.")
         if preset:
             source = f"{source}\n\n{LOOK_PRESETS[preset]}"
 

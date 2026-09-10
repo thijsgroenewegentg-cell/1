@@ -590,6 +590,7 @@ def test_make_scene_applies_a_look_preset(blender, monkeypatch, tmp_path):
         complete = staticmethod(fake_complete)
 
     blender.llm = FakeLLM()
+    blender._parse_primitive = lambda description: None  # force the model path
 
     async def fake_run_script(script, *args: object, **kwargs: object) -> object:
         seen["script"] = script

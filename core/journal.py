@@ -163,19 +163,22 @@ def day_before(day: str, delta: int = 1) -> str:
     return (moment - timedelta(days=delta)).strftime("%Y-%m-%d")
 
 
-def recap(config: Any, day: str, sample: int = 4) -> str:
+def recap(config: Any, day: str, sample: int = 4, dutch: bool = False) -> str:
     """Summarise one day of activity as a spoken sentence.
 
     Args:
         config: Configuration holding ``assistant.journal_file``.
         day: ``YYYY-MM-DD``.
         sample: How many recent requests to quote.
+        dutch: Write the summary in Dutch.
 
     Returns:
         A short human summary, safe to speak.
     """
     entries = events_on(config, day)
     if not entries:
+        if dutch:
+            return f"{_friendly_day(day)} is stil in het journaal — niets opgeschreven."
         return f"{_friendly_day(day)} is quiet in the journal — nothing recorded."
     modules: Dict[str, int] = {}
     tools: Dict[str, int] = {}
@@ -195,6 +198,14 @@ def recap(config: Any, day: str, sample: int = 4) -> str:
     recent = "; ".join(
         f"\"{entry.get('text', '')}\"" for entry in entries[-sample:]
     )
+    if dutch:
+        parts = [f"{_friendly_day(day)}: {len(entries)} wissel(s)"]
+        if top_modules:
+            parts.append(f"vooral {top_modules}")
+        if top_tools:
+            parts.append(f"tools: {top_tools}")
+        parts.append(f"de laatste waren {recent}.")
+        return " ".join(parts)
     parts = [
         f"{_friendly_day(day)}: {len(entries)} exchange(s)",
     ]
@@ -206,12 +217,13 @@ def recap(config: Any, day: str, sample: int = 4) -> str:
     return " ".join(parts)
 
 
-def brief_line(config: Any, day: str) -> str:
+def brief_line(config: Any, day: str, dutch: bool = False) -> str:
     """A one-liner for the morning briefing about the previous day.
 
     Args:
         config: Configuration holding ``assistant.journal_file``.
         day: The day to summarise (usually yesterday).
+        dutch: Write the line in Dutch.
 
     Returns:
         A compact line, or ``""`` when nothing was recorded.
@@ -228,6 +240,13 @@ def brief_line(config: Any, day: str) -> str:
         tool for tool, _count in
         sorted(tools.items(), key=lambda item: item[1], reverse=True)[:3]
     )
+    if dutch:
+        line = (
+            f"Gisteren: {len(entries)} verzoek(en), {completed} goed beantwoord."
+        )
+        if tool_names:
+            line += f" Tools: {tool_names}."
+        return line
     line = f"Yesterday: {len(entries)} request(s), {completed} answered well."
     if tool_names:
         line += f" Tools that got used: {tool_names}."
