@@ -21,6 +21,10 @@ def vision(config):
         ("what's on my screen", "describe_screen"),
         ("read the text on screen", "read_screen"),
         ("describe the image at /tmp/photo.png", "describe_image"),
+        ("watch my screen", "watch_screen"),
+        ("houd mijn scherm in de gaten", "watch_screen"),
+        ("stop watching the screen", "stop_watching_screen"),
+        ("look at the webcam", "look_at_camera"),
     ],
 )
 def test_offline_router_recognises_vision_requests(vision, phrase, expected):
@@ -115,3 +119,42 @@ def test_no_vision_model_at_all_lists_what_to_pull(config):
     module.llm = FakeLLM()
     complaint = run(module._ensure_model())
     assert complaint and "ollama pull" in complaint.lower()
+
+def test_watch_screen_starts_without_a_display(vision):
+    result = run(vision.call_tool("watch_screen", {}))
+    assert result.success
+    assert "screen" in result.output.lower()
+    assert vision._load_watch().get("active") is True
+
+
+def test_stop_watching_when_idle_is_calm(vision):
+    result = run(vision.call_tool("stop_watching_screen", {}))
+    assert result.success
+
+
+def test_look_at_camera_without_hardware_points_at_the_screen(vision):
+    result = run(vision.call_tool("look_at_camera", {}))
+    # Sandboxes and most servers have no /dev/video0.
+    if not vision._camera_present():
+        assert not result.success
+        assert "screen" in result.error.lower()
+
+
+def test_a_screen_watch_tick_is_silent_when_idle(vision):
+    assert run(vision.tick_screen_watch()) is None
+
+
+def test_a_screen_watch_tick_does_not_crash_when_active(vision):
+    run(vision.call_tool("watch_screen", {"interval": 15}))
+    # Force the interval to have elapsed without capturing on a headless box.
+    state = vision._load_watch()
+    state["last_at"] = 0
+    vision._save_watch(state)
+    note = run(vision.tick_screen_watch())
+    assert note is None or isinstance(note, str)
+
+
+def test_whats_on_my_screen_is_still_a_one_shot(vision):
+    routed = vision.offline_router("what's on my screen")
+    assert routed[0] == "describe_screen"
+

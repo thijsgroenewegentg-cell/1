@@ -332,6 +332,7 @@ DESCRIPTIONS: Dict[str, str] = {
     "vision.temperature": "Sampling temperature for image descriptions.",
     "vision.screenshot_dir": "Where screenshots are written. Blank uses paths.screenshots.",
     "vision.keep_screenshots": "How many screenshots to keep before pruning the oldest.",
+    "vision.watch_interval": "Seconds between glances when watching the screen.",
     "vision.max_pixels": "Images larger than this are shrunk before the model sees them.",
     "vision.timeout": "Seconds to wait for the vision model.",
     # -- blender ------------------------------------------------------------

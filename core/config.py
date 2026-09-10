@@ -240,6 +240,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "temperature": 0.2,
         "screenshot_dir": "",        # blank = paths.screenshots
         "keep_screenshots": 10,
+        "watch_interval": 60,        # seconds between screen-watch glances
         "max_pixels": 1600000,
         "timeout": 180,
     },

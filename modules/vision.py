@@ -11,6 +11,8 @@ optional Pillow fallback.
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 import platform
 import shutil
 import subprocess
@@ -20,7 +22,14 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional
 
 from modules.base import BaseModule, ModuleResult, strip_command_prefix, tool
-from utils.helpers import ensure_dir, human_bytes, resolve_user_path, run_blocking, truncate
+from utils.helpers import (
+    ensure_dir,
+    has_display,
+    human_bytes,
+    resolve_user_path,
+    run_blocking,
+    truncate,
+)
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
@@ -30,12 +39,14 @@ class Vision(BaseModule):
 
     name = "vision"
     description = (
-        "Visual understanding: describe what is on the user's screen, read text out of "
-        "screenshots, and answer questions about image files. Requires a local vision "
-        "model such as llava."
+        "Visual understanding: describe what is on the user's screen, watch the screen "
+        "for changes, read text out of screenshots, and answer questions about image "
+        "files. Requires a local vision model such as llava. A webcam is optional and "
+        "never required."
     )
     intent_examples: ClassVar[List[str]] = [
         "what's on my screen",
+        "watch my screen",
         "describe this image ~/Pictures/chart.png",
         "read the error message on my screen",
         "what does this diagram show",
@@ -63,6 +74,7 @@ class Vision(BaseModule):
         )
         self.keep_screenshots: int = int(section.get("keep_screenshots", 10))
         self.timeout: float = float(section.get("timeout", 180))
+        self.watch_interval: int = max(15, min(600, int(section.get("watch_interval", 60) or 60)))
         ensure_dir(self.screenshot_dir)
 
     # ---------------------------------------------------------- offline route
@@ -89,6 +101,21 @@ class Vision(BaseModule):
             return "read_screen", {}
         if "screenshot" in lowered and ("take" in lowered or "capture" in lowered):
             return "take_screenshot", {}
+        if any(word in lowered for word in ("webcam", "web cam", "camera")):
+            return "look_at_camera", {"question": text}
+        screenish = any(word in lowered for word in ("screen", "scherm"))
+        if screenish and any(
+            phrase in lowered for phrase in (
+                "stop watching", "stop looking", "niet meer kijken",
+            )
+        ):
+            return "stop_watching_screen", {}
+        if screenish and any(
+            phrase in lowered for phrase in (
+                "watch", "keep an eye", "in de gaten", "blijf kijken",
+            )
+        ) and "news" not in lowered:
+            return "watch_screen", {"question": text}
         return "describe_screen", {"question": text}
 
     @staticmethod
@@ -475,8 +502,196 @@ class Vision(BaseModule):
         return ModuleResult(
             success=True,
             output="\n".join(lines),
-            data={"tools": tools, "pillow": pillow, "model_ready": model_ready},
+            data={"tools": tools, "pillow": pillow, "model_ready": model_ready,
+                  "camera": self._camera_present(), "watching": self._load_watch().get("active")},
         )
+
+    # ---------------------------------------------------------- screen watch
+    def _watch_path(self) -> Path:
+        """JSON file for the optional screen-watch loop."""
+        try:
+            return self.config.resolve("data/screen_watch.json")
+        except Exception:
+            return Path("data/screen_watch.json")
+
+    def _load_watch(self) -> Dict[str, Any]:
+        """Read watch state, or an inactive document."""
+        path = self._watch_path()
+        try:
+            if path.is_file():
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+        return {"active": False}
+
+    def _save_watch(self, state: Dict[str, Any]) -> None:
+        """Persist watch state. Never raises."""
+        try:
+            path = self._watch_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as exc:
+            self.log.debug("Could not write screen watch: %s", exc)
+
+    @staticmethod
+    def _camera_present() -> bool:
+        """True when a capture device looks plugged in. Never opens it."""
+        if Path("/dev/video0").exists() or Path("/dev/video1").exists():
+            return True
+        return bool(shutil.which("imagesnap"))
+
+    @tool(
+        description="Watch the desktop for changes. No webcam required.",
+        params={
+            "question": {
+                "type": "string",
+                "description": "What to look for (optional)",
+                "default": "",
+            },
+            "interval": {
+                "type": "integer",
+                "description": "Seconds between glances (0 = config default)",
+                "default": 0,
+            },
+        },
+        keywords=["watch my screen", "keep an eye on the screen", "watch the desktop",
+                  "houd mijn scherm in de gaten"],
+        examples=['watch_screen(question="tell me if an error pops up")'],
+    )
+    async def watch_screen(self, question: str = "", interval: int = 0) -> ModuleResult:
+        """Start glancing at the screen on a timer. Capture happens on later ticks."""
+        seconds = int(interval or 0) or self.watch_interval
+        seconds = max(15, min(600, seconds))
+        prompt = (question or "").strip()
+        state = {
+            "active": True,
+            "question": prompt,
+            "interval": seconds,
+            "last_hash": "",
+            "last_at": 0.0,
+            "started": time.time(),
+        }
+        self._save_watch(state)
+        extra = f" I'll look for: {prompt}." if prompt else ""
+        return ModuleResult(
+            success=True,
+            output=(
+                f"Watching the screen every {seconds}s.{extra} "
+                "No camera needed — say 'stop watching the screen' to cancel."
+            ),
+            speak="Watching the screen.",
+            data={"interval": seconds, "active": True},
+        )
+
+    @tool(
+        description="Stop the screen-watch loop.",
+        params={},
+        keywords=["stop watching the screen", "stop looking at my screen"],
+    )
+    async def stop_watching_screen(self) -> ModuleResult:
+        """Cancel an active screen watch."""
+        state = self._load_watch()
+        if not state.get("active"):
+            return ModuleResult.ok("I wasn't watching the screen.")
+        state["active"] = False
+        self._save_watch(state)
+        return ModuleResult.ok("Stopped watching the screen.")
+
+    @tool(
+        description="Grab a webcam frame if a camera exists; otherwise explain how to use the screen.",
+        params={
+            "question": {
+                "type": "string",
+                "description": "What to look for",
+                "default": "Describe what the camera sees.",
+            }
+        },
+        keywords=["webcam", "look at the camera", "take a photo of me"],
+    )
+    async def look_at_camera(self, question: str = "") -> ModuleResult:
+        """Optional camera. This machine may have none — that is not an error in setup."""
+        if not self._camera_present():
+            return ModuleResult.fail(
+                "No camera on this machine. I can still watch the screen — "
+                "say 'watch my screen' or 'what's on my screen'."
+            )
+        destination = self.screenshot_dir / f"cam_{time.strftime('%Y%m%d_%H%M%S')}.png"
+        ensure_dir(destination.parent)
+        grabbed = False
+        try:
+            if shutil.which("ffmpeg") and Path("/dev/video0").exists():
+                subprocess.run(
+                    ["ffmpeg", "-y", "-f", "v4l2", "-i", "/dev/video0",
+                     "-frames:v", "1", str(destination)],
+                    check=True, timeout=12,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                grabbed = destination.exists() and destination.stat().st_size > 0
+            elif shutil.which("imagesnap"):
+                subprocess.run(["imagesnap", "-w", "1", str(destination)],
+                               check=True, timeout=12)
+                grabbed = destination.exists()
+        except Exception as exc:
+            return ModuleResult.fail(f"Camera present but capture failed: {exc}")
+        if not grabbed:
+            return ModuleResult.fail(
+                "A camera node is there but I could not grab a frame. "
+                "I can watch the screen instead."
+            )
+        return await self.describe_image(
+            str(destination),
+            question=(question or "").strip() or "Describe what the camera sees.",
+        )
+
+    async def tick_screen_watch(self) -> Optional[str]:
+        """One glance if a watch is active and the interval has elapsed.
+
+        Returns a line to announce, or ``None``. Never raises. Headless
+        sessions (no display) stay silent so CI is not noisy.
+        """
+        state = self._load_watch()
+        if not state.get("active"):
+            return None
+        interval = max(15, int(state.get("interval") or self.watch_interval))
+        last_at = float(state.get("last_at") or 0)
+        if time.time() - last_at < interval:
+            return None
+        if not has_display():
+            state["last_at"] = time.time()
+            self._save_watch(state)
+            return None
+        destination = self.screenshot_dir / "screen_watch.png"
+        try:
+            await run_blocking(self._capture, destination)
+        except Exception as exc:
+            self.log.debug("Screen-watch capture failed: %s", exc)
+            state["last_at"] = time.time()
+            self._save_watch(state)
+            return None
+        try:
+            digest = hashlib.md5(destination.read_bytes()).hexdigest()
+        except Exception:
+            return None
+        previous = str(state.get("last_hash") or "")
+        state["last_hash"] = digest
+        state["last_at"] = time.time()
+        self._save_watch(state)
+        if not previous or previous == digest:
+            return None
+        prompt = str(state.get("question") or "").strip() or (
+            "The desktop just changed. In one short sentence, what is different or new?"
+        )
+        try:
+            problem = await self._ensure_model()
+            if problem:
+                return "The screen changed."
+            answer = await self._ask_model(destination, prompt)
+            line = (answer or "").strip()
+            return truncate(line, 280) if line else "The screen changed."
+        except Exception:
+            return "The screen changed."
 
 
 __all__ = ["Vision"]

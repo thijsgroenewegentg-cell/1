@@ -32,7 +32,7 @@ The first release meant for other people's machines.
   asking or with `/audit`.
 - **`install.py --everything`**: audio libraries, every model, every capability,
   and a closing diagnosis of whatever is still missing.
-- **`docs/CONFIGURATION.md`**: all 237 settings with their real defaults,
+- **`docs/CONFIGURATION.md`**: all 238 settings with their real defaults,
   generated from the code so they cannot drift.
 - **It speaks your language.** Replies follow the language you write in —
   Dutch, English and more — with `assistant.language` as a fixed override.
@@ -57,6 +57,16 @@ The first release meant for other people's machines.
   once a day.
 - **Hardware alerts.** CPU and RAM crossing 90% get a spoken/web ping, with
   hysteresis so a machine sitting on the line does not nag.
+- **YouTube.** "play lofi on youtube" opens a search (or a video id); pause /
+  next / mute / fullscreen go to a YouTube window when one is on screen.
+- **Steam and Epic updates.** Best-effort: Steam's downloads list, or
+  `legendary` for Epic when that CLI is installed.
+- **Telegram.** Optional `telegram.bot_token` / `chat_id`; without them the
+  tool explains how to set a BotFather bot instead of pretending to send.
+- **Flight lookup.** Search-only Google Flights URL — JARVIS does not book.
+- **Audio devices.** List and switch sinks via `pactl` / SwitchAudioSource.
+- **Screen watch.** "watch my screen" glances on a timer; no webcam required.
+  "look at the webcam" explains itself when there is no camera.
 - **A local journal and a day recap.** Every turn is logged on this machine;
   "what did I do today" or "recap my day" sums up what got done and what
   still dangles.

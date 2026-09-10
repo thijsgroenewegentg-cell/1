@@ -51,11 +51,11 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/knowledge.py`](#modulesknowledgepy) — 20
 - [`modules/macros.py`](#modulesmacrospy) — 6
 - [`modules/models.py`](#modulesmodelspy) — 17
-- [`modules/productivity.py`](#modulesproductivitypy) — 80
+- [`modules/productivity.py`](#modulesproductivitypy) — 81
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
 - [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 24
 - [`modules/system_control.py`](#modulessystem_controlpy) — 59
-- [`modules/vision.py`](#modulesvisionpy) — 15
+- [`modules/vision.py`](#modulesvisionpy) — 23
 - [`modules/web_search.py`](#modulesweb_searchpy) — 21
 - [`plugins/plugin_loader.py`](#pluginsplugin_loaderpy) — 12
 - [`utils/backup.py`](#utilsbackuppy) — 11
@@ -106,7 +106,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_tool_registration.py`](#teststest_tool_registrationpy) — 6
 - [`tests/test_units.py`](#teststest_unitspy) — 96
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
-- [`tests/test_vision.py`](#teststest_visionpy) — 15
+- [`tests/test_vision.py`](#teststest_visionpy) — 21
 - [`tests/test_voice.py`](#teststest_voicepy) — 24
 - [`tests/test_wave2_features.py`](#teststest_wave2_featurespy) — 17
 - [`tests/test_wave3_features.py`](#teststest_wave3_featurespy) — 16
@@ -1422,7 +1422,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/productivity.py`
 
-*80 functions*
+*81 functions*
 
 > Todos, reminders, timers, notes and the daily briefing — all SQLite backed.
 
@@ -1456,6 +1456,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _tick(self) -> None` — One scheduler pass: fire due reminders and jobs, flush held speech.
 - `async def _proactive_pass(self) -> None` — Check-ins, hardware alerts and daily topic-watch headlines.
 - `async def _watch_headlines(self, proactive: Any) -> None` — Fetch headlines for each watched topic and announce new ones.
+- `async def _screen_watch_pass(self) -> None` — Glance at the desktop when a screen-watch is active. Never raises.
 - `async def _nightly_check_if_due(self) -> None` — Run the quiet daily health probe at ``assistant.nightly_check_time``.
 - `async def _scheduler_loop(self) -> None` — Poll in a plain loop — used only if the Scheduler cannot start.
 - `def _pop_due_jobs(self) -> List[Dict[str, Any]]` — Return scheduled jobs that are due, and reschedule them.
@@ -1675,7 +1676,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/vision.py`
 
-*15 functions*
+*23 functions*
 
 > Local computer vision through Ollama's multimodal models (llava & friends).
 
@@ -1696,6 +1697,14 @@ and marked with `·`; methods the intent router can call are marked
 - `async def describe_image(self, path: str, question: str = 'Describe this image in detail.') -> ModuleResult` **@tool** — Answer a question about a local image file.
 - `async def compare_images(self, first: str, second: str) -> ModuleResult` **@tool** — Ask the vision model what differs between two images.
 - `async def vision_status(self) -> ModuleResult` **@tool** — Diagnose the capture backend and model availability.
+- `def _watch_path(self) -> Path` — JSON file for the optional screen-watch loop.
+- `def _load_watch(self) -> Dict[str, Any]` — Read watch state, or an inactive document.
+- `def _save_watch(self, state: Dict[str, Any]) -> None` — Persist watch state. Never raises.
+- `def _camera_present() -> bool` *staticmethod* — True when a capture device looks plugged in. Never opens it.
+- `async def watch_screen(self, question: str = '', interval: int = 0) -> ModuleResult` **@tool** — Start glancing at the screen on a timer. Capture happens on later ticks.
+- `async def stop_watching_screen(self) -> ModuleResult` **@tool** — Cancel an active screen watch.
+- `async def look_at_camera(self, question: str = '') -> ModuleResult` **@tool** — Optional camera. This machine may have none — that is not an error in setup.
+- `async def tick_screen_watch(self) -> Optional[str]` — One glance if a watch is active and the interval has elapsed.
 
 ## `modules/web_search.py`
 
@@ -3126,7 +3135,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_vision.py`
 
-*15 functions*
+*21 functions*
 
 > Unit tests for modules/vision.py — screenshots and image understanding.
 
@@ -3143,6 +3152,12 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_an_explicit_screenshot_folder_wins(config, tmp_path)`
 - `def test_a_missing_model_falls_back_to_an_installed_one(config)` — Llava absent used to be a flat refusal, ignoring the fallback list.
 - `def test_no_vision_model_at_all_lists_what_to_pull(config)`
+- `def test_watch_screen_starts_without_a_display(vision)`
+- `def test_stop_watching_when_idle_is_calm(vision)`
+- `def test_look_at_camera_without_hardware_points_at_the_screen(vision)`
+- `def test_a_screen_watch_tick_is_silent_when_idle(vision)`
+- `def test_a_screen_watch_tick_does_not_crash_when_active(vision)`
+- `def test_whats_on_my_screen_is_still_a_one_shot(vision)`
 
 ## `tests/test_voice.py`
 
@@ -3418,5 +3433,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**2349 functions across 108 files.**
+**2364 functions across 108 files.**
 

@@ -602,6 +602,7 @@ class Productivity(BaseModule):
             await self._flush_deferred()
             await self._nightly_check_if_due()
             await self._proactive_pass()
+            await self._screen_watch_pass()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -675,6 +676,20 @@ class Productivity(BaseModule):
         proactive.mark_watch_run(self.config)
         if bits:
             await self._announce_proactive("News on your watches — " + "; ".join(bits[:4]))
+
+    async def _screen_watch_pass(self) -> None:
+        """Glance at the desktop when a screen-watch is active. Never raises."""
+        try:
+            if self.brain is None:
+                return
+            vision = (getattr(self.brain, "modules", {}) or {}).get("vision")
+            if vision is None or not hasattr(vision, "tick_screen_watch"):
+                return
+            note = await vision.tick_screen_watch()
+            if note:
+                await self._announce_proactive(note)
+        except Exception as exc:
+            self.log.debug("Screen-watch pass failed: %s", exc)
 
     async def _nightly_check_if_due(self) -> None:
         """Run the quiet daily health probe at ``assistant.nightly_check_time``.
