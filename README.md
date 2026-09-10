@@ -61,7 +61,7 @@ The `plugins/` folder includes safe examples:
 
 - `git_helper.py` — read-only repository status, diff summary, log, branches, remotes and root lookup. It has a fixed Git argument allowlist and never commits, resets, checks out, pushes or pulls.
 - `project_helper.py` — fixed, shell-free project status, test, package-check and Docker-status helpers. It cannot accept arbitrary commands, install packages or mutate containers.
-- `blender_control.py` — authenticated localhost Blender bridge with allowlisted scene/object/material/camera/light/modifier/render operations; mutating operations require confirmation.
+- `blender_control.py` — adapter for the existing BlenderMCP add-on. MARK launches the fixed `uvx blender-mcp` stdio server, discovers its tools, blocks arbitrary Python/command tools, and confirmation-gates scene changes and asset operations.
 - `local_calendar.py` — private local `calendar.ics` events with add, list, today, find and remove operations. It defaults to `Documents/MARK/calendar.ics`; set `MARK_CALENDAR_FILE` to use another local file. Add/remove are confirmation-gated.
 - `email_client.py` — optional IMAP/SMTP inbox, search, read and send support. It never stores credentials in the repository, requires `MARK_EMAIL_IMAP_HOST`, `MARK_EMAIL_SMTP_HOST`, `MARK_EMAIL_USERNAME` and `MARK_EMAIL_PASSWORD` in the launch environment, and puts every send behind MARK's on-screen confirmation gate.
 - `media_control.py` — open/search Spotify, show now-playing/status data, control playback, volume, shuffle and repeat using native player tools available on Windows, macOS or Linux. It uses no Spotify API credential.
@@ -83,9 +83,9 @@ Install and run ComfyUI locally, normally on `127.0.0.1:8188`. Open **⚙ → PL
 
 The upstream MARK repository only provides the template, so these tools are included directly in this Ollama build rather than downloaded from an unverified plugin marketplace.
 
-### Blender bridge
+### Existing Blender MCP integration
 
-Install `blender/mark_bridge.py` as a Blender add-on, set the same `MARK_BLENDER_TOKEN` in Blender and MARK, then start the loopback MCP server from Blender's **MARK** sidebar. MARK initializes MCP and discovers the authenticated `blender_control` tool set automatically. The bridge is limited to named scene operations and never accepts arbitrary Blender Python. See `blender/README.md` for the setup steps.
+MARK uses the existing **Blender MCP** add-on; it does not require another Blender add-on. In Blender's 3D View sidebar, set the port to `9876` and click **Connect to MCP server**. In MARK's **PLUGIN SETTINGS → BLENDER — EXISTING MCP SERVER**, keep host `127.0.0.1`, port `9876`, and launcher `uvx`. MARK starts the fixed `uvx blender-mcp` stdio server on the first Blender request, discovers the tools, blocks arbitrary Python/command execution, and asks for confirmation before mutations. The `blender/mark_bridge.py` file is an optional older MARK bridge and is not needed for the BlenderMCP add-on shown in the panel.
 
 ## Voice
 
@@ -121,7 +121,7 @@ Ask MARK to use `self_update` with `action: review`, a list of repository-relati
 - `core/stt.py` — faster-whisper transcription
 - `ui.py` — PyQt6 HUD and settings panels
 - `dashboard/` — authenticated LAN dashboard and phone relay
-- `blender/` — authenticated loopback Blender add-on and installation notes
+- `blender/` — Blender MCP integration notes and optional legacy MARK bridge
 - `actions/` — auto-discovered built-in tools, including the review-first `self_update` workflow
 - `plugins/` — drop-in tools with a `PLUGIN` dictionary and `run()` function
 - `installer/` — cross-platform installer, launchers and Windows Inno Setup definition

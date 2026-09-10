@@ -617,7 +617,7 @@ class LocalAssistant:
             blender_error = configuration_error()
         except Exception as exc:
             blender_error = str(exc)
-        self.ui.set_service_status("BLENDER", "READY" if not blender_error else "OFFLINE", blender_error or "Authenticated loopback Blender Bridge configured.")
+        self.ui.set_service_status("BLENDER", "OPTIONAL" if not blender_error else "OFFLINE", blender_error or "Existing BlenderMCP add-on configured for localhost:9876; connection is tested on first Blender request.")
         self.ui.set_service_status("COMFYUI", "OPTIONAL", "Local ComfyUI is optional. Configure it under Plugin Settings before generating images.")
 
         # Wake-word controls stay opt-in. The model is downloaded only when the
@@ -1417,7 +1417,8 @@ class LocalAssistant:
                 result = self._plugin_registry.run(name, args, player=self.ui,
                                                    session_memory=self._session_log)
                 if name == "blender_control":
-                    failed = "failed" in str(result).lower() or "could not" in str(result).lower() or "not configured" in str(result).lower()
+                    lower_result = str(result).lower()
+                    failed = any(marker in lower_result for marker in ("failed", "could not", "not configured", "not found", "connection refused", "unavailable"))
                     self.ui.set_service_status("BLENDER", "OFFLINE" if failed else "READY", str(result)[:280])
                 if name == "comfyui_image":
                     lower_result = str(result).lower()
