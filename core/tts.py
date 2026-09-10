@@ -97,6 +97,7 @@ class TTSPlayer:
         self._engine = engine
         self._playing = False
         self._cancel_event = threading.Event()
+        self.last_error = ""
         self._lock = threading.Lock()
 
     @property
@@ -116,6 +117,7 @@ class TTSPlayer:
             with self._lock:
                 self._playing = True
                 self._cancel_event.clear()
+                self.last_error = ""
                 engine = self._engine
             if on_start:
                 on_start()
@@ -131,6 +133,7 @@ class TTSPlayer:
                     if not self._cancel_event.is_set():
                         SystemTTSEngine().speak(text)
                 except Exception as fallback:
+                    self.last_error = str(fallback)
                     print(f"[TTS] Offline fallback failed: {fallback}")
         finally:
             with self._lock:

@@ -54,7 +54,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
-    QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
+    QStackedWidget, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
 )
 
 # ── Which Mark this is ───────────────────────────────────────────────────────
@@ -2104,10 +2104,16 @@ class ConfirmBanner(_HudOverlay):
         lay.setContentsMargins(20, 16, 20, 16)
         lay.setSpacing(8)
 
-        hdr = QLabel("⚠  CONFIRM")
+        hdr = QLabel("⚠  CONFIRMATION REQUIRED")
         hdr.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
         hdr.setStyleSheet(f"color: {C.ACC}; background: transparent;")
         lay.addWidget(hdr)
+
+        status = QLabel("NO CHANGE HAS BEEN MADE YET  ·  ONE HUMAN CONFIRMATION REQUIRED")
+        status.setWordWrap(True)
+        status.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        status.setStyleSheet(f"color: {C.ACC2}; background: rgba(255,204,0,18); border: 1px solid rgba(255,204,0,70); border-radius: 3px; padding: 5px;")
+        lay.addWidget(status)
 
         ttl = QLabel(title)
         ttl.setWordWrap(True)
@@ -2683,6 +2689,297 @@ class MemoryOverlay(_HudOverlay):
         # Qt is entitled to touch the sender after a slot returns; tearing it
         # down mid-emission is how a widget ends up half-alive on screen.
         QTimer.singleShot(0, self._rebuild)
+
+
+class ControlCenterOverlay(_HudOverlay):
+    """Unified operator console for plans, history, memory, workflows and Blender.
+
+    The HUD remains the focus, while this drawer makes MARK's new stateful
+    features inspectable and operable without having to ask the language model
+    to describe its own internal state.
+    """
+
+    _OW, _OH = 720, 500
+    _result_sig = pyqtSignal(str)
+
+    def __init__(self, command=None, timeline_getter=None, statuses_getter=None, parent=None):
+        super().__init__(parent)
+        self._command = command
+        self._timeline_getter = timeline_getter or (lambda: [])
+        self._statuses_getter = statuses_getter or (lambda: {})
+        self._memory_rows: list[dict] = []
+        self._workflow_names: list[str] = []
+        self._result_sig.connect(self._show_result)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setFixedSize(self._OW, self._OH)
+        self.setStyleSheet(f"""
+            ControlCenterOverlay {{
+                background: rgba(0, 6, 10, 248);
+                border: 1px solid {C.BORDER_B};
+                border-radius: 6px;
+            }}
+            QTabWidget::pane {{ border: 1px solid {C.BORDER}; background: {C.PANEL}; }}
+            QTabBar::tab {{ background: {C.DARK}; color: {C.TEXT_DIM}; padding: 6px 10px;
+                border: 1px solid {C.BORDER}; border-bottom: none; }}
+            QTabBar::tab:selected {{ color: {C.PRI}; background: {C.PANEL}; }}
+        """)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 12, 16, 12)
+        lay.setSpacing(7)
+
+        hdr = QHBoxLayout(); hdr.setSpacing(8)
+        title = QLabel("◈  MARK CONTROL CENTER")
+        title.setFont(QFont("Courier New", 12, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {C.PRI}; background: transparent;")
+        hdr.addWidget(title)
+        hdr.addStretch()
+        self._live_badge = QLabel("LIVE STATE")
+        self._live_badge.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        self._live_badge.setStyleSheet(f"color: {C.GREEN}; background: transparent;")
+        hdr.addWidget(self._live_badge)
+        close = QPushButton("CLOSE  ✕")
+        close.setFixedHeight(22)
+        close.setFont(QFont("Courier New", 7))
+        close.setCursor(Qt.CursorShape.PointingHandCursor)
+        close.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent; border: 1px solid {C.BORDER}; border-radius: 3px;")
+        close.clicked.connect(self.hide)
+        hdr.addWidget(close)
+        lay.addLayout(hdr)
+
+        self._tabs = QTabWidget()
+        self._tabs.addTab(self._build_plan_tab(), "TASK PLAN")
+        self._tabs.addTab(self._build_timeline_tab(), "TIMELINE")
+        self._tabs.addTab(self._build_memory_tab(), "MEMORY")
+        self._tabs.addTab(self._build_workflow_tab(), "WORKFLOWS")
+        self._tabs.addTab(self._build_blender_tab(), "BLENDER")
+        lay.addWidget(self._tabs, 1)
+
+        self._result = QLabel("Ready. Every mutating action still uses MARK's normal confirmation policy.")
+        self._result.setWordWrap(True)
+        self._result.setMinimumHeight(30)
+        self._result.setFont(QFont("Courier New", 7))
+        self._result.setStyleSheet(f"color: {C.TEXT_MED}; background: {C.DARK}; border: 1px solid {C.BORDER}; border-radius: 3px; padding: 5px;")
+        lay.addWidget(self._result)
+        self.refresh()
+
+    def _button(self, label: str, callback, primary: bool = False, width: int = 0) -> QPushButton:
+        btn = QPushButton(label)
+        btn.setFixedHeight(27)
+        if width:
+            btn.setFixedWidth(width)
+        btn.setFont(QFont("Courier New", 7, QFont.Weight.Bold if primary else QFont.Weight.Normal))
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        color = C.PRI if primary else C.TEXT_MED
+        border = C.PRI_DIM if primary else C.BORDER
+        btn.setStyleSheet(f"QPushButton {{ color: {color}; background: transparent; border: 1px solid {border}; border-radius: 3px; padding: 0 7px; }} QPushButton:hover {{ color: {C.WHITE}; border-color: {C.PRI}; background: {C.PRI_GHO}; }}")
+        btn.clicked.connect(callback)
+        return btn
+
+    @staticmethod
+    def _box(minimum: int = 100) -> QTextEdit:
+        box = QTextEdit()
+        box.setReadOnly(True)
+        box.setMinimumHeight(minimum)
+        box.setFont(QFont("Courier New", 8))
+        box.setStyleSheet(f"QTextEdit {{ color: {C.TEXT}; background: {C.DARK}; border: 1px solid {C.BORDER}; border-radius: 3px; padding: 5px; }}")
+        return box
+
+    def _build_plan_tab(self) -> QWidget:
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(8, 8, 8, 8); lay.setSpacing(6)
+        self._plan_box = self._box(250); lay.addWidget(self._plan_box, 1)
+        step = QLineEdit(); step.setPlaceholderText("Step number (blank = current)"); step.setFixedHeight(27)
+        step.setStyleSheet(f"QLineEdit {{ color: {C.TEXT}; background: {C.DARK}; border: 1px solid {C.BORDER}; border-radius: 3px; padding: 3px 6px; }}")
+        self._plan_step = step
+        lay.addWidget(step)
+        row = QHBoxLayout(); row.setSpacing(4)
+        for label, action, primary in (("PAUSE", "pause", False), ("CONTINUE", "continue", True), ("SKIP", "skip", False), ("COMPLETE", "complete", True), ("CANCEL", "cancel", False), ("ROLLBACK", "rollback", False)):
+            row.addWidget(self._button(label, lambda _=False, a=action: self._plan_action(a), primary))
+        lay.addLayout(row)
+        hint = QLabel("Rollback resets the checklist; use the checkpoint or undo shown in the timeline to reverse side effects.")
+        hint.setWordWrap(True); hint.setFont(QFont("Courier New", 7)); hint.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        lay.addWidget(hint)
+        return w
+
+    def _plan_action(self, action: str):
+        args = {"action": action}
+        value = self._plan_step.text().strip()
+        if value:
+            try: args["step"] = int(value)
+            except ValueError:
+                self._show_result("Step number must be an integer.")
+                return
+        self._invoke("task_planner", args)
+
+    def _build_timeline_tab(self) -> QWidget:
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(8, 8, 8, 8); lay.setSpacing(6)
+        top = QHBoxLayout(); top.addWidget(QLabel("Filter:"))
+        self._timeline_filter = QComboBox(); self._timeline_filter.addItems(["ALL", "CHANGES", "ERRORS", "PLANS", "MEMORY", "BLENDER"])
+        self._timeline_filter.currentTextChanged.connect(self._refresh_timeline)
+        top.addWidget(self._timeline_filter); top.addStretch()
+        top.addWidget(self._button("REFRESH", self._refresh_timeline))
+        lay.addLayout(top)
+        self._timeline_box = self._box(300); lay.addWidget(self._timeline_box, 1)
+        return w
+
+    def _refresh_timeline(self, *_):
+        selected = self._timeline_filter.currentText().lower()
+        rows = list(self._timeline_getter() or [])
+        try:
+            from core.operation_checkpoints import recent as recent_operations
+            rows.extend({"time": item.get("time", ""), "text": f"CHECKPOINT {item.get('component')}/{item.get('operation')} — {'changed' if item.get('changed') else 'no change'}"} for item in recent_operations(40))
+        except Exception:
+            pass
+        lines = []
+        for row in rows[-200:]:
+            if isinstance(row, dict):
+                text = f"{row.get('time', '')}  {row.get('text', '')}"
+            else:
+                text = str(row)
+            lowered = text.lower()
+            if selected == "changes" and "changed" not in lowered:
+                continue
+            if selected != "all" and selected != "changes" and selected not in lowered:
+                continue
+            lines.append(text)
+        self._timeline_box.setPlainText("\n".join(lines) if lines else "No matching activity yet.")
+        self._timeline_box.moveCursor(self._timeline_box.textCursor().MoveOperation.End)
+
+    def _build_memory_tab(self) -> QWidget:
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(8, 8, 8, 8); lay.setSpacing(6)
+        self._memory_box = self._box(245); lay.addWidget(self._memory_box, 1)
+        self._memory_select = QComboBox(); self._memory_select.setFixedHeight(27)
+        lay.addWidget(self._memory_select)
+        row = QHBoxLayout(); row.setSpacing(4)
+        row.addWidget(self._button("REFRESH", self._refresh_memory))
+        row.addWidget(self._button("FORGET SELECTED", self._forget_memory, False))
+        row.addWidget(self._button("CLEAR SESSIONS", lambda: self._invoke("memory_control", {"action": "clear_sessions"}), False))
+        lay.addLayout(row)
+        return w
+
+    def _refresh_memory(self, *_):
+        try:
+            from memory.memory_manager import all_entries_for_ui
+            self._memory_rows = all_entries_for_ui()
+        except Exception as exc:
+            self._memory_rows = []
+            self._memory_box.setPlainText(f"Memory panel failed: {exc}")
+        self._memory_select.clear()
+        lines = []
+        for row in self._memory_rows:
+            category = row.get("category", "notes")
+            key = row.get("key", "")
+            self._memory_select.addItem(f"{category}/{key}", (category, key))
+            expiry = f" · expires {row['expires']}" if row.get("expires") else ""
+            lines.append(f"{category}/{key} · {row.get('updated', '—')}{expiry}\n  {row.get('value', '')}")
+        self._memory_box.setPlainText("\n\n".join(lines) if lines else "No stored memory.")
+
+    def _forget_memory(self, *_):
+        data = self._memory_select.currentData()
+        if isinstance(data, (tuple, list)) and len(data) == 2:
+            self._invoke("memory_control", {"action": "forget", "category": data[0], "key": data[1]})
+
+    def _build_workflow_tab(self) -> QWidget:
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(8, 8, 8, 8); lay.setSpacing(5)
+        top = QHBoxLayout(); self._workflow_select = QComboBox(); top.addWidget(self._workflow_select, 1); top.addWidget(self._button("REFRESH", self._refresh_workflows)); lay.addLayout(top)
+        self._workflow_box = self._box(150); lay.addWidget(self._workflow_box, 1)
+        row = QHBoxLayout(); row.setSpacing(4)
+        row.addWidget(self._button("SHOW", self._show_workflow, True)); row.addWidget(self._button("REPLAY — CONFIRM", self._replay_workflow)); row.addWidget(self._button("DELETE", self._delete_workflow))
+        lay.addLayout(row)
+        edit = QHBoxLayout(); self._workflow_step = QLineEdit(); self._workflow_step.setPlaceholderText("Step"); self._workflow_step.setFixedWidth(55); self._workflow_tool = QLineEdit(); self._workflow_tool.setPlaceholderText("Tool name"); edit.addWidget(self._workflow_step); edit.addWidget(self._workflow_tool); edit.addWidget(self._button("EDIT STEP", self._edit_workflow)); lay.addLayout(edit)
+        self._workflow_params = QLineEdit(); self._workflow_params.setPlaceholderText('{"action":"inspect"}  safe JSON parameters'); self._workflow_params.setFixedHeight(27); lay.addWidget(self._workflow_params)
+        return w
+
+    def _selected_workflow(self) -> str:
+        return str(self._workflow_select.currentText() or "").strip()
+
+    def _refresh_workflows(self, *_):
+        try:
+            from core.workflow_recorder import names
+            self._workflow_names = names()
+        except Exception:
+            self._workflow_names = []
+        current = self._selected_workflow(); self._workflow_select.clear(); self._workflow_select.addItems(self._workflow_names)
+        if current in self._workflow_names: self._workflow_select.setCurrentText(current)
+        if not self._workflow_names: self._workflow_box.setPlainText("No saved workflows.")
+
+    def _show_workflow(self, *_):
+        if self._selected_workflow(): self._invoke("workflow_recorder", {"action": "show", "name": self._selected_workflow()})
+
+    def _replay_workflow(self, *_):
+        if self._selected_workflow(): self._invoke("workflow_recorder", {"action": "replay", "name": self._selected_workflow()})
+
+    def _delete_workflow(self, *_):
+        if self._selected_workflow(): self._invoke("workflow_recorder", {"action": "delete", "name": self._selected_workflow()})
+
+    def _edit_workflow(self, *_):
+        name = self._selected_workflow()
+        if not name: return
+        try: step = int(self._workflow_step.text().strip())
+        except ValueError:
+            self._show_result("Workflow step must be an integer."); return
+        params = {}
+        if self._workflow_params.text().strip():
+            try: params = json.loads(self._workflow_params.text())
+            except json.JSONDecodeError as exc:
+                self._show_result(f"Workflow parameters are not valid JSON: {exc}"); return
+        self._invoke("workflow_recorder", {"action": "edit", "name": name, "step": step, "tool": self._workflow_tool.text().strip(), "parameters": params})
+
+    def _build_blender_tab(self) -> QWidget:
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(8, 8, 8, 8); lay.setSpacing(6)
+        self._blender_box = self._box(230); lay.addWidget(self._blender_box, 1)
+        path_row = QHBoxLayout(); self._blender_path = QLineEdit(); self._blender_path.setPlaceholderText("~/Documents/MARK/scene.blend or render.png"); path_row.addWidget(self._blender_path, 1); path_row.addWidget(self._button("BROWSE", self._browse_blender_path)); lay.addLayout(path_row)
+        row1 = QHBoxLayout(); row1.setSpacing(4)
+        for label, action in (("STATUS", "status"), ("OBJECTS", "list_objects"), ("UNDO", "undo"), ("CHECKPOINT", "scene_checkpoint"), ("RENDER PREVIEW", "render")):
+            row1.addWidget(self._button(label, lambda _=False, a=action: self._blender_action(a), action in {"status", "render"}))
+        lay.addLayout(row1)
+        hint = QLabel("Blender changes remain authenticated, allowlisted and confirmation-gated. Checkpoint paths stay under the home folder.")
+        hint.setWordWrap(True); hint.setFont(QFont("Courier New", 7)); hint.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;"); lay.addWidget(hint)
+        return w
+
+    def _browse_blender_path(self, *_):
+        path, _ = QFileDialog.getSaveFileName(self, "Choose Blender checkpoint or render path", str(Path.home()), "Blender/Images (*.blend *.png *.jpg *.jpeg *.exr)")
+        if path: self._blender_path.setText(path)
+
+    def _blender_action(self, action: str):
+        args = {"action": action}
+        path = self._blender_path.text().strip()
+        if path and action in {"scene_checkpoint", "render", "save_blend"}: args["path"] = path
+        self._invoke("blender_control", args)
+
+    def _invoke(self, name: str, args: dict):
+        self._last_action_name = name
+        if not self._command:
+            self._show_result("UI actions are not connected to MARK's executor.")
+            return
+        self._show_result(f"Running {name}…")
+        def worker():
+            try: result = self._command(name, args)
+            except Exception as exc: result = f"Attempted action: {name}. Failure reason: {exc}. No changes were made."
+            self._result_sig.emit(str(result or "Done."))
+        threading.Thread(target=worker, daemon=True, name="mark-ui-action").start()
+
+    def _show_result(self, text: str):
+        value = str(text)[:900]
+        self._result.setText(value)
+        action = getattr(self, "_last_action_name", "")
+        self.refresh()
+        if action == "blender_control":
+            self._blender_box.setPlainText(value)
+        elif action == "workflow_recorder" and "WORKFLOW" in value:
+            self._workflow_box.setPlainText(value)
+
+    def refresh(self):
+        try:
+            from core.task_planner import render
+            self._plan_box.setPlainText(render())
+        except Exception as exc:
+            self._plan_box.setPlainText(f"Planner unavailable: {exc}")
+        self._refresh_timeline()
+        self._refresh_memory()
+        self._refresh_workflows()
+        statuses = self._statuses_getter() or {}
+        blender = statuses.get("BLENDER", {}) if isinstance(statuses, dict) else {}
+        self._blender_box.setPlainText("BLENDER\n" + "\n".join(f"{k}: {v.get('state', v) if isinstance(v, dict) else v}" for k, v in blender.items()) if blender else "Blender status is shown in the header strip. Use STATUS to query the authenticated bridge.")
 
 
 class ClipboardPanel(QWidget):
@@ -3273,6 +3570,8 @@ class MainWindow(QMainWindow):
     _remote_connected_sig = pyqtSignal()
     _audio_diag_sig = pyqtSignal(float, float, int, str)
     _audio_info_sig = pyqtSignal(str, float, int, str)
+    _service_sig = pyqtSignal(str, str, str)  # service, state, detail
+    _voice_event_sig = pyqtSignal(str)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -3299,6 +3598,7 @@ class MainWindow(QMainWindow):
         )
 
         self.on_text_command   = None
+        self.on_tool_action     = None   # callable: (tool, args) -> str, used by Control Center
         self.on_remote_clicked = None   # callable: () -> (url, key) | None
         self.on_interrupt      = None   # callable: () -> None — stop JARVIS mid-speech
         self.on_voice_change   = None   # callable: () -> None — rebuild session with new voice
@@ -3317,6 +3617,13 @@ class MainWindow(QMainWindow):
         self._current_file: str | None = None
         self._remote_overlay: RemoteKeyOverlay | None = None
         self._customize_overlay: CustomizeOverlay | None = None
+        self._control_center_overlay = None
+        self._activity_events: list[dict] = []
+        self._service_statuses: dict[str, dict] = {
+            key: {"label": label, "state": "STARTING", "detail": ""}
+            for key, label in (("OLLAMA", "OLLAMA"), ("MIC", "MIC"), ("TTS", "EDGE TTS"),
+                               ("VISION", "VISION"), ("BLENDER", "BLENDER"), ("INTERNET", "INTERNET"))
+        }
 
         central = QWidget()
         central.setStyleSheet(f"background: {C.BG};")
@@ -3326,6 +3633,7 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addWidget(self._build_header())
+        root.addWidget(self._build_service_strip())
 
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
@@ -3418,7 +3726,7 @@ class MainWindow(QMainWindow):
         self._metric_tmr.start(2000)
         self._update_metrics()
 
-        self._log_sig.connect(self._log.append_log)
+        self._log_sig.connect(self._append_activity)
         self._state_sig.connect(self._apply_state)
         self._content_sig.connect(self._show_content)
         self._reconfig_sig.connect(self._show_setup)
@@ -3432,6 +3740,8 @@ class MainWindow(QMainWindow):
         self._remote_connected_sig.connect(self.notify_phone_connected)
         self._audio_diag_sig.connect(self._apply_audio_diagnostics)
         self._audio_info_sig.connect(self._apply_audio_info)
+        self._service_sig.connect(self._apply_service_status)
+        self._voice_event_sig.connect(self._apply_voice_event)
         self._audio_diagnostics = {
             "level": 0.0, "peak": 0.0, "frames": 0, "status": "",
             "name": "", "sample_rate": 0.0, "channels": 0,
@@ -3874,9 +4184,9 @@ class MainWindow(QMainWindow):
                 )
                 desk.chmod(desk.stat().st_mode | 0o755)
 
-            self._log.append_log("SYS: Desktop shortcut created.")
+            self._append_activity("SYS: Desktop shortcut created.")
         except Exception as e:
-            self._log.append_log(f"ERR: Shortcut failed — {e}")
+            self._append_activity(f"ERR: Shortcut failed — {e}")
 
     def _toggle_fullscreen(self):
         if self.isFullScreen():
@@ -3907,6 +4217,11 @@ class MainWindow(QMainWindow):
                 (cw.width()  - ow) // 2,
                 (cw.height() - oh) // 2,
                 ow, oh,
+            )
+        if getattr(self, "_control_center_overlay", None) is not None and self._control_center_overlay.isVisible():
+            ow, oh = ControlCenterOverlay._OW, ControlCenterOverlay._OH
+            self._control_center_overlay.setGeometry(
+                max(0, (cw.width() - ow) // 2), max(0, (cw.height() - oh) // 2), ow, oh
             )
         # Camera preview — bottom-right corner of the center/HUD area
         pw = _CameraPreview._W
@@ -4039,6 +4354,56 @@ class MainWindow(QMainWindow):
         lay.addLayout(right_col)
         return w
 
+    def _build_service_strip(self) -> QWidget:
+        w = QWidget()
+        w.setFixedHeight(27)
+        w.setStyleSheet(f"background: {C.PANEL}; border-bottom: 1px solid {C.BORDER};")
+        lay = QHBoxLayout(w); lay.setContentsMargins(14, 3, 14, 3); lay.setSpacing(6)
+        self._service_badges: dict[str, QLabel] = {}
+        for key, item in self._service_statuses.items():
+            badge = QLabel()
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+            badge.setMinimumWidth(92 if key != "TTS" else 105)
+            self._service_badges[key] = badge
+            lay.addWidget(badge, 1)
+            self._apply_service_status(key, item["state"], item["detail"])
+        lay.addStretch(1)
+        self._voice_event_lbl = QLabel("VOICE READY")
+        self._voice_event_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._voice_event_lbl.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        self._voice_event_lbl.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        lay.addWidget(self._voice_event_lbl)
+        return w
+
+    def _apply_service_status(self, service: str, state: str, detail: str = ""):
+        key = str(service or "").upper().replace(" ", "_")
+        if key not in self._service_statuses:
+            return
+        state = str(state or "UNKNOWN").upper()
+        detail = str(detail or "")
+        self._service_statuses[key].update(state=state, detail=detail)
+        badge = getattr(self, "_service_badges", {}).get(key)
+        if badge is None:
+            return
+        color = C.GREEN if state in {"READY", "ONLINE", "LISTENING", "OPTIONAL"} else C.ACC2 if state in {"STARTING", "THINKING", "SPEAKING", "PROCESSING", "DEGRADED"} else C.RED if state in {"OFFLINE", "ERROR", "UNAVAILABLE"} else C.TEXT_DIM
+        label = self._service_statuses[key]["label"]
+        badge.setText(f"● {label}  {state}")
+        badge.setStyleSheet(f"color: {color}; background: transparent; border: 1px solid {C.BORDER}; border-radius: 3px; padding: 2px 5px;")
+        badge.setToolTip(detail or f"{label}: {state}")
+
+    def _apply_voice_event(self, text: str):
+        self._voice_event_lbl.setText(str(text)[:48])
+        self._voice_event_lbl.setStyleSheet(f"color: {C.ACC2 if 'INTERRUPT' not in str(text).upper() else C.ACC}; background: transparent;")
+
+    def _append_activity(self, text: str):
+        self._log.append_log(text)
+        self._activity_events.append({"time": time.strftime("%H:%M:%S"), "text": str(text)})
+        self._activity_events = self._activity_events[-300:]
+        overlay = getattr(self, "_control_center_overlay", None)
+        if overlay is not None and overlay.isVisible():
+            overlay._refresh_timeline()
+
     def _tick_clock(self):
         self._clock_lbl.setText(time.strftime("%H:%M:%S"))
         self._date_lbl.setText(time.strftime("%a %d %b %Y"))
@@ -4129,6 +4494,13 @@ class MainWindow(QMainWindow):
             return l
 
         lay.addWidget(_sec("ACTIVITY LOG"))
+        control_btn = QPushButton("◈  CONTROL CENTER")
+        control_btn.setFixedHeight(27)
+        control_btn.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        control_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        control_btn.setStyleSheet(f"QPushButton {{ color: {C.PRI}; background: {C.PRI_GHO}; border: 1px solid {C.PRI_DIM}; border-radius: 3px; }} QPushButton:hover {{ border-color: {C.PRI}; }}")
+        control_btn.clicked.connect(self._open_control_center)
+        lay.addWidget(control_btn)
         self._log = LogWidget()
         lay.addWidget(self._log, stretch=1)
 
@@ -4501,7 +4873,7 @@ class MainWindow(QMainWindow):
         icon, _ = _FILE_ICONS.get(cat, _FILE_ICONS["unknown"])
         size = _fmt_size(p.stat().st_size)
         self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell {self._assistant_name} what to do with it")
-        self._log.append_log(f"FILE: {p.name} ({size}) loaded")
+        self._append_activity(f"FILE: {p.name} ({size}) loaded")
         if self.on_text_command:
             msg = (
                 f"[FILE_UPLOADED] path={path} | name={p.name} | "
@@ -4517,11 +4889,11 @@ class MainWindow(QMainWindow):
 
     def _open_remote(self):
         if not self.on_remote_clicked:
-            self._log.append_log("SYS: Dashboard not running — remote unavailable.")
+            self._append_activity("SYS: Dashboard not running — remote unavailable.")
             return
         result = self.on_remote_clicked()
         if not result:
-            self._log.append_log("SYS: Could not generate remote key.")
+            self._append_activity("SYS: Could not generate remote key.")
             return
         url    = result[0]
         key    = result[1]
@@ -4542,7 +4914,7 @@ class MainWindow(QMainWindow):
         ov.closed.connect(lambda: setattr(self, '_remote_overlay', None))
         ov.show()
         self._remote_overlay = ov
-        self._log.append_log(f"SYS: Remote key generated — manual: {manual or url}")
+        self._append_activity(f"SYS: Remote key generated — manual: {manual or url}")
 
     # ── Auto-start ──────────────────────────────────────────────────────────────
 
@@ -4620,10 +4992,10 @@ class MainWindow(QMainWindow):
                     )
             enabled = not currently_on
             self._update_autostart_btn(enabled)
-            self._log.append_log(
+            self._append_activity(
                 f"SYS: Auto-start {'enabled' if enabled else 'disabled'}.")
         except Exception as e:
-            self._log.append_log(f"ERR: Auto-start failed — {e}")
+            self._append_activity(f"ERR: Auto-start failed — {e}")
 
     def _update_autostart_btn(self, enabled: bool):
         if not hasattr(self, '_autostart_btn'):
@@ -4852,13 +5224,13 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
-            self._log.append_log(f"SYS: Identity updated — {display}")
+            self._append_activity(f"SYS: Identity updated — {display}")
             if color_changed:
-                self._log.append_log(f"SYS: UI colour applied — {ui_color}")
+                self._append_activity(f"SYS: UI colour applied — {ui_color}")
             if voice_changed:
-                self._log.append_log(f"SYS: Voice set — {voice}")
+                self._append_activity(f"SYS: Voice set — {voice}")
         except Exception as e:
-            self._log.append_log(f"ERR: Config save failed — {e}")
+            self._append_activity(f"ERR: Config save failed — {e}")
 
         if voice_changed and self.on_voice_change:
             self.on_voice_change()
@@ -4903,11 +5275,23 @@ class MainWindow(QMainWindow):
         self._audio_overlay = ov            # keep a reference so it isn't GC'd
 
     def _on_audio_devices_applied(self):
-        self._log.append_log("SYS: Audio devices updated.")
+        self._append_activity("SYS: Audio devices updated.")
         if self.on_audio_device_change:
             self.on_audio_device_change()
 
-    # ── Memory panel ─────────────────────────────────────────────────────────
+    # ── Control center / memory panels ───────────────────────────────────────
+
+    def _open_control_center(self):
+        if getattr(self, "_control_center_overlay", None) is not None:
+            self._control_center_overlay.hide()
+        ov = ControlCenterOverlay(
+            command=self.on_tool_action,
+            timeline_getter=lambda: list(self._activity_events),
+            statuses_getter=lambda: dict(self._service_statuses),
+            parent=self.centralWidget(),
+        )
+        self._centre_overlay(ov)
+        self._control_center_overlay = ov
 
     def _open_memory_panel(self):
         ov = MemoryOverlay(parent=self.centralWidget())
@@ -4939,7 +5323,7 @@ class MainWindow(QMainWindow):
             from core.confirm import resolve
             resolve(bool(accepted))
         except Exception as e:
-            self._log.append_log(f"ERR: Confirmation failed — {e}")
+            self._append_activity(f"ERR: Confirmation failed — {e}")
 
     def _open_plugin_manager(self):
         plugins = self.get_plugins() if self.get_plugins else []
@@ -5017,10 +5401,10 @@ class MainWindow(QMainWindow):
         self._style_mute_btn()
         if self._muted:
             self._apply_state("MUTED")
-            self._log.append_log("SYS: Microphone muted.")
+            self._append_activity("SYS: Microphone muted.")
         else:
             self._apply_state("LISTENING")
-            self._log.append_log("SYS: Microphone active.")
+            self._append_activity("SYS: Microphone active.")
 
     def _style_mute_btn(self):
         if self._muted:
@@ -5045,7 +5429,7 @@ class MainWindow(QMainWindow):
         txt = self._input.text().strip()
         if not txt: return
         self._input.clear()
-        self._log.append_log(f"You: {txt}")
+        self._append_activity(f"You: {txt}")
         if self.on_text_command:
             threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
 
@@ -5054,6 +5438,22 @@ class MainWindow(QMainWindow):
         self.hud.speaking = (state == "SPEAKING")
         if hasattr(self.hud, "set_visual_state"):
             self.hud.set_visual_state(state)
+        state = str(state).upper()
+        if state == "SPEAKING":
+            self._apply_service_status("TTS", "SPEAKING", "MARK is speaking. Say something to interrupt.")
+            self._apply_voice_event("◉ SPEAKING — BARGE-IN READY")
+        elif state == "THINKING":
+            self._apply_service_status("OLLAMA", "THINKING", "Local response generation in progress.")
+            self._apply_voice_event("◌ THINKING — BARGE-IN READY")
+        elif state == "LISTENING":
+            if self._service_statuses.get("OLLAMA", {}).get("state") == "THINKING":
+                self._apply_service_status("OLLAMA", "READY", "Local model ready.")
+            self._apply_service_status("TTS", "READY", "Speech output ready.")
+            self._apply_voice_event("● LISTENING — BARGE-IN READY")
+        elif state == "SLEEPING":
+            self._apply_voice_event("◌ SLEEPING — WAKE WORD")
+        elif state in {"INTERRUPTED", "CANCELLED"}:
+            self._apply_voice_event("! INTERRUPTED — LISTENING READY")
 
     def _check_config(self) -> bool:
         if not API_FILE.exists(): return False
@@ -5100,7 +5500,7 @@ class MainWindow(QMainWindow):
             self._overlay = None
         self._apply_state("LISTENING")
         self._assistant_name = _read_full_config().get("assistant_name", "JARVIS") or "JARVIS"
-        self._log.append_log(f"SYS: Ollama configured at {url}. Model={model}. {self._assistant_name} online.")
+        self._append_activity(f"SYS: Ollama configured at {url}. Model={model}. {self._assistant_name} online.")
 
 
 class _RootShim:
@@ -5140,6 +5540,14 @@ class JarvisUI:
     @on_text_command.setter
     def on_text_command(self, cb):
         self._win.on_text_command = cb
+
+    @property
+    def on_tool_action(self):
+        return self._win.on_tool_action
+
+    @on_tool_action.setter
+    def on_tool_action(self, cb):
+        self._win.on_tool_action = cb
 
     @property
     def on_remote_clicked(self):
@@ -5282,6 +5690,12 @@ class JarvisUI:
 
     def set_state(self, state: str):
         self._win._state_sig.emit(state)
+
+    def set_service_status(self, service: str, state: str, detail: str = ""):
+        self._win._service_sig.emit(str(service), str(state), str(detail))
+
+    def show_voice_event(self, text: str):
+        self._win._voice_event_sig.emit(str(text))
 
     def write_log(self, text: str):
         self._win._log_sig.emit(text)

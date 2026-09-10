@@ -375,6 +375,7 @@ class MicrophoneListener:
             if device is not None:
                 mic_label += f" (PortAudio index {device})"
             self.owner.log(f"SYS: Microphone: {mic_label}")
+            self.owner.ui.set_service_status("MIC", "STARTING", f"Opening {mic_label}.")
             try:
                 info = sd.query_devices(device, "input")
                 info_name = str(info.get("name", mic_label))
@@ -407,6 +408,7 @@ class MicrophoneListener:
                 callback=callback,
             )
             with stream:
+                self.owner.ui.set_service_status("MIC", "READY", "Microphone ready. Speaking while MARK responds interrupts the response.")
                 self.owner.log("SYS: Microphone ready — listening.")
                 while not self.stop_event.wait(0.2):
                     pass
@@ -414,6 +416,7 @@ class MicrophoneListener:
             self.owner.ui.set_audio_device_info(
                 get_input_device() or "System default", 0.0, 0, f"error: {e}"
             )
+            self.owner.ui.set_service_status("MIC", "OFFLINE", f"Microphone unavailable; text and remote input remain available. {e}")
             self.owner.log(f"WRN: Microphone unavailable — text input still works ({e})")
             print(f"[Audio] microphone disabled: {e}")
 
@@ -505,6 +508,7 @@ class MicrophoneListener:
                 self.owner.submit_command(text, already_logged=False)
         except Exception as e:
             self._stt_failed = True
+            self.owner.ui.set_service_status("MIC", "DEGRADED", f"Voice transcription unavailable; text input remains available. {e}")
             self.owner.log(f"ERR: Voice transcription disabled: {e}")
 
 
@@ -541,6 +545,7 @@ class LocalAssistant:
 
         # Wire UI callbacks before action discovery so a plugin can use the HUD.
         self.ui.on_text_command = self._on_ui_text
+        self.ui.on_tool_action = self.execute_tool
         self.ui.on_interrupt = self.interrupt
         self.ui.on_voice_change = self._on_voice_change
         self.ui.on_audio_device_change = self._on_audio_device_change
@@ -575,6 +580,15 @@ class LocalAssistant:
         self._tools = to_ollama_tools(self._tool_declarations)
         self._tool_names = {t["function"]["name"] for t in self._tools}
         self._tts = self._make_tts()
+        self.ui.set_service_status("TTS", "READY", "Edge TTS is the default; local system speech is the fallback.")
+        self.ui.set_service_status("VISION", "READY" if not _VISION_IMPORT_ERROR else "OFFLINE", _VISION_IMPORT_ERROR or "Local screen/camera capture available on demand.")
+        self.ui.set_service_status("INTERNET", "OPTIONAL", "Only Edge TTS and current web lookups use Internet access.")
+        try:
+            from core.blender_bridge import configuration_error
+            blender_error = configuration_error()
+        except Exception as exc:
+            blender_error = str(exc)
+        self.ui.set_service_status("BLENDER", "READY" if not blender_error else "OFFLINE", blender_error or "Authenticated loopback Blender Bridge configured.")
 
         # Wake-word controls stay opt-in. The model is downloaded only when the
         # user enables it from the settings drawer.
@@ -636,6 +650,7 @@ class LocalAssistant:
         self._tts.stop()
         self._speaking.clear()
         self._set_state("LISTENING")
+        self.ui.show_voice_event("! BARGE-IN — RESPONSE STOPPED")
         self.log("SYS: Response interrupted.")
 
     def _on_voice_change(self) -> None:
@@ -937,6 +952,8 @@ class LocalAssistant:
                         self._speaking.set()
                         self._set_state("SPEAKING")
                     self._tts.speak(sentence)
+                    if getattr(self._tts, "last_error", ""):
+                        self.ui.set_service_status("TTS", "DEGRADED", self._tts.last_error)
             finally:
                 if started:
                     self._speaking.clear()
@@ -1113,10 +1130,14 @@ class LocalAssistant:
         self._set_state("SPEAKING")
         try:
             self._tts.speak(text)
+            if getattr(self._tts, "last_error", ""):
+                self.ui.set_service_status("TTS", "DEGRADED", f"Speech unavailable; text output remains available. {self._tts.last_error}")
         finally:
             self._speaking.clear()
             if not self.stop_event.is_set():
                 self._set_state("LISTENING")
+                if getattr(self._tts, "last_error", ""):
+                    self.ui.set_service_status("TTS", "DEGRADED", self._tts.last_error)
 
     def say_async(self, text: str) -> None:
         if text:
@@ -1351,9 +1372,13 @@ class LocalAssistant:
                     )
                 else:
                     result = run_action()
-                if name == "web_search" and result and not str(result).startswith("Search failed"):
-                    query = args.get("query") or ", ".join(args.get("items", []))
-                    self.ui.show_content(f"{args.get('mode', 'search').upper()} — {query}", str(result))
+                if name == "web_search":
+                    if result and not str(result).startswith("Search failed"):
+                        self.ui.set_service_status("INTERNET", "READY", "Web lookup completed; Internet is only used when requested.")
+                        query = args.get("query") or ", ".join(args.get("items", []))
+                        self.ui.show_content(f"{args.get('mode', 'search').upper()} — {query}", str(result))
+                    else:
+                        self.ui.set_service_status("INTERNET", "OFFLINE", str(result or "Web lookup unavailable."))
                 result = result or "Done."
                 self._record_operation(name, args, result)
                 return result
@@ -1361,6 +1386,9 @@ class LocalAssistant:
             if self._plugin_registry.has(name):
                 result = self._plugin_registry.run(name, args, player=self.ui,
                                                    session_memory=self._session_log)
+                if name == "blender_control":
+                    failed = "failed" in str(result).lower() or "could not" in str(result).lower() or "not configured" in str(result).lower()
+                    self.ui.set_service_status("BLENDER", "OFFLINE" if failed else "READY", str(result)[:280])
                 self._record_operation(name, args, result)
                 return result
             return f"Unknown tool: {name}"
@@ -1384,8 +1412,10 @@ class LocalAssistant:
     def _check_server(self) -> bool:
         url, model = get_llm_settings()
         self.log(f"SYS: Ollama endpoint: {url}")
+        self.ui.set_service_status("OLLAMA", "STARTING", f"Checking local endpoint {url}.")
         if not ensure_ollama_running():
             self._ollama_online = False
+            self.ui.set_service_status("OLLAMA", "OFFLINE", "Start Ollama locally; MARK remains usable in offline mode.")
             message = "Ollama is unavailable. Typed and voice input remain available; start Ollama to enable reasoning."
             self.log(f"ERR: {message}")
             try:
@@ -1394,6 +1424,7 @@ class LocalAssistant:
                 pass
             return False
         self._ollama_online = True
+        self.ui.set_service_status("OLLAMA", "READY", f"Local endpoint ready: {model}.")
         available = check_model_available(self.ui.write_log)
         self._fast_model_ready = (
             self._response_profile in {"dual", "fast"}
@@ -1405,6 +1436,7 @@ class LocalAssistant:
         if not available:
             message = f"The configured Ollama model '{model}' is unavailable. Pull it with: ollama pull {model}."
             self.log(f"WRN: {message}")
+            self.ui.set_service_status("OLLAMA", "DEGRADED", message)
             try:
                 self.ui.show_content("MODEL UNAVAILABLE", message)
             except Exception:
