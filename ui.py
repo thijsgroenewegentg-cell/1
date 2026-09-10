@@ -3629,6 +3629,8 @@ class MainWindow(QMainWindow):
         self.on_wake_manual    = None   # callable: () -> None — manual sleep/wake
         self.wake_get_state    = None   # callable: () -> dict {enabled, awake, ready}
         self._muted            = False
+        self._push_to_talk     = False
+        self._ptt_pressed      = False
         self._current_file: str | None = None
         self._remote_overlay: RemoteKeyOverlay | None = None
         self._customize_overlay: CustomizeOverlay | None = None
@@ -4569,6 +4571,25 @@ class MainWindow(QMainWindow):
         self._style_mute_btn()
         lay.addWidget(self._mute_btn)
 
+        self._ptt_mode_btn = QPushButton("◉  HANDS-FREE VOICE")
+        self._ptt_mode_btn.setFixedHeight(28)
+        self._ptt_mode_btn.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        self._ptt_mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ptt_mode_btn.setToolTip("Switch between hands-free voice and hold-to-talk mode")
+        self._ptt_mode_btn.clicked.connect(self._toggle_push_to_talk)
+        lay.addWidget(self._ptt_mode_btn)
+
+        self._ptt_btn = QPushButton("HOLD TO TALK")
+        self._ptt_btn.setFixedHeight(30)
+        self._ptt_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._ptt_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ptt_btn.setToolTip("Hold this button while speaking; release to transcribe")
+        self._ptt_btn.pressed.connect(self._ptt_press)
+        self._ptt_btn.released.connect(self._ptt_release)
+        self._ptt_btn.setVisible(False)
+        self._style_ptt_controls()
+        lay.addWidget(self._ptt_btn)
+
         return w
 
     def _build_quick_drawer(self) -> QWidget:
@@ -5413,8 +5434,12 @@ class MainWindow(QMainWindow):
 
     def _toggle_mute(self):
         self._muted = not self._muted
+        if self._muted:
+            self._ptt_pressed = False
         self.hud.muted = self._muted
         self._style_mute_btn()
+        if hasattr(self, "_ptt_mode_btn"):
+            self._style_ptt_controls()
         if self._muted:
             self._apply_state("MUTED")
             self._append_activity("SYS: Microphone muted.")
@@ -5440,6 +5465,58 @@ class MainWindow(QMainWindow):
                 }}
                 QPushButton:hover {{ background: #001f10; }}
             """)
+
+    def _toggle_push_to_talk(self):
+        self._push_to_talk = not self._push_to_talk
+        self._ptt_pressed = False
+        self._style_ptt_controls()
+        mode = "push-to-talk enabled — hold the button while speaking" if self._push_to_talk else "hands-free voice enabled"
+        self._append_activity(f"SYS: {mode.capitalize()}.")
+        self._apply_voice_event("◉ PUSH-TO-TALK — HOLD TO SPEAK" if self._push_to_talk else "◉ HANDS-FREE — BARGE-IN READY")
+
+    def _ptt_press(self):
+        if self._push_to_talk and not self._muted:
+            self._ptt_pressed = True
+            self._style_ptt_controls()
+
+    def _ptt_release(self):
+        if self._push_to_talk:
+            self._ptt_pressed = False
+            self._style_ptt_controls()
+
+    def _style_ptt_controls(self):
+        if getattr(self, "_push_to_talk", False):
+            self._ptt_mode_btn.setText("◉  PUSH-TO-TALK ENABLED")
+            self._ptt_mode_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: #00101a; color: {C.PRI};
+                    border: 1px solid {C.PRI}; border-radius: 3px;
+                }}
+                QPushButton:hover {{ background: #002033; }}
+            """)
+            self._ptt_btn.setVisible(True)
+            if getattr(self, "_ptt_pressed", False):
+                self._ptt_btn.setText("●  LISTENING — RELEASE TO SEND")
+                self._ptt_btn.setStyleSheet(f"""
+                    QPushButton {{ background: #00311d; color: {C.GREEN}; border: 1px solid {C.GREEN}; border-radius: 3px; }}
+                """)
+            else:
+                self._ptt_btn.setText("HOLD TO TALK")
+                self._ptt_btn.setStyleSheet(f"""
+                    QPushButton {{ background: #00101a; color: {C.PRI}; border: 1px solid {C.PRI_DIM}; border-radius: 3px; }}
+                    QPushButton:hover {{ background: #002033; border-color: {C.PRI}; }}
+                """)
+        else:
+            self._ptt_mode_btn.setText("◉  HANDS-FREE VOICE")
+            self._ptt_mode_btn.setStyleSheet(f"""
+                QPushButton {{ background: transparent; color: {C.TEXT_MED}; border: 1px solid {C.BORDER}; border-radius: 3px; }}
+                QPushButton:hover {{ color: {C.PRI}; border-color: {C.PRI_DIM}; }}
+            """)
+            self._ptt_btn.setVisible(False)
+
+    @property
+    def microphone_capture_enabled(self) -> bool:
+        return not self._muted and (not self._push_to_talk or self._ptt_pressed)
 
     def _send(self):
         txt = self._input.text().strip()
@@ -5544,6 +5621,10 @@ class JarvisUI:
     def muted(self, v: bool):
         if v != self._win._muted:
             self._win._toggle_mute()
+
+    @property
+    def microphone_capture_enabled(self) -> bool:
+        return self._win.microphone_capture_enabled
 
     @property
     def current_file(self) -> str | None:

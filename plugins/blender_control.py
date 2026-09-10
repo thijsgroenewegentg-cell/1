@@ -11,13 +11,18 @@ from __future__ import annotations
 import json
 
 from core import confirm as confirm_gate
+from core.task_planner import current as current_task_plan, render as render_task_plan, update as update_task_plan
 from core.blender_bridge import (
     call,
     call_tool,
+    call_tool_with_images,
+    close as close_blender_bridge,
     configuration_error,
     list_tools,
     test_connection,
+    validate_arguments,
 )
+from core.llm_client import call_llm_text, get_vision_model
 
 
 PLUGIN = {
@@ -135,11 +140,15 @@ def _blocked_tool(name: str) -> bool:
 
 def _read_only_tool(name: str) -> bool:
     value = str(name or "").strip().lower()
-    return value in {
+    if value in {
         "get_scene_info", "get_object_info", "get_viewport_screenshot",
         "get_polyhaven_status", "get_hyper3d_status", "get_hunyuan3d_status",
         "search_blender_docs", "list_objects", "inspect_object",
-    } or value.startswith(_READ_ONLY_MCP_PREFIXES)
+    } or value.startswith(_READ_ONLY_MCP_PREFIXES):
+        return True
+    # Some MCP servers use a bare capability name for a screenshot. Treat
+    # visual inspection as read-only, but never classify a render/export as one.
+    return any(word in value for word in ("screenshot", "viewport", "scene_info", "object_info")) and not any(word in value for word in ("render", "save", "export"))
 
 
 def _run_direct(action: str, params: dict) -> str:
@@ -147,11 +156,60 @@ def _run_direct(action: str, params: dict) -> str:
     return message if ok else f"Blender MCP action failed: {message}"
 
 
-def _run_mcp_tool(tool: str, arguments: dict) -> str:
+def _run_confirmed_direct(action: str, params: dict, player=None) -> str:
+    return _finish_waiting_plan(_run_direct(action, params), player)
+
+
+def _run_mcp_tool(tool: str, arguments: dict) -> tuple[str, list[dict]]:
     if _blocked_tool(tool):
-        return "MARK blocked that Blender MCP tool because it can execute arbitrary Python or commands."
-    ok, message = call_tool(tool, arguments)
-    return message if ok else f"Blender MCP tool failed: {message}"
+        return "MARK blocked that Blender MCP tool because it can execute arbitrary Python or commands.", []
+    ok, message, images = call_tool_with_images(tool, arguments)
+    # Only read-only inspection may be retried, and only once, after resetting
+    # a dead stdio session. Mutations are never replayed automatically.
+    transient = any(marker in str(message).lower() for marker in ("connect", "refused", "timed out", "process is not running"))
+    if not ok and _read_only_tool(tool) and transient:
+        close_blender_bridge()
+        ok, message, images = call_tool_with_images(tool, arguments)
+    return (message if ok else f"Blender MCP tool failed: {message}"), (images if ok else [])
+
+
+def _finish_waiting_plan(result: str, player=None) -> str:
+    """Close the current checklist step when a human-approved action returns."""
+    try:
+        plan = current_task_plan()
+        if plan and plan.get("status") == "waiting_confirmation" and plan.get("cursor"):
+            text = str(result).lower()
+            failed = any(marker in text for marker in ("failed", "could not", "failure reason:"))
+            update_task_plan(int(plan["cursor"]), "failed" if failed else "done", "Blender action returned")
+            if player:
+                player.show_content("TASK PLAN", render_task_plan())
+    except Exception:
+        pass
+    return result
+
+
+def _vision_feedback(tool: str, scene_text: str, images: list[dict]) -> str:
+    """Use the configured local vision model to turn MCP images into feedback."""
+    if not images:
+        return ""
+    prompt = (
+        "Inspect this current Blender viewport or render. Describe only visible, "
+        "useful facts: framing, object presence, obvious geometry/material/camera "
+        "problems, and whether the requested visual result appears complete. "
+        "Do not invent hidden scene data. Keep the feedback under 120 words.\n\n"
+        f"MCP operation: {tool}\nTool text: {scene_text[:900]}"
+    )
+    try:
+        feedback = call_llm_text(
+            prompt,
+            model=get_vision_model(),
+            images=images[:1],
+            num_predict=220,
+            timeout=180,
+        ).strip()
+    except Exception as exc:
+        return f"Local vision feedback unavailable: {exc}"
+    return feedback or "Local vision returned no feedback."
 
 
 def run(parameters: dict, player=None, session_memory=None) -> str:
@@ -179,17 +237,52 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
         arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
         if _blocked_tool(tool):
             return "MARK blocked that Blender MCP tool because it can execute arbitrary Python or commands."
-        if not _read_only_tool(tool) and not approved:
+        argument_error = validate_arguments(arguments)
+        if argument_error:
+            return argument_error
+        mutating = not _read_only_tool(tool)
+        if mutating and not approved:
             if confirm_gate.pending_title():
                 return "There is already a confirmation waiting on screen. Answer it before another Blender MCP change."
-            detail = f"Allow MARK to call the Blender MCP tool '{tool}' with these arguments?\n{json.dumps(arguments, ensure_ascii=False)[:900]}"
+            context = ""
+            try:
+                ok_context, context_value = call_tool("get_scene_info", {}, timeout=20.0)
+                if ok_context:
+                    context = f"\nCurrent scene context:\n{str(context_value)[:700]}"
+            except Exception:
+                pass
+            detail = (
+                f"Allow MARK to call the Blender MCP tool '{tool}' with these arguments?"
+                f"{context}\nArguments:\n{json.dumps(arguments, ensure_ascii=False)[:900]}"
+            )
             return confirm_gate.request(
                 "blender_mcp_tool",
                 f"Blender MCP: {tool}",
                 detail,
                 lambda: run({**params, "_approved": True}, player=player, session_memory=session_memory),
             )
-        result = _run_mcp_tool(tool, arguments)
+        result, images = _run_mcp_tool(tool, arguments)
+        if images:
+            result += f"\nLocal vision feedback:\n{_vision_feedback(tool, result, images)}"
+        if mutating and not str(result).lower().startswith("blender mcp tool failed"):
+            # A render tool may return only a path/text result. Make one
+            # bounded, read-only viewport attempt so the next planning round
+            # can refine the visual result instead of guessing from metadata.
+            if not images and "render" in tool.lower():
+                try:
+                    ok_preview, preview_text, preview_images = call_tool_with_images(
+                        "get_viewport_screenshot", {}, timeout=20.0
+                    )
+                    if ok_preview and preview_images:
+                        result += f"\nPost-render local vision feedback:\n{_vision_feedback('get_viewport_screenshot', preview_text, preview_images)}"
+                except Exception:
+                    pass
+            try:
+                ok_verify, verify = call_tool("get_scene_info", {}, timeout=20.0)
+                if ok_verify:
+                    result += f"\nVerification scene snapshot:\n{str(verify)[:900]}"
+            except Exception:
+                pass
     elif action in _READ_ONLY:
         result = _run_direct(action, params)
     else:
@@ -201,9 +294,11 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
             "blender_mcp_legacy_action",
             f"Blender MCP: {action}",
             detail,
-            lambda: _run_direct(action, params),
+            lambda: _run_confirmed_direct(action, params, player),
         )
 
+    if approved:
+        result = _finish_waiting_plan(str(result), player)
     if player:
         try:
             player.write_log(f"[Blender MCP] {action}: {str(result)[:180]}")

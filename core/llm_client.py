@@ -410,7 +410,11 @@ def _convert_schema(node: dict) -> dict:
     t = _TYPE_MAP.get(str(node.get("type", "")).upper(), node.get("type"))
     if t:
         out["type"] = t
-    for key in ("description", "enum", "format", "default"):
+    for key in (
+        "description", "enum", "format", "default", "minimum", "maximum",
+        "minLength", "maxLength", "minItems", "maxItems", "pattern",
+        "additionalProperties",
+    ):
         if key in node and node[key] is not None:
             out[key] = node[key]
     if "properties" in node and isinstance(node["properties"], dict):
@@ -418,6 +422,9 @@ def _convert_schema(node: dict) -> dict:
                              for k, v in node["properties"].items()}
     if "items" in node and isinstance(node["items"], dict):
         out["items"] = _convert_schema(node["items"])
+    for union_key in ("anyOf", "oneOf"):
+        if isinstance(node.get(union_key), list):
+            out[union_key] = [_convert_schema(item) for item in node[union_key] if isinstance(item, dict)]
     if "required" in node:
         req = node["required"]
         out["required"] = list(req) if isinstance(req, (list, tuple)) else [req]

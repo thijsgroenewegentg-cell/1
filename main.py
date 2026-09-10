@@ -57,6 +57,8 @@ from memory.memory_manager import (
     format_memory_for_prompt,
     load_memory,
     pop_last_session,
+    project_context_prompt,
+    record_project_event,
     save_memory,
     save_session_summary,
     search_memory,
@@ -85,6 +87,7 @@ from core.operation_checkpoints import record as record_operation_checkpoint
 from core.task_planner import current as current_task_plan, render as render_task_plan, update as update_task_plan
 from core.action_loader import discover_actions
 from core.audio_devices import resolve as resolve_audio_device, configure as configure_audio_devices
+from core.project_context import describe as describe_project_context
 from core.llm_client import (
     call_llm_stream,
     call_llm_text,
@@ -450,6 +453,21 @@ class MicrophoneListener:
             except Exception:
                 pass
 
+            # In push-to-talk mode, keep the stream alive for diagnostics but
+            # never transcribe background audio. Releasing the button flushes a
+            # complete phrase so the interaction feels like a radio button,
+            # while muting discards any partial phrase.
+            if not self.owner.ui.microphone_capture_enabled:
+                if recording and not self.owner.ui.muted:
+                    audio = np.concatenate(recording)
+                    if len(audio) >= SEND_SAMPLE_RATE * 0.25:
+                        self._transcribe(audio)
+                recording.clear()
+                self._barge_frames = 0
+                self._barge_buffer.clear()
+                silent = 0
+                continue
+
             # Barge-in: require a sustained, clearly louder utterance instead
             # of one hot microphone frame. A single-frame trigger made speaker
             # bleed, keyboard clicks and HVAC noise interrupt MARK constantly.
@@ -571,6 +589,10 @@ class LocalAssistant:
         self._current_state = "THINKING"
         self._remote_current_file: str | None = None
         self._remote_audio_buffer: queue.Queue[bytes] = queue.Queue(maxsize=200)
+        self._project_root = BASE_DIR
+        self._project_context = describe_project_context(BASE_DIR)
+        self._project_memory = project_context_prompt(BASE_DIR)
+        self._blender_context = ""
 
         # Wire UI callbacks before action discovery so a plugin can use the HUD.
         self.ui.on_text_command = self._on_ui_text
@@ -606,6 +628,8 @@ class LocalAssistant:
             + self._action_registry.get_tool_declarations()
             + self._plugin_registry.get_tool_declarations()
         )
+        self._mcp_tools_lock = threading.RLock()
+        self._dynamic_blender_tools: dict[str, str] = {}
         self._tools = to_ollama_tools(self._tool_declarations)
         self._tool_names = {t["function"]["name"] for t in self._tools}
         self._tts = self._make_tts()
@@ -629,6 +653,21 @@ class LocalAssistant:
         confirm_gate.bind(self.ui.show_confirm, self.ui.hide_confirm, self.ui.write_log)
         set_trim_notifier(self.ui.write_log)
         set_workflow_executor(self.execute_tool)
+        # Discovery is best-effort and non-blocking: when Blender is already
+        # connected, direct MCP schemas are ready before the first complex turn;
+        # when it is not, MARK still boots normally with blender_control.
+        threading.Thread(
+            target=self._discover_blender_in_background,
+            daemon=True,
+            name="mark-blender-discovery",
+        ).start()
+
+    def _discover_blender_in_background(self) -> None:
+        try:
+            if self._refresh_blender_mcp_tools():
+                self.ui.set_service_status("BLENDER", "READY", "Safe Blender MCP tools discovered and available directly to Ollama.")
+        except Exception as exc:
+            self.log(f"WRN: Background Blender MCP discovery failed — {exc}")
 
     @property
     def is_busy(self) -> bool:
@@ -662,6 +701,66 @@ class LocalAssistant:
         if get_tts_engine() in {"system", "pyttsx3", "offline"}:
             return TTSPlayer(SystemTTSEngine())
         return TTSPlayer(EdgeTTSEngine(get_tts_voice() or get_voice()))
+
+    def _refresh_blender_mcp_tools(self) -> bool:
+        """Discover safe external Blender MCP tools and expose them directly to Ollama.
+
+        The generic blender_control tool remains available when Blender is not
+        connected. Once the existing add-on responds, its safe tool schemas are
+        promoted to first-class model tools so Qwen no longer has to guess a
+        nested mcp_call envelope.
+        """
+        try:
+            from core.blender_bridge import tool_definitions
+            ok, value = tool_definitions()
+        except Exception as exc:
+            self.log(f"WRN: Blender MCP discovery unavailable — {exc}")
+            return False
+        if not ok or not isinstance(value, list):
+            if value:
+                self.log(f"WRN: Blender MCP discovery unavailable — {value}")
+            return False
+        declarations = []
+        mapping: dict[str, str] = {}
+        for tool in value:
+            if not isinstance(tool, dict):
+                continue
+            original = str(tool.get("name", "")).strip()
+            if not original:
+                continue
+            # Ollama/OpenAI-compatible function names are kept under 64 chars.
+            safe_name = re.sub(r"[^A-Za-z0-9_]", "_", original).strip("_")[:52]
+            if not safe_name:
+                continue
+            exposed = f"blender_mcp_{safe_name}"
+            if exposed in self._tool_names or exposed in mapping:
+                continue
+            schema = tool.get("inputSchema") or tool.get("input_schema") or {
+                "type": "OBJECT", "properties": {},
+            }
+            description = (
+                f"Existing Blender MCP tool '{original}'. "
+                + " ".join(str(tool.get("description", "")).split())
+            )
+            if any(marker in original.lower() for marker in ("screenshot", "viewport", "render")):
+                description += " MARK adds bounded local vision feedback to image results; use it to verify visual quality before refining."
+            declarations.append({
+                "name": exposed,
+                "description": description[:1800],
+                "parameters": schema,
+                "_dynamic_blender_mcp": True,
+            })
+            mapping[exposed] = original
+        with self._mcp_tools_lock:
+            self._tool_declarations = [
+                item for item in self._tool_declarations
+                if not item.get("_dynamic_blender_mcp")
+            ] + declarations
+            self._dynamic_blender_tools = mapping
+            self._tools = to_ollama_tools(self._tool_declarations)
+            self._tool_names = {item["function"]["name"] for item in self._tools}
+        self.log(f"SYS: Blender MCP discovered {len(mapping)} safe first-class tool(s).")
+        return True
 
     # ── settings / callbacks ──────────────────────────────────────────────
     def _on_ui_text(self, text: str) -> None:
@@ -826,6 +925,10 @@ class LocalAssistant:
 
     def _on_remote_file(self, path: str, name: str, size: int) -> None:
         self._remote_current_file = path
+        candidate = Path(path).expanduser()
+        self._project_root = candidate if candidate.is_dir() else candidate.parent
+        self._project_context = describe_project_context(self._project_root)
+        self._project_memory = project_context_prompt(self._project_root)
         size_text = f"{size / 1024:.1f} KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f} MB"
         self.log(f"SYS: Remote file received — {name} ({size_text}).")
         prompt = (
@@ -909,7 +1012,18 @@ class LocalAssistant:
         now = datetime.now().strftime("%A, %B %d, %Y — %I:%M %p")
         memory = format_memory_for_prompt(load_memory())
         prompt = _load_prompt()
+        try:
+            self._project_context = describe_project_context(self._project_root)
+            self._project_memory = project_context_prompt(self._project_root)
+        except Exception:
+            pass
         personality = PERSONALITY_PROFILES.get(get_personality_profile(), PERSONALITY_PROFILES["professional"])
+        project_context = f"[CURRENT PROJECT CONTEXT]\n{self._project_context}" if self._project_context else ""
+        project_memory = f"[PROJECT-SCOPED TASK MEMORY]\n{self._project_memory}" if self._project_memory else ""
+        blender_context = f"[CURRENT BLENDER CONTEXT]\n{self._blender_context[:1800]}" if self._blender_context else ""
+        active_plan = current_task_plan()
+        task_context = f"[ACTIVE TASK PLAN]\n{render_task_plan(active_plan)}" if active_plan else ""
+        live_context = "\n\n".join(block for block in (project_context, project_memory, blender_context, task_context) if block)
         return (
             f"You are {name}, a capable local desktop assistant. {address}\n"
             f"Personality profile: {personality}\n"
@@ -920,7 +1034,7 @@ class LocalAssistant:
             "Use screen_process for anything visual. Use web_search for current facts. "
             "Use save_memory silently for durable personal facts and recall_memory before "
             "saying you do not know a personal fact. If a tool fails, say so honestly.\n\n"
-            f"{memory}\n\n{prompt}"
+            f"{memory}\n\n{live_context}\n\n{prompt}"
         )
 
     def _reset_messages(self) -> None:
@@ -1251,6 +1365,10 @@ class LocalAssistant:
             "create_light", "create_collection", "duplicate_object", "set_transform", "set_material",
             "add_modifier", "delete_object", "look_at", "set_active_camera", "set_render_settings", "scene_checkpoint", "undo", "replay",
         }
+        if name in self._dynamic_blender_tools:
+            external_name = self._dynamic_blender_tools[name].lower()
+            if external_name.startswith(("get_", "list_", "inspect_", "search_", "find_", "describe_", "check_")) or any(word in external_name for word in ("screenshot", "viewport", "scene_info", "object_info")):
+                changed = False
         text = str(result or "")
         lower_result = text.lower()
         if ("failed" in lower_result or "could not" in lower_result
@@ -1259,6 +1377,27 @@ class LocalAssistant:
             changed = False
         recovery = "Review the activity log; use undo or the shown checkpoint before retrying."
         record_operation_checkpoint(name, action, text, changed=changed, recovery=recovery)
+        try:
+            if name not in {"task_planner", "workflow_recorder", "checkpoint"}:
+                plan = current_task_plan()
+                if plan and plan.get("status") in {"active", "waiting_confirmation"}:
+                    index = int(plan.get("cursor") or 0)
+                    if index:
+                        confirmation = "[confirmation_pending]" in lower_result or "confirmation waiting" in lower_result
+                        failed = ("failed" in lower_result or "could not" in lower_result or "failure reason:" in lower_result)
+                        plan_status = "confirmation" if confirmation else ("failed" if failed else "done")
+                        update_task_plan(index, plan_status, f"{name}: {plan_status}")
+                        self.ui.show_content("TASK PLAN", render_task_plan())
+            status = "pending-confirmation" if "[confirmation_pending]" in lower_result else ("failed" if not changed and ("failed" in lower_result or "could not" in lower_result or "failure reason:" in lower_result) else "completed")
+            record_project_event(
+                self._project_root,
+                name,
+                status,
+                detail=f"action={action}; changed={changed}",
+            )
+            self._project_memory = project_context_prompt(self._project_root)
+        except Exception:
+            pass
 
     def execute_tool(self, name: str, args: dict) -> str:
         self.log(f"[Tool] {name} {args}")
@@ -1413,13 +1552,40 @@ class LocalAssistant:
                 self._record_operation(name, args, result)
                 return result
 
+            if name in self._dynamic_blender_tools:
+                result = self._plugin_registry.run(
+                    "blender_control",
+                    {
+                        "action": "mcp_call",
+                        "mcp_tool": self._dynamic_blender_tools[name],
+                        "arguments": args,
+                    },
+                    player=self.ui,
+                    session_memory=self._session_log,
+                )
+                lower_result = str(result).lower()
+                failed = any(marker in lower_result for marker in ("failed", "could not", "blocked", "unavailable", "rejected", "failure reason", "not advertised"))
+                self.ui.set_service_status("BLENDER", "OFFLINE" if failed else "READY", str(result)[:280])
+                self._blender_context = (
+                    str(result)[-1800:]
+                    if not failed else f"Last Blender operation failed: {str(result)[-1600:]}"
+                )
+                self._record_operation(name, args, result)
+                return result
+
             if self._plugin_registry.has(name):
                 result = self._plugin_registry.run(name, args, player=self.ui,
                                                    session_memory=self._session_log)
                 if name == "blender_control":
                     lower_result = str(result).lower()
-                    failed = any(marker in lower_result for marker in ("failed", "could not", "not configured", "not found", "connection refused", "unavailable"))
+                    failed = any(marker in lower_result for marker in ("failed", "could not", "failure reason", "not configured", "not found", "connection refused", "not advertised", "unavailable"))
                     self.ui.set_service_status("BLENDER", "OFFLINE" if failed else "READY", str(result)[:280])
+                    self._blender_context = (
+                        str(result)[-1800:]
+                        if not failed else f"Last Blender operation failed: {str(result)[-1600:]}"
+                    )
+                    if str(args.get("action", "")).strip().lower() in {"list_tools", "status", "mcp_call"} and not failed:
+                        self._refresh_blender_mcp_tools()
                 if name == "comfyui_image":
                     lower_result = str(result).lower()
                     failed = any(marker in lower_result for marker in ("failed", "could not", "not configured", "unavailable", "rejected", "does not exist"))
@@ -1480,7 +1646,12 @@ class LocalAssistant:
 
     def _choose_response_model(self, text: str) -> str:
         """Use the fast model for short turns, retaining quality for complex work."""
+        # Settings can be changed from the control center while MARK is alive.
+        self._response_profile = get_response_profile()
+        self._fast_model = get_fast_model()
         main_model = get_llm_settings()[1]
+        if self._response_profile in {"dual", "fast"} and self._fast_model != main_model:
+            self._fast_model_ready = model_is_available(self._fast_model)
         if self._response_profile == "quality" or not self._fast_model_ready:
             return main_model
         if self._response_profile == "fast":
@@ -1546,6 +1717,14 @@ class LocalAssistant:
             )
             if summary:
                 save_session_summary(summary, "English")
+                record_project_event(
+                    self._project_root,
+                    "session",
+                    "summary",
+                    detail="Recent session summary saved",
+                    summary=summary,
+                )
+                self._project_memory = project_context_prompt(self._project_root)
         except Exception as e:
             print(f"[Memory] summary failed: {e}")
 

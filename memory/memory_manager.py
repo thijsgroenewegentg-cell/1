@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 from datetime import datetime
@@ -14,8 +15,94 @@ def get_base_dir() -> Path:
 
 BASE_DIR         = get_base_dir()
 MEMORY_PATH      = BASE_DIR / "memory" / "long_term.json"
+PROJECT_MEMORY_DIR = BASE_DIR / "memory" / "projects"
 _lock            = Lock()
 MAX_VALUE_LENGTH = 380
+
+
+def _project_id(project_root: str | Path) -> tuple[Path, str]:
+    """Return a stable, non-secret filename for a local project directory."""
+    root = Path(project_root or ".").expanduser()
+    try:
+        root = root.resolve()
+    except OSError:
+        root = root.absolute()
+    digest = hashlib.sha256(str(root).encode("utf-8", errors="replace")).hexdigest()[:16]
+    label = re.sub(r"[^A-Za-z0-9._-]+", "-", root.name or "project").strip("-")[:48] or "project"
+    return root, f"{label}-{digest}.json"
+
+
+def load_project_context(project_root: str | Path) -> dict:
+    """Load bounded context for one project without putting it in global memory."""
+    root, filename = _project_id(project_root)
+    path = PROJECT_MEMORY_DIR / filename
+    default = {"root": str(root), "updated": "", "summary": "", "events": []}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            return default
+        events = value.get("events", [])
+        default.update({
+            "root": str(value.get("root") or root),
+            "updated": str(value.get("updated") or ""),
+            "summary": str(value.get("summary") or "")[:700],
+            "events": [item for item in events[-8:] if isinstance(item, dict)],
+        })
+    except (OSError, ValueError, TypeError):
+        pass
+    return default
+
+
+def project_context_prompt(project_root: str | Path, limit: int = 1100) -> str:
+    """Format project memory for the prompt; paths and entries stay bounded."""
+    context = load_project_context(project_root)
+    lines = [f"Project memory root: {context.get('root', '')}"]
+    if context.get("summary"):
+        lines.append(f"Summary: {context['summary']}")
+    for event in context.get("events", [])[-5:]:
+        if not isinstance(event, dict):
+            continue
+        label = str(event.get("label") or "task")[:80]
+        status = str(event.get("status") or "note")[:30]
+        detail = str(event.get("detail") or "")[:180]
+        lines.append(f"- {label} [{status}]: {detail}")
+    return "\n".join(lines)[:max(200, int(limit))]
+
+
+def _safe_project_text(value: str, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or ""))
+    text = re.sub(
+        r"(?i)\b(password|passcode|token|api[_ -]?key|secret|private[_ -]?key)\b\s*[:=]\s*\S+",
+        r"\1=<redacted>",
+        text,
+    )
+    return text[:limit]
+
+
+def record_project_event(project_root: str | Path, label: str, status: str,
+                          detail: str = "", summary: str = "") -> None:
+    """Persist bounded task metadata, excluding source text and credentials."""
+    root, filename = _project_id(project_root)
+    now = datetime.now().isoformat(timespec="seconds")
+    current = load_project_context(root)
+    event = {
+        "time": now,
+        "label": _safe_project_text(label, 80),
+        "status": _safe_project_text(status, 30),
+        "detail": _safe_project_text(detail, 220),
+    }
+    current["root"] = str(root)
+    current["updated"] = now
+    if summary:
+        current["summary"] = _safe_project_text(summary, 700)
+    current["events"] = (current.get("events", []) + [event])[-8:]
+    try:
+        PROJECT_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        (PROJECT_MEMORY_DIR / filename).write_text(
+            json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError as exc:
+        print(f"[Memory] project context unavailable: {exc}")
 
 # ── Why there are two very different numbers here ────────────────────────────
 #
