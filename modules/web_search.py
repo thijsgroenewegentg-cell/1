@@ -26,13 +26,14 @@ class WebSearch(BaseModule):
     name = "web_search"
     description = (
         "Research the internet: DuckDuckGo web search, reading and summarising web pages, "
-        "current weather, latest news headlines and Wikipedia summaries."
+        "current weather, latest news headlines, Wikipedia summaries, and flight lookups."
     )
     intent_examples: ClassVar[List[str]] = [
         "search for quantum computing breakthroughs",
         "how's the weather",
         "what's in the news today",
         "look up the Roman Empire on Wikipedia",
+        "find flights Amsterdam to London",
     ]
 
     def __init__(self, config: Any, llm: Any = None, security: Any = None) -> None:
@@ -151,6 +152,13 @@ class WebSearch(BaseModule):
             where = re.sub(r".*(where is|address of|location of)\s*",
                            "", lowered).strip(" ?")
             return "find_place", {"query": where or text}
+
+        if any(word in lowered for word in ("flight", "flights", "vlucht", "vluchten")):
+            query = re.sub(
+                r"^(?:find|search|look up|check|book)\s+", "", text, flags=re.I
+            )
+            query = re.sub(r"\b(?:flights?|vluchten?)\b", "", query, flags=re.I).strip(" ?")
+            return "find_flights", {"query": query or text}
 
         query = re.sub(
             r"^(search(?:\s+the\s+web)?(?:\s+for)?|google|look up|find(?:\s+online)?|"
@@ -703,6 +711,28 @@ class WebSearch(BaseModule):
         if not pieces:
             return ModuleResult.fail(f"Nothing current on '{topic}'.")
         return ModuleResult(success=True, output="\n\n".join(pieces), data={"topic": topic})
+
+    @tool(
+        description="Open a Google Flights search for a route or dates (no booking).",
+        params={"query": {"type": "string",
+                          "description": "Route like 'AMS to LHR next Friday'",
+                          "required": True}},
+        untrusted=True,
+        keywords=["flights", "find flights", "flight search", "vluchten"],
+        examples=['find_flights(query="Amsterdam to London next Friday")'],
+    )
+    async def find_flights(self, query: str) -> ModuleResult:
+        """Build a Google Flights URL. Search-only — JARVIS does not book tickets."""
+        from urllib.parse import quote_plus
+
+        needle = (query or "").strip()
+        if not needle:
+            return ModuleResult.fail("Which route? For example 'Amsterdam to London'.")
+        url = f"https://www.google.com/travel/flights?q={quote_plus(needle)}"
+        return ModuleResult.ok(
+            f"Flight search for '{needle}' (search only — I don't book tickets):\n{url}",
+            data={"url": url, "query": needle},
+        )
 
 
 __all__ = ["WebSearch"]

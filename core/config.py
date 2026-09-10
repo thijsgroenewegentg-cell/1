@@ -274,6 +274,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "fetch_limit": 10,
         "allow_send": False,
     },
+    "telegram": {
+        #: Bot token from @BotFather. Blank = Telegram sending is off.
+        "bot_token": "",
+        #: Default chat to message (numeric id, or @username for public chats).
+        "chat_id": "",
+    },
     "calendar": {
         "enabled": True,
         "files": [],

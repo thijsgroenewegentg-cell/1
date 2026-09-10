@@ -45,7 +45,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 36
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
-- [`modules/communications.py`](#modulescommunicationspy) — 24
+- [`modules/communications.py`](#modulescommunicationspy) — 26
 - [`modules/file_manager.py`](#modulesfile_managerpy) — 32
 - [`modules/guardian.py`](#modulesguardianpy) — 12
 - [`modules/knowledge.py`](#modulesknowledgepy) — 20
@@ -54,9 +54,9 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/productivity.py`](#modulesproductivitypy) — 80
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
 - [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 24
-- [`modules/system_control.py`](#modulessystem_controlpy) — 53
+- [`modules/system_control.py`](#modulessystem_controlpy) — 59
 - [`modules/vision.py`](#modulesvisionpy) — 15
-- [`modules/web_search.py`](#modulesweb_searchpy) — 20
+- [`modules/web_search.py`](#modulesweb_searchpy) — 21
 - [`plugins/plugin_loader.py`](#pluginsplugin_loaderpy) — 12
 - [`utils/backup.py`](#utilsbackuppy) — 11
 - [`utils/cache.py`](#utilscachepy) — 12
@@ -75,7 +75,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_brain.py`](#teststest_brainpy) — 74
 - [`tests/test_cli.py`](#teststest_clipy) — 15
 - [`tests/test_code_assistant.py`](#teststest_code_assistantpy) — 15
-- [`tests/test_communications.py`](#teststest_communicationspy) — 8
+- [`tests/test_communications.py`](#teststest_communicationspy) — 10
 - [`tests/test_config.py`](#teststest_configpy) — 27
 - [`tests/test_event_bus.py`](#teststest_event_buspy) — 28
 - [`tests/test_file_manager.py`](#teststest_file_managerpy) — 21
@@ -102,7 +102,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_smartness.py`](#teststest_smartnesspy) — 22
 - [`tests/test_smoke.py`](#teststest_smokepy) — 26
 - [`tests/test_super_smart.py`](#teststest_super_smartpy) — 15
-- [`tests/test_system_control.py`](#teststest_system_controlpy) — 16
+- [`tests/test_system_control.py`](#teststest_system_controlpy) — 24
 - [`tests/test_tool_registration.py`](#teststest_tool_registrationpy) — 6
 - [`tests/test_units.py`](#teststest_unitspy) — 96
 - [`tests/test_utils.py`](#teststest_utilspy) — 46
@@ -113,7 +113,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_wave4_features.py`](#teststest_wave4_featurespy) — 20
 - [`tests/test_wave4_ui.py`](#teststest_wave4_uipy) — 11
 - [`tests/test_web.py`](#teststest_webpy) — 76
-- [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
+- [`tests/test_web_search.py`](#teststest_web_searchpy) — 17
 - [`scripts/eval_function_calling.py`](#scriptseval_function_callingpy) — 5
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
 - [`scripts/list_settings.py`](#scriptslist_settingspy) — 5
@@ -1249,7 +1249,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/communications.py`
 
-*24 functions*
+*26 functions*
 
 > Email (IMAP/SMTP) and calendar (.ics) — free, standards-based, no vendor APIs.
 
@@ -1277,6 +1277,8 @@ and marked with `·`; methods the intent router can call are marked
 - `async def summarize_inbox(self, limit: int = 5) -> ModuleResult` **@tool** — Fetch unread mail and have the local LLM condense it.
 - `def _send(self, to: str, subject: str, body: str) -> None` — Blocking SMTP send with STARTTLS (or implicit TLS on port 465).
 - `async def send_email(self, to: str, body: str, subject: str = '') -> ModuleResult` **@tool** — Send a message, provided sending is explicitly enabled.
+- `async def send_telegram(self, text: str, to: str = '') -> ModuleResult` **@tool** — POST to Telegram Bot API when a token is configured.
+  · `def _post() -> str`
 - `async def _load_events(self, refresh: bool = False) -> List[CalendarEvent]` — Load and merge events from every configured calendar source.
 - `async def upcoming_events(self, days: int = 7, refresh: bool = False) -> ModuleResult` **@tool** — Show everything scheduled in the next ``days`` days.
 - `async def next_event(self) -> ModuleResult` **@tool** — Find the next event that hasn't started yet.
@@ -1610,7 +1612,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/system_control.py`
 
-*53 functions*
+*59 functions*
 
 > Control the host computer: apps, screenshots, stats, volume, input, shell.
 
@@ -1663,6 +1665,12 @@ and marked with `·`; methods the intent router can call are marked
 - `async def translate(self, text: str, target_language: str) -> ModuleResult` **@tool** — Translate via smart_assistant if available, else MyMemory.
 - `async def health(self) -> ModuleResult` **@tool** — Health dashboard.
 - `async def share(self, path: str, via: str = 'share') -> ModuleResult` **@tool** — Share a file.
+- `async def play_youtube(self, query: str) -> ModuleResult` **@tool** — Open a YouTube search (or a direct video) in the default browser.
+- `async def youtube_control(self, action: str = 'pause') -> ModuleResult` **@tool** — Best-effort YouTube keyboard control via the focused window.
+- `async def update_games(self, store: str = 'steam') -> ModuleResult` **@tool** — Kick Steam or Epic into their download/update UI.
+- `async def list_audio_devices(self) -> ModuleResult` **@tool** — List sinks/devices via pactl, SwitchAudioSource, or a clear fallback.
+- `async def set_audio_device(self, name: str) -> ModuleResult` **@tool** — Set the default sink/output matching ``name``.
+- `async def maximize_window(self, title: str) -> ModuleResult` **@tool** — Maximise a window matching ``title``.
 - `async def undo(self, operation: int = 0) -> ModuleResult` **@tool** — Undo last operation.
 
 ## `modules/vision.py`
@@ -1691,7 +1699,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/web_search.py`
 
-*20 functions*
+*21 functions*
 
 > Internet research with zero API keys.
 
@@ -1717,6 +1725,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def wikipedia(self, topic: str, sentences: int = 5) -> ModuleResult` **@tool** — Fetch a Wikipedia extract via the open REST API.
 - `async def find_place(self, query: str) -> ModuleResult` **@tool** — Geocode a place name with the free Nominatim API.
 - `async def latest_on(self, topic: str) -> ModuleResult` **@tool** — Combine news and web search for a 'what's new' briefing.
+- `async def find_flights(self, query: str) -> ModuleResult` **@tool** — Build a Google Flights URL. Search-only — JARVIS does not book tickets.
 
 ## `plugins/plugin_loader.py`
 
@@ -2293,7 +2302,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_communications.py`
 
-*8 functions*
+*10 functions*
 
 > Unit tests for modules/communications.py — e-mail and calendar.
 
@@ -2305,6 +2314,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_calendar_is_readable_even_when_empty(comms)`
 - `def test_an_event_can_be_added_locally(comms)`
 - `def test_email_contents_are_untrusted(comms)`
+- `def test_telegram_without_a_token_explains_setup(comms)`
+- `def test_telegram_needs_a_body(comms)`
 
 ## `tests/test_config.py`
 
@@ -2907,7 +2918,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_system_control.py`
 
-*16 functions*
+*24 functions*
 
 > Unit tests for modules/system_control.py.
 
@@ -2926,6 +2937,14 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_audit_trail_is_reportable(system)`
 - `def test_an_empty_trail_reads_calmly(config)`
 - `def test_the_audit_filter_is_validated(system)`
+- `def test_youtube_and_games_and_audio_are_registered(system)`
+- `def test_play_youtube_needs_a_query(system)`
+- `def test_play_youtube_returns_a_search_url(system)`
+- `def test_update_games_rejects_an_unknown_store(system)`
+- `def test_update_games_without_steam_still_explains(system)`
+- `def test_list_audio_devices_never_raises(system)`
+- `def test_set_audio_device_needs_a_name(system)`
+- `def test_maximize_window_needs_a_title(system)`
 - `def test_reading_the_cpu_does_not_block_the_turn(system)` — psutil.cpu_percent(interval=0.4) sleeps; it was most of this answer.
 
 ## `tests/test_tool_registration.py`
@@ -3336,7 +3355,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web_search.py`
 
-*15 functions*
+*17 functions*
 
 > Unit tests for modules/web_search.py.
 
@@ -3355,6 +3374,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_an_unexpected_failure_still_says_something(web)`
 - `def test_weather_is_a_registered_tool(web)`
 - `def test_no_private_helper_is_exposed_as_a_tool(web)`
+- `def test_find_flights_returns_a_google_flights_url(web)`
+- `def test_find_flights_needs_a_query(web)`
 
 ## `scripts/eval_function_calling.py`
 
@@ -3397,5 +3418,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**2328 functions across 108 files.**
+**2349 functions across 108 files.**
 

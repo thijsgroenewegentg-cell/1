@@ -26,6 +26,7 @@ def comms(config):
         ("check my email", "check_email"),
         ("what's on my calendar", "upcoming_events"),
         ("what's my next meeting", "next_event"),
+        ("send a telegram saying I'll be late", "send_telegram"),
     ],
 )
 def test_offline_router_recognises_comms_requests(comms, phrase, expected):
@@ -67,3 +68,14 @@ def test_an_event_can_be_added_locally(comms):
 
 def test_email_contents_are_untrusted(comms):
     assert comms.tools["check_email"].untrusted
+
+
+def test_telegram_without_a_token_explains_setup(comms):
+    result = run(comms.call_tool("send_telegram", {"text": "hello"}))
+    assert not result.success
+    assert "bot_token" in result.error or "telegram" in result.error.lower()
+
+
+def test_telegram_needs_a_body(comms):
+    result = run(comms.call_tool("send_telegram", {"text": ""}))
+    assert not result.success

@@ -29,6 +29,7 @@ def web(config):
         ("what's the weather in tokyo", "weather"),
         ("what's in the news", "news"),
         ("look up marie curie on wikipedia", "wikipedia"),
+        ("find flights Amsterdam to London", "find_flights"),
     ],
 )
 def test_offline_router_recognises_search_intents(web, phrase, expected):
@@ -119,3 +120,16 @@ def test_weather_is_a_registered_tool(web):
 
 def test_no_private_helper_is_exposed_as_a_tool(web):
     assert not [name for name in web.tools if name.startswith("_")]
+
+
+def test_find_flights_returns_a_google_flights_url(web):
+    result = run(web.call_tool("find_flights", {"query": "AMS to LHR"}))
+    assert result.success
+    blob = result.output + str(result.data)
+    assert "google.com/travel/flights" in blob
+    assert "AMS" in result.output
+
+
+def test_find_flights_needs_a_query(web):
+    result = run(web.call_tool("find_flights", {"query": ""}))
+    assert not result.success

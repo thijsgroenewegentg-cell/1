@@ -17,10 +17,12 @@ from __future__ import annotations
 import email
 import email.utils
 import imaplib
+import json
 import os
 import re
 import smtplib
 import ssl
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -269,12 +271,21 @@ class Communications(BaseModule):
         self.local_ics: Path = config.resolve(cal.get("local_file", "data/jarvis.ics"))
         self.look_ahead: int = int(cal.get("look_ahead_days", 7))
         self._calendar_cache: Tuple[float, List[CalendarEvent]] = (0.0, [])
+        telegram = config.section("telegram")
+        self.telegram_token: str = str(telegram.get("bot_token", "") or "").strip()
+        self.telegram_chat: str = str(telegram.get("chat_id", "") or "").strip()
 
     # ---------------------------------------------------------- offline route
     def offline_router(self, command: str) -> Optional[tuple[str, Dict[str, Any]]]:
         """Rule-based routing used when no LLM is available."""
         text = strip_command_prefix(command)
         lowered = text.lower()
+        if "telegram" in lowered or "t.me" in lowered:
+            body = re.sub(
+                r"^.*(?:telegram|t\.me)\s*(?:to\s+\S+\s+)?(?:saying|that|:)?\s*",
+                "", text, flags=re.I,
+            ).strip(" \"'")
+            return "send_telegram", {"text": body or text, "to": ""}
         if "status" in lowered and ("mail" in lowered or "calendar" in lowered
                                      or "comms" in lowered):
             return "comms_status", {}
@@ -523,6 +534,56 @@ class Communications(BaseModule):
             output=f"Sent '{subject}' to {to}.",
             speak="Message sent, sir.",
             data={"to": to, "subject": subject},
+        )
+
+    @tool(
+        description="Send a Telegram message via a BotFather bot token, or explain how to set one up.",
+        params={
+            "text": {"type": "string", "description": "Message body", "required": True},
+            "to": {"type": "string", "description": "Chat id or @username (default: telegram.chat_id)",
+                   "default": ""},
+        },
+        dangerous=True,
+        keywords=["telegram", "send a telegram", "message on telegram"],
+        examples=['send_telegram(text="On my way")'],
+    )
+    async def send_telegram(self, text: str, to: str = "") -> ModuleResult:
+        """POST to Telegram Bot API when a token is configured."""
+        body = (text or "").strip()
+        if not body:
+            return ModuleResult.fail("What should I send on Telegram?")
+        chat = (to or self.telegram_chat or "").strip()
+        token = self.telegram_token
+        if not token:
+            return ModuleResult.fail(
+                "Telegram sending is off. Add telegram.bot_token (from @BotFather) and "
+                "telegram.chat_id in config.yaml. Until then I can only open t.me in a browser."
+            )
+        if not chat:
+            return ModuleResult.fail("No chat id. Pass `to` or set telegram.chat_id.")
+        payload = json.dumps({"chat_id": chat, "text": body}).encode("utf-8")
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+        def _post() -> str:
+            request = urllib.request.Request(
+                url, data=payload, method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=12) as response:
+                return response.read().decode("utf-8", "replace")
+
+        try:
+            raw = await run_blocking(_post)
+            data = json.loads(raw) if raw else {}
+        except Exception as exc:
+            return ModuleResult.fail(f"Telegram refused: {truncate(str(exc), 180)}")
+        if not data.get("ok"):
+            return ModuleResult.fail(
+                f"Telegram error: {truncate(str(data.get('description') or data), 180)}"
+            )
+        return ModuleResult.ok(
+            f"Sent on Telegram to {chat}.",
+            data={"to": chat},
         )
 
     # --------------------------------------------------------------- calendar

@@ -26,7 +26,7 @@ from core.config import DEFAULT_CONFIG, KEY_ALIASES
 SECTION_ORDER: Tuple[str, ...] = (
     "user", "assistant", "llm", "memory", "voice", "modules", "security",
     "productivity", "knowledge", "vision", "blender", "web", "web_ui",
-    "email", "calendar", "self_improve", "paths", "database", "logging",
+    "email", "telegram", "calendar", "self_improve", "paths", "database", "logging",
 )
 
 #: What each section is for.
@@ -45,6 +45,7 @@ SECTION_BLURBS: Dict[str, str] = {
     "web": "Web search, scraping and news.",
     "web_ui": "The phone/LAN chat interface.",
     "email": "IMAP/SMTP mail. The password is never stored here.",
+    "telegram": "Optional Telegram bot for sending messages from JARVIS.",
     "calendar": "Local .ics files and subscribed calendar URLs.",
     "self_improve": "JARVIS editing its own source, and writing new skills.",
     "paths": "Where everything is stored. Relative paths resolve next to config.yaml.",
@@ -396,6 +397,13 @@ DESCRIPTIONS: Dict[str, str] = {
     "email.mailbox": "Mailbox to read, usually INBOX.",
     "email.fetch_limit": "Messages fetched per check.",
     "email.allow_send": "Permit sending mail, not merely reading it.",
+    # -- telegram -----------------------------------------------------------
+    "telegram.bot_token": (
+        "Bot token from @BotFather. Blank disables sending. Never commit a real token."
+    ),
+    "telegram.chat_id": (
+        "Default chat to message (numeric id, or @username for a public chat)."
+    ),
     # -- calendar -----------------------------------------------------------
     "calendar.enabled": "Turn the calendar features on.",
     "calendar.files": "Local .ics files to read.",

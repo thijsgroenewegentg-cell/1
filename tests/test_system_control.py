@@ -34,6 +34,10 @@ def test_every_tool_is_registered(system):
         ("lock the screen", "lock_screen"),
         ("how much disk space is left", "disk_free"),
         ("mute the volume", "mute"),
+        ("play lofi hip hop on youtube", "play_youtube"),
+        ("pause youtube", "youtube_control"),
+        ("update steam games", "update_games"),
+        ("list audio devices", "list_audio_devices"),
     ],
 )
 def test_offline_router_recognises_common_phrasings(system, phrase, expected):
@@ -111,6 +115,52 @@ def test_the_audit_filter_is_validated(system):
     result = run(system.call_tool("security_log", {"outcome": "sideways"}))
     assert not result.success
     assert "blocked" in result.error
+
+
+def test_youtube_and_games_and_audio_are_registered(system):
+    for name in ("play_youtube", "youtube_control", "update_games",
+                 "list_audio_devices", "set_audio_device", "maximize_window"):
+        assert name in system.tools, f"{name} should be a callable tool"
+
+
+def test_play_youtube_needs_a_query(system):
+    result = run(system.call_tool("play_youtube", {"query": ""}))
+    assert not result.success
+
+
+def test_play_youtube_returns_a_search_url(system):
+    result = run(system.call_tool("play_youtube", {"query": "lofi hip hop"}))
+    assert result.success
+    blob = result.output + str(result.data)
+    assert "youtube.com" in blob
+
+
+def test_update_games_rejects_an_unknown_store(system):
+    result = run(system.call_tool("update_games", {"store": "gog"}))
+    assert not result.success
+
+
+def test_update_games_without_steam_still_explains(system):
+    result = run(system.call_tool("update_games", {"store": "steam"}))
+    assert result.success
+    assert "steam" in result.output.lower()
+
+
+def test_list_audio_devices_never_raises(system):
+    result = run(system.call_tool("list_audio_devices", {}))
+    assert result.success
+    blob = result.output + str(result.data)
+    assert "device" in blob.lower() or "mixer" in blob.lower()
+
+
+def test_set_audio_device_needs_a_name(system):
+    result = run(system.call_tool("set_audio_device", {"name": ""}))
+    assert not result.success
+
+
+def test_maximize_window_needs_a_title(system):
+    result = run(system.call_tool("maximize_window", {"title": ""}))
+    assert not result.success
 
 
 def test_reading_the_cpu_does_not_block_the_turn(system):

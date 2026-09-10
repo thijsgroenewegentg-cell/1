@@ -195,6 +195,28 @@ class SystemControl(BaseModule):
                 "resource usage", "uptime")):
             return "system_stats", {}
 
+        if "youtube" in lowered and not any(
+            word in lowered for word in ("url", "website", "site", "webpage", "web page", "link")
+        ):
+            if any(word in lowered for word in ("pause", "stop", "next", "previous", "skip",
+                                                "fullscreen", "full screen", "mute")):
+                action = "pause"
+                if "next" in lowered or "skip" in lowered:
+                    action = "next"
+                elif "previous" in lowered:
+                    action = "previous"
+                elif "full" in lowered:
+                    action = "fullscreen"
+                elif "mute" in lowered:
+                    action = "mute"
+                return "youtube_control", {"action": action}
+            query = re.sub(
+                r"^(?:play|watch|search|find|open)\s+", "", lowered, flags=re.I
+            )
+            query = re.sub(r"\s+on\s+youtube\s*$", "", query)
+            query = re.sub(r"^youtube\s+(?:for|search)?\s*", "", query).strip(" ?")
+            return "play_youtube", {"query": query or text}
+
         volume = re.search(r"\bvolume\b.*?(\d{1,3})|\bset\s+volume\s+to\s+(\d{1,3})", lowered)
         if volume:
             level = volume.group(1) or volume.group(2)
@@ -249,6 +271,30 @@ class SystemControl(BaseModule):
 
         if "clipboard" in lowered:
             return "clipboard", {"action": "set" if "copy" in lowered else "get"}
+
+        if any(word in lowered for word in ("steam", "epic")) and any(
+            word in lowered for word in ("update", "upgrade", "patch", "download")
+        ):
+            store = "epic" if "epic" in lowered else "steam"
+            return "update_games", {"store": store}
+
+        if any(phrase in lowered for phrase in (
+            "audio device", "sound device", "sound output", "speakers",
+            "headphones", "input device", "microphone device",
+        )):
+            if any(word in lowered for word in ("set", "use", "switch", "change")):
+                name = re.sub(r".*(?:to|use|set)\s+", "", lowered).strip(" ?")
+                return "set_audio_device", {"name": name}
+            return "list_audio_devices", {}
+
+        if any(phrase in lowered for phrase in (
+            "list windows", "show windows", "what windows", "which windows",
+        )):
+            return "list_windows", {}
+        if "focus" in lowered and "window" in lowered:
+            return "focus_window", {"title": text}
+        if "minimi" in lowered and "window" in lowered:
+            return "minimize_window", {"title": text}
 
         return None
 
@@ -1904,6 +1950,228 @@ class SystemControl(BaseModule):
             return ModuleResult.ok(extra, data={"path": str(dst), "link": link, "src": str(src)})
         except Exception as exc:
             return ModuleResult.fail(f"Share failed: {exc}")
+
+    @tool(
+        description="Search YouTube and open the results (or a video id) in the browser.",
+        params={"query": {"type": "string", "description": "Search text or 11-char video id",
+                          "required": True}},
+        keywords=["youtube", "play on youtube", "watch youtube", "youtube search"],
+        examples=['play_youtube(query="lofi hip hop")'],
+    )
+    async def play_youtube(self, query: str) -> ModuleResult:
+        """Open a YouTube search (or a direct video) in the default browser."""
+        from urllib.parse import quote_plus
+
+        needle = (query or "").strip()
+        if not needle:
+            return ModuleResult.fail("What should I play on YouTube?")
+        if re.fullmatch(r"[\w-]{11}", needle) and " " not in needle:
+            url = f"https://www.youtube.com/watch?v={needle}"
+        else:
+            url = f"https://www.youtube.com/results?search_query={quote_plus(needle)}"
+        opened = await self.open_url(url)
+        if opened.success:
+            return ModuleResult.ok(
+                f"YouTube: {needle}.", data={"url": url, "query": needle}
+            )
+        return ModuleResult.ok(
+            f"YouTube is ready at {url} — open it when a browser is available.",
+            data={"url": url, "query": needle},
+        )
+
+    @tool(
+        description="Send a playback key to a YouTube window (play/pause/next/mute/fullscreen).",
+        params={"action": {"type": "string",
+                           "description": "play, pause, next, previous, mute or fullscreen",
+                           "default": "pause"}},
+        keywords=["pause youtube", "next video", "youtube fullscreen"],
+    )
+    async def youtube_control(self, action: str = "pause") -> ModuleResult:
+        """Best-effort YouTube keyboard control via the focused window."""
+        verb = (action or "pause").strip().lower()
+        keys = {
+            "play": "space", "pause": "space", "toggle": "space",
+            "next": "shift+n", "previous": "shift+p",
+            "mute": "m", "fullscreen": "f",
+        }
+        key = keys.get(verb)
+        if key is None:
+            return ModuleResult.fail(
+                "YouTube control understands play, pause, next, previous, mute, fullscreen."
+            )
+        try:
+            if IS_LINUX and which("xdotool"):
+                code, out, _ = await run_command(
+                    ["xdotool", "search", "--name", "YouTube"], timeout=6
+                )
+                if code == 0 and out.strip():
+                    wid = out.splitlines()[0].strip()
+                    await run_command(["xdotool", "key", "--window", wid, key], timeout=6)
+                    return ModuleResult.ok(f"YouTube: {verb}.")
+            if IS_MACOS and which("osascript"):
+                await run_command(
+                    ["osascript", "-e",
+                     'tell application "System Events" to keystroke " "'],
+                    timeout=6,
+                )
+                return ModuleResult.ok(f"Sent a YouTube key ({verb}) to the front app.")
+        except Exception as exc:
+            return ModuleResult.fail(f"YouTube control failed: {exc}")
+        return ModuleResult.ok(
+            f"No YouTube window to send '{verb}' to — play something first.",
+            data={"action": verb},
+        )
+
+    @tool(
+        description="Open Steam or Epic so game updates can run.",
+        params={"store": {"type": "string", "description": "steam or epic", "default": "steam"}},
+        keywords=["update steam", "update epic", "game updates", "steam downloads"],
+    )
+    async def update_games(self, store: str = "steam") -> ModuleResult:
+        """Kick Steam or Epic into their download/update UI."""
+        name = (store or "steam").strip().lower()
+        if name not in {"steam", "epic"}:
+            return ModuleResult.fail("Store must be 'steam' or 'epic'.")
+        if name == "steam":
+            if which("steam"):
+                await run_command(["steam", "steam://open/downloads"], timeout=12)
+                return ModuleResult.ok("Opened Steam downloads so updates can run.")
+            opened = await self.open_url("https://store.steampowered.com/about/")
+            hint = " Steam isn't installed here." if not opened.success else ""
+            return ModuleResult.ok(
+                f"Steam downloads would open on a machine with Steam.{hint}",
+                data={"store": "steam", "url": "steam://open/downloads"},
+            )
+        if which("legendary"):
+            _code, out, err = await run_command(["legendary", "list-updates"], timeout=20)
+            body = (out or err or "").strip() or "legendary ran."
+            return ModuleResult.ok(f"Epic (legendary): {truncate(body, 400)}")
+        opened = await self.open_url("https://store.epicgames.com/")
+        extra = "" if opened.success else " Epic/legendary isn't installed here."
+        return ModuleResult.ok(
+            f"Opened the Epic store so you can check updates.{extra}",
+            data={"store": "epic"},
+        )
+
+    @tool(
+        description="List playback devices the OS mixer knows about.",
+        params={},
+        keywords=["audio devices", "sound output", "list speakers", "headphones"],
+    )
+    async def list_audio_devices(self) -> ModuleResult:
+        """List sinks/devices via pactl, SwitchAudioSource, or a clear fallback."""
+        devices: List[str] = []
+        try:
+            if IS_LINUX and which("pactl"):
+                _, out, _ = await run_command(["pactl", "list", "short", "sinks"], timeout=8)
+                for line in (out or "").splitlines():
+                    parts = line.split("\t")
+                    if len(parts) >= 2:
+                        devices.append(parts[1])
+            elif IS_MACOS and which("SwitchAudioSource"):
+                _, out, _ = await run_command(["SwitchAudioSource", "-a"], timeout=8)
+                devices = [line.strip() for line in (out or "").splitlines() if line.strip()]
+            elif IS_WINDOWS and which("powershell"):
+                _, out, _ = await run_command(
+                    ["powershell", "-NoProfile", "-Command",
+                     "Get-CimInstance Win32_SoundDevice | Select-Object -ExpandProperty Name"],
+                    timeout=10,
+                )
+                devices = [line.strip() for line in (out or "").splitlines() if line.strip()]
+        except Exception:
+            devices = []
+        if not devices:
+            return ModuleResult.ok(
+                "No mixer listing available (pactl / SwitchAudioSource). "
+                "The OS default device is in use.",
+                data={"devices": []},
+            )
+        listed = "\n".join(f"{index + 1}. {name}" for index, name in enumerate(devices[:16]))
+        return ModuleResult.ok(
+            f"Audio devices ({len(devices)}):\n{listed}",
+            data={"devices": devices},
+        )
+
+    @tool(
+        description="Switch the default sound output by name substring.",
+        params={"name": {"type": "string", "description": "Device name substring", "required": True}},
+        keywords=["set audio device", "switch speakers", "use headphones"],
+    )
+    async def set_audio_device(self, name: str) -> ModuleResult:
+        """Set the default sink/output matching ``name``."""
+        needle = (name or "").strip()
+        if not needle:
+            return ModuleResult.fail("Which device? Say 'list audio devices' first.")
+        listing = await self.list_audio_devices()
+        devices = list((listing.data or {}).get("devices") or [])
+        match = next((item for item in devices if needle.lower() in item.lower()), "")
+        if not match:
+            return ModuleResult.fail(
+                f"No audio device matching '{needle}'. {listing.output}"
+            )
+        try:
+            if IS_LINUX and which("pactl"):
+                code, _, err = await run_command(
+                    ["pactl", "set-default-sink", match], timeout=8
+                )
+                if code == 0:
+                    return ModuleResult.ok(f"Sound output is now {match}.")
+                return ModuleResult.fail(truncate(err or "pactl refused.", 160))
+            if IS_MACOS and which("SwitchAudioSource"):
+                code, _, err = await run_command(
+                    ["SwitchAudioSource", "-s", match], timeout=8
+                )
+                if code == 0:
+                    return ModuleResult.ok(f"Sound output is now {match}.")
+                return ModuleResult.fail(truncate(err or "could not switch.", 160))
+        except Exception as exc:
+            return ModuleResult.fail(f"Could not switch audio: {exc}")
+        return ModuleResult.ok(
+            f"I can see '{match}' but this OS has no mixer command to switch to it.",
+            data={"device": match},
+        )
+
+    @tool(
+        description="Maximise a window by title substring.",
+        params={"title": {"type": "string", "description": "Substring to match"}},
+        keywords=["maximize window", "maximise window", "fullscreen window"],
+    )
+    async def maximize_window(self, title: str) -> ModuleResult:
+        """Maximise a window matching ``title``."""
+        term = (title or "").strip()
+        if not term:
+            return ModuleResult.fail("Give me part of the title to maximise.")
+        try:
+            if IS_LINUX and which("wmctrl"):
+                code, _, err = await run_command(
+                    ["wmctrl", "-r", term, "-b", "add,maximized_vert,maximized_horz"],
+                    timeout=8,
+                )
+                if code == 0:
+                    return ModuleResult.ok(f"Maximised '{term}'.")
+                return ModuleResult.fail(truncate(err or "wmctrl refused.", 120))
+            if IS_WINDOWS:
+                try:
+                    import pygetwindow  # type: ignore
+
+                    wins = [win for win in pygetwindow.getAllWindows()
+                            if term.lower() in win.title.lower()]
+                    if wins:
+                        wins[0].maximize()
+                        return ModuleResult.ok(f"Maximised '{wins[0].title}'.")
+                except Exception:
+                    pass
+            if IS_MACOS and which("osascript"):
+                await run_command(
+                    ["osascript", "-e",
+                     f'tell application "System Events" to tell process "{term}" '
+                     f'to set value of attribute "AXFullScreen" of window 1 to true'],
+                    timeout=8,
+                )
+                return ModuleResult.ok(f"Tried to maximise '{term}' on macOS.")
+        except Exception as exc:
+            return ModuleResult.fail(f"Maximise failed: {exc}")
+        return ModuleResult.fail(f"Could not maximise '{term}'.")
 
     # --------------------------------------------------------------- must 6: undo
     @tool(
