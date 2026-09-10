@@ -8,7 +8,7 @@ from core.blender_bridge import call, configuration_error, test_connection
 PLUGIN = {
     "name": "blender_control",
     "description": (
-        "Connect to Blender through the authenticated localhost MARK Bridge add-on. "
+        "Connect to Blender through MARK's authenticated local MCP bridge add-on. "
         "Inspect scenes and objects, create primitive meshes/cameras/lights, change "
         "transforms or materials, add allowlisted modifiers, render, save, and delete "
         "named objects. It accepts no bpy/Python "
@@ -76,10 +76,11 @@ def _test(values: dict) -> tuple[bool, str]:
 
 PLUGIN_SETTINGS = {
     "namespace": "blender_control",
-    "title": "BLENDER — LOCAL BRIDGE",
+    "title": "BLENDER — MCP BRIDGE",
     "note": (
-        "The bridge is loopback-only. Host and port are non-secret settings; the "
-        "token is environment-only and is never saved in MARK configuration."
+        "MARK uses MCP over an authenticated loopback connection. Host and port are "
+        "non-secret settings; the token is environment-only and is never saved in "
+        "MARK configuration. Reload this add-on after updating it."
     ),
     "fields": [
         {"key": "host", "label": "Bridge host", "default": "127.0.0.1"},

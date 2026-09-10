@@ -3,7 +3,9 @@
 Install through Edit > Preferences > Add-ons > Install, enable it, enter the
 same value as MARK_BLENDER_TOKEN in the add-on panel or preferences, then click
 Start. The server binds only to 127.0.0.1 and exposes
-named, allowlisted scene operations—not arbitrary Python or bpy evaluation.
+named, allowlisted scene operations—not arbitrary Python or bpy evaluation. It
+also exposes an MCP-compatible JSON-RPC endpoint at POST /mcp for clients that
+support Model Context Protocol.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ import os
 import queue
 import socketserver
 import threading
+import uuid
 from pathlib import Path
 
 import bpy
@@ -22,7 +25,7 @@ from bpy.types import AddonPreferences, Operator, Panel
 bl_info = {
     "name": "MARK Local Bridge",
     "author": "MARK",
-    "version": (1, 0, 0),
+    "version": (2, 0, 0),
     "blender": (3, 3, 0),
     "location": "View3D > Sidebar > MARK",
     "description": "Authenticated loopback bridge for safe MARK scene operations",
@@ -30,6 +33,53 @@ bl_info = {
 }
 
 _HOST = "127.0.0.1"
+_MCP_PROTOCOL_VERSION = "2025-06-18"
+_MCP_SESSION_ID = f"mark-blender-{uuid.uuid4().hex}"
+_MCP_ACTIONS = (
+    "status", "list_objects", "inspect_object", "create_cube", "create_sphere",
+    "create_cylinder", "create_camera", "create_light", "create_collection",
+    "duplicate_object", "set_transform", "set_active_camera", "look_at",
+    "set_material", "add_modifier", "delete_object", "set_render_settings",
+    "render", "save_blend", "scene_checkpoint", "undo",
+)
+_MCP_TOOL_DESCRIPTION = (
+    "Authenticated MARK Blender scene tool. Use read-only actions to inspect the "
+    "scene; mutations remain allowlisted and are confirmation-gated by MARK. "
+    "Never send Python, bpy expressions, shell commands or arbitrary file paths."
+)
+_MCP_PARAMETER_SCHEMA = {
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "object_name": {"type": "string"},
+        "target_name": {"type": "string"},
+        "new_name": {"type": "string"},
+        "collection_name": {"type": "string"},
+        "location": {"type": "array", "items": {"type": "number"}},
+        "target_location": {"type": "array", "items": {"type": "number"}},
+        "rotation": {"type": "array", "items": {"type": "number"}},
+        "scale": {"type": "array", "items": {"type": "number"}},
+        "dimensions": {"type": "array", "items": {"type": "number"}},
+        "color": {"type": "string"},
+        "material_name": {"type": "string"},
+        "metallic": {"type": "number"},
+        "roughness": {"type": "number"},
+        "light_type": {"type": "string"},
+        "energy": {"type": "number"},
+        "modifier_type": {"type": "string"},
+        "modifier_name": {"type": "string"},
+        "amount": {"type": "number"},
+        "segments": {"type": "integer"},
+        "levels": {"type": "integer"},
+        "count": {"type": "integer"},
+        "path": {"type": "string"},
+        "engine": {"type": "string"},
+        "resolution": {"type": "array", "items": {"type": "integer"}},
+        "samples": {"type": "integer"},
+        "format": {"type": "string"},
+        "limit": {"type": "integer"},
+    },
+}
 _requests: queue.Queue = queue.Queue()
 _server = None
 _server_thread = None
@@ -53,23 +103,88 @@ def _port() -> int:
 
 
 class _Handler(socketserver.StreamRequestHandler):
+    """Accept MCP Streamable HTTP plus the old one-line bridge during migration.
+
+    MCP clients send POST /mcp with a JSON-RPC message and a standard Bearer
+    token. MARK's own client also uses that transport. The legacy newline JSON
+    request remains available for one release so an already-running MARK build
+    can still talk to a freshly updated add-on.
+    """
+
     def handle(self):
         try:
-            line = self.rfile.readline(2_000_001)
-            if len(line) > 2_000_000:
-                self._send({"ok": False, "error": "Request too large."})
+            first = self.rfile.readline(2_000_001)
+            if len(first) > 2_000_000:
+                self._send_legacy({"ok": False, "error": "Request too large."})
                 return
-            request = json.loads(line.decode("utf-8"))
-            response_queue: queue.Queue = queue.Queue(maxsize=1)
-            _requests.put((request, response_queue))
-            response = response_queue.get(timeout=30)
-            self._send(response)
+            if first.startswith(b"POST ") or first.startswith(b"GET "):
+                self._handle_http(first)
+                return
+            request = json.loads(first.decode("utf-8"))
+            response = self._dispatch_legacy(request)
+            if response is not None:
+                self._send_legacy(response)
         except Exception as exc:
-            self._send({"ok": False, "error": f"Bridge request failed: {exc}"})
+            if 'first' in locals() and (first.startswith(b"POST ") or first.startswith(b"GET ")):
+                self._send_http(400, {"jsonrpc": "2.0", "id": None,
+                                      "error": {"code": -32700, "message": str(exc)}})
+            else:
+                self._send_legacy({"ok": False, "error": f"Bridge request failed: {exc}"})
 
-    def _send(self, value: dict):
+    def _dispatch_legacy(self, request: dict):
+        response_queue: queue.Queue = queue.Queue(maxsize=1)
+        _requests.put((request, response_queue))
+        return response_queue.get(timeout=30)
+
+    def _handle_http(self, first: bytes):
+        if first.startswith(b"GET "):
+            self._send_http(405, {"error": "MCP uses POST /mcp for this local bridge."})
+            return
+        headers = {}
+        while True:
+            line = self.rfile.readline(16_384)
+            if not line or line in {b"\r\n", b"\n"}:
+                break
+            key, separator, value = line.decode("iso-8859-1").partition(":")
+            if separator:
+                headers[key.strip().lower()] = value.strip()
+        try:
+            length = int(headers.get("content-length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0 or length > 2_000_000:
+            self._send_http(400, {"jsonrpc": "2.0", "id": None,
+                                  "error": {"code": -32600, "message": "Invalid request body size."}})
+            return
+        request = json.loads(self.rfile.read(length).decode("utf-8"))
+        bearer = headers.get("authorization", "")
+        transport_token = bearer[7:].strip() if bearer.lower().startswith("bearer ") else ""
+        response = _mcp_request(request, transport_token)
+        if response is None:
+            self._send_http(202, None)
+        else:
+            self._send_http(200, response, session=True)
+
+    def _send_legacy(self, value: dict):
         try:
             self.wfile.write((json.dumps(value, ensure_ascii=False) + "\n").encode("utf-8"))
+            self.wfile.flush()
+        except Exception:
+            pass
+
+    def _send_http(self, status: int, value, session: bool = False):
+        try:
+            raw = b"" if value is None else (json.dumps(value, ensure_ascii=False) + "\n").encode("utf-8")
+            headers = [
+                f"HTTP/1.1 {status} OK\r\n",
+                "Content-Type: application/json\r\n",
+                f"Content-Length: {len(raw)}\r\n",
+                f"MCP-Protocol-Version: {_MCP_PROTOCOL_VERSION}\r\n",
+            ]
+            if session:
+                headers.append(f"Mcp-Session-Id: {_MCP_SESSION_ID}\r\n")
+            headers.append("Connection: close\r\n\r\n")
+            self.wfile.write("".join(headers).encode("iso-8859-1") + raw)
             self.wfile.flush()
         except Exception:
             pass
@@ -128,12 +243,20 @@ def _object(name: str):
 
 def _status(params):
     scene = bpy.context.scene
+    active = bpy.context.view_layer.objects.active
+    selected = [obj.name for obj in list(bpy.context.selected_objects)[:50]]
+    objects = [{"name": obj.name, "type": obj.type} for obj in list(scene.objects)[:100]]
     return {
         "scene": scene.name,
         "frame": scene.frame_current,
         "engine": scene.render.engine,
+        "resolution": [scene.render.resolution_x, scene.render.resolution_y],
+        "camera": scene.camera.name if scene.camera else "",
         "objects": len(scene.objects),
-        "active": bpy.context.view_layer.objects.active.name if bpy.context.view_layer.objects.active else "",
+        "object_summary": objects,
+        "collections": [collection.name for collection in scene.collection.children],
+        "active": active.name if active else "",
+        "selected": selected,
     }
 
 
@@ -436,6 +559,108 @@ def _save_blend(params):
     return {"saved": str(path)}
 
 
+def _mcp_tool_list() -> list[dict]:
+    tools = [{
+        "name": "blender_control",
+        "description": _MCP_TOOL_DESCRIPTION,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": list(_MCP_ACTIONS)},
+                "parameters": _MCP_PARAMETER_SCHEMA,
+            },
+            "required": ["action"],
+        },
+    }]
+    for action in _MCP_ACTIONS:
+        tools.append({
+            "name": f"blender_{action}",
+            "description": f"Run the allowlisted Blender {action} operation through MARK's authenticated bridge.",
+            "inputSchema": _MCP_PARAMETER_SCHEMA,
+        })
+    return tools
+
+
+def _mcp_text_response(request_id, text: str, is_error: bool = False,
+                       structured=None) -> dict:
+    result = {
+        "content": [{"type": "text", "text": str(text)}],
+        "isError": bool(is_error),
+    }
+    if structured is not None:
+        result["structuredContent"] = structured
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def _mcp_request(request: dict, transport_token: str = ""):
+    """Handle one MCP JSON-RPC message without executing Blender off-thread."""
+    if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
+        return {"jsonrpc": "2.0", "id": None,
+                "error": {"code": -32600, "message": "MCP requires a JSON-RPC 2.0 request."}}
+    request_id = request.get("id")
+    supplied = str(transport_token or request.get("token", ""))
+    if not hmac.compare_digest(supplied, _token()):
+        return {"jsonrpc": "2.0", "id": request_id,
+                "error": {"code": -32001, "message": "Invalid bridge token."}}
+
+    method = str(request.get("method", "")).strip()
+    if not method:
+        return {"jsonrpc": "2.0", "id": request_id,
+                "error": {"code": -32600, "message": "MCP method is required."}}
+    if method in {"notifications/initialized", "notifications/cancelled"}:
+        return None
+    if method == "ping":
+        return {"jsonrpc": "2.0", "id": request_id, "result": {}}
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "protocolVersion": _MCP_PROTOCOL_VERSION,
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {"name": "MARK Blender Bridge", "version": "2.0.0"},
+                "instructions": _MCP_TOOL_DESCRIPTION,
+            },
+        }
+    if method == "tools/list":
+        return {"jsonrpc": "2.0", "id": request_id,
+                "result": {"tools": _mcp_tool_list(), "nextCursor": None}}
+    if method != "tools/call":
+        return {"jsonrpc": "2.0", "id": request_id,
+                "error": {"code": -32601, "message": f"Unsupported MCP method: {method}"}}
+
+    params = request.get("params") if isinstance(request.get("params"), dict) else {}
+    name = str(params.get("name", "")).strip()
+    arguments = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
+    if name == "blender_control":
+        action = str(arguments.get("action", "")).strip().lower().replace("-", "_")
+        call_params = arguments.get("parameters") if isinstance(arguments.get("parameters"), dict) else {}
+    elif name.startswith("blender_"):
+        action = name[len("blender_"):].strip().lower().replace("-", "_")
+        call_params = dict(arguments)
+    else:
+        return _mcp_text_response(request_id, f"Unknown MCP tool: {name}", True)
+    if action not in _MCP_ACTIONS:
+        return _mcp_text_response(request_id, "Unknown or disallowed Blender action.", True)
+
+    # bpy may only be touched on Blender's main thread. The timer drains this
+    # queue there; the network handler waits for the bounded result.
+    response_queue: queue.Queue = queue.Queue(maxsize=1)
+    _requests.put(({"token": _token(), "action": action, "parameters": call_params}, response_queue))
+    try:
+        result = response_queue.get(timeout=30)
+    except queue.Empty:
+        return _mcp_text_response(request_id, "Blender did not finish the MCP tool call in time.", True)
+    if not result.get("ok"):
+        return _mcp_text_response(request_id, result.get("error", "Blender rejected the action."), True)
+    raw = str(result.get("result", ""))
+    try:
+        structured = json.loads(raw)
+    except (TypeError, ValueError):
+        structured = None
+    return _mcp_text_response(request_id, raw, False, structured)
+
+
 def _execute(request: dict) -> dict:
     if not isinstance(request, dict) or not hmac.compare_digest(str(request.get("token", "")), _token()):
         return {"ok": False, "error": "Invalid bridge token."}
@@ -530,8 +755,8 @@ class MARK_PT_bridge(Panel):
         row = layout.row(align=True)
         row.operator("mark_bridge.start", icon="PLAY")
         row.operator("mark_bridge.stop", icon="PAUSE")
-        layout.label(text="Running" if _server is not None else "Stopped")
-        layout.label(text="127.0.0.1 only")
+        layout.label(text="Running — MCP 2.0" if _server is not None else "Stopped — MCP 2.0")
+        layout.label(text="127.0.0.1 only · POST /mcp")
 
 
 _CLASSES = (MARKBridgePreferences, MARK_OT_bridge_start, MARK_OT_bridge_stop, MARK_PT_bridge)

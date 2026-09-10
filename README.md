@@ -85,7 +85,7 @@ The upstream MARK repository only provides the template, so these tools are incl
 
 ### Blender bridge
 
-Install `blender/mark_bridge.py` as a Blender add-on, set the same `MARK_BLENDER_TOKEN` in Blender and MARK, then start the loopback server from Blender's **MARK** sidebar. The bridge is limited to named scene operations and never accepts arbitrary Blender Python. See `blender/README.md` for the setup steps.
+Install `blender/mark_bridge.py` as a Blender add-on, set the same `MARK_BLENDER_TOKEN` in Blender and MARK, then start the loopback MCP server from Blender's **MARK** sidebar. MARK initializes MCP and discovers the authenticated `blender_control` tool set automatically. The bridge is limited to named scene operations and never accepts arbitrary Blender Python. See `blender/README.md` for the setup steps.
 
 ## Voice
 
