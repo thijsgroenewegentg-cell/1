@@ -73,10 +73,14 @@ from core import undo as undo_stack
 from core.action_loader import discover_actions
 from core.audio_devices import resolve as resolve_audio_device, configure as configure_audio_devices
 from core.llm_client import (
-    call_llm,
+    call_llm_stream,
     call_llm_text,
     check_model_available,
+    get_fast_model,
     get_llm_settings,
+    get_response_profile,
+    model_is_available,
+    warmup_model,
     get_num_ctx,
     get_stt_model,
     get_tts_engine,
@@ -440,6 +444,9 @@ class LocalAssistant:
         self._speaking = threading.Event()
         self._thinking = threading.Event()
         self._cancel_response = threading.Event()
+        self._fast_model = get_fast_model()
+        self._fast_model_ready = False
+        self._response_profile = get_response_profile()
         self._messages: list[dict] = []
         self._session_log: list[str] = []
         self._audio: MicrophoneListener | None = None
@@ -801,6 +808,73 @@ class LocalAssistant:
         if len(self._messages) > 25:
             self._messages = [self._messages[0]] + self._messages[-24:]
 
+    def _messages_for_model(self, model: str) -> list[dict]:
+        """Make a bounded, non-destructive view of the conversation.
+
+        Short turns use a smaller tail and compact old tool output. The full
+        history remains in memory for the quality model and for session logs.
+        """
+        main_model = get_llm_settings()[1]
+        limit = 14 if model != main_model else 24
+        history = list(self._messages[1:])
+        if len(history) > limit:
+            start = len(history) - limit
+            # Do not begin on a bare tool result; retain its assistant call.
+            while start > 0 and history[start].get("role") == "tool":
+                start -= 1
+            history = history[start:]
+        compacted: list[dict] = [self._messages[0]] if self._messages else []
+        for message in history:
+            item = dict(message)
+            content = item.get("content")
+            if isinstance(content, str):
+                cap = 2200 if item.get("role") == "tool" else 4200
+                if len(content) > cap:
+                    item["content"] = content[:cap] + "…"
+            compacted.append(item)
+        return compacted
+
+    def _start_sentence_speaker(self):
+        """Start a FIFO so streamed sentences can be spoken before generation ends."""
+        speech_queue: queue.Queue[str | None] = queue.Queue()
+        stop_speech = threading.Event()
+
+        def worker():
+            started = False
+            try:
+                while True:
+                    sentence = speech_queue.get()
+                    if sentence is None:
+                        break
+                    if stop_speech.is_set() or self._cancel_response.is_set():
+                        break
+                    if self.ui.muted:
+                        continue
+                    sentence = str(sentence).strip()
+                    if not sentence:
+                        continue
+                    if not started:
+                        started = True
+                        self._speaking.set()
+                        self._set_state("SPEAKING")
+                    self._tts.speak(sentence)
+            finally:
+                if started:
+                    self._speaking.clear()
+
+        thread = threading.Thread(target=worker, daemon=True, name="mark-stream-tts")
+        thread.start()
+        return speech_queue, stop_speech, thread
+
+    @staticmethod
+    def _narratable_sentence(text: str) -> bool:
+        """Avoid speaking a model's accidental JSON/tool-call scaffolding."""
+        value = str(text or "").strip()
+        if not value or value.startswith(("{", "[", "```")):
+            return False
+        lower = value.lower()
+        return not any(marker in lower for marker in ("\"tool_calls\"", "<tool_call>", "function_call"))
+
     def process_command(self, text: str, already_logged: bool) -> None:
         if self._wake_enabled and not self._awake:
             self.log("SYS: Assistant is asleep — wake it from the settings drawer first.")
@@ -819,20 +893,63 @@ class LocalAssistant:
         self._messages.append({"role": "user", "content": text})
         self._trim_messages()
 
+        active_speaker = None
         try:
             final_text = ""
+            response_model = self._choose_response_model(text)
+            spoke_response = False
             for _round in range(6):
-                response = call_llm(self._messages, tools=self._tools, timeout=300)
+                round_model = response_model if _round == 0 else get_llm_settings()[1]
+                speech_queue, stop_speech, speech_thread = self._start_sentence_speaker()
+                active_speaker = (speech_queue, stop_speech, speech_thread)
+                queued_sentences = 0
+                response = {"content": "", "tool_calls": []}
+                for event in call_llm_stream(
+                    self._messages_for_model(round_model),
+                    tools=self._tools,
+                    timeout=180,
+                    model=round_model,
+                ):
+                    if self._cancel_response.is_set():
+                        return
+                    if event.get("type") == "sentence":
+                        sentence = str(event.get("text") or "").strip()
+                        if not self._narratable_sentence(sentence):
+                            continue
+                        speech_queue.put(sentence)
+                        queued_sentences += 1
+                    elif event.get("type") == "done":
+                        response = event
+
                 if self._cancel_response.is_set():
                     return
                 content = (response.get("content") or "").strip()
                 calls = response.get("tool_calls") or []
+                if not calls and content and not self._narratable_sentence(content):
+                    content = ""
 
                 if not calls:
+                    # Sentences were queued as soon as they arrived. The
+                    # fallback handles a provider that returns only a final
+                    # content field without sentence events.
+                    if not queued_sentences and content:
+                        speech_queue.put(content)
+                        queued_sentences += 1
+                    speech_queue.put(None)
+                    speech_thread.join(timeout=300)
+                    active_speaker = None
+                    spoke_response = bool(queued_sentences)
                     final_text = content or "I’m ready."
                     self._messages.append({"role": "assistant", "content": final_text})
                     break
 
+                # Tool-call rounds should normally contain no prose. If a model
+                # emitted a preamble anyway, stop it before executing the tool.
+                stop_speech.set()
+                self._tts.stop()
+                speech_queue.put(None)
+                speech_thread.join(timeout=10)
+                active_speaker = None
                 self._messages.append(_assistant_tool_message(content, calls))
                 for call in calls:
                     if self._cancel_response.is_set():
@@ -855,12 +972,23 @@ class LocalAssistant:
             if final_text:
                 self.log(f"{get_assistant_name()}: {final_text}")
                 self._session_log.append(f"{get_assistant_name()}: {final_text}")
-                self.speak(final_text)
+                if not spoke_response:
+                    self.speak(final_text)
         except Exception as e:
             traceback.print_exc()
             self.log(f"ERR: Ollama request failed — {e}")
-            self.speak(f"I could not reach the local Ollama model. {e}")
+            if active_speaker:
+                active_speaker[1].set()
+                self._tts.stop()
+                active_speaker[0].put(None)
+                active_speaker[2].join(timeout=10)
+            if not self._cancel_response.is_set():
+                self.speak(f"I could not reach the local Ollama model. {e}")
         finally:
+            if active_speaker:
+                active_speaker[1].set()
+                active_speaker[0].put(None)
+                active_speaker[2].join(timeout=10)
             self._thinking.clear()
             if not self._speaking.is_set():
                 self._set_state("LISTENING")
@@ -882,6 +1010,49 @@ class LocalAssistant:
             threading.Thread(target=self.speak, args=(text,), daemon=True).start()
 
     # ── tools ───────────────────────────────────────────────────────────────
+    @staticmethod
+    def _targets_live_repo(value: str) -> bool:
+        if not value:
+            return False
+        try:
+            path = Path(str(value)).expanduser()
+            if not path.is_absolute():
+                path = BASE_DIR / path
+            path.resolve().relative_to(BASE_DIR.resolve())
+            return True
+        except (OSError, ValueError):
+            return False
+
+    def _action_needs_confirmation(self, name: str, args: dict) -> bool:
+        """Guard writes, execution and other broad computer-control actions.
+
+        Read-only inspection remains immediate; a model never gets a hidden
+        permission slip to edit code, install dependencies, delete files, or
+        run generated desktop automation.
+        """
+        action = str(args.get("action", "")).lower().strip()
+        if name == "dev_agent":
+            return True
+        if name == "computer_control":
+            return action in {"type", "smart_type", "paste", "press", "hotkey", "clear_field", "screen_click", "click", "left_click", "double_click", "right_click", "drag"}
+        if name == "computer_settings":
+            return action in {"type_text", "write_on_screen", "type", "write", "press_key", "paste", "cut", "open_run", "file_explorer", "close_app", "close_window", "lock_screen", "save"}
+        if name == "game_updater":
+            return action in {"install", "update", "schedule", "cancel_schedule"} or str(args.get("shutdown_when_done", "")).lower() in {"true", "yes", "1"}
+        if name == "open_app":
+            return str(args.get("app_name", "")).lower().strip() in {"terminal", "cmd", "powershell", "settings", "git"}
+        if name in {"send_message", "browser_control"}:
+            return True
+        if name == "desktop_control":
+            return action in {"wallpaper", "wallpaper_url", "organize", "clean", "task"} or bool(args.get("task"))
+        if name == "code_helper":
+            return action in {"write", "edit", "run", "build", "optimize", "auto"}
+        if name == "file_controller":
+            return action in {"create_file", "create_folder", "delete", "move", "copy", "rename", "write", "organize_desktop"}
+        if name == "file_processor":
+            return action not in {"", "info", "summarize", "analyze", "word_count", "describe", "review"}
+        return False
+
     def execute_tool(self, name: str, args: dict) -> str:
         self.log(f"[Tool] {name} {args}")
         try:
@@ -957,13 +1128,36 @@ class LocalAssistant:
             if self._action_registry.has(name):
                 if name == "file_processor" and not args.get("file_path"):
                     args["file_path"] = self.ui.current_file or self._remote_current_file or ""
+                if name in {"code_helper", "file_controller", "file_processor"}:
+                    repo_target = args.get("file_path") or args.get("output_path") or args.get("path")
+                    if self._targets_live_repo(str(repo_target or "")):
+                        return "Live MARK source files are review-only. Use self_update with action review so I can show a tested patch before applying it."
                 ctx = {
                     "player": self.ui,
                     "speak": self.say_async,
                     "response": None,
                     "session_memory": self._session_log,
                 }
-                result = self._action_registry.run(name, args, ctx)
+                def run_action():
+                    return self._action_registry.run(name, args, ctx)
+
+                if self._action_needs_confirmation(name, args):
+                    if confirm_gate.pending_title():
+                        return "There is already a confirmation waiting on screen. Ask the user to answer it first."
+                    action_label = str(args.get("action", "run"))
+                    target = str(args.get("file_path") or args.get("output_path") or args.get("path") or "")
+                    detail = f"Allow {name} to perform '{action_label}'"
+                    if target:
+                        detail += f" on {target[:160]}"
+                    detail += "? This may write files, execute code, or change the computer."
+                    result = confirm_gate.request(
+                        f"approved_action_{name}",
+                        f"Approve {name}: {action_label}",
+                        detail,
+                        run_action,
+                    )
+                else:
+                    result = run_action()
                 if name == "web_search" and result and not str(result).startswith("Search failed"):
                     query = args.get("query") or ", ".join(args.get("items", []))
                     self.ui.show_content(f"{args.get('mode', 'search').upper()} — {query}", str(result))
@@ -986,9 +1180,48 @@ class LocalAssistant:
             self.log("ERR: Ollama is unavailable. Install it from https://ollama.com and run it.")
             return False
         available = check_model_available(self.ui.write_log)
+        self._fast_model_ready = (
+            self._response_profile in {"dual", "fast"}
+            and self._fast_model != model
+            and model_is_available(self._fast_model)
+        )
+        if self._response_profile == "dual" and not self._fast_model_ready:
+            self.log(f"SYS: Fast model '{self._fast_model}' is not pulled; using {model}.")
         if not available:
             self.log(f"SYS: Pull the configured model with: ollama pull {model}")
         return True
+
+    def _choose_response_model(self, text: str) -> str:
+        """Use the fast model for short turns, retaining quality for complex work."""
+        main_model = get_llm_settings()[1]
+        if self._response_profile == "quality" or not self._fast_model_ready:
+            return main_model
+        if self._response_profile == "fast":
+            return self._fast_model
+        lower = text.lower()
+        complex_markers = (
+            "blender", "code", "script", "program", "debug", "analyze", "analyse",
+            "compare", "explain", "plan", "design", "render", "image", "screen",
+            "file", "project", "build", "why", "how does",
+        )
+        if len(text) > 220 or any(marker in lower for marker in complex_markers):
+            return main_model
+        return self._fast_model
+
+    def _warm_models(self) -> None:
+        """Warm both selected models in the background so the first turn is fast."""
+        try:
+            prompt = self._build_system_prompt()
+            primary_ready = warmup_model(prompt, model=get_llm_settings()[1])
+            fast_ready = True
+            if self._fast_model_ready:
+                fast_ready = warmup_model(prompt, model=self._fast_model)
+            if primary_ready and fast_ready:
+                self.log("SYS: Response models warmed and ready.")
+            else:
+                self.log("WRN: One or more response models could not be warmed; Ollama will load them on demand.")
+        except Exception as exc:
+            self.log(f"WRN: Model warm-up failed — {exc}")
 
     def _startup_briefing(self) -> None:
         if not get_brief_enabled() or self._wake_enabled:
@@ -1045,6 +1278,7 @@ class LocalAssistant:
         if server_ok:
             self._set_state("SLEEPING" if self._wake_enabled else "LISTENING")
             self.log("SYS: MARK online — local Ollama mode.")
+            threading.Thread(target=self._warm_models, daemon=True, name="mark-model-warmup").start()
             threading.Thread(target=self._startup_briefing, daemon=True, name="mark-briefing").start()
         else:
             self._set_state("SLEEPING")

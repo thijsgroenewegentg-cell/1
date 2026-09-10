@@ -12,9 +12,11 @@ MARK is a PyQt6 desktop assistant with local tool calling, screen/webcam vision,
    ```bash
    ollama pull qwen2.5:14b
    ollama pull qwen2.5vl:7b
+   # Optional fast router/reply model for dual response mode
+   ollama pull qwen2.5:7b-instruct
    ```
 
-   `qwen2.5:14b` is a good default for a 16 GB RX 9070 XT. If you want lower memory use, use `llama3.1:8b` or `qwen2.5:7b-instruct`.
+   `qwen2.5:14b` is a good quality default for a 16 GB RX 9070 XT. MARK now uses `qwen2.5:7b-instruct` for short turns when it is already pulled, and keeps the 14B model for complex questions, Blender work, code and analysis. If you prefer one model, set `response_profile` to `quality` in `config/api_keys.json`.
 3. Run the installer to create the private Python environment and desktop shortcut:
 
    ```bash
@@ -59,7 +61,8 @@ The `plugins/` folder includes safe examples:
 
 - `git_helper.py` — read-only repository status, diff summary, log, branches, remotes and root lookup. It has a fixed Git argument allowlist and never commits, resets, checks out, pushes or pulls.
 - `project_helper.py` — fixed, shell-free project status, test, package-check and Docker-status helpers. It cannot accept arbitrary commands, install packages or mutate containers.
-- `local_calendar.py` — private local `calendar.ics` events with add, list, today, find and remove operations. It defaults to `Documents/MARK/calendar.ics`; set `MARK_CALENDAR_FILE` to use another local file.
+- `blender_control.py` — authenticated localhost Blender bridge with allowlisted scene/object/material/camera/light/modifier/render operations; mutating operations require confirmation.
+- `local_calendar.py` — private local `calendar.ics` events with add, list, today, find and remove operations. It defaults to `Documents/MARK/calendar.ics`; set `MARK_CALENDAR_FILE` to use another local file. Add/remove are confirmation-gated.
 - `email_client.py` — optional IMAP/SMTP inbox, search, read and send support. It never stores credentials in the repository, requires `MARK_EMAIL_IMAP_HOST`, `MARK_EMAIL_SMTP_HOST`, `MARK_EMAIL_USERNAME` and `MARK_EMAIL_PASSWORD` in the launch environment, and puts every send behind MARK's on-screen confirmation gate.
 - `media_control.py` — open/search Spotify and control playback using the native player tools available on Windows, macOS or Linux.
 
@@ -74,6 +77,10 @@ python -m core.plugin_installer /path/to/plugin.py
 Restart MARK after installation so the self-describing plugin loader can discover the new tool. Direct files dropped into `plugins/` are blocked by default until installed or explicitly allowed in development mode. **⚙ → PLUGIN SETTINGS** now provides local calendar path/default-duration fields and non-secret email host/port/username fields; the email password remains environment-only.
 
 The upstream MARK repository only provides the template, so these tools are included directly in this Ollama build rather than downloaded from an unverified plugin marketplace.
+
+### Blender bridge
+
+Install `blender/mark_bridge.py` as a Blender add-on, set the same `MARK_BLENDER_TOKEN` in Blender and MARK, then start the loopback server from Blender's **MARK** sidebar. The bridge is limited to named scene operations and never accepts arbitrary Blender Python. See `blender/README.md` for the setup steps.
 
 ## Voice
 
@@ -95,6 +102,11 @@ ollama ps
 - Web search fetches DuckDuckGo results and asks Ollama to summarise them locally.
 - No Gemini package or cloud API key is required.
 - Edge TTS and web search are optional internet connections; switch `tts_engine` to `system` in `config/api_keys.json` for offline speech.
+- Computer access is broad but policy-gated: read-only inspection can be immediate, while file writes/deletes, generated code, app automation, network/credential actions, Blender mutations and administrative operations require an on-screen human confirmation. The only exception is the fixed, read-only DuckDuckGo search helper. There is no unrestricted shell tool and no silent arbitrary command execution.
+
+### Review-first self-improvement
+
+Ask MARK to use `self_update` with `action: review`, a list of repository-relative Python files and an instruction. It reads the requested files, creates a detached Git worktree, asks Ollama for a unified patch, applies and tests it in isolation using fixed compile/pytest commands, displays the full diff, and then asks for confirmation. Only the exact reviewed patch can be applied to the live checkout; conflicts, unrequested files, failed tests and untracked/dirty requested files are refused. The workflow never accepts a shell command from the model.
 
 ## Project layout
 
@@ -104,7 +116,8 @@ ollama ps
 - `core/stt.py` — faster-whisper transcription
 - `ui.py` — PyQt6 HUD and settings panels
 - `dashboard/` — authenticated LAN dashboard and phone relay
-- `actions/` — auto-discovered built-in tools
+- `blender/` — authenticated loopback Blender add-on and installation notes
+- `actions/` — auto-discovered built-in tools, including the review-first `self_update` workflow
 - `plugins/` — drop-in tools with a `PLUGIN` dictionary and `run()` function
 - `installer/` — cross-platform installer, launchers and Windows Inno Setup definition
 - `memory/` — persistent local memory and settings

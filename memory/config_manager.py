@@ -24,6 +24,8 @@ CONFIG_FILE = CONFIG_DIR / "api_keys.json"  # historical filename; no secrets
 DEFAULT_LLM_URL      = "http://localhost:11434"
 DEFAULT_LLM_MODEL   = "qwen2.5:14b"
 DEFAULT_VISION_MODEL = "qwen2.5vl:7b"
+DEFAULT_FAST_MODEL   = "qwen2.5:7b-instruct"
+DEFAULT_RESPONSE_PROFILE = "dual"
 
 
 def ensure_config_dir() -> None:
@@ -56,10 +58,13 @@ def config_exists() -> bool:
 
 def save_api_keys(value: str = "") -> None:
     """Compatibility helper: initialise a local config; value is ignored."""
+    current = load_api_keys()
     _patch_config(
-        llm_url=load_api_keys().get("llm_url", DEFAULT_LLM_URL),
-        llm_model=load_api_keys().get("llm_model", DEFAULT_LLM_MODEL),
-        vision_model=load_api_keys().get("vision_model", DEFAULT_VISION_MODEL),
+        llm_url=current.get("llm_url", DEFAULT_LLM_URL),
+        llm_model=current.get("llm_model", DEFAULT_LLM_MODEL),
+        vision_model=current.get("vision_model", DEFAULT_VISION_MODEL),
+        fast_model=current.get("fast_model", DEFAULT_FAST_MODEL),
+        response_profile=current.get("response_profile", DEFAULT_RESPONSE_PROFILE),
     )
 
 

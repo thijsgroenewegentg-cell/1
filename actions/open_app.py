@@ -1,3 +1,5 @@
+import os
+import shlex
 import time
 import subprocess
 import platform
@@ -75,15 +77,18 @@ def _normalize(raw: str) -> str:
         if alias_key in key or key in alias_key:
             return os_map.get(_SYSTEM, raw)
 
-    return raw  
+    # Unknown executable names are refused. The assistant may open only the
+    # explicit alias list above; it never turns this tool into a command runner.
+    return ""
 
 def _launch_windows(app_name: str) -> bool:
 
-    if shutil.which(app_name) or shutil.which(app_name.split(".")[0]):
+    executable = shutil.which(app_name) or shutil.which(app_name.split(".")[0])
+    if executable:
         try:
             subprocess.Popen(
-                app_name,
-                shell=True,
+                [executable],
+                shell=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
@@ -94,7 +99,7 @@ def _launch_windows(app_name: str) -> bool:
 
     if ":" in app_name:
         try:
-            subprocess.Popen(f"start {app_name}", shell=True)
+            os.startfile(app_name)  # type: ignore[attr-defined]
             time.sleep(1.0)
             return True
         except Exception:
@@ -186,16 +191,22 @@ def _launch_linux(app_name: str) -> bool:
                 except Exception:
                     continue
 
-    binary = (
-        shutil.which(app_name) or
-        shutil.which(app_name.lower()) or
-        shutil.which(app_name.lower().replace(" ", "-")) or
-        shutil.which(app_name.lower().replace(" ", "_"))
-    )
+    try:
+        command = shlex.split(app_name)
+    except ValueError:
+        command = []
+    binary = None
+    if command:
+        binary = (
+            shutil.which(command[0]) or
+            shutil.which(command[0].lower()) or
+            shutil.which(command[0].lower().replace(" ", "-")) or
+            shutil.which(command[0].lower().replace(" ", "_"))
+        )
     if binary:
         try:
             subprocess.Popen(
-                [binary],
+                [binary, *command[1:]],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
@@ -253,6 +264,8 @@ def open_app(
         return f"Unsupported operating system: {_SYSTEM}"
 
     normalized = _normalize(app_name)
+    if not normalized:
+        return "That application is not on MARK's allowlist; it was not opened."
     print(f"[open_app] Launching: '{app_name}' → '{normalized}' ({_SYSTEM})")
 
     if player:

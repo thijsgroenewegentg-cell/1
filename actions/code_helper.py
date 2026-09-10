@@ -567,7 +567,7 @@ def code_helper(
 # ── Tool declaration (auto-discovered by core/action_loader.py) ──────────────
 TOOL = {
     "name": "code_helper",
-    "description": "Writes, edits, explains, runs, or builds code files.",
+    "description": "Explains or works with user code. For any change to MARK's own repository, use the review-first self_update tool; direct live-tree edits are refused.",
     "parameters": {
         "type": "OBJECT",
         "properties": {

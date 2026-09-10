@@ -1,0 +1,28 @@
+# MARK Blender Bridge
+
+`mark_bridge.py` is a small Blender add-on that gives MARK a direct local connection without exposing Blender's Python console or accepting arbitrary `bpy` code.
+
+## Install
+
+1. In Blender, open **Edit → Preferences → Add-ons → Install**.
+2. Select `blender/mark_bridge.py`.
+3. Enable **MARK Local Bridge**.
+4. Set a long random token in the add-on preferences or the **MARK** sidebar panel.
+5. Set the same value as `MARK_BLENDER_TOKEN` in the environment used to launch MARK.
+6. Open the 3D View sidebar with **N**, choose the **MARK** tab, and click **Start MARK Bridge**.
+
+The server listens only on `127.0.0.1` (default port `8765`). MARK's **PLUGIN SETTINGS → BLENDER — LOCAL BRIDGE** panel lets you change the non-secret host and port.
+
+## Available operations
+
+- Inspect scene status and list objects
+- Inspect a named object
+- Create a cube, sphere, cylinder, camera, or light
+- Set a named object's transform
+- Assign a material color/metallic/roughness
+- Add a bounded modifier such as bevel, subdivision, solidify, array, mirror, or decimate
+- Delete a named object
+- Render the current scene
+- Save a `.blend` file under the user home folder
+
+Mutating operations require confirmation in MARK. The bridge does not expose arbitrary Python, expressions, shell commands, file reads, network access, or Blender operators outside this list. Stop the bridge when it is not needed.

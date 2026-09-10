@@ -12,6 +12,8 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from core import confirm as confirm_gate
+
 
 PLUGIN = {
     "name": "local_calendar",
@@ -202,8 +204,19 @@ PLUGIN_SETTINGS = {
 
 
 def run(parameters: dict, player=None, session_memory=None) -> str:
-    params = parameters or {}
+    params = dict(parameters or {})
     action = str(params.get("action", "list")).strip().lower()
+    approved = bool(params.pop("_approved", False))
+    if action in {"add", "remove"} and not approved:
+        if confirm_gate.pending_title():
+            return "There is already a confirmation waiting on screen. Answer it before another calendar change."
+        label = str(params.get("title") or params.get("query") or params.get("event_id") or "event")
+        return confirm_gate.request(
+            "calendar_mutation",
+            f"Calendar: {action}",
+            f"Allow MARK to {action} the local calendar entry '{label[:120]}'?",
+            lambda: run({**params, "_approved": True}, player=player, session_memory=session_memory),
+        )
     events = _read_events()
     now = datetime.now()
 

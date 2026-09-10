@@ -18,6 +18,8 @@ the action files; it now holds local settings only, never a secret):
       "llm_url":      "http://localhost:11434",
       "llm_model":    "qwen2.5:14b",
       "vision_model": "qwen2.5vl:7b",
+      "fast_model":   "qwen2.5:7b-instruct",
+      "response_profile": "dual",
       "stt_model":    "base",
       "tts_engine":   "edgetts",
       "tts_voice":    "Guy"
@@ -66,6 +68,10 @@ _DEFAULTS = {
     "stt_model":    "base",
     "tts_engine":   "edgetts",
     "tts_voice":    "Guy",
+    # Fast router/reply model used for short requests when it is already pulled.
+    # The quality model remains the fallback for complex prompts and Blender/code work.
+    "fast_model":   "qwen2.5:7b-instruct",
+    "response_profile": "dual",
     # Context window handed to Ollama. 8192 leaves room for the system prompt,
     # ~30 tool schemas, a screenshot description and a long conversation.
     "num_ctx":      8192,
@@ -109,6 +115,16 @@ def get_llm_settings() -> tuple[str, str]:
     return url, model
 
 
+def get_fast_model() -> str:
+    """Small model for short turns; never used if it is not already pulled."""
+    return str(_load_config().get("fast_model") or _DEFAULTS["fast_model"])
+
+
+def get_response_profile() -> str:
+    value = str(_load_config().get("response_profile") or _DEFAULTS["response_profile"])
+    return value.lower() if value.lower() in {"quality", "fast", "dual"} else "dual"
+
+
 def get_vision_model() -> str:
     """Model used when a screenshot / webcam frame is in the messages."""
     return str(_load_config().get("vision_model") or _DEFAULTS["vision_model"])
@@ -148,8 +164,10 @@ def get_temperature() -> float:
 
 
 def save_llm_settings(url: str | None = None, model: str | None = None,
-                      vision_model: str | None = None) -> None:
-    """Persist the LLM choices made in the setup / settings screen."""
+                      vision_model: str | None = None,
+                      fast_model: str | None = None,
+                      response_profile: str | None = None) -> None:
+    """Persist local Ollama endpoint, model and response-profile choices."""
     from memory.config_manager import _patch_config
     fields: dict = {}
     if url:
@@ -158,6 +176,10 @@ def save_llm_settings(url: str | None = None, model: str | None = None,
         fields["llm_model"] = model.strip()
     if vision_model:
         fields["vision_model"] = vision_model.strip()
+    if fast_model:
+        fields["fast_model"] = fast_model.strip()
+    if response_profile and response_profile.lower() in {"quality", "fast", "dual"}:
+        fields["response_profile"] = response_profile.lower()
     if fields:
         _patch_config(**fields)
 
@@ -292,11 +314,21 @@ def check_model_available(log: Callable[[str], None] | None = None) -> bool:
 
 
 def _matches(model: str, pulled: list[str]) -> bool:
-    base = model.split(":")[0]
-    return any(m == model or m == base or m.startswith(base + ":") for m in pulled)
+    model = str(model or "").strip()
+    if not model:
+        return False
+    # A specifically tagged model must be present exactly; only an untagged
+    # request may resolve to any pulled tag in that family.
+    if ":" in model:
+        return model in pulled
+    return any(m == model or m.startswith(model + ":") for m in pulled)
 
 
-def warmup_model(system_prompt: str | None = None) -> bool:
+def model_is_available(model: str) -> bool:
+    return bool(model) and _matches(model, list_models())
+
+
+def warmup_model(system_prompt: str | None = None, model: str | None = None) -> bool:
     """
     Load the model AND prime Ollama's KV prefix cache.
 
@@ -305,7 +337,8 @@ def warmup_model(system_prompt: str | None = None) -> bool:
     tokens are evaluated once at startup instead of on every turn — first-token
     latency drops from seconds to well under a second.
     """
-    url, model = get_llm_settings()
+    url, default_model = get_llm_settings()
+    model = model or default_model
     print(f"[LLM] Warming up '{model}'…")
 
     messages: list[dict] = []
