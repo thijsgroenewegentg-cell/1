@@ -307,6 +307,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "allow_tts": True,
         "max_audio_mb": 25,
         "title": "JARVIS",
+        #: Accent colour of the console (hex). Recolours the live HUD and the
+        #: speaking state of the orb without a restart.
+        "accent": "#ef4444",
     },
     "security": {
         "confirm_dangerous": True,

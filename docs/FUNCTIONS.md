@@ -40,7 +40,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/vault.py`](#corevaultpy) — 11
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
-- [`interfaces/web.py`](#interfaceswebpy) — 57
+- [`interfaces/web.py`](#interfaceswebpy) — 59
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 36
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
@@ -110,7 +110,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_wave3_features.py`](#teststest_wave3_featurespy) — 16
 - [`tests/test_wave4_features.py`](#teststest_wave4_featurespy) — 20
 - [`tests/test_wave4_ui.py`](#teststest_wave4_uipy) — 11
-- [`tests/test_web.py`](#teststest_webpy) — 69
+- [`tests/test_web.py`](#teststest_webpy) — 74
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/eval_function_calling.py`](#scriptseval_function_callingpy) — 5
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
@@ -1031,7 +1031,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*57 functions*
+*59 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
@@ -1039,6 +1039,7 @@ and marked with `·`; methods the intent router can call are marked
   · `def chunk(kind: bytes, payload: bytes) -> bytes` — Assemble one PNG chunk with its CRC.
 - `def load_page() -> str` — Read the interface from disk, falling back to a minimal page.
 - `def _format_uptime(seconds: Any) -> str` — Render an uptime in seconds as a short human string.
+- `def _parse_accent(value: Any) -> str` — Normalise a hex colour, falling back to the default red.
 - `def local_addresses(port: int) -> List[str]` — Best-effort list of URLs this machine can be reached on.
 
 ### `class WebInterface` — FastAPI + WebSocket front-end that runs alongside the CLI.
@@ -1057,6 +1058,7 @@ and marked with `·`; methods the intent router can call are marked
   · `async def index(token: str = Query(default='')) -> Any` — Serve the chat page.
   · `async def boot_page(token: str = Query(default='')) -> Any` — Serve the boot-up sequence page (shown inside the console).
   · `async def pair_svg(token: str = Query(default='')) -> Any` — QR code that opens this console on a phone.
+  · `async def save_identity(request: Request, token: str = Query(default='')) -> Any` — Persist the assistant name, your name and the HUD accent.
   · `async def status(token: str = Query(default='')) -> Any` — Report assistant status and a greeting.
   · `async def dashboard(token: str = Query(default='')) -> Any` — Idle-home cards: tasks, reminders, weather, system, self-check.
   · `async def ask(request: Request, token: str = Query(default='')) -> Any` — Answer a single question over plain JSON (no streaming).
@@ -3209,7 +3211,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*69 functions*
+*74 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -3279,6 +3281,11 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_pairing_qr_is_an_svg(web)`
 - `def test_the_page_has_a_pair_slot_and_restores_history(web)`
 - `def test_a_new_socket_gets_the_session_hello(web)`
+- `def test_status_includes_identity_and_accent(web)`
+- `def test_identity_can_be_saved(web)`
+- `def test_identity_requires_the_token(web)`
+- `def test_the_page_has_live_theming_and_a_clipboard_panel(web)`
+- `def test_parse_accent_accepts_short_hex()`
 
 ## `tests/test_web_search.py`
 
@@ -3343,5 +3350,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**2290 functions across 106 files.**
+**2297 functions across 106 files.**
 

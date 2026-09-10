@@ -364,6 +364,10 @@ DESCRIPTIONS: Dict[str, str] = {
     "web_ui.allow_tts": "Let the browser ask JARVIS to speak a reply aloud.",
     "web_ui.max_audio_mb": "Largest hold-to-talk recording accepted.",
     "web_ui.title": "Title shown in the browser and on the home screen.",
+    "web_ui.accent": (
+        "Accent colour of the console as #rrggbb. Recolours the HUD and the "
+        "speaking orb live, from the status panel or this file."
+    ),
     # -- email --------------------------------------------------------------
     "email.enabled": "Turn the mail features on.",
     "email.imap_host": "IMAP server for reading mail.",

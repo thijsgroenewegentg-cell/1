@@ -221,6 +221,23 @@ def _format_uptime(seconds: Any) -> str:
     return f"{minutes}m"
 
 
+def _parse_accent(value: Any) -> str:
+    """Normalise a hex colour, falling back to the default red.
+
+    Args:
+        value: A ``#rgb`` / ``#rrggbb`` string, or anything else.
+
+    Returns:
+        A ``#rrggbb`` colour.
+    """
+    raw = str(value or "").strip().lstrip("#")
+    if len(raw) == 3 and all(char in "0123456789abcdefABCDEF" for char in raw):
+        raw = "".join(char * 2 for char in raw)
+    if len(raw) == 6 and all(char in "0123456789abcdefABCDEF" for char in raw):
+        return "#" + raw.lower()
+    return "#ef4444"
+
+
 class WebInterface:
     """FastAPI + WebSocket front-end that runs alongside the CLI."""
 
@@ -590,6 +607,40 @@ class WebInterface:
             return Response(content=image, media_type="image/svg+xml",
                             headers={"Cache-Control": "no-store"})
 
+        @app.post("/api/identity")
+        async def save_identity(request: Request, token: str = Query(default="")) -> Any:
+            """Persist the assistant name, your name and the HUD accent."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            try:
+                payload: Dict[str, Any] = await request.json()
+            except Exception:
+                payload = {}
+            assistant = str(payload.get("assistant", "") or "").strip()[:40]
+            user = str(payload.get("user", "") or "").strip()[:40]
+            accent = _parse_accent(payload.get("accent", ""))
+            if assistant:
+                self.config.set("assistant.name", assistant)
+                self.config.set("web_ui.title", assistant)
+                self.title = assistant
+            if "user" in payload:
+                self.config.set("user.name", user)
+            if payload.get("accent"):
+                self.config.set("web_ui.accent", accent)
+            try:
+                self.config.save()
+            except Exception as exc:
+                logger.warning("Could not save identity: %s", exc)
+                raise HTTPException(status_code=500, detail="could not save config") from exc
+            return JSONResponse({
+                "ok": True,
+                "identity": {
+                    "assistant": str(self.config.get("assistant.name", self.title) or self.title),
+                    "user": str(self.config.get("user.name", "") or ""),
+                    "accent": _parse_accent(self.config.get("web_ui.accent", accent)),
+                },
+            })
+
         @app.get("/api/status")
         async def status(token: str = Query(default="")) -> Any:
             """Report assistant status and a greeting."""
@@ -665,6 +716,11 @@ class WebInterface:
                     # them as chips next to the dock.
                     "suggestions": self.brain.suggestions(),
                     "pair": {"url": self.pair_url(), "urls": self.pair_urls()},
+                    "identity": {
+                        "assistant": str(self.config.get("assistant.name", self.title) or self.title),
+                        "user": str(self.config.get("user.name", "") or ""),
+                        "accent": _parse_accent(self.config.get("web_ui.accent", "")),
+                    },
                 }
             )
 

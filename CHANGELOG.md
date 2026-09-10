@@ -32,7 +32,7 @@ The first release meant for other people's machines.
   asking or with `/audit`.
 - **`install.py --everything`**: audio libraries, every model, every capability,
   and a closing diagnosis of whatever is still missing.
-- **`docs/CONFIGURATION.md`**: all 228 settings with their real defaults,
+- **`docs/CONFIGURATION.md`**: all 229 settings with their real defaults,
   generated from the code so they cannot drift.
 - **It speaks your language.** Replies follow the language you write in —
   Dutch, English and more — with `assistant.language` as a fixed override.

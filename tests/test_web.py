@@ -800,3 +800,57 @@ def test_a_new_socket_gets_the_session_hello(web):
         hello = socket.receive_json()
     assert hello["type"] == "hello"
     assert any(entry.get("text") == "hello there" for entry in hello["history"])
+
+
+def test_status_includes_identity_and_accent(web):
+    from fastapi.testclient import TestClient
+
+    payload = TestClient(web.app).get("/api/status", params={"token": web.token}).json()
+    ident = payload["identity"]
+    assert ident["assistant"]
+    assert ident["accent"].startswith("#")
+    assert len(ident["accent"]) == 7
+
+
+def test_identity_can_be_saved(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    response = client.post(
+        "/api/identity",
+        params={"token": web.token},
+        json={"assistant": "FRIDAY", "user": "Tony", "accent": "#22c55e"},
+    )
+    assert response.status_code == 200
+    ident = response.json()["identity"]
+    assert ident["assistant"] == "FRIDAY"
+    assert ident["user"] == "Tony"
+    assert ident["accent"] == "#22c55e"
+    again = client.get("/api/status", params={"token": web.token}).json()["identity"]
+    assert again["assistant"] == "FRIDAY"
+    assert again["accent"] == "#22c55e"
+
+
+def test_identity_requires_the_token(web):
+    from fastapi.testclient import TestClient
+
+    assert TestClient(web.app).post("/api/identity", json={"assistant": "X"}).status_code == 401
+
+
+def test_the_page_has_live_theming_and_a_clipboard_panel(web):
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert 'id="themeHue"' in page
+    assert "function applyAccent" in page
+    assert 'id="clipPulse"' in page
+    assert 'data-clip="translate"' in page
+    assert 'id="botName"' in page
+    assert 'id="youName"' in page
+
+
+def test_parse_accent_accepts_short_hex():
+    from interfaces.web import _parse_accent
+
+    assert _parse_accent("#0f0") == "#00ff00"
+    assert _parse_accent("not-a-colour") == "#ef4444"
