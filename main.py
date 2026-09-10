@@ -734,15 +734,20 @@ class LocalAssistant:
     def run(self) -> None:
         self.ui.set_state("THINKING")
         configure_audio_devices(SEND_SAMPLE_RATE, RECEIVE_SAMPLE_RATE)
-        if not self._check_server():
-            self.ui.set_state("SLEEPING")
-        else:
-            self._reset_messages()
+        server_ok = self._check_server()
+        self._reset_messages()
+        if server_ok:
             self.ui.set_state("LISTENING")
             self.log("SYS: MARK online — local Ollama mode.")
-            self._audio = MicrophoneListener(self)
-            self._audio.start()
             threading.Thread(target=self._startup_briefing, daemon=True, name="mark-briefing").start()
+        else:
+            self.ui.set_state("SLEEPING")
+            self.log("SYS: Waiting for Ollama; text and voice commands will retry.")
+
+        # Start the microphone even when Ollama is not ready. This lets a user
+        # launch Ollama after MARK and issue a voice command without restarting.
+        self._audio = MicrophoneListener(self)
+        self._audio.start()
 
         # Text commands continue to work even if the machine has no microphone
         # or Ollama is not installed yet; the loop retries naturally per command.
