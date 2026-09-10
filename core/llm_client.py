@@ -38,7 +38,21 @@ import time
 from pathlib import Path
 from typing import Callable, Generator
 
-import requests
+try:
+    import requests
+except Exception as _requests_exc:
+    class _UnavailableRequests:
+        class exceptions:
+            ConnectionError = RuntimeError
+            Timeout = TimeoutError
+            HTTPError = RuntimeError
+        @staticmethod
+        def get(*args, **kwargs):
+            raise RuntimeError(f"HTTP client unavailable: {_requests_exc}")
+        @staticmethod
+        def post(*args, **kwargs):
+            raise RuntimeError(f"HTTP client unavailable: {_requests_exc}")
+    requests = _UnavailableRequests()
 
 # Matches a sentence boundary: [.!?] followed by whitespace, or a blank line.
 # Avoids splitting on decimals (3.5) because those have no space after the dot.

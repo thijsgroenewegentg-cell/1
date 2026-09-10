@@ -11,7 +11,31 @@ import threading
 import time
 from pathlib import Path
 
-import psutil
+try:
+    import psutil
+    _PSUTIL_AVAILABLE = True
+except Exception:
+    _PSUTIL_AVAILABLE = False
+    class _PsutilFallback:
+        @staticmethod
+        def net_io_counters():
+            return type("Net", (), {"bytes_sent": 0, "bytes_recv": 0})()
+        @staticmethod
+        def cpu_percent(interval=None):
+            return 0.0
+        @staticmethod
+        def virtual_memory():
+            return type("Memory", (), {"percent": 0.0})()
+        @staticmethod
+        def sensors_temperatures():
+            return {}
+        @staticmethod
+        def boot_time():
+            return time.time()
+        @staticmethod
+        def pids():
+            return []
+    psutil = _PsutilFallback()
 
 if platform.system() == "Windows":
     _WIN_HIDE: dict = {"creationflags": subprocess.CREATE_NO_WINDOW}
@@ -1614,11 +1638,11 @@ class HueWheel(QWidget):
 class CustomizeOverlay(QWidget):
     """Floating overlay — change assistant name, user name, UI colour and voice."""
 
-    saved = pyqtSignal(str, str, str, str)   # assistant_name, user_name, ui_color, voice
-    _OW, _OH = 400, 588
+    saved = pyqtSignal(str, str, str, str, str)   # name, user, colour, voice, personality
+    _OW, _OH = 400, 640
 
     def __init__(self, assistant_name="JARVIS", user_name="",
-                 ui_color=DEFAULT_UI_COLOR, voice="", parent=None):
+                 ui_color=DEFAULT_UI_COLOR, voice="", personality="professional", parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
@@ -1689,6 +1713,24 @@ class CustomizeOverlay(QWidget):
             voice_row.addWidget(b)
         lay.addLayout(voice_row)
         self._refresh_voice_btns()
+
+        # ── Personality profile ─────────────────────────────────────────────
+        from memory.config_manager import PERSONALITY_PROFILES, DEFAULT_PERSONALITY_PROFILE
+        lay.addSpacing(4)
+        lay.addWidget(_lbl("PERSONALITY PROFILE", 8, color=C.TEXT_DIM,
+                            align=Qt.AlignmentFlag.AlignLeft))
+        self._personality_box = QComboBox()
+        self._personality_box.setFont(QFont("Courier New", 9))
+        self._personality_box.addItems(list(PERSONALITY_PROFILES))
+        selected_profile = personality if personality in PERSONALITY_PROFILES else DEFAULT_PERSONALITY_PROFILE
+        self._personality_box.setCurrentText(selected_profile)
+        self._personality_box.setToolTip("Changes tone only; safety and tool policies remain unchanged.")
+        self._personality_box.setStyleSheet(f"""
+            QComboBox {{ background: #000d12; color: {C.TEXT}; border: 1px solid {C.BORDER};
+                border-radius: 3px; padding: 4px 8px; }}
+            QComboBox:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        lay.addWidget(self._personality_box)
 
         # ── UI colour — colour wheel ─────────────────────────────────────────
         lay.addSpacing(4)
@@ -1825,7 +1867,8 @@ class CustomizeOverlay(QWidget):
     def _save(self):
         name = self._name_input.text().strip() or "JARVIS"
         user = self._user_input.text().strip()
-        self.saved.emit(name, user, self._sel_color or DEFAULT_UI_COLOR, self._sel_voice)
+        self.saved.emit(name, user, self._sel_color or DEFAULT_UI_COLOR, self._sel_voice,
+                         self._personality_box.currentText())
         self.hide()
 
 
@@ -2585,7 +2628,9 @@ class MemoryOverlay(_HudOverlay):
                 txt.setStyleSheet(f"color: {C.TEXT}; background: transparent;")
                 line.addWidget(txt, 1)
 
-                meta = QLabel(f"{r['category'][:4]} · {r['updated'] or '—'}")
+                scope = r.get("scope", r["category"])
+                expiry = f" · exp {r['expires']}" if r.get("expires") else ""
+                meta = QLabel(f"{scope[:8]} · {r['updated'] or '—'}{expiry}")
                 meta.setFont(QFont("Courier New", 7))
                 meta.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
                 line.addWidget(meta)
@@ -4739,6 +4784,7 @@ class MainWindow(QMainWindow):
             cfg.get("user_name", ""),
             cfg.get("ui_color", "") or DEFAULT_UI_COLOR,
             cfg.get("voice_name", ""),
+            cfg.get("personality_profile", "professional"),
             parent=cw,
         )
         ow, oh = CustomizeOverlay._OW, CustomizeOverlay._OH
@@ -4760,7 +4806,7 @@ class MainWindow(QMainWindow):
             retheme_all_widgets(old, current_palette())
 
     def _apply_name_update(self, name: str, user_name: str, ui_color: str = "",
-                           voice: str = ""):
+                           voice: str = "", personality: str = ""):
         """Update all name/theme-dependent UI elements and persist to config."""
         self._assistant_name = name.strip() or "JARVIS"
         display = self._assistant_name.upper()
@@ -4796,6 +4842,15 @@ class MainWindow(QMainWindow):
             data["user_name"] = user_name.strip()
             if ui_color:
                 data["ui_color"] = ui_color.strip().lower()
+            if personality:
+                from memory.config_manager import PERSONALITY_PROFILES, DEFAULT_PERSONALITY_PROFILE
+                data["personality_profile"] = personality if personality in PERSONALITY_PROFILES else DEFAULT_PERSONALITY_PROFILE
+            if API_FILE.is_file():
+                try:
+                    from core.checkpoints import create as create_checkpoint
+                    create_checkpoint("config before identity update", [str(API_FILE)])
+                except Exception:
+                    pass
             API_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
             self._log.append_log(f"SYS: Identity updated — {display}")
             if color_changed:
@@ -5032,6 +5087,7 @@ class MainWindow(QMainWindow):
                 "tts_voice": "Guy",
                 "fast_model": "qwen2.5:7b-instruct",
                 "response_profile": "dual",
+                "personality_profile": "professional",
                 "num_ctx": 8192,
                 "num_predict": 320,
                 "os_system": os_name,

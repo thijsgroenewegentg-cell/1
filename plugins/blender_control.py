@@ -21,14 +21,20 @@ PLUGIN = {
                 "type": "STRING",
                 "description": (
                     "status | list_objects | inspect_object | create_cube | create_sphere | "
-                    "create_cylinder | create_camera | create_light | set_transform | set_material | "
-                    "add_modifier | delete_object | render | save_blend"
+                    "create_cylinder | create_camera | create_light | create_collection | "
+                    "duplicate_object | set_transform | set_active_camera | look_at | set_material | "
+                    "add_modifier | delete_object | set_render_settings | render | save_blend | scene_checkpoint | undo"
                 ),
             },
             "object_name": {"type": "STRING", "description": "Named Blender object"},
+            "target_name": {"type": "STRING", "description": "Target object for look_at"},
+            "new_name": {"type": "STRING", "description": "Name for a duplicate"},
+            "collection_name": {"type": "STRING", "description": "Collection label"},
             "location": {"type": "ARRAY", "items": {"type": "NUMBER"}, "description": "XYZ location"},
+            "target_location": {"type": "ARRAY", "items": {"type": "NUMBER"}, "description": "XYZ target point"},
             "rotation": {"type": "ARRAY", "items": {"type": "NUMBER"}, "description": "XYZ Euler rotation in radians"},
             "scale": {"type": "ARRAY", "items": {"type": "NUMBER"}, "description": "XYZ scale"},
+            "dimensions": {"type": "ARRAY", "items": {"type": "NUMBER"}, "description": "XYZ world dimensions"},
             "color": {"type": "STRING", "description": "Material color such as #4A90E2"},
             "material_name": {"type": "STRING", "description": "Optional material label"},
             "metallic": {"type": "NUMBER", "description": "Material metallic value 0 to 1"},
@@ -42,6 +48,10 @@ PLUGIN = {
             "levels": {"type": "INTEGER", "description": "Subdivision levels 0 to 4"},
             "count": {"type": "INTEGER", "description": "Array count 1 to 20"},
             "path": {"type": "STRING", "description": "User-selected .blend or render path"},
+            "engine": {"type": "STRING", "description": "BLENDER_EEVEE_NEXT | BLENDER_EEVEE | BLENDER_WORKBENCH | CYCLES"},
+            "resolution": {"type": "ARRAY", "items": {"type": "INTEGER"}, "description": "Render width and height"},
+            "samples": {"type": "INTEGER", "description": "Render samples 1 to 4096"},
+            "format": {"type": "STRING", "description": "PNG | JPEG | OPEN_EXR"},
             "limit": {"type": "INTEGER", "description": "Maximum objects to list (default 100)"},
         },
         "required": ["action"],
@@ -51,7 +61,8 @@ PLUGIN = {
 _READ_ONLY = {"status", "list_objects", "inspect_object"}
 _MUTATING = {
     "create_cube", "create_sphere", "create_cylinder", "create_camera", "create_light",
-    "set_transform", "set_material", "add_modifier", "delete_object", "render", "save_blend",
+    "create_collection", "duplicate_object", "set_transform", "set_active_camera", "look_at",
+    "set_material", "add_modifier", "delete_object", "set_render_settings", "render", "save_blend", "scene_checkpoint", "undo",
 }
 
 
@@ -92,7 +103,7 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
     params = parameters or {}
     action = str(params.get("action", "status")).strip().lower().replace("-", "_")
     if action not in _READ_ONLY | _MUTATING:
-        return "Unknown Blender action. Use status, list_objects, inspect_object, create_cube, create_sphere, create_cylinder, create_camera, create_light, set_transform, set_material, add_modifier, delete_object, render or save_blend."
+        return "Unknown Blender action. Use status, list_objects, inspect_object, create_cube, create_sphere, create_cylinder, create_camera, create_light, create_collection, duplicate_object, set_transform, set_active_camera, look_at, set_material, add_modifier, delete_object, set_render_settings, render, save_blend, scene_checkpoint or undo."
 
     error = configuration_error()
     if error:
@@ -115,6 +126,8 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
     if player:
         try:
             player.write_log(f"[Blender] {action}")
+            if action in {"render", "set_render_settings", "scene_checkpoint"}:
+                player.show_content("BLENDER — RENDER / CHECKPOINT", result)
         except Exception:
             pass
     return result

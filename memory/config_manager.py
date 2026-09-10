@@ -26,6 +26,15 @@ DEFAULT_LLM_MODEL   = "qwen2.5:14b"
 DEFAULT_VISION_MODEL = "qwen2.5vl:7b"
 DEFAULT_FAST_MODEL   = "qwen2.5:7b-instruct"
 DEFAULT_RESPONSE_PROFILE = "dual"
+DEFAULT_PERSONALITY_PROFILE = "professional"
+
+PERSONALITY_PROFILES = {
+    "professional": "Be precise, calm, concise and dependable. Avoid theatrical language.",
+    "friendly": "Be warm, encouraging and human, while staying concise and honest.",
+    "technical": "Prefer exact terminology, assumptions, diagnostics and actionable detail.",
+    "cinematic": "Use a polished, restrained JARVIS-like tone, but never sacrifice clarity or claim work that did not happen.",
+    "concise": "Use the fewest words that fully answer the user. Ask only necessary questions.",
+}
 
 
 def ensure_config_dir() -> None:
@@ -44,9 +53,24 @@ def load_api_keys() -> dict:
         return {}
 
 
+def _checkpoint_config(label: str = "config before update") -> None:
+    if not CONFIG_FILE.is_file():
+        return
+    try:
+        from core.checkpoints import create as create_checkpoint
+        create_checkpoint(label, [str(CONFIG_FILE)])
+    except Exception as exc:
+        print(f"[Config] Checkpoint skipped: {exc}")
+
+
 def _patch_config(**fields) -> None:
-    """Read-modify-write settings without losing another feature's fields."""
+    """Read-modify-write settings without losing another feature's fields.
+
+    A prior config file is checkpointed locally before it is replaced, so a
+    profile, model or device change can be restored without cloud storage.
+    """
     ensure_config_dir()
+    _checkpoint_config()
     data = load_api_keys()
     data.update(fields)
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
@@ -65,6 +89,7 @@ def save_api_keys(value: str = "") -> None:
         vision_model=current.get("vision_model", DEFAULT_VISION_MODEL),
         fast_model=current.get("fast_model", DEFAULT_FAST_MODEL),
         response_profile=current.get("response_profile", DEFAULT_RESPONSE_PROFILE),
+        personality_profile=current.get("personality_profile", DEFAULT_PERSONALITY_PROFILE),
     )
 
 
@@ -84,6 +109,16 @@ def get_assistant_name() -> str:
 
 def get_user_name() -> str:
     return load_api_keys().get("user_name", "") or ""
+
+
+def get_personality_profile() -> str:
+    value = str(load_api_keys().get("personality_profile", DEFAULT_PERSONALITY_PROFILE) or DEFAULT_PERSONALITY_PROFILE).lower()
+    return value if value in PERSONALITY_PROFILES else DEFAULT_PERSONALITY_PROFILE
+
+
+def save_personality_profile(profile: str) -> None:
+    value = str(profile or "").lower().strip()
+    _patch_config(personality_profile=value if value in PERSONALITY_PROFILES else DEFAULT_PERSONALITY_PROFILE)
 
 
 def save_assistant_config(assistant_name: str, user_name: str) -> None:
@@ -169,6 +204,7 @@ def save_plugin_config(namespace: str, values: dict) -> None:
     configs[namespace] = current
     data["plugin_config"] = configs
     ensure_config_dir()
+    _checkpoint_config("config before plugin update")
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
 
@@ -180,6 +216,7 @@ def save_plugin_enabled(plugin_name: str, enabled: bool) -> None:
     enabled_cfg[plugin_name] = bool(enabled)
     data["plugins_enabled"] = enabled_cfg
     ensure_config_dir()
+    _checkpoint_config("config before plugin toggle")
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
 
 

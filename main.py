@@ -26,7 +26,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import numpy as np
+try:
+    import numpy as np
+    _NUMPY_AVAILABLE = True
+except Exception:
+    np = None
+    _NUMPY_AVAILABLE = False
 
 # A few Windows actions launch subprocesses. Hide their console windows just
 # like the upstream application did.
@@ -52,8 +57,10 @@ from memory.memory_manager import (
     format_memory_for_prompt,
     load_memory,
     pop_last_session,
+    save_memory,
     save_session_summary,
     search_memory,
+    forget,
     set_trim_notifier,
     update_memory,
 )
@@ -65,11 +72,17 @@ from memory.config_manager import (
     get_voice,
     get_wake_word_enabled,
     get_plugin_trust_required,
+    get_personality_profile,
+    PERSONALITY_PROFILES,
     save_plugin_trust_required,
     save_wake_word_enabled,
 )
 from core import confirm as confirm_gate
 from core import undo as undo_stack
+from core.failure import explain as explain_failure, record as record_failure
+from core.workflow_recorder import record as record_workflow_step, set_executor as set_workflow_executor
+from core.operation_checkpoints import record as record_operation_checkpoint
+from core.task_planner import current as current_task_plan, render as render_task_plan, update as update_task_plan
 from core.action_loader import discover_actions
 from core.audio_devices import resolve as resolve_audio_device, configure as configure_audio_devices
 from core.llm_client import (
@@ -90,15 +103,46 @@ from core.llm_client import (
     to_ollama_tools,
 )
 from core.plugin_loader import discover_plugins
-from core.stt import WhisperSTT
+try:
+    from core.stt import WhisperSTT
+    _STT_IMPORT_ERROR = ""
+except Exception as _stt_exc:
+    _STT_IMPORT_ERROR = str(_stt_exc)
+    class WhisperSTT:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(f"Offline speech recognition is unavailable: {_STT_IMPORT_ERROR}")
+        def transcribe(self, audio):
+            return ""
 from core.tts import EdgeTTSEngine, SystemTTSEngine, TTSPlayer
 from core.wake_word import (
     WakeWordDetector,
     install_and_download as wake_install,
     is_ready as wake_is_ready,
 )
-from actions.screen_processor import _capture_camera, _capture_screen
-from actions.system_monitor import SystemMonitor, get_system_status
+try:
+    from actions.screen_processor import _capture_camera, _capture_screen
+    _VISION_IMPORT_ERROR = ""
+except Exception as _vision_exc:
+    _VISION_IMPORT_ERROR = str(_vision_exc)
+    def _capture_screen():
+        raise RuntimeError(f"Local screen capture is unavailable: {_VISION_IMPORT_ERROR}")
+    def _capture_camera():
+        raise RuntimeError(f"Local camera capture is unavailable: {_VISION_IMPORT_ERROR}")
+
+try:
+    from actions.system_monitor import SystemMonitor, get_system_status
+    _SYSTEM_IMPORT_ERROR = ""
+except Exception as _system_exc:
+    _SYSTEM_IMPORT_ERROR = str(_system_exc)
+    class SystemMonitor:
+        def __init__(self, *args, **kwargs):
+            self.available = False
+        def start(self, *args, **kwargs):
+            return False
+        def stop(self):
+            return None
+    def get_system_status():
+        return {"status": "unavailable", "reason": _SYSTEM_IMPORT_ERROR}
 from actions.proactive import ProactiveEngine
 from actions.background_monitor import (
     add_monitor,
@@ -178,9 +222,11 @@ INLINE_TOOLS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "category": {"type": "STRING", "description": "identity, preferences, projects, relationships, wishes or notes"},
+                "category": {"type": "STRING", "description": "identity, preferences, projects, relationships, wishes, notes or temporary"},
                 "key": {"type": "STRING", "description": "Short snake_case key"},
-                "value": {"type": "STRING", "description": "Concise value"},
+                "value": {"type": "STRING", "description": "Concise value; never include passwords or credentials"},
+                "scope": {"type": "STRING", "description": "personal, project, episodic or temporary"},
+                "expires": {"type": "STRING", "description": "Optional YYYY-MM-DD expiry for temporary context"},
             },
             "required": ["category", "key", "value"],
         },
@@ -201,6 +247,20 @@ INLINE_TOOLS = [
             "type": "OBJECT",
             "properties": {"action": {"type": "STRING", "description": "undo or list"}},
             "required": [],
+        },
+    },
+    {
+        "name": "memory_control",
+        "description": "Inspect, forget or clear local personal memory. Never expose secrets or send memory to the network.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "list | forget | clear_sessions"},
+                "query": {"type": "STRING", "description": "Search query or memory key"},
+                "category": {"type": "STRING", "description": "Optional memory category"},
+                "key": {"type": "STRING", "description": "Exact key to forget"},
+            },
+            "required": ["action"],
         },
     },
 ]
@@ -382,9 +442,21 @@ class MicrophoneListener:
             except Exception:
                 pass
 
-            # Never feed the assistant's own TTS back into Whisper, and honor
-            # the HUD mute button for the microphone as well.
-            if self.owner.is_busy or self.owner.ui.muted:
+            # Barge-in: a clearly louder user utterance interrupts thinking or
+            # TTS immediately. Quiet frames are discarded so MARK's own voice
+            # does not feed back into Whisper.
+            if self.owner.is_busy:
+                if (not self.owner.ui.muted and level >= _VAD_START * 1.5
+                        and not recording):
+                    self.owner.interrupt()
+                    recording = [frame]
+                    silent = 0
+                    started_at = time.monotonic()
+                else:
+                    recording.clear()
+                    silent = 0
+                continue
+            if self.owner.ui.muted:
                 recording.clear()
                 silent = 0
                 continue
@@ -444,9 +516,11 @@ class LocalAssistant:
         self._speaking = threading.Event()
         self._thinking = threading.Event()
         self._cancel_response = threading.Event()
+        self._active_speech_stop: threading.Event | None = None
         self._fast_model = get_fast_model()
         self._fast_model_ready = False
         self._response_profile = get_response_profile()
+        self._ollama_online = False
         self._messages: list[dict] = []
         self._session_log: list[str] = []
         self._audio: MicrophoneListener | None = None
@@ -510,6 +584,7 @@ class LocalAssistant:
 
         confirm_gate.bind(self.ui.show_confirm, self.ui.hide_confirm, self.ui.write_log)
         set_trim_notifier(self.ui.write_log)
+        set_workflow_executor(self.execute_tool)
 
     @property
     def is_busy(self) -> bool:
@@ -556,6 +631,8 @@ class LocalAssistant:
 
     def interrupt(self) -> None:
         self._cancel_response.set()
+        if self._active_speech_stop is not None:
+            self._active_speech_stop.set()
         self._tts.stop()
         self._speaking.clear()
         self._set_state("LISTENING")
@@ -787,8 +864,10 @@ class LocalAssistant:
         now = datetime.now().strftime("%A, %B %d, %Y — %I:%M %p")
         memory = format_memory_for_prompt(load_memory())
         prompt = _load_prompt()
+        personality = PERSONALITY_PROFILES.get(get_personality_profile(), PERSONALITY_PROFILES["professional"])
         return (
             f"You are {name}, a capable local desktop assistant. {address}\n"
+            f"Personality profile: {personality}\n"
             f"Current local date and time: {now}.\n\n"
             "You run through Ollama, not a cloud API. Answer in the language the user uses. "
             "Be concise and natural because your response is spoken aloud. "
@@ -875,6 +954,26 @@ class LocalAssistant:
         lower = value.lower()
         return not any(marker in lower for marker in ("\"tool_calls\"", "<tool_call>", "function_call"))
 
+    def _offline_command(self, text: str) -> str | None:
+        """Small deterministic fallback for useful commands without Ollama."""
+        lower = text.lower().strip()
+        if lower in {"mute", "mute yourself", "be quiet"}:
+            self.ui.muted = True
+            return "Microphone and speech muted."
+        if lower in {"unmute", "speak", "resume speech"}:
+            self.ui.muted = False
+            return "Speech and microphone enabled."
+        if lower in {"stop", "stop speaking", "cancel", "interrupt"}:
+            self.interrupt()
+            return "Response interrupted."
+        if lower in {"time", "what time is it", "what is the time"}:
+            return datetime.now().strftime("The local time is %H:%M.")
+        if lower in {"status", "system status", "computer status"}:
+            return str(get_system_status())
+        if lower in {"help", "what can you do"}:
+            return "Ollama is offline. I can still mute, unmute, interrupt, report the time and show system status. Start Ollama for conversation and tools."
+        return "Ollama is offline, so I did not send that request. Start Ollama and try again."
+
     def process_command(self, text: str, already_logged: bool) -> None:
         if self._wake_enabled and not self._awake:
             self.log("SYS: Assistant is asleep — wake it from the settings drawer first.")
@@ -884,12 +983,23 @@ class LocalAssistant:
             self.log(f"You: {text}")
         self._session_log.append(f"User: {text}")
         self._last_user_speech = time.monotonic()
+        if not self._ollama_online:
+            self._ollama_online = ensure_ollama_running(timeout=3)
+            if not self._ollama_online:
+                result = self._offline_command(text)
+                self.log(f"{get_assistant_name()}: {result}")
+                self._session_log.append(f"{get_assistant_name()}: {result}")
+                self.speak(result)
+                return
         self._cancel_response.clear()
         self._thinking.set()
         self._set_state("THINKING")
 
         if not self._messages:
             self._reset_messages()
+        else:
+            # Pick up profile and memory-control changes without requiring a restart.
+            self._messages[0] = {"role": "system", "content": self._build_system_prompt()}
         self._messages.append({"role": "user", "content": text})
         self._trim_messages()
 
@@ -902,6 +1012,7 @@ class LocalAssistant:
                 round_model = response_model if _round == 0 else get_llm_settings()[1]
                 speech_queue, stop_speech, speech_thread = self._start_sentence_speaker()
                 active_speaker = (speech_queue, stop_speech, speech_thread)
+                self._active_speech_stop = stop_speech
                 queued_sentences = 0
                 response = {"content": "", "tool_calls": []}
                 for event in call_llm_stream(
@@ -976,19 +1087,21 @@ class LocalAssistant:
                     self.speak(final_text)
         except Exception as e:
             traceback.print_exc()
-            self.log(f"ERR: Ollama request failed — {e}")
+            message = explain_failure("Ollama response", e, changed=False)
+            self.log(f"ERR: {message}")
             if active_speaker:
                 active_speaker[1].set()
                 self._tts.stop()
                 active_speaker[0].put(None)
                 active_speaker[2].join(timeout=10)
             if not self._cancel_response.is_set():
-                self.speak(f"I could not reach the local Ollama model. {e}")
+                self.speak(message)
         finally:
             if active_speaker:
                 active_speaker[1].set()
                 active_speaker[0].put(None)
                 active_speaker[2].join(timeout=10)
+            self._active_speech_stop = None
             self._thinking.clear()
             if not self._speaking.is_set():
                 self._set_state("LISTENING")
@@ -1033,6 +1146,8 @@ class LocalAssistant:
         action = str(args.get("action", "")).lower().strip()
         if name == "dev_agent":
             return True
+        if name == "workflow_recorder":
+            return action == "replay"
         if name == "computer_control":
             return action in {"type", "smart_type", "paste", "press", "hotkey", "clear_field", "screen_click", "click", "left_click", "double_click", "right_click", "drag"}
         if name == "computer_settings":
@@ -1053,8 +1168,51 @@ class LocalAssistant:
             return action not in {"", "info", "summarize", "analyze", "word_count", "describe", "review"}
         return False
 
+    def _clear_session_memory(self) -> str:
+        memory = load_memory()
+        memory["sessions"] = []
+        save_memory(memory)
+        result = "Recent session summaries cleared from local memory."
+        self.ui.show_content("MEMORY — CLEARED", result)
+        return result
+
+    def _planner_before_tool(self, name: str) -> None:
+        if name in {"task_planner", "workflow_recorder", "checkpoint"}:
+            return
+        try:
+            plan = current_task_plan()
+            if not plan or plan.get("status") != "active":
+                return
+            pending = [step["index"] for step in plan.get("steps", []) if step.get("status") == "pending"]
+            index = int(plan.get("cursor") or (pending[0] if pending else 0))
+            if index and any(step.get("index") == index and step.get("status") == "pending" for step in plan.get("steps", [])):
+                update_task_plan(index, "running", f"Executing {name}")
+                self.ui.show_content("TASK PLAN", render_task_plan())
+        except Exception:
+            pass
+
+    def _record_operation(self, name: str, args: dict, result: str) -> None:
+        action = str((args or {}).get("action", "run"))
+        changed = action.lower() in {
+            "create", "update", "complete", "fail", "skip", "confirm", "restore", "delete",
+            "add", "remove", "write", "edit", "run", "build", "install", "update", "render",
+            "save", "save_blend", "create_cube", "create_sphere", "create_cylinder", "create_camera",
+            "create_light", "create_collection", "duplicate_object", "set_transform", "set_material",
+            "add_modifier", "delete_object", "look_at", "set_active_camera", "set_render_settings", "scene_checkpoint", "undo", "replay",
+        }
+        text = str(result or "")
+        lower_result = text.lower()
+        if ("failed" in lower_result or "could not" in lower_result
+                or "failure reason:" in lower_result
+                or "[confirmation_pending]" in lower_result):
+            changed = False
+        recovery = "Review the activity log; use undo or the shown checkpoint before retrying."
+        record_operation_checkpoint(name, action, text, changed=changed, recovery=recovery)
+
     def execute_tool(self, name: str, args: dict) -> str:
         self.log(f"[Tool] {name} {args}")
+        record_workflow_step(name, args)
+        self._planner_before_tool(name)
         try:
             if name == "save_memory":
                 category = args.get("category", "notes")
@@ -1062,11 +1220,46 @@ class LocalAssistant:
                 value = str(args.get("value", "")).strip()
                 if not key or not value:
                     return "Memory was not saved: key and value are required."
-                update_memory({category: {key: {"value": value}}})
+                if any(word in f"{key} {value}".lower() for word in ("password", "passcode", "token", "secret", "api key", "private key", "credit card")):
+                    return "Memory was not saved: credentials and secrets are never stored."
+                allowed = {"identity", "preferences", "projects", "relationships", "wishes", "notes", "temporary"}
+                if category not in allowed:
+                    category = "notes"
+                update_memory({category: {key: {
+                    "value": value,
+                    "scope": str(args.get("scope", category)),
+                    "source": "conversation",
+                    "expires": str(args.get("expires", "")),
+                }}})
                 return "Memory saved silently."
 
             if name == "recall_memory":
                 return search_memory(str(args.get("query", "")), limit=8)
+
+            if name == "memory_control":
+                action = str(args.get("action", "list")).lower().strip()
+                if action == "list":
+                    result = search_memory(str(args.get("query", "")), limit=30)
+                    self.ui.show_content("MEMORY — LOCAL", result)
+                    return result
+                if action == "forget":
+                    category = str(args.get("category", "notes")).strip() or "notes"
+                    key = str(args.get("key", "")).strip()
+                    if not key:
+                        return "Provide the exact memory key and category to forget."
+                    result = forget(key, category)
+                    self.ui.show_content("MEMORY — FORGOTTEN", result)
+                    return result
+                if action == "clear_sessions":
+                    if confirm_gate.pending_title():
+                        return "There is already a confirmation waiting on screen. Answer it first."
+                    return confirm_gate.request(
+                        "clear_session_memory",
+                        "Clear recent session memory",
+                        "Remove the saved recent conversation summaries from local memory?",
+                        lambda: self._clear_session_memory(),
+                    )
+                return "Use memory_control action list, forget or clear_sessions."
 
             if name == "undo":
                 if str(args.get("action", "")).lower() == "list":
@@ -1161,24 +1354,46 @@ class LocalAssistant:
                 if name == "web_search" and result and not str(result).startswith("Search failed"):
                     query = args.get("query") or ", ".join(args.get("items", []))
                     self.ui.show_content(f"{args.get('mode', 'search').upper()} — {query}", str(result))
-                return result or "Done."
+                result = result or "Done."
+                self._record_operation(name, args, result)
+                return result
 
             if self._plugin_registry.has(name):
-                return self._plugin_registry.run(name, args, player=self.ui,
-                                                 session_memory=self._session_log)
+                result = self._plugin_registry.run(name, args, player=self.ui,
+                                                   session_memory=self._session_log)
+                self._record_operation(name, args, result)
+                return result
             return f"Unknown tool: {name}"
         except Exception as e:
             traceback.print_exc()
-            self.log(f"ERR: Tool {name} failed — {e}")
-            return f"Tool '{name}' failed: {e}"
+            record_failure(f"Tool {name}", e, changed=False)
+            message = explain_failure(f"Tool {name}", e, changed=False)
+            try:
+                plan = current_task_plan()
+                if plan and plan.get("status") == "active":
+                    index = int(plan.get("cursor") or 0)
+                    if index:
+                        update_task_plan(index, "failed", message)
+                        self.ui.show_content("TASK PLAN", render_task_plan())
+            except Exception:
+                pass
+            self.log(f"ERR: {message}")
+            return message
 
     # ── lifecycle ───────────────────────────────────────────────────────────
     def _check_server(self) -> bool:
         url, model = get_llm_settings()
         self.log(f"SYS: Ollama endpoint: {url}")
         if not ensure_ollama_running():
-            self.log("ERR: Ollama is unavailable. Install it from https://ollama.com and run it.")
+            self._ollama_online = False
+            message = "Ollama is unavailable. Typed and voice input remain available; start Ollama to enable reasoning."
+            self.log(f"ERR: {message}")
+            try:
+                self.ui.show_content("OFFLINE MODE", message)
+            except Exception:
+                pass
             return False
+        self._ollama_online = True
         available = check_model_available(self.ui.write_log)
         self._fast_model_ready = (
             self._response_profile in {"dual", "fast"}
@@ -1188,7 +1403,12 @@ class LocalAssistant:
         if self._response_profile == "dual" and not self._fast_model_ready:
             self.log(f"SYS: Fast model '{self._fast_model}' is not pulled; using {model}.")
         if not available:
-            self.log(f"SYS: Pull the configured model with: ollama pull {model}")
+            message = f"The configured Ollama model '{model}' is unavailable. Pull it with: ollama pull {model}."
+            self.log(f"WRN: {message}")
+            try:
+                self.ui.show_content("MODEL UNAVAILABLE", message)
+            except Exception:
+                pass
         return True
 
     def _choose_response_model(self, text: str) -> str:

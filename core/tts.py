@@ -11,7 +11,10 @@ import os
 import threading
 from typing import Callable, Optional
 
-import numpy as np
+try:
+    import numpy as np
+except Exception:
+    np = None
 try:
     import sounddevice as sd
 except Exception:  # PortAudio may be absent on a headless install
@@ -47,24 +50,33 @@ class EdgeTTSEngine:
 
     def __init__(self, voice: str = "Guy"):
         self.voice = _EDGE_VOICES.get(voice, voice if "-" in voice else "en-US-GuyNeural")
+        self._stop_event = threading.Event()
 
     def speak(self, text: str) -> None:
+        self._stop_event.clear()
         async def _run() -> bytes:
             import edge_tts
             communicator = edge_tts.Communicate(text, self.voice)
             buf = bytearray()
             async for chunk in communicator.stream():
+                if self._stop_event.is_set():
+                    return b""
                 if chunk.get("type") == "audio":
                     buf.extend(chunk.get("data", b""))
-            return bytes(buf)
+            return b"" if self._stop_event.is_set() else bytes(buf)
 
         loop = asyncio.new_event_loop()
         try:
             audio = loop.run_until_complete(_run())
         finally:
             loop.close()
-        if audio:
+        if audio and not self._stop_event.is_set():
             _play_audio_bytes(audio)
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if sd is not None:
+            sd.stop()
 
 
 class SystemTTSEngine:
@@ -84,6 +96,7 @@ class TTSPlayer:
     def __init__(self, engine):
         self._engine = engine
         self._playing = False
+        self._cancel_event = threading.Event()
         self._lock = threading.Lock()
 
     @property
@@ -102,17 +115,21 @@ class TTSPlayer:
         try:
             with self._lock:
                 self._playing = True
+                self._cancel_event.clear()
                 engine = self._engine
             if on_start:
                 on_start()
             try:
                 engine.speak(text)
             except Exception as first:
+                if self._cancel_event.is_set():
+                    return
                 # Edge can fail due to a temporary network problem. Do not make
                 # the assistant silent: try the local voice once.
                 print(f"[TTS] Primary engine failed: {first} — using offline fallback")
                 try:
-                    SystemTTSEngine().speak(text)
+                    if not self._cancel_event.is_set():
+                        SystemTTSEngine().speak(text)
                 except Exception as fallback:
                     print(f"[TTS] Offline fallback failed: {fallback}")
         finally:
@@ -125,8 +142,14 @@ class TTSPlayer:
                     pass
 
     def stop(self) -> None:
+        self._cancel_event.set()
         try:
-            if sd is not None:
+            with self._lock:
+                engine = self._engine
+            stop_engine = getattr(engine, "stop", None)
+            if callable(stop_engine):
+                stop_engine()
+            elif sd is not None:
                 sd.stop()
         finally:
             with self._lock:

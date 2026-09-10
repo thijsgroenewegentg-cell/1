@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from core import confirm as confirm_gate
+from core.checkpoints import create as create_file_checkpoint
+from core.operation_checkpoints import record as record_operation_checkpoint
 
 
 PLUGIN = {
@@ -219,6 +221,15 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
         )
     events = _read_events()
     now = datetime.now()
+    checkpoint_note = ""
+    if action in {"add", "remove"}:
+        calendar_file = _calendar_path()
+        if calendar_file.is_file():
+            try:
+                checkpoint = create_file_checkpoint(f"calendar before {action}", [str(calendar_file)])
+                checkpoint_note = f" Checkpoint: {checkpoint['id']}."
+            except Exception as exc:
+                return f"Calendar change stopped: could not create a safety checkpoint ({exc})."
 
     if action == "add":
         title = str(params.get("title", "")).strip()
@@ -244,7 +255,7 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
         }
         events.append(event)
         _write_events(events)
-        result = f"Added: {_format_event(event)}. Calendar file: {_calendar_path()}"
+        result = f"Added: {_format_event(event)}. Calendar file: {_calendar_path()}.{checkpoint_note}"
     elif action == "today":
         chosen = [e for e in events if e["start"].date() == now.date()]
         result = "Today's calendar is empty." if not chosen else "Today:\n" + "\n".join(_format_event(e) for e in chosen)
@@ -260,13 +271,19 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
             target = chosen[0]
             events.remove(target)
             _write_events(events)
-            result = f"Removed: {_format_event(target)}"
+            result = f"Removed: {_format_event(target)}.{checkpoint_note}"
     elif action == "list":
         chosen = [e for e in events if e["start"] >= now - timedelta(minutes=1)]
         result = "The calendar is empty." if not chosen else "Upcoming:\n" + "\n".join(_format_event(e) for e in chosen[:20])
     else:
         return "Unknown calendar action. Use add, list, today, find or remove."
 
+    record_operation_checkpoint(
+        "local_calendar", action, result,
+        changed=action == "add" and result.startswith("Added:")
+                or action == "remove" and result.startswith("Removed:"),
+        recovery=(f"Restore file checkpoint {checkpoint_note.strip().replace('Checkpoint: ', '').rstrip('.')}." if checkpoint_note else "No earlier calendar file existed; remove the event manually if needed."),
+    )
     if player:
         try:
             player.write_log(f"[Calendar] {action}")

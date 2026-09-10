@@ -13,8 +13,9 @@ import socket
 
 _ALLOWED_ACTIONS = {
     "status", "list_objects", "inspect_object", "create_cube", "create_sphere",
-    "create_cylinder", "create_camera", "create_light", "set_transform",
-    "set_material", "add_modifier", "delete_object", "render", "save_blend",
+    "create_cylinder", "create_camera", "create_light", "create_collection",
+    "duplicate_object", "set_transform", "set_active_camera", "look_at",
+    "set_material", "add_modifier", "delete_object", "set_render_settings", "render", "save_blend", "scene_checkpoint", "undo",
 }
 
 

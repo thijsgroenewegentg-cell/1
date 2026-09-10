@@ -31,6 +31,8 @@ import re
 import sys
 import traceback
 from dataclasses import dataclass, field
+
+from core.failure import explain as explain_failure
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -79,7 +81,7 @@ class ActionRegistry:
         except Exception as e:
             self._logger(f"Action '{name}' crashed during run(): {e}")
             traceback.print_exc()
-            return f"Tool '{name}' failed: {e}"
+            return explain_failure(f"Action {name}", e, changed=False)
 
 
 def _call_handler(fn: Callable, parameters: dict, ctx: dict) -> str:

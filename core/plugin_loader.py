@@ -25,6 +25,7 @@ from memory.config_manager import (
     get_plugin_enabled, get_plugin_config, get_plugin_trust_required,
 )
 from core.plugin_installer import trust_status
+from core.failure import explain as explain_failure
 
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
@@ -76,7 +77,7 @@ class PluginRegistry:
         except Exception as e:
             self._logger(f"Plugin '{name}' crashed during run(): {e}")
             traceback.print_exc()
-            return f"Sir, the '{name}' plugin failed: {e}"
+            return explain_failure(f"Plugin {name}", e, changed=False)
 
     # -- called by ui.py's settings tab to render per-plugin config forms --
     def settings_schemas(self) -> list[dict]:

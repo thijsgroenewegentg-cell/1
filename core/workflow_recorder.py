@@ -1,0 +1,201 @@
+"""Safe, user-visible workflow recording and replay state.
+
+Recorded workflows contain tool names and non-sensitive arguments only. Passwords,
+tokens, message bodies, clipboard content and free-form typed text are redacted.
+Replay is delegated to MARK's normal executor so its existing confirmations and
+allowlists remain in force.
+"""
+from __future__ import annotations
+
+import copy
+import json
+import threading
+from datetime import datetime
+from pathlib import Path
+from typing import Callable
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+WORKFLOW_PATH = BASE_DIR / "config" / "workflows.json"
+_SECRET_WORDS = {"password", "passcode", "token", "secret", "credential", "api_key", "cookie", "authorization"}
+_SENSITIVE_ACTIONS = {"type", "smart_type", "paste", "send", "send_message", "email_send"}
+_lock = threading.RLock()
+_active: dict | None = None
+_executor: Callable[[str, dict], str] | None = None
+
+
+def set_executor(fn: Callable[[str, dict], str] | None) -> None:
+    global _executor
+    _executor = fn
+
+
+def _load_all() -> dict:
+    try:
+        value = json.loads(WORKFLOW_PATH.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_all(value: dict) -> None:
+    WORKFLOW_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp = WORKFLOW_PATH.with_suffix(".tmp")
+    temp.write_text(json.dumps(value, indent=2, ensure_ascii=False), encoding="utf-8")
+    temp.replace(WORKFLOW_PATH)
+
+
+def _redact(value, key: str = ""):
+    key_low = key.lower()
+    if any(word in key_low for word in _SECRET_WORDS):
+        return "<redacted>"
+    if isinstance(value, dict):
+        return {str(k): _redact(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact(v, key) for v in value[:50]]
+    if isinstance(value, str) and (key_low in {"text", "message", "message_text", "code", "content"}):
+        return "<redacted>"
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)[:200]
+
+
+def start(name: str) -> str:
+    global _active
+    with _lock:
+        _active = {"name": str(name or "workflow").strip()[:80], "created": datetime.now().isoformat(timespec="seconds"), "steps": []}
+        try:
+            stored = _load_all()
+            stored.pop("__active__", None)
+            _save_all(stored)
+        except Exception:
+            pass
+    return f"Recording started: {_active['name']}. Sensitive text and credentials will be omitted."
+
+
+def is_recording() -> bool:
+    with _lock:
+        return _active is not None
+
+
+def record(tool_name: str, parameters: dict) -> None:
+    global _active
+    with _lock:
+        if _active is None or tool_name in {"workflow_recorder", "task_planner"}:
+            return
+        safe = _redact(copy.deepcopy(parameters or {}))
+        action = str((parameters or {}).get("action", "")).lower()
+        if action in _SENSITIVE_ACTIONS or tool_name in {"send_message", "email_client"}:
+            safe = {"action": action or "<redacted>"}
+        elif tool_name == "save_memory":
+            safe = {"category": safe.get("category", "notes"), "key": safe.get("key", "<redacted>"), "value": "<redacted>"}
+        _active["steps"].append({"tool": str(tool_name), "parameters": safe})
+        _active["steps"] = _active["steps"][-50:]
+        try:
+            # Recording is best-effort and must never block the requested tool.
+            snapshot = copy.deepcopy(_active)
+            all_workflows = _load_all()
+            all_workflows["__active__"] = snapshot
+            _save_all(all_workflows)
+        except Exception:
+            pass
+
+
+def stop() -> dict | None:
+    global _active
+    with _lock:
+        finished = _active
+        _active = None
+        if not finished:
+            return None
+        all_workflows = _load_all()
+        all_workflows.pop("__active__", None)
+        all_workflows[finished["name"]] = finished
+        _save_all(all_workflows)
+        return copy.deepcopy(finished)
+
+
+def names() -> list[str]:
+    with _lock:
+        return sorted(name for name in _load_all() if name != "__active__")
+
+
+def get(name: str) -> dict | None:
+    with _lock:
+        value = _load_all().get(str(name))
+        return copy.deepcopy(value) if isinstance(value, dict) else None
+
+
+def edit_step(name: str, index: int, parameters: dict | None = None, tool_name: str = "") -> str:
+    with _lock:
+        data = _load_all()
+        workflow = data.get(str(name))
+        if not isinstance(workflow, dict):
+            return f"Workflow not found: {name}"
+        steps = workflow.get("steps", [])
+        try:
+            position = int(index) - 1
+        except (TypeError, ValueError):
+            return "Workflow step must be an integer."
+        if position < 0 or position >= len(steps):
+            return "Workflow step does not exist."
+        step = steps[position]
+        if tool_name:
+            step["tool"] = str(tool_name)[:64]
+        if isinstance(parameters, dict):
+            step["parameters"] = _redact(parameters)
+        data[str(name)] = workflow
+        _save_all(data)
+        return describe(name)
+
+
+def delete(name: str) -> bool:
+    with _lock:
+        data = _load_all()
+        existed = str(name) in data
+        data.pop(str(name), None)
+        if existed:
+            _save_all(data)
+        return existed
+
+
+def _contains_redacted(value) -> bool:
+    if value == "<redacted>":
+        return True
+    if isinstance(value, dict):
+        return any(_contains_redacted(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_redacted(item) for item in value)
+    return False
+
+
+def replay(name: str) -> str:
+    workflow = get(name)
+    if not workflow:
+        return f"Workflow not found: {name}"
+    if _executor is None:
+        return "Workflow replay is unavailable until MARK's executor is ready."
+    lines = [f"Replaying workflow '{name}' — each mutating step still requires confirmation."]
+    for index, step in enumerate(workflow.get("steps", []), 1):
+        tool = str(step.get("tool", ""))
+        params = step.get("parameters") if isinstance(step.get("parameters"), dict) else {}
+        if _contains_redacted(params):
+            return f"Replay stopped at step {index}: sensitive input was redacted and must be supplied again."
+        try:
+            result = _executor(tool, dict(params))
+        except Exception as exc:
+            lines.append(f"{index}. {tool}: failed — {exc}")
+            break
+        lines.append(f"{index}. {tool}: {str(result)[:300]}")
+        if "[CONFIRMATION_PENDING]" in str(result):
+            lines.append("Replay is paused until the confirmation is answered; call replay again to continue.")
+            break
+    return "\n".join(lines)
+
+
+def describe(name: str) -> str:
+    workflow = get(name)
+    if not workflow:
+        return f"Workflow not found: {name}"
+    lines = [f"WORKFLOW {name} ({len(workflow.get('steps', []))} steps)"]
+    for i, step in enumerate(workflow.get("steps", []), 1):
+        lines.append(f"{i}. {step.get('tool')} {step.get('parameters', {})}")
+    return "\n".join(lines)

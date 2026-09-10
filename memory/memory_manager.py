@@ -52,6 +52,7 @@ def _empty_memory() -> dict:
         "relationships": {},
         "wishes":        {},
         "notes":         {},
+        "temporary":     {},
     }
 
 def load_memory() -> dict:
@@ -63,8 +64,16 @@ def load_memory() -> dict:
             if isinstance(data, dict):
                 base = _empty_memory()
                 for key in base:
-                    if key not in data:
-                        data[key] = {}
+                    if key not in data or not isinstance(data.get(key), (dict, list)):
+                        data[key] = {} if key != "sessions" else []
+                # Temporary context is useful during a task but should not
+                # silently become permanent memory after its expiry date.
+                today = datetime.now().strftime("%Y-%m-%d")
+                temporary = data.get("temporary", {})
+                if isinstance(temporary, dict):
+                    for key, entry in list(temporary.items()):
+                        if isinstance(entry, dict) and entry.get("expires", "") and str(entry["expires"]) < today:
+                            del temporary[key]
                 return data
             return _empty_memory()
         except Exception as e:
@@ -149,6 +158,10 @@ def _recursive_update(target: dict, updates: dict) -> bool:
         else:
             new_val  = _truncate_value(str(value["value"] if isinstance(value, dict) else value))
             entry    = {"value": new_val, "updated": datetime.now().strftime("%Y-%m-%d")}
+            if isinstance(value, dict):
+                for meta_key in ("scope", "source", "confidence", "expires"):
+                    if value.get(meta_key) not in (None, ""):
+                        entry[meta_key] = str(value[meta_key])[:80]
             existing = target.get(key, {})
             if not isinstance(existing, dict) or existing.get("value") != new_val:
                 target[key] = entry
@@ -185,6 +198,7 @@ _CATEGORY_LABELS = {
     "relationships": "People in their life",
     "wishes":        "Wishes / plans",
     "notes":         "Notes",
+    "temporary":     "Temporary task context",
 }
 
 _IDENTITY_FIELDS = ["name", "age", "birthday", "city", "job",
@@ -239,6 +253,16 @@ def format_memory_for_prompt(memory: dict | None) -> str:
         val = _entry_value(entry)
         if val:
             core_lines.append(f"{_pretty(key).title()}: {val}")
+
+    # Episodic context is deliberately short and date-labelled. It helps MARK
+    # resume a project without turning a previous conversation into a standing
+    # instruction; users can clear it through memory_control.
+    sessions = memory.get("sessions", [])
+    if isinstance(sessions, list):
+        for session in sessions[-2:]:
+            if isinstance(session, dict) and session.get("summary"):
+                date = str(session.get("date", "recent"))
+                core_lines.append(f"Recent session ({date}): {str(session['summary'])[:280]}")
 
     # 2. Everything else, most recently updated first
     rest: list[tuple[str, str, str, str]] = []   # (updated, cat, key, value)
@@ -342,6 +366,9 @@ def _score(query_words: list[str], cat: str, key: str, value: str) -> int:
             score += 6
         if w in hay_val:
             score += 3
+        value_words = set(re.findall(r"[\w-]+", hay_val))
+        if any(token.startswith(w) or w.startswith(token) for token in value_words if len(token) > 2):
+            score += 1
         if w in cat:
             score += 1
     return score
@@ -357,8 +384,20 @@ def search_memory(query: str, limit: int = 8) -> str:
 
     rows: list[tuple[int, str, str, str]] = []
     for cat, items in memory.items():
+        if cat == "sessions" and isinstance(items, list):
+            for position, entry in enumerate(items):
+                if not isinstance(entry, dict):
+                    continue
+                key = str(entry.get("date", f"session_{position}"))
+                val = str(entry.get("summary", "")).strip()
+                if not val:
+                    continue
+                s = _score(words, cat, key, val) if words else 1
+                if s > 0:
+                    rows.append((s, "episodic", key, val))
+            continue
         if not isinstance(items, dict):
-            continue                     # skip 'sessions', which is a list
+            continue
         for key, entry in items.items():
             val = _entry_value(entry)
             if not val:
@@ -386,6 +425,13 @@ def all_entries_for_ui() -> list[dict]:
     memory = load_memory()
     rows = []
     for cat, items in memory.items():
+        if cat == "sessions" and isinstance(items, list):
+            for position, entry in enumerate(items):
+                if isinstance(entry, dict) and entry.get("summary"):
+                    rows.append({"category": "episodic", "key": str(entry.get("date", f"session_{position}")),
+                                 "value": str(entry["summary"]), "updated": str(entry.get("date", "")),
+                                 "scope": "episodic", "expires": ""})
+            continue
         if not isinstance(items, dict):
             continue
         for key, entry in items.items():
@@ -397,12 +443,14 @@ def all_entries_for_ui() -> list[dict]:
                 "key":      key,
                 "value":    val,
                 "updated":  (entry.get("updated", "") if isinstance(entry, dict) else ""),
+                "scope":    (entry.get("scope", cat) if isinstance(entry, dict) else cat),
+                "expires":  (entry.get("expires", "") if isinstance(entry, dict) else ""),
             })
     rows.sort(key=lambda r: (r["updated"] or "0000-00-00"), reverse=True)
     return rows
 
 def remember(key: str, value: str, category: str = "notes") -> str:
-    valid = {"identity", "preferences", "projects", "relationships", "wishes", "notes"}
+    valid = {"identity", "preferences", "projects", "relationships", "wishes", "notes", "temporary"}
     if category not in valid:
         category = "notes"
     update_memory({category: {key: {"value": value}}})
@@ -411,8 +459,16 @@ def remember(key: str, value: str, category: str = "notes") -> str:
 
 def forget(key: str, category: str = "notes") -> str:
     memory = load_memory()
+    if category in {"episodic", "sessions"}:
+        sessions = memory.get("sessions", [])
+        kept = [entry for entry in sessions if not (isinstance(entry, dict) and str(entry.get("date", "")) == str(key))]
+        if len(kept) != len(sessions):
+            memory["sessions"] = kept
+            save_memory(memory)
+            return f"Forgotten: episodic/{key}"
+        return f"Not found: episodic/{key}"
     cat    = memory.get(category, {})
-    if key in cat:
+    if isinstance(cat, dict) and key in cat:
         del cat[key]
         memory[category] = cat
         save_memory(memory)

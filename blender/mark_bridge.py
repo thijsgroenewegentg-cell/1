@@ -210,6 +210,58 @@ def _create_light(params):
     return {"name": obj.name, "type": obj.type, "light_type": light_type}
 
 
+def _create_collection(params):
+    name = str(params.get("collection_name") or params.get("object_name") or "MARK_Collection").strip()[:128]
+    collection = bpy.data.collections.new(name or "MARK_Collection")
+    bpy.context.scene.collection.children.link(collection)
+    return {"collection": collection.name}
+
+
+def _duplicate_object(params):
+    obj = _object(params.get("object_name"))
+    if obj is None:
+        raise ValueError("Named Blender object was not found.")
+    copy = obj.copy()
+    if getattr(obj, "data", None) is not None:
+        copy.data = obj.data.copy()
+    name = str(params.get("new_name") or f"{obj.name}_copy").strip()[:128]
+    copy.name = name or copy.name
+    collection = bpy.data.collections.get(str(params.get("collection_name") or ""))
+    (collection or bpy.context.scene.collection).objects.link(copy)
+    from mathutils import Vector
+    copy.location = obj.location + Vector((1.0, 0.0, 0.0))
+    bpy.context.view_layer.objects.active = copy
+    copy.select_set(True)
+    return {"source": obj.name, "duplicate": copy.name}
+
+
+def _set_active_camera(params):
+    obj = _object(params.get("object_name"))
+    if obj is None or obj.type != "CAMERA":
+        raise ValueError("Named camera object was not found.")
+    bpy.context.scene.camera = obj
+    return {"camera": obj.name}
+
+
+def _look_at(params):
+    obj = _object(params.get("object_name"))
+    if obj is None:
+        raise ValueError("Named Blender object was not found.")
+    target = _object(params.get("target_name"))
+    if target is not None:
+        point = target.location
+    else:
+        values = params.get("target_location")
+        point = _vec(values, (0.0, 0.0, 0.0))
+        from mathutils import Vector
+        point = Vector(point)
+    direction = point - obj.location
+    if direction.length == 0:
+        raise ValueError("Object and target cannot be at the same location.")
+    obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    return {"object": obj.name, "target": target.name if target else list(point)}
+
+
 def _add_modifier(params):
     obj = _object(params.get("object_name"))
     if obj is None:
@@ -249,7 +301,9 @@ def _set_transform(params):
         obj.rotation_euler = _vec(params.get("rotation"), obj.rotation_euler)
     if "scale" in params:
         obj.scale = _vec(params.get("scale"), obj.scale)
-    return {"name": obj.name, "location": list(obj.location), "rotation": list(obj.rotation_euler), "scale": list(obj.scale)}
+    if "dimensions" in params:
+        obj.dimensions = _vec(params.get("dimensions"), obj.dimensions)
+    return {"name": obj.name, "location": list(obj.location), "rotation": list(obj.rotation_euler), "scale": list(obj.scale), "dimensions": list(obj.dimensions)}
 
 
 def _color(value):
@@ -296,9 +350,74 @@ def _delete_object(params):
     return {"deleted": name}
 
 
+def _set_render_settings(params):
+    scene = bpy.context.scene
+    engine = str(params.get("engine") or "").upper().strip()
+    if engine:
+        allowed = {"BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "BLENDER_WORKBENCH", "CYCLES"}
+        if engine not in allowed:
+            raise ValueError("Render engine is not allowlisted.")
+        try:
+            scene.render.engine = engine
+        except Exception as exc:
+            raise ValueError(f"Render engine is unavailable in this Blender build: {engine}") from exc
+    resolution = params.get("resolution")
+    if isinstance(resolution, (list, tuple)) and len(resolution) == 2:
+        try:
+            scene.render.resolution_x = max(16, min(8192, int(resolution[0])))
+            scene.render.resolution_y = max(16, min(8192, int(resolution[1])))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("resolution must contain two integers.") from exc
+    if params.get("samples") is not None:
+        samples = max(1, min(4096, int(params["samples"])))
+        if hasattr(scene, "cycles"):
+            scene.cycles.samples = samples
+        if hasattr(scene, "eevee") and hasattr(scene.eevee, "taa_render_samples"):
+            scene.eevee.taa_render_samples = samples
+    image_format = str(params.get("format") or "").upper().strip()
+    if image_format:
+        if image_format not in {"PNG", "JPEG", "OPEN_EXR"}:
+            raise ValueError("format must be PNG, JPEG or OPEN_EXR.")
+        scene.render.image_settings.file_format = image_format
+    return {
+        "engine": scene.render.engine,
+        "resolution": [scene.render.resolution_x, scene.render.resolution_y],
+        "format": scene.render.image_settings.file_format,
+    }
+
+
 def _render(params):
+    raw = str(params.get("path") or "").strip()
+    if raw:
+        path = Path(raw).expanduser().resolve()
+        try:
+            path.relative_to(Path.home().resolve())
+        except ValueError as exc:
+            raise ValueError("Render paths must stay under the user home folder.") from exc
+        if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".exr"}:
+            raise ValueError("Render path must end in .png, .jpg, .jpeg or .exr.")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        old_path = bpy.context.scene.render.filepath
+        old_format = bpy.context.scene.render.image_settings.file_format
+        suffix_format = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".exr": "OPEN_EXR"}[path.suffix.lower()]
+        try:
+            bpy.context.scene.render.filepath = str(path)
+            bpy.context.scene.render.image_settings.file_format = suffix_format
+            bpy.ops.render.render(write_still=True)
+        finally:
+            bpy.context.scene.render.filepath = old_path
+            bpy.context.scene.render.image_settings.file_format = old_format
+        return {"rendered": True, "scene": bpy.context.scene.name, "path": str(path)}
     bpy.ops.render.render(write_still=False)
     return {"rendered": True, "scene": bpy.context.scene.name}
+
+
+def _undo(params):
+    try:
+        bpy.ops.ed.undo()
+    except Exception as exc:
+        raise RuntimeError(f"Blender undo was unavailable: {exc}") from exc
+    return {"undone": True, "scene": bpy.context.scene.name}
 
 
 def _save_blend(params):
@@ -331,12 +450,19 @@ def _execute(request: dict) -> dict:
         "create_cylinder": lambda p: _create_primitive(p, "cylinder"),
         "create_camera": _create_camera,
         "create_light": _create_light,
+        "create_collection": _create_collection,
+        "duplicate_object": _duplicate_object,
         "set_transform": _set_transform,
+        "set_active_camera": _set_active_camera,
+        "look_at": _look_at,
         "set_material": _set_material,
         "add_modifier": _add_modifier,
         "delete_object": _delete_object,
+        "set_render_settings": _set_render_settings,
         "render": _render,
         "save_blend": _save_blend,
+        "scene_checkpoint": _save_blend,
+        "undo": _undo,
     }
     handler = handlers.get(action)
     if handler is None:

@@ -1,6 +1,6 @@
 {
   "blender_control": {
-    "sha256": "d4d9e6a68979fb715928f6b4b826c26c366df9e04777476635e763af3b22dba4"
+    "sha256": "78e7d6f87ec38eb10be1627862c2680145ab2b4d26a430100adbd5cb426dbc28"
   },
   "email_client": {
     "sha256": "f27a2fb6ac3cc33bf05f5c2674d73f60897ef0556de6271071c6e326a2427c1c"
@@ -9,7 +9,7 @@
     "sha256": "e9fca5736c575515c949f8e25c0045438c0c733ed11f644704e6ed0aca2a8e22"
   },
   "local_calendar": {
-    "sha256": "ebd9fd8ec3d35733ebcebe5c622157e349d0a0f4b73284b804bc4fd3b1770044"
+    "sha256": "d51331f2cb815d571ffa6d51e72d81092e7ae4bba600a3f910e0f9168a0644a5"
   },
   "media_control": {
     "sha256": "261b905f14425e8fe6377b76bc8c9a23a90ec1c9200ad4edcd072b5934acbe6f"
