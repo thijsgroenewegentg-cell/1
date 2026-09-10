@@ -1,0 +1,792 @@
+"""MARK — local Ollama desktop assistant.
+
+This is the Ollama edition of Mark-LII/Mark-LIII. The original live-session
+loop depended on Gemini's cloud-only audio API. Ollama is text/tool/vision
+inference, so this entry point uses three local, replaceable pieces instead:
+
+* Ollama /api/chat for conversation and function calling
+* faster-whisper for local microphone transcription
+* Edge TTS (with an offline pyttsx3 fallback) for spoken replies
+
+The PyQt HUD remains the interface. All bundled actions and plugins are still
+auto-discovered; their model calls are routed through core.llm_client.Model.
+"""
+from __future__ import annotations
+
+import json
+import os
+import queue
+import re
+import sys
+import threading
+import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+# A few Windows actions launch subprocesses. Hide their console windows just
+# like the upstream application did.
+if sys.platform == "win32":
+    import subprocess as _subprocess
+    _original_popen = _subprocess.Popen
+
+    class _HiddenPopen(_original_popen):
+        def __init__(self, args, **kwargs):
+            kwargs["creationflags"] = kwargs.get("creationflags", 0) | _subprocess.CREATE_NO_WINDOW
+            kwargs.pop("startupinfo", None)
+            super().__init__(args, **kwargs)
+
+    _subprocess.Popen = _HiddenPopen
+
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+from memory.memory_manager import (
+    format_memory_for_prompt,
+    load_memory,
+    pop_last_session,
+    save_session_summary,
+    search_memory,
+    set_trim_notifier,
+    update_memory,
+)
+from memory.config_manager import (
+    get_assistant_name,
+    get_brief_enabled,
+    get_input_device,
+    get_output_device,
+    get_voice,
+    get_wake_word_enabled,
+    save_wake_word_enabled,
+)
+from core import confirm as confirm_gate
+from core import undo as undo_stack
+from core.action_loader import discover_actions
+from core.audio_devices import resolve as resolve_audio_device, configure as configure_audio_devices
+from core.llm_client import (
+    call_llm,
+    call_llm_text,
+    check_model_available,
+    get_llm_settings,
+    get_num_ctx,
+    get_stt_model,
+    get_tts_engine,
+    get_tts_voice,
+    get_vision_model,
+    ensure_ollama_running,
+    to_ollama_tools,
+)
+from core.plugin_loader import discover_plugins
+from core.stt import WhisperSTT
+from core.tts import EdgeTTSEngine, SystemTTSEngine, TTSPlayer
+from actions.screen_processor import _capture_camera, _capture_screen
+from actions.system_monitor import SystemMonitor, get_system_status
+from actions.proactive import ProactiveEngine
+from actions.background_monitor import (
+    add_monitor,
+    check_all as monitor_check_all,
+    list_monitors,
+    remove_monitor,
+)
+from actions.web_search import _news as fetch_news
+
+
+BASE_DIR = Path(__file__).resolve().parent
+PROMPT_PATH = BASE_DIR / "core" / "prompt.txt"
+SEND_SAMPLE_RATE = 16_000
+CHANNELS = 1
+CHUNK_SIZE = 1024
+RECEIVE_SAMPLE_RATE = 24_000
+
+# Basic VAD. The threshold is deliberately conservative; a Whisper VAD pass
+# still filters the captured phrase after this gate has decided it is speech.
+_VAD_START = 0.012
+_VAD_STOP = 0.008
+_SILENCE_FRAMES = 12       # ~0.75 s with a 1024-frame block
+_MAX_UTTERANCE_SEC = 20.0
+
+
+# ── Tool declarations tied to the running assistant ──────────────────────────
+INLINE_TOOLS = [
+    {
+        "name": "system_status",
+        "description": "Return current CPU, RAM, GPU, temperature, uptime and process metrics.",
+        "parameters": {"type": "OBJECT", "properties": {}, "required": []},
+    },
+    {
+        "name": "screen_process",
+        "description": (
+            "Capture and inspect the user's screen or webcam. MUST use this when the user asks "
+            "what is on screen, asks you to look at something, or asks about the camera. "
+            "The image is analysed by the local vision model; never guess without using this tool."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "angle": {"type": "STRING", "description": "screen or camera; defaults to screen"},
+                "text": {"type": "STRING", "description": "Question to answer about the image"},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "close_camera",
+        "description": "Close the live camera preview if one is open.",
+        "parameters": {"type": "OBJECT", "properties": {}, "required": []},
+    },
+    {
+        "name": "manage_monitor",
+        "description": "Add, remove or list daily background news monitoring topics.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "add, remove or list"},
+                "topic": {"type": "STRING", "description": "Topic to monitor or remove"},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "shutdown_jarvis",
+        "description": "Stop the MARK assistant. This always requires the user to confirm on screen.",
+        "parameters": {"type": "OBJECT", "properties": {}, "required": []},
+    },
+    {
+        "name": "save_memory",
+        "description": (
+            "Silently save an important personal fact: identity, preferences, projects, "
+            "relationships, wishes or notes. Do not save one-time commands or weather."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "category": {"type": "STRING", "description": "identity, preferences, projects, relationships, wishes or notes"},
+                "key": {"type": "STRING", "description": "Short snake_case key"},
+                "value": {"type": "STRING", "description": "Concise value"},
+            },
+            "required": ["category", "key", "value"],
+        },
+    },
+    {
+        "name": "recall_memory",
+        "description": "Search local long-term memory before saying you do not know a personal fact.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {"query": {"type": "STRING", "description": "Keyword, category, or empty for all"}},
+            "required": [],
+        },
+    },
+    {
+        "name": "undo",
+        "description": "Undo the last reversible change MARK made, or list available undo entries.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {"action": {"type": "STRING", "description": "undo or list"}},
+            "required": [],
+        },
+    },
+]
+
+
+def _load_prompt() -> str:
+    try:
+        return PROMPT_PATH.read_text(encoding="utf-8")
+    except Exception:
+        return (
+            "You are MARK, a local personal AI assistant. Be concise and direct. "
+            "Use tools instead of pretending an action happened."
+        )
+
+
+def _clean_transcript(text: str) -> str:
+    text = re.sub(r"<ctrl\d+>", "", text or "", flags=re.IGNORECASE)
+    text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
+    return text.strip()
+
+
+def _pcm_level(samples: np.ndarray) -> float:
+    try:
+        x = np.asarray(samples, dtype=np.float32)
+        if x.size == 0:
+            return 0.0
+        if np.issubdtype(x.dtype, np.integer):
+            x = x / 32768.0
+        rms = float(np.sqrt(np.mean(x * x)))
+        return min(1.0, max(0.0, rms * 8.0))
+    except Exception:
+        return 0.0
+
+
+def _tool_name(tool_call: dict) -> str:
+    fn = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+    return str(fn.get("name") or tool_call.get("name") or "")
+
+
+def _tool_args(tool_call: dict) -> dict:
+    fn = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+    args = fn.get("arguments", tool_call.get("arguments", {}))
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:
+            args = {}
+    return dict(args or {}) if isinstance(args, dict) else {}
+
+
+def _assistant_tool_message(content: str, calls: list[dict]) -> dict:
+    """Build the Ollama assistant message that precedes role=tool messages."""
+    return {
+        "role": "assistant",
+        "content": content or "",
+        "tool_calls": calls,
+    }
+
+
+class MicrophoneListener:
+    """Small VAD + Whisper adapter running away from both Qt and Ollama."""
+
+    def __init__(self, owner: "LocalAssistant"):
+        self.owner = owner
+        self.stop_event = threading.Event()
+        self.frames: queue.Queue[np.ndarray] = queue.Queue(maxsize=100)
+        self.thread: threading.Thread | None = None
+        self._stt: WhisperSTT | None = None
+        self._stt_failed = False
+
+    def start(self) -> None:
+        self.thread = threading.Thread(target=self._run, daemon=True, name="mark-microphone")
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.stop_event.set()
+
+    def _run(self) -> None:
+        try:
+            import sounddevice as sd
+            device_name = get_input_device()
+            device = resolve_audio_device(device_name, "input")
+            if device is not None:
+                self.owner.log(f"SYS: Microphone: {device_name}")
+
+            def callback(indata, frames, timing, status):
+                if status:
+                    print(f"[Audio] {status}")
+                try:
+                    self.frames.put_nowait(np.asarray(indata[:, 0], dtype=np.float32).copy())
+                except queue.Full:
+                    pass
+
+            stream = sd.InputStream(
+                samplerate=SEND_SAMPLE_RATE,
+                channels=CHANNELS,
+                dtype="float32",
+                blocksize=CHUNK_SIZE,
+                device=device,
+                callback=callback,
+            )
+            with stream:
+                self.owner.log("SYS: Microphone ready — listening.")
+                self._consume()
+        except Exception as e:
+            self.owner.log(f"WRN: Microphone unavailable — text input still works ({e})")
+            print(f"[Audio] microphone disabled: {e}")
+
+    def _consume(self) -> None:
+        recording: list[np.ndarray] = []
+        silent = 0
+        started_at = 0.0
+
+        while not self.stop_event.is_set():
+            try:
+                frame = self.frames.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            # Never feed the assistant's own TTS back into Whisper.
+            if self.owner.is_busy:
+                recording.clear()
+                silent = 0
+                continue
+
+            level = _pcm_level(frame)
+            try:
+                self.owner.ui.set_audio_level(level)
+            except Exception:
+                pass
+
+            if not recording:
+                if level >= _VAD_START:
+                    recording = [frame]
+                    silent = 0
+                    started_at = time.monotonic()
+                continue
+
+            recording.append(frame)
+            if level < _VAD_STOP:
+                silent += 1
+            else:
+                silent = 0
+
+            elapsed = time.monotonic() - started_at
+            if silent >= _SILENCE_FRAMES or elapsed >= _MAX_UTTERANCE_SEC:
+                audio = np.concatenate(recording)
+                recording.clear()
+                silent = 0
+                if len(audio) >= SEND_SAMPLE_RATE * 0.25:
+                    self._transcribe(audio)
+
+    def _transcribe(self, audio: np.ndarray) -> None:
+        if self._stt_failed:
+            return
+        try:
+            if self._stt is None:
+                self.owner.log(f"SYS: Loading Whisper '{get_stt_model()}' (first voice command)…")
+                self._stt = WhisperSTT(model_name=get_stt_model())
+            text = _clean_transcript(self._stt.transcribe(audio))
+            if text:
+                self.owner.submit_command(text, already_logged=False)
+        except Exception as e:
+            self._stt_failed = True
+            self.owner.log(f"ERR: Voice transcription disabled: {e}")
+
+
+class LocalAssistant:
+    def __init__(self, ui: JarvisUI):
+        self.ui = ui
+        self.stop_event = threading.Event()
+        self.command_queue: queue.Queue[tuple[str, bool]] = queue.Queue()
+        self._speaking = threading.Event()
+        self._thinking = threading.Event()
+        self._messages: list[dict] = []
+        self._session_log: list[str] = []
+        self._audio: MicrophoneListener | None = None
+        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mark-tool")
+        self._last_user_speech = time.monotonic()
+        self._system_monitor = SystemMonitor()
+        self._proactive = ProactiveEngine()
+        self._wake_enabled = bool(get_wake_word_enabled())
+        self._awake = True
+
+        # Wire UI callbacks before action discovery so a plugin can use the HUD.
+        self.ui.on_text_command = self._on_ui_text
+        self.ui.on_interrupt = self.interrupt
+        self.ui.on_voice_change = self._on_voice_change
+        self.ui.on_audio_device_change = self._on_audio_device_change
+        self.ui.on_remote_clicked = self._remote_unavailable
+        self.ui.request_say = self.say_async
+
+        self._inline_names = {t["name"] for t in INLINE_TOOLS}
+        self._action_registry = discover_actions(
+            BASE_DIR / "actions",
+            reserved_names=self._inline_names,
+            logger=lambda msg: (print(f"[Actions] {msg}"), self.log(f"SYS: {msg}")),
+        )
+        self._plugin_registry = discover_plugins(
+            BASE_DIR / "plugins",
+            core_tool_names=self._inline_names | self._action_registry.names(),
+            logger=lambda msg: (print(f"[Plugins] {msg}"), self.log(f"SYS: {msg}")),
+        )
+        self.ui.get_plugins = self._plugin_registry.list_for_ui
+        self.ui.get_plugin_settings = self._plugin_registry.settings_schemas
+
+        self._tool_declarations = (
+            INLINE_TOOLS
+            + self._action_registry.get_tool_declarations()
+            + self._plugin_registry.get_tool_declarations()
+        )
+        self._tools = to_ollama_tools(self._tool_declarations)
+        self._tool_names = {t["function"]["name"] for t in self._tools}
+        self._tts = self._make_tts()
+
+        # Wake-word controls stay opt-in. core.wake_word can be installed from
+        # the original settings drawer; normal Ollama operation never needs it.
+        self.ui.wake_get_state = lambda: {
+            "enabled": self._wake_enabled,
+            "awake": self._awake,
+            "ready": False,
+        }
+        self.ui.on_wake_toggle = self._toggle_wake
+        self.ui.on_wake_manual = self._toggle_awake
+
+        confirm_gate.bind(self.ui.show_confirm, self.ui.hide_confirm, self.ui.write_log)
+        set_trim_notifier(self.ui.write_log)
+
+    @property
+    def is_busy(self) -> bool:
+        return self._speaking.is_set() or self._thinking.is_set()
+
+    def log(self, text: str) -> None:
+        print(text)
+        try:
+            self.ui.write_log(text)
+        except Exception:
+            pass
+
+    def _make_tts(self) -> TTSPlayer:
+        if get_tts_engine() in {"system", "pyttsx3", "offline"}:
+            return TTSPlayer(SystemTTSEngine())
+        return TTSPlayer(EdgeTTSEngine(get_tts_voice() or get_voice()))
+
+    # ── settings / callbacks ──────────────────────────────────────────────
+    def _on_ui_text(self, text: str) -> None:
+        self.submit_command(text, already_logged=True)
+
+    def submit_command(self, text: str, already_logged: bool = False) -> None:
+        text = _clean_transcript(text)
+        if text:
+            self.command_queue.put((text, already_logged))
+
+    def interrupt(self) -> None:
+        self._tts.stop()
+        self._speaking.clear()
+        self.ui.set_state("LISTENING")
+        self.log("SYS: Speech interrupted.")
+
+    def _on_voice_change(self) -> None:
+        # The settings panel stores the friendly voice name in config.
+        self._tts.replace_engine(EdgeTTSEngine(get_voice()))
+        self.log(f"SYS: Voice set to {get_voice()}.")
+
+    def _on_audio_device_change(self) -> None:
+        self.log("SYS: Audio device changes apply to the next microphone stream.")
+
+    def _remote_unavailable(self):
+        self.log("SYS: Remote dashboard is not enabled in the local-only build.")
+        return None
+
+    def _toggle_wake(self, enabled: bool) -> str:
+        if enabled:
+            self.log("SYS: Wake word is optional and requires the openwakeword model download.")
+            return "need_download"
+        self._wake_enabled = False
+        self._awake = True
+        save_wake_word_enabled(False)
+        return "disabled"
+
+    def _toggle_awake(self) -> None:
+        if not self._wake_enabled:
+            return
+        self._awake = not self._awake
+        self.ui.set_state("LISTENING" if self._awake else "SLEEPING")
+
+    # ── prompt / conversation ─────────────────────────────────────────────
+    def _build_system_prompt(self) -> str:
+        cfg = {}
+        try:
+            cfg = json.loads((BASE_DIR / "config" / "api_keys.json").read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        name = (cfg.get("assistant_name") or "MARK").strip()
+        user = (cfg.get("user_name") or "").strip()
+        address = f"Address the user as {user}." if user else "Address the user respectfully."
+        now = datetime.now().strftime("%A, %B %d, %Y — %I:%M %p")
+        memory = format_memory_for_prompt(load_memory())
+        prompt = _load_prompt()
+        return (
+            f"You are {name}, a capable local desktop assistant. {address}\n"
+            f"Current local date and time: {now}.\n\n"
+            "You run through Ollama, not a cloud API. Answer in the language the user uses. "
+            "Be concise and natural because your response is spoken aloud. "
+            "Never claim a tool action succeeded until you have received its tool result. "
+            "Use screen_process for anything visual. Use web_search for current facts. "
+            "Use save_memory silently for durable personal facts and recall_memory before "
+            "saying you do not know a personal fact. If a tool fails, say so honestly.\n\n"
+            f"{memory}\n\n{prompt}"
+        )
+
+    def _reset_messages(self) -> None:
+        self._messages = [{"role": "system", "content": self._build_system_prompt()}]
+
+    def _trim_messages(self) -> None:
+        # Keep the system prompt and the last 24 messages. Tool results can be
+        # large; Ollama's context remains bounded and responsive.
+        if len(self._messages) > 25:
+            self._messages = [self._messages[0]] + self._messages[-24:]
+
+    def process_command(self, text: str, already_logged: bool) -> None:
+        if self._wake_enabled and not self._awake:
+            self.log("SYS: Assistant is asleep — wake it from the settings drawer first.")
+            return
+
+        if not already_logged:
+            self.log(f"You: {text}")
+        self._session_log.append(f"User: {text}")
+        self._last_user_speech = time.monotonic()
+        self._thinking.set()
+        self.ui.set_state("THINKING")
+
+        if not self._messages:
+            self._reset_messages()
+        self._messages.append({"role": "user", "content": text})
+        self._trim_messages()
+
+        try:
+            final_text = ""
+            for _round in range(6):
+                response = call_llm(self._messages, tools=self._tools, timeout=300)
+                content = (response.get("content") or "").strip()
+                calls = response.get("tool_calls") or []
+
+                if not calls:
+                    final_text = content or "I’m ready."
+                    self._messages.append({"role": "assistant", "content": final_text})
+                    break
+
+                self._messages.append(_assistant_tool_message(content, calls))
+                for call in calls:
+                    name = _tool_name(call)
+                    args = _tool_args(call)
+                    result = self.execute_tool(name, args)
+                    self._messages.append({
+                        "role": "tool",
+                        "name": name,
+                        "content": str(result),
+                    })
+                self._trim_messages()
+            else:
+                final_text = "I reached the tool-call limit for that request."
+
+            final_text = re.sub(r"<\|.*?\|>", "", final_text, flags=re.DOTALL).strip()
+            if final_text:
+                self.log(f"{get_assistant_name()}: {final_text}")
+                self._session_log.append(f"{get_assistant_name()}: {final_text}")
+                self.speak(final_text)
+        except Exception as e:
+            traceback.print_exc()
+            self.log(f"ERR: Ollama request failed — {e}")
+            self.speak(f"I could not reach the local Ollama model. {e}")
+        finally:
+            self._thinking.clear()
+            if not self._speaking.is_set():
+                self.ui.set_state("LISTENING")
+
+    def speak(self, text: str) -> None:
+        if not text:
+            return
+        self._speaking.set()
+        self.ui.set_state("SPEAKING")
+        try:
+            self._tts.speak(text)
+        finally:
+            self._speaking.clear()
+            if not self.stop_event.is_set():
+                self.ui.set_state("LISTENING")
+
+    def say_async(self, text: str) -> None:
+        if text:
+            threading.Thread(target=self.speak, args=(text,), daemon=True).start()
+
+    # ── tools ───────────────────────────────────────────────────────────────
+    def execute_tool(self, name: str, args: dict) -> str:
+        self.log(f"[Tool] {name} {args}")
+        try:
+            if name == "save_memory":
+                category = args.get("category", "notes")
+                key = str(args.get("key", "")).strip()
+                value = str(args.get("value", "")).strip()
+                if not key or not value:
+                    return "Memory was not saved: key and value are required."
+                update_memory({category: {key: {"value": value}}})
+                return "Memory saved silently."
+
+            if name == "recall_memory":
+                return search_memory(str(args.get("query", "")), limit=8)
+
+            if name == "undo":
+                if str(args.get("action", "")).lower() == "list":
+                    items = undo_stack.history()
+                    return "Nothing is currently undoable." if not items else "Undo history:\n" + "\n".join(items)
+                return undo_stack.undo_last()
+
+            if name == "system_status":
+                return str(get_system_status())
+
+            if name == "screen_process":
+                angle = str(args.get("angle", "screen")).lower()
+                question = str(args.get("text", "What do you see?"))
+                image, mime = _capture_camera() if angle == "camera" else _capture_screen()
+                if angle == "camera":
+                    self.ui.start_camera_stream()
+                vision_prompt = (
+                    "You are MARK's local vision module. Answer the user's question about "
+                    "the supplied image accurately. Describe only what is visible; if unsure, "
+                    "say so. Be concise because the answer will be spoken.\n\nUser question: "
+                    + question
+                )
+                result = call_llm_text(
+                    vision_prompt,
+                    model=get_vision_model(),
+                    images=[image],
+                    num_predict=500,
+                    timeout=300,
+                )
+                self.ui.show_content(f"VISION — {angle}", result)
+                if angle == "camera":
+                    # Leave the preview visible briefly, then return to the HUD.
+                    threading.Timer(3.0, self.ui.stop_camera_stream).start()
+                return result or "The vision model returned no description."
+
+            if name == "close_camera":
+                self.ui.stop_camera_stream()
+                return "Camera closed."
+
+            if name == "manage_monitor":
+                action = str(args.get("action", "")).lower().strip()
+                topic = str(args.get("topic", "")).strip()
+                if action == "add" and topic:
+                    return str(add_monitor(topic))
+                if action == "remove" and topic:
+                    return str(remove_monitor(topic))
+                if action == "list":
+                    topics = list_monitors()
+                    return "Monitoring: " + ", ".join(topics) if topics else "No topics are being monitored."
+                return "Use action add, remove or list."
+
+            if name == "shutdown_jarvis":
+                return confirm_gate.request(
+                    "Stop MARK",
+                    "Close the local assistant and end this session?",
+                    self.stop,
+                )
+
+            if self._action_registry.has(name):
+                if name == "file_processor" and not args.get("file_path") and self.ui.current_file:
+                    args["file_path"] = self.ui.current_file
+                ctx = {
+                    "player": self.ui,
+                    "speak": self.say_async,
+                    "response": None,
+                    "session_memory": self._session_log,
+                }
+                result = self._action_registry.run(name, args, ctx)
+                if name == "web_search" and result and not str(result).startswith("Search failed"):
+                    query = args.get("query") or ", ".join(args.get("items", []))
+                    self.ui.show_content(f"{args.get('mode', 'search').upper()} — {query}", str(result))
+                return result or "Done."
+
+            if self._plugin_registry.has(name):
+                return self._plugin_registry.run(name, args, player=self.ui,
+                                                 session_memory=self._session_log)
+            return f"Unknown tool: {name}"
+        except Exception as e:
+            traceback.print_exc()
+            self.log(f"ERR: Tool {name} failed — {e}")
+            return f"Tool '{name}' failed: {e}"
+
+    # ── lifecycle ───────────────────────────────────────────────────────────
+    def _check_server(self) -> bool:
+        url, model = get_llm_settings()
+        self.log(f"SYS: Ollama endpoint: {url}")
+        if not ensure_ollama_running():
+            self.log("ERR: Ollama is unavailable. Install it from https://ollama.com and run it.")
+            return False
+        available = check_model_available(self.ui.write_log)
+        if not available:
+            self.log(f"SYS: Pull the configured model with: ollama pull {model}")
+        return True
+
+    def _startup_briefing(self) -> None:
+        if not get_brief_enabled() or self._wake_enabled:
+            return
+        # Avoid making startup dependent on a second model request. The news
+        # fetch runs only after the assistant is online and remains optional.
+        memory = load_memory()
+        identity = memory.get("identity", {}) if isinstance(memory, dict) else {}
+        lang_entry = identity.get("language", {}) if isinstance(identity, dict) else {}
+        lang = lang_entry.get("value", "") if isinstance(lang_entry, dict) else str(lang_entry)
+        name_entry = identity.get("name", {}) if isinstance(identity, dict) else {}
+        user_name = name_entry.get("value", "") if isinstance(name_entry, dict) else str(name_entry)
+        greeting = f"Good {self._day_part()}, sir. I’m online and ready."
+        if user_name:
+            greeting = f"Good {self._day_part()}, {user_name}. I’m online and ready."
+        if lang:
+            greeting += f" Continue in the language you prefer, currently remembered as {lang}."
+        self.speak(greeting)
+
+    @staticmethod
+    def _day_part() -> str:
+        hour = datetime.now().hour
+        return "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
+
+    def _save_summary(self) -> None:
+        if len(self._session_log) < 2:
+            return
+        convo = "\n".join(self._session_log[-30:])
+        try:
+            summary = call_llm_text(
+                "Summarize this assistant conversation in one or two concise sentences. "
+                "Output only the summary.\n\n" + convo,
+                num_predict=180,
+                timeout=120,
+            )
+            if summary:
+                save_session_summary(summary, "English")
+        except Exception as e:
+            print(f"[Memory] summary failed: {e}")
+
+    def run(self) -> None:
+        self.ui.set_state("THINKING")
+        configure_audio_devices(SEND_SAMPLE_RATE, RECEIVE_SAMPLE_RATE)
+        if not self._check_server():
+            self.ui.set_state("SLEEPING")
+        else:
+            self._reset_messages()
+            self.ui.set_state("LISTENING")
+            self.log("SYS: MARK online — local Ollama mode.")
+            self._audio = MicrophoneListener(self)
+            self._audio.start()
+            threading.Thread(target=self._startup_briefing, daemon=True, name="mark-briefing").start()
+
+        # Text commands continue to work even if the machine has no microphone
+        # or Ollama is not installed yet; the loop retries naturally per command.
+        while not self.stop_event.is_set():
+            try:
+                text, logged = self.command_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            self.process_command(text, logged)
+
+        if self._audio:
+            self._audio.stop()
+        self._tts.stop()
+        self._save_summary()
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        self.log("SYS: MARK stopped.")
+
+    def stop(self) -> str:
+        self.stop_event.set()
+        return "Shutdown requested."
+
+
+def main() -> None:
+    # Import Qt only when the graphical application is actually launched. This
+    # keeps model/tool helpers importable on headless servers and in CI.
+    from ui import JarvisUI
+    ui = JarvisUI("face.png")
+
+    def runner() -> None:
+        # The method name is retained by the UI compatibility layer; it now
+        # waits for the local Ollama form rather than an API key.
+        ui.wait_for_api_key()
+        assistant = LocalAssistant(ui)
+        try:
+            assistant.run()
+        except KeyboardInterrupt:
+            assistant.stop()
+        except Exception as e:
+            traceback.print_exc()
+            ui.write_log(f"ERR: Assistant stopped — {e}")
+
+    threading.Thread(target=runner, daemon=True, name="mark-assistant").start()
+    ui.root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
