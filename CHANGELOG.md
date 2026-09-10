@@ -70,6 +70,8 @@ The first release meant for other people's machines.
 - **Cinema console.** After boot the orb owns the field. Chrome (tiles,
   chips, extra buttons, the side rail) waits until you move, type, or open
   a panel; the mic stays. Escape returns to the quiet field.
+- **Whisper boot.** A point of light grows into the orb in about three
+  seconds. No overlay title card, no inbound swarm, no whiteout.
 - **A local journal and a day recap.** Every turn is logged on this machine;
   "what did I do today" or "recap my day" sums up what got done and what
   still dangles.

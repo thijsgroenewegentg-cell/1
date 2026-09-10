@@ -561,6 +561,18 @@ def test_chrome_follows_the_orb_colour_rather_than_a_fixed_cyan(web):
     assert style.count("rgba(var(--tint)") > 25
 
 
+def test_whisper_boot_grows_without_a_whiteout(web):
+    """Startup is a spark that grows, not a 6s explosion under an overlay."""
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert "const WHISPER = true" in page
+    assert "const BOOT_MS = 3400" in page
+    assert "window.restartIgnition" in page
+    # Overlay must not cover the canvas on first load.
+    assert 'id="bootScreen" class="hide"' in page
+
+
 def test_cinema_idle_hides_chrome_until_you_reach(web):
     """Idle field is the orb; chrome waits on body.quiet."""
     from fastapi.testclient import TestClient
