@@ -698,8 +698,11 @@ def _confirm_scenario(config, reply):
 
 
 def test_a_dangerous_edit_is_approved_over_the_socket(config):
-    """Approve in the browser: the edit proceeds (and here, without an LLM,
-    explains that the rewrite itself needs the model)."""
+    """Approve in the browser: the edit proceeds.
+
+    Here, without an LLM, the reply explains that the rewrite itself
+    needs the model.
+    """
     text = _confirm_scenario(config, reply=True)
     assert text and ("language model" in text or "Ollama" in text)
 

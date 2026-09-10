@@ -1149,7 +1149,7 @@ class SystemControl(BaseModule):
                 if not titles and which("powershell"):
                     code, out, _ = await run_command(["powershell", "-NoProfile", "-Command", "Get-Process | Where-Object {$_.MainWindowTitle} | Select-Object -ExpandProperty MainWindowTitle"], timeout=10)
                     if code == 0:
-                        titles = [l.strip() for l in out.splitlines() if l.strip()][:limit]
+                        titles = [ln.strip() for ln in out.splitlines() if ln.strip()][:limit]
                 if not titles:
                     code, out, _ = await run_command(["tasklist", "/v", "/fo", "csv"], timeout=10)
                     if code == 0:
@@ -1269,7 +1269,7 @@ class SystemControl(BaseModule):
                                 if len(extra) >= limit:
                                     break
             elif IS_WINDOWS:
-                for d in [Path(os.environ.get("ProgramData", "")) / "Microsoft/Windows/Start Menu/Programs", Path.home() / "AppData/Roaming/Microsoft/Windows/Start Menu/Programs"]:
+                for d in [Path(os.environ.get("PROGRAMDATA", "")) / "Microsoft/Windows/Start Menu/Programs", Path.home() / "AppData/Roaming/Microsoft/Windows/Start Menu/Programs"]:
                     if d.is_dir():
                         for p in d.rglob("*.lnk"):
                             extra.append(p.stem)
@@ -1375,9 +1375,9 @@ class SystemControl(BaseModule):
                 # content search via ripgrep or grep
                 rg = which("rg") or which("grep")
                 if rg and "rg" in rg:
-                    code, out, err = await run_command(["rg", "-i", "--max-count", "1", "-l", q] + roots, timeout=20)
+                    _, out, _ = await run_command(["rg", "-i", "--max-count", "1", "-l", q, *roots], timeout=20)
                 elif rg:
-                    code, out, err = await run_command(["grep", "-ri", "-l", q] + roots, timeout=20)
+                    _, out, _ = await run_command(["grep", "-ri", "-l", q, *roots], timeout=20)
                 else:
                     # python fallback
                     found = []
@@ -1394,19 +1394,18 @@ class SystemControl(BaseModule):
                             if len(found) >= limit:
                                 break
                     out = "\n".join(found)
-                    code = 0
-                files = [l.strip() for l in (out or "").splitlines() if l.strip()][:limit]
+                files = [ln.strip() for ln in (out or "").splitlines() if ln.strip()][:limit]
                 if not files:
                     return ModuleResult.ok(f"No file containing '{q}' under {', '.join(roots)}.", data={"files": []})
                 return ModuleResult.ok(f"Files containing '{q}' ({len(files)}):\n" + "\n".join(files), data={"files": files, "roots": roots})
             else:
                 # name search via find / fd / python
                 if which("fd"):
-                    code, out, _ = await run_command(["fd", "-i", q] + roots, timeout=20)
-                    files = [l.strip() for l in out.splitlines() if l.strip()][:limit]
+                    _, out, _ = await run_command(["fd", "-i", q, *roots], timeout=20)
+                    files = [ln.strip() for ln in out.splitlines() if ln.strip()][:limit]
                 elif which("find"):
-                    code, out, _ = await run_command(["find"] + roots + ["-iname", f"*{q}*", "-type", "f", "-print"], timeout=20)
-                    files = [l.strip() for l in out.splitlines() if l.strip()][:limit]
+                    _, out, _ = await run_command(["find", *roots, "-iname", f"*{q}*", "-type", "f", "-print"], timeout=20)
+                    files = [ln.strip() for ln in out.splitlines() if ln.strip()][:limit]
                 else:
                     files = []
                     for root in roots:
@@ -1521,7 +1520,8 @@ class SystemControl(BaseModule):
                 # in 20m / 2h / 30s
                 m = re.match(r"in\s+(\d+)\s*([smhd])", w)
                 if m:
-                    n = int(m.group(1)); unit = m.group(2)
+                    n = int(m.group(1))
+                    unit = m.group(2)
                     delta = {"s": timedelta(seconds=n), "m": timedelta(minutes=n), "h": timedelta(hours=n), "d": timedelta(days=n)}[unit]
                     run_at = now + delta
                 else:
@@ -1570,6 +1570,7 @@ class SystemControl(BaseModule):
         keywords=["list schedules", "show reminders", "what is scheduled"],
     )
     async def list_schedules(self, limit: int = 10) -> ModuleResult:
+        """List the scheduled reminders and recurring tasks."""
         p = Path("data/schedules.json")
         if not p.exists():
             return ModuleResult.ok("No schedules yet — use schedule 'in 20m call mom'.", data={"schedules": []})
@@ -1587,6 +1588,7 @@ class SystemControl(BaseModule):
         keywords=["cancel schedule", "remove reminder", "unschedule"],
     )
     async def cancel_schedule(self, id: int) -> ModuleResult:
+        """Cancel a scheduled reminder by its id."""
         p = Path("data/schedules.json")
         if not p.exists():
             return ModuleResult.fail("No schedule file.")

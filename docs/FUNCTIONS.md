@@ -1611,8 +1611,8 @@ and marked with `·`; methods the intent router can call are marked
 - `async def kill(self, target: str, force: bool = False) -> ModuleResult` **@tool** — Kill a process.
 - `async def restart(self, name: str) -> ModuleResult` **@tool** — Restart an app.
 - `async def schedule(self, when: str, task: str) -> ModuleResult` **@tool** — Schedule a reminder/task.
-- `async def list_schedules(self, limit: int = 10) -> ModuleResult` **@tool**
-- `async def cancel_schedule(self, id: int) -> ModuleResult` **@tool**
+- `async def list_schedules(self, limit: int = 10) -> ModuleResult` **@tool** — List the scheduled reminders and recurring tasks.
+- `async def cancel_schedule(self, id: int) -> ModuleResult` **@tool** — Cancel a scheduled reminder by its id.
 - `async def snapshot(self, path: str = '~', name: str = '') -> ModuleResult` **@tool** — Create a tar.gz snapshot.
 - `async def restore(self, archive: str, dest: str = '') -> ModuleResult` **@tool** — Restore a snapshot.
 - `async def vault_set(self, key: str, value: str) -> ModuleResult` **@tool** — Store a secret.
@@ -3220,7 +3220,7 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_the_page_has_a_reactive_halo_and_horizon_grid(web)`
 - `def test_reduced_motion_suppresses_the_new_atmosphere(web)`
 - `def _confirm_scenario(config, reply)` — Run one WS turn that needs approval, answer it, and return the reply.
-- `def test_a_dangerous_edit_is_approved_over_the_socket(config)` — Approve in the browser: the edit proceeds (and here, without an LLM,
+- `def test_a_dangerous_edit_is_approved_over_the_socket(config)` — Approve in the browser: the edit proceeds.
 - `def test_denying_the_confirm_cancels_the_edit(config)` — Deny in the browser: the dangerous tool must not run.
 - `def test_the_dashboard_requires_the_token_and_returns_cards(web, config)`
 - `def test_the_dashboard_card_shows_open_tasks(web, config)`
