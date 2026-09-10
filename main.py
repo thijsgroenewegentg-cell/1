@@ -64,6 +64,8 @@ from memory.config_manager import (
     get_output_device,
     get_voice,
     get_wake_word_enabled,
+    get_plugin_trust_required,
+    save_plugin_trust_required,
     save_wake_word_enabled,
 )
 from core import confirm as confirm_gate
@@ -265,6 +267,9 @@ class MicrophoneListener:
         self.consumer_thread: threading.Thread | None = None
         self._stt: WhisperSTT | None = None
         self._stt_failed = False
+        self._diag_frames = 0
+        self._diag_peak = 0.0
+        self._diag_status = ""
 
     def start(self) -> None:
         # Keep the VAD/Whisper consumer independent from sounddevice. This lets
@@ -306,9 +311,23 @@ class MicrophoneListener:
             if device is not None:
                 mic_label += f" (PortAudio index {device})"
             self.owner.log(f"SYS: Microphone: {mic_label}")
+            try:
+                info = sd.query_devices(device, "input")
+                info_name = str(info.get("name", mic_label))
+                if device is not None:
+                    info_name += f" (PortAudio index {device})"
+                self.owner.ui.set_audio_device_info(
+                    info_name,
+                    float(info.get("default_samplerate", SEND_SAMPLE_RATE)),
+                    int(info.get("max_input_channels", CHANNELS)),
+                    "ready",
+                )
+            except Exception:
+                self.owner.ui.set_audio_device_info(mic_label, SEND_SAMPLE_RATE, CHANNELS, "ready")
 
             def callback(indata, frames, timing, status):
                 if status:
+                    self._diag_status = str(status)
                     print(f"[Audio] {status}")
                 try:
                     self.frames.put_nowait(np.asarray(indata[:, 0], dtype=np.float32).copy())
@@ -328,6 +347,9 @@ class MicrophoneListener:
                 while not self.stop_event.wait(0.2):
                     pass
         except Exception as e:
+            self.owner.ui.set_audio_device_info(
+                get_input_device() or "System default", 0.0, 0, f"error: {e}"
+            )
             self.owner.log(f"WRN: Microphone unavailable — text input still works ({e})")
             print(f"[Audio] microphone disabled: {e}")
 
@@ -341,6 +363,20 @@ class MicrophoneListener:
                 frame = self.frames.get(timeout=0.2)
             except queue.Empty:
                 continue
+
+            level = _pcm_level(frame)
+            self._diag_frames += int(frame.size)
+            if frame.size:
+                try:
+                    self._diag_peak = max(self._diag_peak, float(np.max(np.abs(frame))))
+                except Exception:
+                    pass
+            try:
+                self.owner.ui.set_audio_diagnostics(
+                    level, self._diag_peak, self._diag_frames, self._diag_status
+                )
+            except Exception:
+                pass
 
             # Never feed the assistant's own TTS back into Whisper, and honor
             # the HUD mute button for the microphone as well.
@@ -359,12 +395,6 @@ class MicrophoneListener:
                 recording.clear()
                 silent = 0
                 continue
-
-            level = _pcm_level(frame)
-            try:
-                self.owner.ui.set_audio_level(level)
-            except Exception:
-                pass
 
             if not recording:
                 if level >= _VAD_START:
@@ -409,6 +439,7 @@ class LocalAssistant:
         self.command_queue: queue.Queue[tuple[str, bool]] = queue.Queue()
         self._speaking = threading.Event()
         self._thinking = threading.Event()
+        self._cancel_response = threading.Event()
         self._messages: list[dict] = []
         self._session_log: list[str] = []
         self._audio: MicrophoneListener | None = None
@@ -433,6 +464,9 @@ class LocalAssistant:
         self.ui.on_voice_change = self._on_voice_change
         self.ui.on_audio_device_change = self._on_audio_device_change
         self.ui.on_plugin_install = self._on_plugin_install
+        self.ui.on_plugin_trust_toggle = self._on_plugin_trust_toggle
+        self.ui.get_plugin_trust_required = self._get_plugin_trust_required
+        self.ui.on_orb_clicked = self._on_orb_clicked
         self.ui.on_remote_clicked = self._remote_clicked
         self.ui.request_say = self.say_async
 
@@ -514,10 +548,11 @@ class LocalAssistant:
             self.command_queue.put((text, already_logged))
 
     def interrupt(self) -> None:
+        self._cancel_response.set()
         self._tts.stop()
         self._speaking.clear()
         self._set_state("LISTENING")
-        self.log("SYS: Speech interrupted.")
+        self.log("SYS: Response interrupted.")
 
     def _on_voice_change(self) -> None:
         # The settings panel stores the friendly voice name in config.
@@ -554,6 +589,22 @@ class LocalAssistant:
         )
         if result:
             self.log(f"SYS: {result}")
+
+    def _get_plugin_trust_required(self) -> bool:
+        return get_plugin_trust_required()
+
+    def _on_plugin_trust_toggle(self, required: bool) -> None:
+        save_plugin_trust_required(required)
+        mode = "enforced" if required else "development mode"
+        self.log(f"SYS: Plugin trust {mode}; restart MARK to reload the plugin set.")
+
+    def _on_orb_clicked(self) -> None:
+        """The orb is both a status display and a safe primary control."""
+        if self._speaking.is_set() or self._thinking.is_set():
+            self.interrupt()
+            self.log("SYS: Orb control interrupted the current response.")
+            return
+        self.ui.toggle_mute()
 
     def _on_audio_device_change(self) -> None:
         """Reconnect the live microphone after the user picks a device."""
@@ -759,6 +810,7 @@ class LocalAssistant:
             self.log(f"You: {text}")
         self._session_log.append(f"User: {text}")
         self._last_user_speech = time.monotonic()
+        self._cancel_response.clear()
         self._thinking.set()
         self._set_state("THINKING")
 
@@ -771,6 +823,8 @@ class LocalAssistant:
             final_text = ""
             for _round in range(6):
                 response = call_llm(self._messages, tools=self._tools, timeout=300)
+                if self._cancel_response.is_set():
+                    return
                 content = (response.get("content") or "").strip()
                 calls = response.get("tool_calls") or []
 
@@ -781,6 +835,8 @@ class LocalAssistant:
 
                 self._messages.append(_assistant_tool_message(content, calls))
                 for call in calls:
+                    if self._cancel_response.is_set():
+                        return
                     name = _tool_name(call)
                     args = _tool_args(call)
                     result = self.execute_tool(name, args)
@@ -794,6 +850,8 @@ class LocalAssistant:
                 final_text = "I reached the tool-call limit for that request."
 
             final_text = re.sub(r"<\|.*?\|>", "", final_text, flags=re.DOTALL).strip()
+            if self._cancel_response.is_set():
+                return
             if final_text:
                 self.log(f"{get_assistant_name()}: {final_text}")
                 self._session_log.append(f"{get_assistant_name()}: {final_text}")

@@ -43,8 +43,19 @@ PLUGIN = {
 _CALENDAR_ENV = "MARK_CALENDAR_FILE"
 
 
+def _calendar_config() -> dict:
+    try:
+        from memory.config_manager import get_plugin_config
+        value = get_plugin_config("local_calendar")
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+
 def _calendar_path() -> Path:
-    raw = os.environ.get(_CALENDAR_ENV, "").strip()
+    raw = os.environ.get(_CALENDAR_ENV, "").strip() or str(
+        _calendar_config().get("file_path", "")
+    ).strip()
     if raw:
         return Path(raw).expanduser().resolve()
     return (Path.home() / "Documents" / "MARK" / "calendar.ics").resolve()
@@ -163,6 +174,33 @@ def _select(events: list[dict], query: str) -> list[dict]:
             or q in e.get("uid", "").lower()]
 
 
+def _test_calendar(values: dict) -> tuple[bool, str]:
+    raw = str(values.get("file_path", "")).strip()
+    path = Path(raw).expanduser().resolve() if raw else _calendar_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and not path.is_file():
+            return False, f"Calendar path is not a file: {path}"
+        return True, f"Local calendar is ready: {path}"
+    except Exception as exc:
+        return False, f"Calendar path is not writable: {exc}"
+
+
+PLUGIN_SETTINGS = {
+    "namespace": "local_calendar",
+    "title": "CALENDAR — LOCAL ICS",
+    "note": (
+        "Events stay in a local ICS file. A configured path is used unless "
+        "MARK_CALENDAR_FILE is set in the environment."
+    ),
+    "fields": [
+        {"key": "file_path", "label": "Calendar file", "placeholder": "~/Documents/MARK/calendar.ics"},
+        {"key": "default_duration", "label": "Default duration (minutes)", "default": 60},
+    ],
+    "action": {"label": "CHECK CALENDAR FILE", "run": _test_calendar},
+}
+
+
 def run(parameters: dict, player=None, session_memory=None) -> str:
     params = parameters or {}
     action = str(params.get("action", "list")).strip().lower()
@@ -176,8 +214,9 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
         start = _parse_dt(f"{date} {clock}")
         if not title or start is None:
             return "To add a calendar event I need a title, date YYYY-MM-DD and time HH:MM."
+        configured_duration = _calendar_config().get("default_duration", 60)
         try:
-            minutes = max(1, min(24 * 60, int(params.get("duration", 60))))
+            minutes = max(1, min(24 * 60, int(params.get("duration", configured_duration))))
         except (TypeError, ValueError):
             minutes = 60
         event_id = "mark-" + hashlib.sha1(

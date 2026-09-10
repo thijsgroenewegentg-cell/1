@@ -769,6 +769,38 @@ class ParticleHudCanvas(HudCanvas):
         self._orb_rotation = 0.0
         self._orb_tilt = -0.10
         self._orb_spark: list[list[float]] = []
+        self._visual_state = "INITIALISING"
+        self.on_orb_clicked = None
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setToolTip("Click the orb to interrupt speech or toggle the microphone")
+
+    def set_visual_state(self, state: str) -> None:
+        self._visual_state = str(state or "").upper()
+        self.update()
+
+    def _orb_hit(self, point) -> bool:
+        radius = min(self.width(), self.height()) * (0.36 + self._amp_disp * 0.018)
+        cx, cy = self.width() * 0.50, self.height() * 0.43
+        dx, dy = point.x() - cx, point.y() - cy
+        return dx * dx + dy * dy <= (radius * 1.18) ** 2
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._orb_hit(event.position()):
+            self.setFocus()
+            if self.on_orb_clicked:
+                self.on_orb_clicked()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self.on_orb_clicked:
+                self.on_orb_clicked()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def _step(self):
         self._tick += 1
@@ -776,7 +808,13 @@ class ParticleHudCanvas(HudCanvas):
         self._amp_disp += (self._live_amp - self._amp_disp) * 0.40
         amp = self._amp_disp
 
-        speed = 0.0035 + amp * 0.012 + (0.004 if self.speaking else 0.0)
+        mode_speed = {
+            "THINKING": 0.008,
+            "SLEEPING": 0.0015,
+            "ERROR": 0.0008,
+            "OFFLINE": 0.0008,
+        }.get(self._visual_state, 0.0035)
+        speed = mode_speed + amp * 0.012 + (0.004 if self.speaking else 0.0)
         self._orb_rotation = (self._orb_rotation + speed) % math.tau
         self._orb_tilt = -0.10 + math.sin(self._tick * 0.006) * 0.025
 
@@ -800,6 +838,12 @@ class ParticleHudCanvas(HudCanvas):
         r = int(44 + 190 * lit + 20 * glow)
         g = int(62 + 195 * lit + 28 * glow)
         b = int(124 + 131 * lit + 30 * glow)
+        if self._visual_state in {"SLEEPING", "THINKING"}:
+            r, g, b = int(r * 0.72 + b * 0.18), int(g * 0.75), min(255, int(b * 1.08))
+        elif self._visual_state in {"ERROR", "OFFLINE"}:
+            r, g, b = min(255, int(r * 1.35)), int(g * 0.52), int(b * 0.66)
+        elif self.muted:
+            r, g, b = int(r * 0.50), int(g * 0.32), int(b * 0.58)
         return QColor(max(0, min(255, r)), max(0, min(255, g)),
                       max(0, min(255, b)), max(0, min(255, alpha)))
 
@@ -884,12 +928,25 @@ class ParticleHudCanvas(HudCanvas):
             label, color = "THINKING", QColor(150, 164, 255)
         elif self.state == "LISTENING":
             label, color = "LISTENING", QColor(116, 222, 255)
+        elif self.state in {"ERROR", "OFFLINE"}:
+            label, color = self.state, QColor(255, 86, 112)
+        elif self.state == "SLEEPING":
+            label, color = "SLEEPING", QColor(185, 140, 255)
         else:
             label, color = self.state, QColor(126, 154, 240)
         p.setPen(QPen(color, 1))
         p.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
         p.drawText(QRectF(0, cy + radius * 1.10, W, 22),
                    Qt.AlignmentFlag.AlignCenter, f"●  {label}")
+
+        meter_w, meter_h = min(150.0, W * 0.32), 3.0
+        meter_x, meter_y = (W - meter_w) * 0.5, cy + radius * 1.18
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(24, 43, 82, 180)))
+        p.drawRoundedRect(QRectF(meter_x, meter_y, meter_w, meter_h), 1.5, 1.5)
+        meter_color = color if self.muted else QColor(94, 188, 255, 220)
+        p.setBrush(QBrush(meter_color))
+        p.drawRoundedRect(QRectF(meter_x, meter_y, meter_w * min(1.0, amp * 1.4), meter_h), 1.5, 1.5)
 
         # Tiny machine readout gives the orb a purposeful, instrument-like base.
         p.setPen(QPen(QColor(81, 113, 219, 155), 1))
@@ -1777,9 +1834,12 @@ class PluginManagerOverlay(QWidget):
 
     _OW = 420
 
-    def __init__(self, plugins: list[dict], parent=None, on_install=None):
+    def __init__(self, plugins: list[dict], parent=None, on_install=None,
+                 on_trust_toggle=None, trust_required: bool = True):
         super().__init__(parent)
         self._on_install = on_install
+        self._on_trust_toggle = on_trust_toggle
+        self._trust_required = bool(trust_required)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             PluginManagerOverlay {{
@@ -1801,6 +1861,21 @@ class PluginManagerOverlay(QWidget):
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;")
         lay.addWidget(sep)
+
+        trust_btn = QPushButton()
+        trust_btn.setCheckable(True)
+        trust_btn.setChecked(self._trust_required)
+        trust_btn.setFixedHeight(27)
+        trust_btn.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        trust_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        trust_btn.toggled.connect(self._set_trust_mode)
+        self._trust_btn = trust_btn
+        self._style_trust_button()
+        lay.addWidget(trust_btn)
+        trust_note = QLabel("Changes take effect after the next MARK launch.")
+        trust_note.setFont(QFont("Courier New", 7))
+        trust_note.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        lay.addWidget(trust_note)
 
         if not plugins:
             empty = QLabel("No plugins found in /plugins.")
@@ -1839,6 +1914,28 @@ class PluginManagerOverlay(QWidget):
         lay.addWidget(close_btn)
         self.adjustSize()
 
+    def _style_trust_button(self):
+        if self._trust_required:
+            self._trust_btn.setText("✓  TRUST ENFORCEMENT: ON")
+            self._trust_btn.setStyleSheet(f"""
+                QPushButton {{ background: #00140a; color: {C.GREEN};
+                    border: 1px solid {C.GREEN_D}; border-radius: 3px; }}
+                QPushButton:hover {{ border-color: {C.GREEN}; }}
+            """)
+        else:
+            self._trust_btn.setText("⚠  TRUST ENFORCEMENT: OFF")
+            self._trust_btn.setStyleSheet(f"""
+                QPushButton {{ background: #140b00; color: {C.ACC2};
+                    border: 1px solid {C.ACC2}; border-radius: 3px; }}
+                QPushButton:hover {{ border-color: {C.TEXT}; }}
+            """)
+
+    def _set_trust_mode(self, required: bool):
+        self._trust_required = bool(required)
+        self._style_trust_button()
+        if self._on_trust_toggle:
+            self._on_trust_toggle(self._trust_required)
+
     def _install_local(self):
         if not self._on_install:
             return
@@ -1851,11 +1948,19 @@ class PluginManagerOverlay(QWidget):
     def _build_row(self, p: dict) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(6)
 
-        label_text = p["name"] if p["valid"] else f"{p['name']}  (⚠ {p['file']})"
+        if p["valid"]:
+            trust_mark = "✓" if p.get("trusted") else "⚠"
+            label_text = f"{trust_mark}  {p['name']}"
+        else:
+            label_text = f"{p['name']}  (⚠ {p['file']})"
         lbl = QLabel(label_text)
         lbl.setFont(QFont("Courier New", 8))
         lbl.setStyleSheet(f"color: {C.TEXT if p['valid'] else C.TEXT_DIM}; background: transparent;")
-        lbl.setToolTip(p["description"] if p["valid"] else p["error"])
+        if p["valid"]:
+            trust_text = "installer-approved/bundled" if p.get("trusted") else "unverified development plugin"
+            lbl.setToolTip(f"{p['description']}\nTrust: {trust_text}")
+        else:
+            lbl.setToolTip(p["error"])
         lbl.setWordWrap(False)
         row.addWidget(lbl, stretch=1)
 
@@ -2017,7 +2122,10 @@ class AudioDeviceOverlay(_HudOverlay):
 
     picked = pyqtSignal()      # emitted after Apply, when something changed
     test_done = pyqtSignal(bool, str)
-    _OW = 460
+    record_done = pyqtSignal(bool, str)
+    diagnostics_update = pyqtSignal(float, float, int, str)
+    device_info_update = pyqtSignal(str, float, int, str)
+    _OW = 500
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2100,6 +2208,26 @@ class AudioDeviceOverlay(_HudOverlay):
         self._test_label.setStyleSheet(f"color: {C.TEXT_MED}; background: transparent;")
         lay.addWidget(self._test_label)
 
+        diag_hdr = QLabel("LIVE DIAGNOSTICS")
+        diag_hdr.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        diag_hdr.setStyleSheet(f"color: {C.PRI}; background: transparent;")
+        lay.addWidget(diag_hdr)
+        self._diag_meter = QProgressBar()
+        self._diag_meter.setRange(0, 1000)
+        self._diag_meter.setValue(0)
+        self._diag_meter.setTextVisible(False)
+        self._diag_meter.setFixedHeight(8)
+        self._diag_meter.setStyleSheet(f"""
+            QProgressBar {{ background: #00121d; border: 1px solid {C.BORDER}; border-radius: 3px; }}
+            QProgressBar::chunk {{ background: {C.PRI}; border-radius: 2px; }}
+        """)
+        lay.addWidget(self._diag_meter)
+        self._diag_label = QLabel("No live microphone telemetry yet.")
+        self._diag_label.setWordWrap(True)
+        self._diag_label.setFont(QFont("Courier New", 7))
+        self._diag_label.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
+        lay.addWidget(self._diag_label)
+
         test_btn = QPushButton("◉  TEST MICROPHONE")
         test_btn.setFixedHeight(30)
         test_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
@@ -2112,7 +2240,23 @@ class AudioDeviceOverlay(_HudOverlay):
         test_btn.clicked.connect(self._test_microphone)
         self._test_btn = test_btn
         lay.addWidget(test_btn)
+
+        record_btn = QPushButton("●  RECORD 5s + PLAYBACK")
+        record_btn.setFixedHeight(30)
+        record_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        record_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        record_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.PRI};
+                border: 1px solid {C.PRI_DIM}; border-radius: 3px; }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; border-color: {C.PRI}; }}
+        """)
+        record_btn.clicked.connect(self._record_and_play)
+        self._record_btn = record_btn
+        lay.addWidget(record_btn)
         self.test_done.connect(self._show_test_result)
+        self.record_done.connect(self._show_record_result)
+        self.diagnostics_update.connect(self._show_diagnostics)
+        self.device_info_update.connect(self._show_device_info)
 
         row = QHBoxLayout(); row.setSpacing(8)
         ok = QPushButton("▸  APPLY")
@@ -2140,9 +2284,13 @@ class AudioDeviceOverlay(_HudOverlay):
         row.addWidget(cancel)
         lay.addLayout(row)
 
+    def _set_test_controls(self, enabled: bool):
+        self._test_btn.setEnabled(enabled)
+        self._record_btn.setEnabled(enabled)
+
     def _test_microphone(self):
         """Capture a short local sample and report whether signal arrives."""
-        self._test_btn.setEnabled(False)
+        self._set_test_controls(False)
         self._test_label.setText("Listening for 2 seconds… speak now.")
         self._test_label.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
         selected = self._in_box.currentData() or ""
@@ -2150,19 +2298,34 @@ class AudioDeviceOverlay(_HudOverlay):
         def worker():
             peak = 0.0
             frames = 0
+            status_text = ""
             try:
                 import sounddevice as sd
                 from core.audio_devices import resolve
 
                 device = resolve(selected, "input")
+                info = sd.query_devices(device, "input")
+                info_name = str(info.get("name", "System default"))
+                if device is not None:
+                    info_name += f" (PortAudio index {device})"
+                self.device_info_update.emit(
+                    info_name,
+                    float(info.get("default_samplerate", 16000)),
+                    int(info.get("max_input_channels", 1)),
+                    "test stream",
+                )
 
                 def callback(indata, count, timing, status):
-                    nonlocal peak, frames
+                    nonlocal peak, frames, status_text
                     frames += int(count)
+                    if status:
+                        status_text = str(status)
                     try:
                         values = indata[:, 0]
                         if len(values):
                             peak = max(peak, max(abs(float(v)) for v in values))
+                            level = min(1.0, peak * 8.0)
+                            self.diagnostics_update.emit(level, peak, frames, status_text)
                     except Exception:
                         pass
 
@@ -2188,8 +2351,78 @@ class AudioDeviceOverlay(_HudOverlay):
 
         threading.Thread(target=worker, daemon=True, name="mark-mic-test").start()
 
+    def _record_and_play(self):
+        """Record exactly five seconds and play it through the selected output."""
+        self._set_test_controls(False)
+        self._test_label.setText("Recording 5 seconds… speak now.")
+        self._test_label.setStyleSheet(f"color: {C.ACC2}; background: transparent;")
+        selected_in = self._in_box.currentData() or ""
+        selected_out = self._out_box.currentData() or ""
+
+        def worker():
+            try:
+                import sounddevice as sd
+                import numpy as np
+                from core.audio_devices import resolve
+
+                input_device = resolve(selected_in, "input")
+                output_device = resolve(selected_out, "output")
+                info = sd.query_devices(input_device, "input")
+                info_name = str(info.get("name", "System default"))
+                if input_device is not None:
+                    info_name += f" (PortAudio index {input_device})"
+                self.device_info_update.emit(
+                    info_name,
+                    float(info.get("default_samplerate", 16000)),
+                    int(info.get("max_input_channels", 1)),
+                    "recording",
+                )
+                chunks = []
+                peak = 0.0
+                frames = 0
+
+                def callback(indata, count, timing, status):
+                    nonlocal peak, frames
+                    frames += int(count)
+                    values = np.asarray(indata[:, 0], dtype=np.float32).copy()
+                    chunks.append(values)
+                    if values.size:
+                        peak = max(peak, float(np.max(np.abs(values))))
+                        self.diagnostics_update.emit(min(1.0, peak * 8.0), peak, frames, str(status or ""))
+
+                with sd.InputStream(
+                    samplerate=16000, channels=1, dtype="float32", blocksize=1024,
+                    device=input_device, callback=callback,
+                ):
+                    time.sleep(5.0)
+                recording = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+                if recording.size == 0:
+                    raise RuntimeError("No audio frames arrived.")
+                sd.play(recording * 0.8, samplerate=16000, device=output_device, blocking=True)
+                self.record_done.emit(True, f"Playback complete — {frames} frames, peak {peak:.3f}.")
+            except Exception as exc:
+                self.record_done.emit(False, f"Record/playback failed: {exc}")
+
+        threading.Thread(target=worker, daemon=True, name="mark-mic-record-test").start()
+
+    def _show_diagnostics(self, level: float, peak: float, frames: int, status: str):
+        self._diag_meter.setValue(max(0, min(1000, int(level * 1000))))
+        suffix = f" · {status}" if status else ""
+        self._diag_label.setText(f"level {level:.3f} · peak {peak:.3f} · {frames:,} frames{suffix}")
+
+    def _show_device_info(self, name: str, sample_rate: float, channels: int, status: str):
+        self._diag_label.setText(
+            f"{name} · {sample_rate:.0f} Hz · {channels} input channel(s) · {status}"
+        )
+
+    def _show_record_result(self, ok: bool, message: str):
+        self._set_test_controls(True)
+        self._test_label.setText(message)
+        self._test_label.setStyleSheet(f"color: {C.GREEN if ok else C.RED}; background: transparent;")
+
+
     def _show_test_result(self, ok: bool, message: str):
-        self._test_btn.setEnabled(True)
+        self._set_test_controls(True)
         self._test_label.setText(message)
         color = C.GREEN if ok else C.RED
         self._test_label.setStyleSheet(f"color: {color}; background: transparent;")
@@ -2602,6 +2835,9 @@ class PluginSettingsOverlay(QWidget):
 
         form.addSpacing(4)
         form.addWidget(self._lbl(title, 10, True, C.PRI))
+        note = sec.get("note")
+        if note:
+            form.addWidget(self._lbl(str(note), 8, color=C.TEXT_DIM))
 
         for field in fields:
             if not isinstance(field, dict) or not field.get("key"):
@@ -2990,6 +3226,8 @@ class MainWindow(QMainWindow):
     _confirm_hide_sig = pyqtSignal()
     _wake_dl_sig    = pyqtSignal(bool, str)  # wake-word install finished (ok, message)
     _remote_connected_sig = pyqtSignal()
+    _audio_diag_sig = pyqtSignal(float, float, int, str)
+    _audio_info_sig = pyqtSignal(str, float, int, str)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -3020,7 +3258,10 @@ class MainWindow(QMainWindow):
         self.on_interrupt      = None   # callable: () -> None — stop JARVIS mid-speech
         self.on_voice_change   = None   # callable: () -> None — rebuild session with new voice
         self.on_audio_device_change = None  # callable: () -> None — reopen audio streams
-        self.on_plugin_install = None   # callable: () -> None — inspect/install a local plugin
+        self.on_plugin_install = None   # callable: (path) -> None — inspect/install a local plugin
+        self.on_plugin_trust_toggle = None  # callable: (required: bool) -> None
+        self.get_plugin_trust_required = None  # callable: () -> bool
+        self.on_orb_clicked = None  # callable: () -> None — interrupt/toggle listening
         self._confirm_overlay  = None   # live ConfirmBanner, if one is on screen
         self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
         self.get_plugin_settings = None # callable: () -> list[dict] settings schemas, set by JarvisLive
@@ -3144,6 +3385,12 @@ class MainWindow(QMainWindow):
         self._clipboard_sig.connect(self._show_clipboard_panel)
         self._wake_dl_sig.connect(self._on_wake_install_done)
         self._remote_connected_sig.connect(self.notify_phone_connected)
+        self._audio_diag_sig.connect(self._apply_audio_diagnostics)
+        self._audio_info_sig.connect(self._apply_audio_info)
+        self._audio_diagnostics = {
+            "level": 0.0, "peak": 0.0, "frames": 0, "status": "",
+            "name": "", "sample_rate": 0.0, "channels": 0,
+        }
         self._cam_stop = threading.Event()
 
         # Camera preview overlay (child of central widget, positioned in resizeEvent)
@@ -4575,9 +4822,28 @@ class MainWindow(QMainWindow):
 
     # ── Audio devices ────────────────────────────────────────────────────────
 
+    def _apply_audio_diagnostics(self, level: float, peak: float, frames: int, status: str):
+        self._audio_diagnostics.update(level=level, peak=peak, frames=frames, status=status)
+        ov = getattr(self, "_audio_overlay", None)
+        if ov is not None:
+            ov._show_diagnostics(level, peak, frames, status)
+
+    def _apply_audio_info(self, name: str, sample_rate: float, channels: int, status: str):
+        self._audio_diagnostics.update(
+            name=name, sample_rate=sample_rate, channels=channels, status=status
+        )
+        ov = getattr(self, "_audio_overlay", None)
+        if ov is not None:
+            ov._show_device_info(name, sample_rate, channels, status)
+
     def _open_audio_devices(self):
         ov = AudioDeviceOverlay(parent=self.centralWidget())
         ov.picked.connect(self._on_audio_devices_applied)
+        diag = self._audio_diagnostics
+        if diag.get("frames"):
+            ov._show_diagnostics(diag["level"], diag["peak"], diag["frames"], diag["status"])
+        if diag.get("name"):
+            ov._show_device_info(diag["name"], diag["sample_rate"], diag["channels"], diag["status"])
         self._centre_overlay(ov)
         self._audio_overlay = ov            # keep a reference so it isn't GC'd
 
@@ -4623,7 +4889,15 @@ class MainWindow(QMainWindow):
     def _open_plugin_manager(self):
         plugins = self.get_plugins() if self.get_plugins else []
         cw = self.centralWidget()
-        ov = PluginManagerOverlay(plugins, parent=cw, on_install=self.on_plugin_install)
+        trust_required = (self.get_plugin_trust_required() if self.get_plugin_trust_required
+                          else True)
+        ov = PluginManagerOverlay(
+            plugins,
+            parent=cw,
+            on_install=self.on_plugin_install,
+            on_trust_toggle=self.on_plugin_trust_toggle,
+            trust_required=trust_required,
+        )
         ov.adjustSize()
         ov.setGeometry(
             (cw.width()  - ov.width())  // 2,
@@ -4723,6 +4997,8 @@ class MainWindow(QMainWindow):
     def _apply_state(self, state: str):
         self.hud.state    = state
         self.hud.speaking = (state == "SPEAKING")
+        if hasattr(self.hud, "set_visual_state"):
+            self.hud.set_visual_state(state)
 
     def _check_config(self) -> bool:
         if not API_FILE.exists(): return False
@@ -4837,6 +5113,43 @@ class JarvisUI:
     def on_audio_device_change(self, cb):
         self._win.on_audio_device_change = cb
 
+    @property
+    def on_plugin_install(self):
+        return self._win.on_plugin_install
+
+    @on_plugin_install.setter
+    def on_plugin_install(self, cb):
+        self._win.on_plugin_install = cb
+
+    @property
+    def on_plugin_trust_toggle(self):
+        return self._win.on_plugin_trust_toggle
+
+    @on_plugin_trust_toggle.setter
+    def on_plugin_trust_toggle(self, cb):
+        self._win.on_plugin_trust_toggle = cb
+
+    @property
+    def get_plugin_trust_required(self):
+        return self._win.get_plugin_trust_required
+
+    @get_plugin_trust_required.setter
+    def get_plugin_trust_required(self, cb):
+        self._win.get_plugin_trust_required = cb
+
+    @property
+    def on_orb_clicked(self):
+        return self._win.on_orb_clicked
+
+    @on_orb_clicked.setter
+    def on_orb_clicked(self, cb):
+        self._win.on_orb_clicked = cb
+        if hasattr(self._win.hud, "on_orb_clicked"):
+            self._win.hud.on_orb_clicked = cb
+
+    def toggle_mute(self) -> None:
+        self._win._toggle_mute()
+
     def show_confirm(self, title: str, detail: str) -> None:
         """Thread-safe: raise the irreversible-action gate. Called from action
         handlers running in executor threads, so it goes through a signal."""
@@ -4887,13 +5200,20 @@ class JarvisUI:
         self._win.wake_get_state = cb
 
     def set_audio_level(self, level: float) -> None:
-        """Thread-safe: feed a 0.0–1.0 live audio level to the HUD waveform.
-        Called from the audio threads; a plain float store is atomic under the
-        GIL, so no signal/lock is needed for this cosmetic value."""
+        """Thread-safe: feed a 0.0–1.0 live audio level to the HUD orb."""
         try:
             self._win.hud.set_audio_level(level)
         except Exception:
             pass
+
+    def set_audio_diagnostics(self, level: float, peak: float, frames: int,
+                              status: str = "") -> None:
+        self.set_audio_level(level)
+        self._win._audio_diag_sig.emit(float(level), float(peak), int(frames), str(status or ""))
+
+    def set_audio_device_info(self, name: str, sample_rate: float,
+                              channels: int, status: str = "") -> None:
+        self._win._audio_info_sig.emit(str(name), float(sample_rate), int(channels), str(status or ""))
 
     def notify_phone_connected(self) -> None:
         # Dashboard callbacks arrive from its asyncio thread; marshal the

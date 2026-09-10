@@ -1,7 +1,8 @@
 """Opt-in email plugin using standard IMAP/SMTP and environment variables.
 
-No password is stored in MARK's repository or normal config file. Set the
-following in the process environment before launching MARK:
+No password is stored in MARK's repository or normal config file. Host, port
+and username can be entered in the plugin settings screen or supplied through
+environment variables. The password is always process-environment-only:
 
 MARK_EMAIL_IMAP_HOST, MARK_EMAIL_IMAP_PORT (default 993),
 MARK_EMAIL_SMTP_HOST, MARK_EMAIL_SMTP_PORT (default 465),
@@ -27,7 +28,7 @@ PLUGIN = {
     "description": (
         "Opt-in email helper for a user's own IMAP/SMTP mailbox. Use it to list "
         "recent inbox messages, search by text, read a message by number, or send "
-        "an email when the MARK_EMAIL_* environment variables are configured. "
+        "an email when the local email settings and MARK_EMAIL_PASSWORD are configured. "
         "Never use this for an account that has not been configured."
     ),
     "parameters": {
@@ -54,13 +55,36 @@ def _port(name: str, default: int) -> int:
         return default
 
 
-def _settings() -> dict:
+def _settings(overrides: dict | None = None) -> dict:
+    """Merge non-secret UI settings with environment values.
+
+    Environment values win, while the password is deliberately environment-only
+    and is never accepted from the plugin settings form.
+    """
+    try:
+        from memory.config_manager import get_plugin_config
+        stored = get_plugin_config("email_client")
+    except Exception:
+        stored = {}
+    stored = {**stored, **(overrides or {})}
+
+    def text(key: str, env_name: str) -> str:
+        return os.environ.get(env_name, "").strip() or str(stored.get(key, "")).strip()
+
+    def port(key: str, env_name: str, default: int) -> int:
+        value = os.environ.get(env_name, str(stored.get(key, default)))
+        try:
+            value = int(value)
+            return value if 1 <= value <= 65535 else default
+        except (TypeError, ValueError):
+            return default
+
     return {
-        "imap_host": os.environ.get("MARK_EMAIL_IMAP_HOST", "").strip(),
-        "imap_port": _port("MARK_EMAIL_IMAP_PORT", 993),
-        "smtp_host": os.environ.get("MARK_EMAIL_SMTP_HOST", "").strip(),
-        "smtp_port": _port("MARK_EMAIL_SMTP_PORT", 465),
-        "username": os.environ.get("MARK_EMAIL_USERNAME", "").strip(),
+        "imap_host": text("imap_host", "MARK_EMAIL_IMAP_HOST"),
+        "imap_port": port("imap_port", "MARK_EMAIL_IMAP_PORT", 993),
+        "smtp_host": text("smtp_host", "MARK_EMAIL_SMTP_HOST"),
+        "smtp_port": port("smtp_port", "MARK_EMAIL_SMTP_PORT", 465),
+        "username": text("username", "MARK_EMAIL_USERNAME"),
         "password": os.environ.get("MARK_EMAIL_PASSWORD", ""),
     }
 
@@ -69,8 +93,8 @@ def _require(settings: dict, *keys: str) -> str | None:
     missing = [key for key in keys if not settings.get(key)]
     if missing:
         return (
-            "Email is not configured. Set MARK_EMAIL_IMAP_HOST, "
-            "MARK_EMAIL_SMTP_HOST, MARK_EMAIL_USERNAME and MARK_EMAIL_PASSWORD "
+            "Email is not configured. Set the host, username and password in "
+            "PLUGIN SETTINGS/environment; the password must be MARK_EMAIL_PASSWORD "
             f"(missing: {', '.join(missing)})."
         )
     return None
@@ -97,6 +121,39 @@ def _connect(settings: dict):
         return conn, None
     except Exception as exc:
         return None, f"Could not connect to the mailbox: {exc}"
+
+
+def _test_connection(values: dict) -> tuple[bool, str]:
+    settings = _settings(values)
+    conn, error = _connect(settings)
+    if error:
+        return False, error
+    try:
+        smtp_state = "SMTP host is configured." if settings.get("smtp_host") else "SMTP host is not configured yet."
+        return True, f"IMAP connection succeeded. {smtp_state}"
+    finally:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+
+
+PLUGIN_SETTINGS = {
+    "namespace": "email_client",
+    "title": "EMAIL — IMAP / SMTP",
+    "note": (
+        "Host, port and username may be saved locally. The password is never saved "
+        "here; set MARK_EMAIL_PASSWORD in MARK's launch environment."
+    ),
+    "fields": [
+        {"key": "imap_host", "label": "IMAP host", "placeholder": "imap.example.com"},
+        {"key": "imap_port", "label": "IMAP port", "default": 993},
+        {"key": "smtp_host", "label": "SMTP host", "placeholder": "smtp.example.com"},
+        {"key": "smtp_port", "label": "SMTP port", "default": 465},
+        {"key": "username", "label": "Mailbox username"},
+    ],
+    "action": {"label": "TEST IMAP CONNECTION", "run": _test_connection},
+}
 
 
 def _header(conn, number: bytes) -> dict:

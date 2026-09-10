@@ -176,3 +176,14 @@ def save_plugin_enabled(plugin_name: str, enabled: bool) -> None:
     data["plugins_enabled"] = enabled_cfg
     ensure_config_dir()
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+
+
+def get_plugin_trust_required() -> bool:
+    """Only load plugins approved by the local installer unless development
+    mode has explicitly been enabled by the user."""
+    value = load_api_keys().get("plugin_trust_required", True)
+    return bool(value)
+
+
+def save_plugin_trust_required(required: bool) -> None:
+    _patch_config(plugin_trust_required=bool(required))

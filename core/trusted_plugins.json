@@ -1,0 +1,17 @@
+{
+  "email_client": {
+    "sha256": "f27a2fb6ac3cc33bf05f5c2674d73f60897ef0556de6271071c6e326a2427c1c"
+  },
+  "git_helper": {
+    "sha256": "e9fca5736c575515c949f8e25c0045438c0c733ed11f644704e6ed0aca2a8e22"
+  },
+  "local_calendar": {
+    "sha256": "ed6cfc3ff47a1cd345e36e15acd7dd4f40baffcca7f2be986f5d312a8ce95afa"
+  },
+  "media_control": {
+    "sha256": "261b905f14425e8fe6377b76bc8c9a23a90ec1c9200ad4edcd072b5934acbe6f"
+  },
+  "project_helper": {
+    "sha256": "f71449ccf749d2c9fac6eab74740bc9c77adf3af0e96b2fa01e8f1dc921374e4"
+  }
+}

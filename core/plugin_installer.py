@@ -3,7 +3,9 @@
 The assistant never downloads or executes a plugin during inspection. A user
 chooses a local .py file, sees its declared name/description and SHA-256, and
 confirms before it is copied into plugins/. The hash is recorded so future UI
-code can identify files installed through this path.
+code can identify files installed through this path. Built-in plugin hashes
+are kept separately in core/trusted_plugins.json; user approvals stay in the
+ignored config/plugin_trust.json file.
 """
 from __future__ import annotations
 
@@ -101,6 +103,10 @@ def _trust_path(root: Path) -> Path:
     return root / "config" / "plugin_trust.json"
 
 
+def _bundled_trust_path(root: Path) -> Path:
+    return root / "core" / "trusted_plugins.json"
+
+
 def _load_trust(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -124,15 +130,26 @@ def _save_trust(path: Path, data: dict) -> None:
             pass
 
 
-def is_trusted(path: str | Path, root: str | Path | None = None) -> bool:
+def trust_status(path: str | Path, root: str | Path | None = None) -> str:
+    """Return bundled, approved, unverified, or invalid without importing code."""
     source = Path(path).expanduser().resolve()
     base = Path(root).resolve() if root else Path(__file__).resolve().parent.parent
     inspection = inspect_plugin(source)
     if not inspection.valid:
-        return False
-    data = _load_trust(_trust_path(base))
-    record = data.get(inspection.name)
-    return isinstance(record, dict) and record.get("sha256") == inspection.sha256
+        return "invalid"
+    local = _load_trust(_trust_path(base))
+    record = local.get(inspection.name)
+    if isinstance(record, dict) and record.get("sha256") == inspection.sha256:
+        return "approved"
+    bundled = _load_trust(_bundled_trust_path(base))
+    record = bundled.get(inspection.name)
+    if isinstance(record, dict) and record.get("sha256") == inspection.sha256:
+        return "bundled"
+    return "unverified"
+
+
+def is_trusted(path: str | Path, root: str | Path | None = None) -> bool:
+    return trust_status(path, root) in {"approved", "bundled"}
 
 
 def install_plugin(source: str | Path, root: str | Path | None = None,
@@ -145,22 +162,22 @@ def install_plugin(source: str | Path, root: str | Path | None = None,
     plugins_dir = base / "plugins"
     plugins_dir.mkdir(parents=True, exist_ok=True)
     destination = plugins_dir / f"{inspection.name}.py"
-    if destination.exists() and not replace:
+    already_in_place = destination.exists() and destination.resolve() == inspection.path
+    if destination.exists() and not replace and not already_in_place:
         return False, f"A plugin named {inspection.name!r} already exists."
-    if destination.resolve() == inspection.path:
-        return False, "The selected file is already in the plugins folder."
 
-    temp_fd, temp_name = tempfile.mkstemp(prefix=f"{inspection.name}-", suffix=".py", dir=str(plugins_dir))
-    try:
-        os.close(temp_fd)
-        shutil.copyfile(inspection.path, temp_name)
-        os.replace(temp_name, destination)
-    except Exception as exc:
+    if not already_in_place:
+        temp_fd, temp_name = tempfile.mkstemp(prefix=f"{inspection.name}-", suffix=".py", dir=str(plugins_dir))
         try:
-            Path(temp_name).unlink(missing_ok=True)
-        except Exception:
-            pass
-        return False, f"Could not install plugin: {exc}"
+            os.close(temp_fd)
+            shutil.copyfile(inspection.path, temp_name)
+            os.replace(temp_name, destination)
+        except Exception as exc:
+            try:
+                Path(temp_name).unlink(missing_ok=True)
+            except Exception:
+                pass
+            return False, f"Could not install plugin: {exc}"
 
     trust = _load_trust(_trust_path(base))
     trust[inspection.name] = {

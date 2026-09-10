@@ -1,5 +1,9 @@
 """
-Plugin discovery, validation, collision detection, and dispatch.
+Plugin discovery, trust validation, collision detection, and dispatch.
+
+When trust enforcement is enabled, hashes are checked before importing a plugin.
+This keeps top-level code in an unapproved Python file from executing merely
+because it was copied into plugins/.
 
 Discovery runs once (JarvisLive.__init__ calls discover_plugins()); the resulting
 PluginRegistry is cached for the process lifetime. Enable/disable state is re-read
@@ -17,7 +21,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from memory.config_manager import get_plugin_enabled, get_plugin_config
+from memory.config_manager import (
+    get_plugin_enabled, get_plugin_config, get_plugin_trust_required,
+)
+from core.plugin_installer import trust_status
 
 _NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,63}$")
 _DEFAULT_PARAMS = {"type": "OBJECT", "properties": {}}
@@ -32,6 +39,7 @@ class PluginRecord:
     file: str = ""
     valid: bool = False
     error: str = ""
+    trusted: bool = False
     settings: Optional[dict] = None   # optional PLUGIN_SETTINGS schema (config fields)
 
 
@@ -105,6 +113,7 @@ class PluginRegistry:
                 "description": rec.description,
                 "file": rec.file,
                 "valid": rec.valid,
+                "trusted": rec.trusted,
                 "error": rec.error,
                 "enabled": get_plugin_enabled(rec.name) if rec.valid else False,
             })
@@ -159,7 +168,8 @@ def _validate(module, filename: str) -> PluginRecord:
         settings = None
 
     return PluginRecord(name=name, description=description.strip(), parameters=parameters,
-                         run=run_fn, file=filename, valid=True, error="", settings=settings)
+                         run=run_fn, file=filename, valid=True, error="",
+                         trusted=True, settings=settings)
 
 
 def discover_plugins(plugins_dir: Path, core_tool_names: set[str],
@@ -175,32 +185,49 @@ def discover_plugins(plugins_dir: Path, core_tool_names: set[str],
     valid: dict[str, PluginRecord] = {}
     all_records: list[PluginRecord] = []
 
+    trust_required = get_plugin_trust_required()
     files = sorted(plugins_dir.glob("*.py"), key=lambda p: p.name)  # deterministic order
     for path in files:
         if path.name.startswith("_"):
             continue
+        trust = trust_status(path, plugins_dir.parent)
         try:
-            module_name = f"plugins.{path.stem}"
-            spec = importlib.util.spec_from_file_location(module_name, path)
-            if spec is None or spec.loader is None:
-                raise ImportError("could not build import spec")
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            try:
-                spec.loader.exec_module(module)
-            except Exception:
-                sys.modules.pop(module_name, None)
-                raise
+            if trust_required and trust not in {"approved", "bundled"}:
+                # Do not import untrusted code just to inspect its metadata. This
+                # is the important boundary: top-level plugin code cannot run
+                # until the installer has recorded a matching hash.
+                rec = PluginRecord(
+                    name=path.stem,
+                    file=path.name,
+                    trusted=False,
+                    error=("Untrusted plugin — use INSTALL LOCAL PLUGIN or "
+                           "disable trust enforcement for local development."),
+                )
+            else:
+                module_name = f"plugins.{path.stem}"
+                spec = importlib.util.spec_from_file_location(module_name, path)
+                if spec is None or spec.loader is None:
+                    raise ImportError("could not build import spec")
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                try:
+                    spec.loader.exec_module(module)
+                except Exception:
+                    sys.modules.pop(module_name, None)
+                    raise
 
-            rec = _validate(module, path.name)
+                rec = _validate(module, path.name)
+                rec.trusted = trust in {"approved", "bundled"}
 
-            if rec.valid and rec.name in core_tool_names:
-                rec = PluginRecord(name=rec.name, file=path.name,
-                                    error=f"Name '{rec.name}' collides with a core tool — rejected.")
-            elif rec.valid and rec.name in valid:
-                other = valid[rec.name].file
-                rec = PluginRecord(name=rec.name, file=path.name,
-                                    error=f"Name '{rec.name}' already used by plugin '{other}' — rejected.")
+                if rec.valid and rec.name in core_tool_names:
+                    rec = PluginRecord(name=rec.name, file=path.name,
+                                       trusted=rec.trusted,
+                                       error=f"Name '{rec.name}' collides with a core tool — rejected.")
+                elif rec.valid and rec.name in valid:
+                    other = valid[rec.name].file
+                    rec = PluginRecord(name=rec.name, file=path.name,
+                                       trusted=rec.trusted,
+                                       error=f"Name '{rec.name}' already used by plugin '{other}' — rejected.")
 
         except Exception as e:
             rec = PluginRecord(name=path.stem, file=path.name,
