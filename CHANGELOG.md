@@ -75,6 +75,8 @@ The first release meant for other people's machines.
 - **Cinema polish.** The dock stays at the bottom (no jump when chrome
   returns). The greeting is a pulse, not a caption. `/boot` is debug-only.
   On a phone the transcript stays visible.
+- **Chips vs briefing.** Suggestion chips hide while a caption is on
+  screen, so they cannot stripe through the morning brief.
 - **A local journal and a day recap.** Every turn is logged on this machine;
   "what did I do today" or "recap my day" sums up what got done and what
   still dangles.

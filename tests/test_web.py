@@ -583,6 +583,15 @@ def test_legacy_boot_page_is_debug_only(web):
     assert "JARVIS" in shown.text or "boot" in shown.text.lower()
 
 
+def test_chips_do_not_stripe_through_a_briefing(web):
+    """Suggestion chips sat on top of the morning briefing caption."""
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    style = page.split("<style>", 1)[1].split("</style>", 1)[0]
+    assert "body.reading #chips" in style
+
+
 def test_cinema_idle_hides_chrome_until_you_reach(web):
     """Idle field is the orb; chrome waits on body.quiet."""
     from fastapi.testclient import TestClient

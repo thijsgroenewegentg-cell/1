@@ -304,7 +304,7 @@ button { cursor: pointer; border: 0; background: none; }
    The stage sits just above the dock so the text hugs the controls rather
    than floating at the bottom of the screen. */
 #stage {
-  position: fixed; left: 0; right: 0; z-index: 2;
+  position: fixed; left: 0; right: 0; z-index: 6;
   bottom: calc(7vh + 92px); display: flex; flex-direction: column;
   align-items: center; justify-content: flex-end; padding: 0 24px 12px;
   pointer-events: none;
@@ -877,6 +877,10 @@ body.degraded-open #toasts { top: 118px; }
 .chip:hover { color: var(--live); border-color: rgba(var(--tint), .5);
   transform: translateY(-1px); }
 body.talked #chips { display: none; }
+/* A briefing or answer sits in the same band as the chips. Hide the
+   suggestions while there is something to read, so they cannot stripe
+   through the caption. */
+body.reading #chips { display: none; }
 
 /* --- b/w + red theme overrides (user asked black/white with hints of red) --- */
 #brand{ border-color: rgba(255,255,255,.10) !important; }
