@@ -2858,14 +2858,19 @@ async function loadStatus() {
     const usable = raw && !/localhost|127\.0\.0\.1/i.test(raw);
     const box = $("pairBox");
     const head = $("pairHead");
-    if (box) box.style.display = usable ? "flex" : "none";
-    if (head) head.style.display = usable ? "" : "none";
+    if (box) box.style.display = "flex";
+    if (head) head.style.display = "";
     if (usable) {
       const shown = raw.replace(/^https?:\/\//, "");
       $("pairUrl").textContent = shown;
       $("pairUrl").title = raw;
       $("pairQr").src = "/api/pair.svg" + auth;
       $("pairCopy").dataset.url = raw;
+    } else {
+      $("pairUrl").textContent = "—";
+      $("pairUrl").title = "";
+      $("pairQr").removeAttribute("src");
+      $("pairCopy").dataset.url = "";
     }
     applySpeechSupport(data.speech !== false);
     try {

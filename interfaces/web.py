@@ -596,14 +596,14 @@ class WebInterface:
                                 headers={"Cache-Control": "no-store"})
 
         @app.get("/api/pair.svg")
-        async def pair_svg(token: str = Query(default="")) -> Any:
+        async def pair_svg(request: Request, token: str = Query(default="")) -> Any:
             """QR code that opens this console on a phone."""
             if not self._authorised(token):
                 raise HTTPException(status_code=401, detail="bad token")
             try:
                 from utils.qr import svg as qr_svg
 
-                target = self.pair_url()
+                target = self.pair_url(request)
                 if not target:
                     return Response(status_code=204)
                 image = qr_svg(target)
@@ -671,7 +671,7 @@ class WebInterface:
             return JSONResponse({"briefing": text, "already": False})
 
         @app.get("/api/status")
-        async def status(token: str = Query(default="")) -> Any:
+        async def status(request: Request, token: str = Query(default="")) -> Any:
             """Report assistant status and a greeting."""
             if not self._authorised(token):
                 raise HTTPException(status_code=401, detail="bad token")
@@ -744,7 +744,7 @@ class WebInterface:
                     # Language-aware starter questions; the console renders
                     # them as chips next to the dock.
                     "suggestions": self.brain.suggestions(),
-                    "pair": {"url": self.pair_url(), "urls": self.pair_urls()},
+                    "pair": {"url": self.pair_url(request), "urls": self.pair_urls(request)},
                     "identity": {
                         "assistant": str(self.config.get("assistant.name", self.title) or self.title),
                         "user": str(self.config.get("user.name", "") or ""),
@@ -1659,7 +1659,7 @@ class WebInterface:
         self._server.install_signal_handlers = (  # type: ignore[method-assign,attr-defined]
             lambda: None
         )
-        logger.info("Web interface on http://%s:%d", self.host, self.port)
+        logger.info("Web console on port %d", self.port)
         await self._server.serve()
 
     @staticmethod
@@ -1688,20 +1688,50 @@ class WebInterface:
             "(or: pip install websockets)"
         )
 
-    def pair_urls(self) -> List[str]:
-        """Reachable LAN URLs for a phone. Never loopback — that looks unfinished."""
+    def pair_urls(self, request: Optional[Any] = None) -> List[str]:
+        """Public URLs for a phone. Loopback is never included."""
         suffix = f"?token={self.token}" if self.token else ""
         out: List[str] = []
+        seen = set()
+        primary = self.pair_url(request)
+        if primary:
+            out.append(primary)
+            seen.add(primary)
         for url in local_addresses(self.port):
             if "localhost" in url or "127.0.0.1" in url:
                 continue
-            out.append(url.rstrip("/") + "/" + suffix)
+            item = url.rstrip("/") + "/" + suffix
+            if item not in seen:
+                out.append(item)
+                seen.add(item)
         return out
 
-    def pair_url(self) -> str:
-        """LAN URL for the pairing QR, or empty when this machine has none."""
-        urls = self.pair_urls()
-        return urls[0] if urls else ""
+    def pair_url(self, request: Optional[Any] = None) -> str:
+        """Address on the QR: the host the browser used, else a LAN IP.
+
+        Never localhost / 127.0.0.1 / 169.254 — those look unfinished.
+        """
+        suffix = f"?token={self.token}" if self.token else ""
+        if request is not None:
+            host = (
+                request.headers.get("x-forwarded-host")
+                or request.headers.get("host")
+                or ""
+            ).split(",")[0].strip()
+            if host and not _is_loopback_host(host):
+                proto = (
+                    request.headers.get("x-forwarded-proto")
+                    or request.url.scheme
+                    or "http"
+                ).split(",")[0].strip()
+                if proto not in {"http", "https"}:
+                    proto = "http"
+                return f"{proto}://{host}/{suffix}"
+        for url in local_addresses(self.port):
+            if "localhost" in url or "127.0.0.1" in url:
+                continue
+            return url.rstrip("/") + "/" + suffix
+        return ""
 
     def _hello_payload(self) -> Dict[str, Any]:
         """Session snapshot sent the moment a browser connects.
@@ -1729,6 +1759,19 @@ class WebInterface:
         """Ask the server to shut down."""
         if self._server is not None:
             self._server.should_exit = True
+
+
+def _is_loopback_host(host: str) -> bool:
+    """True for localhost, loopback, link-local — never shown to the user."""
+    name = (host or "").strip().lower()
+    if name.startswith("["):
+        end = name.find("]")
+        name = name[1:end] if end > 0 else name
+    elif name.count(":") == 1:
+        name = name.split(":")[0]
+    if not name or name in {"localhost", "127.0.0.1", "::1", "0.0.0.0", "::"}:
+        return True
+    return name.startswith("127.") or name.startswith("169.254.") or name.startswith("fe80:")
 
 
 def _reachable_lan(address: str) -> bool:

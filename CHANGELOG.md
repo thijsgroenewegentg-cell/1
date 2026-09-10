@@ -80,8 +80,8 @@ The first release meant for other people's machines.
 - **Installer.** `--doctor` and `--check` diagnose without reinstalling.
   `--repair` keeps the full profile (it used to silently drop to standard).
   After install, the web console is the default start, not the terminal.
-- **Pairing QR.** Only a real LAN address is shown. Loopback and
-  169.254 never appear — no "localhost" on the HUD or the QR.
+- **Pairing QR.** The Phone panel stays. The link and QR use the host
+  you opened (or a LAN IP) — never localhost.
 - **A local journal and a day recap.** Every turn is logged on this machine;
   "what did I do today" or "recap my day" sums up what got done and what
   still dangles.

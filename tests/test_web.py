@@ -43,12 +43,16 @@ def test_local_addresses_include_something_usable():
 
 
 def test_link_local_addresses_are_not_pairing_targets():
-    from interfaces.web import _reachable_lan
+    from interfaces.web import _is_loopback_host, _reachable_lan
 
     assert _reachable_lan("192.168.1.20")
     assert not _reachable_lan("169.254.0.21")
     assert not _reachable_lan("127.0.0.1")
     assert not _reachable_lan("0.0.0.0")
+    assert _is_loopback_host("localhost:8766")
+    assert _is_loopback_host("127.0.0.1")
+    assert not _is_loopback_host("192.168.1.20:8766")
+    assert not _is_loopback_host("console.example.com")
 
 
 @pytest.mark.parametrize("size", [180, 192, 512])
@@ -824,9 +828,11 @@ def test_status_includes_a_pair_url(web):
     url = payload["pair"]["url"]
     assert "localhost" not in url
     assert "127.0.0.1" not in url
+    # TestClient sends Host: testserver — that is a public host header, so
+    # the pair URL should be that, never loopback.
     if url:
         assert "token=" in url
-        assert str(web.port) in url
+        assert "testserver" in url
 
 
 def test_the_pairing_qr_is_an_svg(web):
