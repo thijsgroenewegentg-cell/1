@@ -82,6 +82,10 @@ The first release meant for other people's machines.
   After install, the web console is the default start, not the terminal.
 - **Pairing QR.** The Phone panel stays. The link and QR use the host
   you opened (or a LAN IP) — never localhost.
+- **Tool use.** When the model is up it is not overruled by a keyword
+  guess. After every tool the planner thinks again instead of stopping
+  on the first system_control/productivity hit, and identical calls are
+  not repeated.
 - **A local journal and a day recap.** Every turn is logged on this machine;
   "what did I do today" or "recap my day" sums up what got done and what
   still dangles.

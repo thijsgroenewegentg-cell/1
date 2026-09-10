@@ -128,6 +128,7 @@ class Planner:
         transcript: List[str] = []
         observations: List[Tuple[str, ModuleResult]] = []
         catalog = self.brain.tool_registry(intent.module)
+        seen_calls: set = set()
 
         # Fast/deep tiering: the first attempt runs on the main model. When a
         # decision cannot even be parsed, or a tool already failed, the next
@@ -207,6 +208,15 @@ class Planner:
             if "." not in reference:
                 reference = f"{intent.module}.{reference}"
 
+            signature = (reference, json.dumps(params, sort_keys=True, default=str)[:400])
+            if signature in seen_calls:
+                transcript.append(
+                    "Observation: that exact call was already made. "
+                    "Pick a different tool or different params, or answer."
+                )
+                continue
+            seen_calls.add(signature)
+
             await self._status_for_tool(reference, step)
             # Go/no-go on the first tool when the plan looks like a guess.
             # The model can pick a plausible-but-wrong target ("city.blend"
@@ -227,10 +237,9 @@ class Planner:
             transcript.append(f"Observation: {result.to_observation(900)}")
             logger.debug("Observation: %s", truncate(result.to_observation(300), 300))
 
-            if result.success and self._is_terminal(reference, result):
-                break
-            # The tool failed: give the deep model one chance to pick a better
-            # next step instead of composing a defeat reply immediately.
+            # Always return to the model so it can read the observation and
+            # either answer or take another step. Stopping here made every
+            # system_control/productivity call a one-shot.
             if not result.success:
                 escalate()
 
@@ -313,11 +322,18 @@ class Planner:
             '"action": "module.tool or null", "params": {}, '
             '"answer": "final answer if no tool is needed, else null"}\n\n'
             "Answer format: action must be a module.tool listed in TOOLS; "
-            "params must name ONLY that tool's parameters. If the answer is "
-            "already in hand or no tool would improve it, set action to null "
-            "and answer directly — do not call a tool for its own sake.\n"
+            "params must name ONLY that tool's parameters. Copy values from "
+            "the USER REQUEST (paths, names, durations, search terms) — do "
+            "not invent them. If the answer is already in hand or no tool "
+            "would improve it, set action to null and answer directly — do "
+            "not call a tool for its own sake.\n"
             + toolcraft.golden_block()
-            + "\nRe-read the USER REQUEST before deciding: only call a tool "
+            + "\nAfter an Observation: you MUST either (a) set action to null "
+            "and answer the USER REQUEST from that observation, or (b) call "
+            "a different tool or the same tool with different params. Never "
+            "ignore a failed or incomplete observation. Never repeat an "
+            "identical call.\n"
+            "Re-read the USER REQUEST before deciding: only call a tool "
             "that moves you toward what was literally asked. If the request "
             "is vague, names no file/app/parameter, or cannot be satisfied "
             "with the tools above, do NOT guess — set action to null and ask "
@@ -400,17 +416,5 @@ class Planner:
                 "Working on it.",
                 "Give me a second, sir.",
             ]))
-
-    @staticmethod
-    def _is_terminal(reference: str, result: ModuleResult) -> bool:
-        """Heuristic: does this tool result already satisfy the request?"""
-        if result.needs_followup:
-            return False
-        terminal_prefixes = (
-            "system_control.", "productivity.", "file_manager.organize",
-            "code_assistant.save", "code_assistant.run",
-        )
-        return reference.startswith(terminal_prefixes)
-
 
 __all__ = ["MAX_REACT_STEPS", "Planner", "TokenCallback"]

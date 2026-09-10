@@ -8,8 +8,9 @@ Two routers in one, and they check each other:
 * **The model itself**, given a catalogue of the loaded modules and their own
   example phrasings, asked for strict JSON.
 
-A confident keyword match overrules a hesitant model, which is what keeps
-"set a timer for 10 minutes" out of the conversation branch on a bad day.
+Decisive phrases ("set a timer") skip the model because a small router
+is often confidently wrong on those. Other keyword scores are a hint
+once Ollama is up, not a veto.
 """
 
 from __future__ import annotations
@@ -353,6 +354,8 @@ class IntentRouter:
             "smart_assistant.\n\n"
             f"Recent conversation:\n{self.brain.memory.short_term.transcript(2) or '(none)'}\n\n"
             f'User request: "{text}"\n\n'
+            f"Keyword hint (not binding): {keyword_intent.module} "
+            f"({keyword_intent.reason or 'none'}). You decide.\n\n"
             'Reply with ONLY JSON: {"module": "<category>", "confidence": 0.0-1.0, '
             '"reason": "<8 words max>"}'
         )
@@ -373,9 +376,9 @@ class IntentRouter:
                 confidence = float(parsed.get("confidence", 0.6))
             except Exception:
                 confidence = 0.6
-            # A strong keyword signal overrides a hesitant model.
-            if keyword_intent.confidence >= 0.85 and confidence < 0.6:
-                return keyword_intent
+            # The model is the authority when it is up. Keywords stay a
+            # hint in the prompt and a fallback when JSON is unreadable.
+            # Decisive phrases already returned above.
             return Intent(
                 module=module,
                 confidence=confidence,

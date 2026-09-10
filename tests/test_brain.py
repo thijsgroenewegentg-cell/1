@@ -575,7 +575,8 @@ def test_a_failed_tool_moves_the_next_step_to_the_deep_model(brain, monkeypatch)
     intent = Intent(module="productivity", confidence=0.9, method="keyword")
     reply = run(brain._react("fix my todos", intent, "", None))
     assert reply == "Recovered, sir."
-    assert models == [None, "big-brain"]
+    assert models[0] is None
+    assert "big-brain" in models[1:]
 
 
 def test_deep_retry_stays_off_when_no_deep_model_is_configured(brain, monkeypatch):
@@ -636,3 +637,79 @@ def test_a_search_turn_emits_an_ack_event(brain):
     run(brain.process("search the web for rust iterators"))
     assert seen
     assert seen[0].get("text")
+
+
+def test_the_model_is_not_overruled_by_a_keyword_guess(brain, monkeypatch):
+    """When Ollama is up, a hesitant model still picks the module."""
+    brain.llm.available = True
+    monkeypatch.setattr(
+        brain.router,
+        "_keyword_intent",
+        lambda text: Intent("system_control", 0.9, "keyword guess", method="keyword"),
+    )
+
+    async def fake_complete(prompt, **kwargs):
+        assert "Keyword hint" in prompt
+        return json.dumps({"module": "web_search", "confidence": 0.55, "reason": "needs live data"})
+
+    monkeypatch.setattr(brain.llm, "complete", fake_complete)
+    intent = run(brain.router.classify("what is going on with memory prices"))
+    assert intent.module == "web_search"
+    assert intent.method == "llm"
+
+
+def test_the_planner_thinks_again_after_a_tool(brain, monkeypatch):
+    """A successful system_control call used to end the loop without a think."""
+    brain.llm.available = True
+    calls: list[str] = []
+
+    async def fake_complete(prompt, **kwargs):
+        calls.append(prompt)
+        if len(calls) == 1:
+            return json.dumps({
+                "thought": "need the clock",
+                "action": "system_control.current_time",
+                "params": {},
+                "answer": None,
+            })
+        return json.dumps({
+            "thought": "observation is enough",
+            "action": None,
+            "params": {},
+            "answer": "It is tea time.",
+        })
+
+    monkeypatch.setattr(brain.llm, "complete", fake_complete)
+    intent = Intent("system_control", 0.9, "clock", method="llm")
+    reply = run(brain.planner.run("what time is it", intent, "", None))
+    assert len(calls) >= 2
+    assert "Observation:" in calls[1]
+    assert "tea time" in reply.lower()
+
+
+def test_the_planner_does_not_repeat_an_identical_call(brain, monkeypatch):
+    brain.llm.available = True
+    prompts: list[str] = []
+
+    async def fake_complete(prompt, **kwargs):
+        prompts.append(prompt)
+        if len(prompts) <= 2:
+            return json.dumps({
+                "thought": "try the clock",
+                "action": "system_control.current_time",
+                "params": {},
+                "answer": None,
+            })
+        return json.dumps({
+            "thought": "done",
+            "action": None,
+            "params": {},
+            "answer": "Enough.",
+        })
+
+    monkeypatch.setattr(brain.llm, "complete", fake_complete)
+    intent = Intent("system_control", 0.9, "clock", method="llm")
+    reply = run(brain.planner.run("what time is it", intent, "", None))
+    assert "Enough" in reply
+    assert any("already made" in prompt for prompt in prompts[1:])
+

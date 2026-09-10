@@ -32,8 +32,9 @@ GOLDEN_RULES: Tuple[str, ...] = (
     "todo list\" the task is \"buy milk\", not \"add\" and not \"groceries\".",
     "Every parameter value must come from the request or from RECENT "
     "ACTIVITY/MEMORY — never invent files, names, times, durations or numbers.",
-    "Call at most one tool per step, and stop calling the moment an "
-    "observation already answers the request.",
+    "Call at most one tool per step. After every Observation, decide: "
+    "does it satisfy the USER REQUEST? If yes, answer from it. If no, "
+    "take another step. Never stop without reading what the tool returned.",
     "Prefer the primary module's tools. Reach into another module only when "
     "the request clearly needs it.",
     "If a tool call failed, never repeat it with identical parameters: "
