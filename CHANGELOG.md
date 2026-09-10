@@ -10,9 +10,11 @@ The first release meant for other people's machines.
 
 - **A voice-first interface.** The browser console is built around a sphere of
   3,200 points that breathes when idle, follows your voice through the real
-  audio analyser while the microphone is open, turns violet while thinking and
-  blue while speaking. Rendering adapts to the machine: frame times are
-  measured and detail is dropped before frames are.
+  audio analyser while the microphone is open, and keeps to white with red as
+  the only accent — hard white while listening, red while speaking, and a
+  visibly dimmer rest when no language model is reachable. Rendering adapts
+  to the machine: frame times are measured and detail is dropped before
+  frames are, and `prefers-reduced-motion` calms the sphere to near-still.
 - **It shows its working.** The brain publishes which module it chose and which
   tool it ran; the interface draws that as a live trace with timings, and
   lights the module's tile as it happens.
@@ -30,8 +32,29 @@ The first release meant for other people's machines.
   asking or with `/audit`.
 - **`install.py --everything`**: audio libraries, every model, every capability,
   and a closing diagnosis of whatever is still missing.
-- **`docs/CONFIGURATION.md`**: all 185 settings with their real defaults,
+- **`docs/CONFIGURATION.md`**: all 225 settings with their real defaults,
   generated from the code so they cannot drift.
+- **It speaks your language.** Replies follow the language you write in —
+  Dutch, English and more — with `assistant.language` as a fixed override.
+  The help text and the console's starter questions follow it too.
+- **A local journal and a day recap.** Every turn is logged on this machine;
+  "what did I do today" or "recap my day" sums up what got done and what
+  still dangles.
+- **Topic dossiers.** "fill me in on X" assembles a compact brief from the
+  journal, facts, notes and open threads.
+- **Bulk actions with a preview.** "tick off everything in the bike project",
+  "delete every todo tagged X", "snooze all reminders until tomorrow" —
+  anything beyond a few rows shows a preview first.
+- **A local vault.** Secrets such as passwords live only in a small obfuscated
+  file on this machine — never in notes, logs or the cloud.
+- **Self-healing retries.** After a failed action JARVIS suggests the closest
+  matching file or folder; "try that again" repeats the attempt.
+- **Macros, rules and open threads.** "when I say X, do Y" teaches a fixed
+  command; commitments are kept as threads he nudges until they are closed.
+- **A console that reads.** Replies render lists, links and code with copy
+  buttons; a one-block answer types itself out; clickable starter questions
+  sit next to the input, and on a phone the conversation stays visible as a
+  scrollable transcript instead of disappearing.
 
 ### Fixed
 

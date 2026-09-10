@@ -12,7 +12,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`main.py`](#mainpy) — 26
 - [`install.py`](#installpy) — 56
 - [`core/autopilot.py`](#coreautopilotpy) — 4
-- [`core/brain.py`](#corebrainpy) — 129
+- [`core/brain.py`](#corebrainpy) — 130
 - [`core/bulk.py`](#corebulkpy) — 8
 - [`core/coach.py`](#corecoachpy) — 3
 - [`core/config.py`](#coreconfigpy) — 29
@@ -87,6 +87,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_macros.py`](#teststest_macrospy) — 11
 - [`tests/test_memory.py`](#teststest_memorypy) — 23
 - [`tests/test_models.py`](#teststest_modelspy) — 7
+- [`tests/test_orb_ui.py`](#teststest_orb_uipy) — 5
 - [`tests/test_plugins.py`](#teststest_pluginspy) — 18
 - [`tests/test_preferences.py`](#teststest_preferencespy) — 8
 - [`tests/test_productivity.py`](#teststest_productivitypy) — 28
@@ -106,6 +107,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_wave2_features.py`](#teststest_wave2_featurespy) — 17
 - [`tests/test_wave3_features.py`](#teststest_wave3_featurespy) — 16
 - [`tests/test_wave4_features.py`](#teststest_wave4_featurespy) — 20
+- [`tests/test_wave4_ui.py`](#teststest_wave4_uipy) — 11
 - [`tests/test_web.py`](#teststest_webpy) — 65
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/eval_function_calling.py`](#scriptseval_function_callingpy) — 5
@@ -227,7 +229,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*129 functions*
+*130 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
@@ -335,6 +337,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _maybe_ping(self, text: str, response: str, elapsed: float) -> None` — Emit a done-ping when the user asked for one or the turn was long.
 - `def _is_help_request(self, text: str) -> bool` — Recognise a capabilities/help request.
 - `def help_text(self) -> str` — Describe the loaded capabilities with concrete example phrases.
+- `def suggestions(self) -> List[str]` — Starter questions the web console shows as clickable chips.
 - `def _read_request(self, text: str) -> bool` — True when the utterance asks for text to be read out loud.
 - `def _read_target(self, text: str) -> Optional[str]` — Find the file the user wants read aloud.
 - `async def _read_aloud(self, text: str) -> Optional[str]` — Answer a read-it-to-me request with chunked plain text.
@@ -2540,6 +2543,18 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_switching_to_a_model_that_is_not_installed_is_refused(models)`
 - `def test_asking_about_no_model_in_particular_is_handled(models)`
 
+## `tests/test_orb_ui.py`
+
+*5 functions*
+
+> The reactive sphere: honest states and robust geometry.
+
+- `def html() -> str`
+- `def test_orb_band_is_measured_from_the_live_dock()`
+- `def test_orb_speaks_on_the_deterministic_path()`
+- `def test_orb_rests_honestly_when_degraded()`
+- `def test_reduced_motion_calms_the_sphere()`
+
 ## `tests/test_plugins.py`
 
 *18 functions*
@@ -3124,6 +3139,24 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_brain_vault_store_get_forget(brain)`
 - `def test_brain_vault_nl_and_identity_guard(brain)`
 
+## `tests/test_wave4_ui.py`
+
+*11 functions*
+
+> Wave-4 discoverability: bilingual help text + web-console suggestions.
+
+- `def brain(tmp_path_factory: pytest.TempPathFactory) -> Brain` — A clean offline brain per test.
+- `def test_help_text_lists_wave4_features_in_english(brain)`
+- `def test_help_text_lists_wave4_features_in_dutch(brain)`
+- `def test_help_via_chat_answers_offline(brain)` — The capability question itself must stay answerable offline.
+- `def test_suggestions_follow_the_reply_language(brain)`
+- `def test_status_endpoint_publishes_suggestions()` — The console reads the chip list off /api/status.
+- `def test_app_html_renders_language_aware_chips()`
+- `def test_app_html_reveals_one_shot_replies()` — Deterministic answers type themselves out; esc completes the reveal.
+- `def test_app_html_keeps_a_mobile_transcript()` — Narrow screens get a scrollable rail instead of none at all.
+- `def test_app_html_renders_lists_and_links()`
+- `def test_app_html_command_palette_has_wave4_quick_entries()`
+
 ## `tests/test_web.py`
 
 *65 functions*
@@ -3256,5 +3289,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**2235 functions across 102 files.**
+**2252 functions across 104 files.**
 
