@@ -1,0 +1,61 @@
+# ── MARK LIII — what never belongs in the repository ──────────────────────────
+# Everything listed here is created by the app on first run. A fresh clone with
+# none of it present boots straight to the setup screen, which is the intended
+# first experience — so nothing here needs to be committed, and some of it must
+# never be.
+
+# ── Secrets. Committing any of these publishes them. ──────────────────────────
+config/api_keys.json          # local Ollama settings and per-plugin credentials
+config/plugin_trust.json      # local hashes of plugins approved on this machine
+config/certs/                 # the dashboard's TLS private key and certificate
+config/whatsapp_web/          # a LINKED WhatsApp session — committing it hands
+                              # somebody your WhatsApp account, not just a key
+**/token*.json                # Google OAuth tokens (Gmail / Calendar plugins)
+**/client_secret*.json        # Google OAuth client secrets
+*credentials*.json
+.env
+.env.*
+
+# ── Personal data the assistant accumulates about you ─────────────────────────
+memory/long_term.json
+memory/projects/
+memory/*.db
+memory/active_plan.json
+memory/checkpoints/
+config/workflows.json
+
+# ── Python build noise ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+installer/output/
+*.egg-info/
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Editors and operating systems ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Runtime output ────────────────────────────────────────────────────────────
+*.log
+logs/
+downloads/
+screenshots/
+
+# ── Runtime task traces and local evaluation output ───────────────────────────
+memory/task_runtime.json
+memory/evaluations/
+memory/proactive_alerts.json
