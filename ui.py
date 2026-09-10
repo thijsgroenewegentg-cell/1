@@ -2926,7 +2926,12 @@ class ControlCenterOverlay(_HudOverlay):
 
     def _build_blender_tab(self) -> QWidget:
         w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(8, 8, 8, 8); lay.setSpacing(6)
-        self._blender_box = self._box(230); lay.addWidget(self._blender_box, 1)
+        self._blender_box = self._box(170); lay.addWidget(self._blender_box, 1)
+        self._blender_preview = QLabel("No render preview yet")
+        self._blender_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._blender_preview.setFixedHeight(92)
+        self._blender_preview.setStyleSheet(f"color: {C.TEXT_DIM}; background: {C.DARK}; border: 1px solid {C.BORDER}; border-radius: 3px;")
+        lay.addWidget(self._blender_preview)
         path_row = QHBoxLayout(); self._blender_path = QLineEdit(); self._blender_path.setPlaceholderText("~/Documents/MARK/scene.blend or render.png"); path_row.addWidget(self._blender_path, 1); path_row.addWidget(self._button("BROWSE", self._browse_blender_path)); lay.addLayout(path_row)
         row1 = QHBoxLayout(); row1.setSpacing(4)
         for label, action in (("STATUS", "status"), ("OBJECTS", "list_objects"), ("UNDO", "undo"), ("CHECKPOINT", "scene_checkpoint"), ("RENDER PREVIEW", "render")):
@@ -2965,6 +2970,16 @@ class ControlCenterOverlay(_HudOverlay):
         self.refresh()
         if action == "blender_control":
             self._blender_box.setPlainText(value)
+            try:
+                payload = json.loads(value)
+                preview_path = Path(str(payload.get("path", ""))).expanduser()
+                if preview_path.is_file() and preview_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".exr"}:
+                    pixmap = QPixmap(str(preview_path))
+                    if not pixmap.isNull():
+                        self._blender_preview.setPixmap(pixmap.scaled(self._blender_preview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                        self._blender_preview.setText("")
+            except Exception:
+                pass
         elif action == "workflow_recorder" and "WORKFLOW" in value:
             self._workflow_box.setPlainText(value)
 
