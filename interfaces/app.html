@@ -338,6 +338,10 @@ body.reading #caption {
   text-transform: uppercase; color: var(--dimmer);
 }
 #caption .copy:hover { color: var(--live); }
+#caption ul, #caption ol { margin: 4px 0 4px 1.3em; padding: 0; text-align: left; }
+#caption li { margin: 2px 0; }
+#caption a { color: var(--live); text-decoration: underline dotted;
+             text-underline-offset: 3px; }
 
 /* -------------------------------------------------------------- cards */
 #cards {
@@ -747,15 +751,28 @@ body.degraded-open #toasts { top: 118px; }
 @media (max-width: 620px) { #degraded code { display: none; } }
 
 @media (max-width: 860px) {
-  #rail { display: none; }
+  /* The conversation used to vanish entirely on narrow screens — the rail
+     was display:none and only the single caption stayed. The rail now sits
+     in the free band below the controls as a real, scrollable transcript,
+     so a phone is no longer a blind spot for what was just said. */
+  #rail {
+    top: auto; left: 10px; right: 10px; bottom: 10px; width: auto;
+    max-height: 31vh; padding: 12px 14px; pointer-events: auto;
+    justify-content: flex-end; overflow-y: auto; scrollbar-width: thin;
+    background: var(--glass); border: 1px solid var(--line);
+    border-radius: var(--r-lg); backdrop-filter: blur(22px) saturate(1.2);
+    box-shadow: var(--shadow-md); mask-image: none;
+  }
+  #rail .line { text-align: left; font-size: 12.5px; line-height: 1.45; }
   /* Narrow screens need the console a little higher, so the caption above
      it is not squeezed against the orb. */
-  #dock { top: 55%; }
-  #stage { bottom: calc(45% + 66.5px); }
+  #dock { top: 46%; }
+  #stage { bottom: calc(54% + 66.5px); }
   #caption { font-size: 18px; }
   #top { padding: 14px 16px; }
   #tileLabel { top: 54px; left: 16px; }
   #brand { font-size: 9.5px; letter-spacing: .3em; }
+  #chips { max-width: 92vw; }
 }
 @media (prefers-reduced-motion: reduce) {
   body, .toast, .line, #palette { animation: none !important; transition: none !important; }
@@ -914,13 +931,9 @@ body.talked #chips { display: none; }
 <div id="rail" aria-live="polite"></div>
 
 <div id="dock">
-  <div id="chips" aria-label="Try asking">
-    <button class="chip" data-send="Recap my day">Recap my day</button>
-    <button class="chip" data-send="Wat heb ik vandaag gedaan">Wat heb ik vandaag gedaan</button>
-    <button class="chip" data-send="vink alles af in het fietsproject">vink alles af in het fietsproject</button>
-    <button class="chip" data-send="brief me over de verbouwing">brief me over de verbouwing</button>
-    <button class="chip" data-send="what's my wifi password">what's my wifi password</button>
-  </div>
+  <!-- Rendered by JS from /api/status, so the examples follow the
+       language JARVIS currently answers in. -->
+  <div id="chips" aria-label="Try asking"></div>
   <div id="typed">
     <input id="input" placeholder="Type instead…" autocomplete="off" aria-label="Message">
     <button id="sendBtn" title="Send" aria-label="Send">↵</button>
@@ -1103,6 +1116,10 @@ const $ = (id) => document.getElementById(id);
 const rail = $("rail"), caption = $("caption"), input = $("input");
 
 let socket = null, busy = false, replyText = "", turns = 0, retry = 0;
+// Set once the server streamed "token" frames for this reply; the final
+// "reply" frame then skips the typewriter because the text is already on
+// screen character by character.
+let tokenSeen = false;
 // null until /api/status answers; false means Ollama is not running.
 let llmOnline = null;
 let captionTimer = null, turnStarted = 0;
@@ -1717,12 +1734,58 @@ function light(text) {
     blocks.push(code.trim());
     return "\u0000B" + (blocks.length - 1) + "\u0000";
   });
-  out = escapeHtml(out)
-    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
-    .replace(/\n/g, "<br>");
+  // Line-oriented pass: bullets and numbered runs become real lists, and
+  // leading hashes become bold headings — wave-4 answers (recap, dossiers,
+  // bulk previews) lean on exactly that shape.
+  const lines = escapeHtml(out).split("\n");
+  const html = [];
+  let list = null;
+  const flush = () => { if (list) { html.push("</" + list + ">"); list = null; } };
+  lines.forEach((raw) => {
+    const line = raw.trimEnd();
+    const bullet = /^\s*[-•*]\s+(.+)/.exec(line);
+    const numbered = /^\s*\d+[.)]\s+(.+)/.exec(line);
+    const heading = /^\s*#{1,4}\s+(.+)/.exec(line);
+    if (bullet) {
+      if (list !== "ul") { flush(); html.push("<ul>"); list = "ul"; }
+      html.push("<li>" + inlineMd(bullet[1]) + "</li>");
+      return;
+    }
+    if (numbered) {
+      if (list !== "ol") { flush(); html.push("<ol>"); list = "ol"; }
+      html.push("<li>" + inlineMd(numbered[1]) + "</li>");
+      return;
+    }
+    flush();
+    if (!line.trim()) { html.push(""); return; }
+    html.push(heading ? "<b>" + inlineMd(heading[1]) + "</b>" : inlineMd(line));
+  });
+  flush();
+  out = html.join("\n")
+    .replace(/\n/g, "<br>")
+    // Tidy the list scaffolding: breaks between list tags are structural
+    // noise, but the break after a closing tag still separates the list
+    // from whatever follows it.
+    .replace(/<br><(\/?(?:ul|ol|li))>/g, "<$1>")
+    .replace(/<(ul|ol|\/li)><br>/g, "<$1>");
   return out.replace(/\u0000B(\d+)\u0000/g, (m, index) =>
     '<pre><button class="copy" type="button">copy</button>' + escapeHtml(blocks[index]) + "</pre>");
+}
+
+/* Inline markdown on already-escaped text: [label](url), bare links,
+   `code` and **bold**. Links open in a new tab and never touch opener. */
+function inlineMd(text) {
+  return text
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/(^|\s)(https?:\/\/[^\s<]+)/g, (m, lead, url) => {
+      const trimmed = url.replace(/[.,;:!?)\]]+$/, "");
+      const tail = url.slice(trimmed.length);
+      return lead + '<a href="' + trimmed + '" target="_blank" rel="noopener noreferrer">' +
+        trimmed + "</a>" + tail;
+    })
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
 }
 
 function say(text, options = {}) {
@@ -1747,6 +1810,36 @@ function setContentful(on) {
   if (on === contentful) return;
   contentful = on;
   document.body.classList.toggle("reading", on);
+}
+
+/* ---------------------------------------------------------- typewriter
+   Deterministic answers arrive as one block (no token stream), which used
+   to make them appear fully formed — indistinguishable from nothing having
+   happened until it suddenly was there. The caption reveals instead: a few
+   characters per frame, re-rendered through light() so lists and code
+   build themselves while the text lands. Esc completes it instantly. */
+let revealTimer = null, revealText = "";
+function reveal(text) {
+  stopReveal();
+  revealText = String(text || "");
+  if (!revealText) { say(text, { fade: 30000 }); return; }
+  let shown = 0;
+  const step = Math.max(2, Math.round(revealText.length / 110));
+  const tick = () => {
+    shown = Math.min(revealText.length, shown + step);
+    say(revealText.slice(0, shown), { cursor: shown < revealText.length });
+    if (shown < revealText.length) revealTimer = setTimeout(tick, 16);
+    else { revealTimer = null; say(revealText, { fade: 30000 }); }
+  };
+  tick();
+}
+function stopReveal() {
+  if (revealTimer) { clearTimeout(revealTimer); revealTimer = null; }
+}
+function finishReveal() {
+  stopReveal();
+  if (revealText) say(revealText, { fade: 30000 });
+  revealText = "";
 }
 
 //: A live elapsed-time readout beside the state label. A tool that takes
@@ -2015,11 +2108,17 @@ function handle(data) {
   if (data.type === "token") {
     if (!replyText) pulse();
     replyText += data.text;
+    tokenSeen = true;
+    stopReveal();                       // streaming beats the typewriter
     say(replyText, { cursor: true });
     mood("speak", 0.45);
   } else if (data.type === "reply") {
     replyText = data.text || replyText;
-    say(replyText || "…", { fade: 30000 });
+    // Token streams already land character by character; one-shot replies
+    // (the deterministic path) get the typewriter reveal instead of a pop.
+    if (tokenSeen || !replyText) say(replyText || "…", { fade: 30000 });
+    else reveal(replyText);
+    tokenSeen = false;
     trace("ai", escapeHtml(replyText.slice(0, 160)));
     remember("ai", replyText);
     pulse(true);
@@ -2052,6 +2151,7 @@ function handle(data) {
   } else if (data.type === "status") {
     status(data.text);
   } else if (data.type === "notice") {
+    stopReveal();                     // an announcement supersedes the typing
     trace("sys", "🔔 " + escapeHtml(data.text));
     say(data.text, { fade: 22000 });
     pulse();
@@ -2060,6 +2160,7 @@ function handle(data) {
       try { new Notification("JARVIS", { body: data.text }); } catch (err) { /* denied */ }
     }
   } else if (data.type === "error") {
+    stopReveal();
     toast(data.text, true); trace("err", escapeHtml(data.text));
     setBusy(false); showDoing("");
   } else if (data.type === "confirm") {
@@ -2105,11 +2206,13 @@ function send(text) {
   if (!text || busy) return;
   document.body.classList.add("talked");  // hide the suggestion chips
   if (!socket || socket.readyState !== 1) { toast("Not connected yet.", true); return; }
+  stopReveal();                           // a new turn cuts short any typing
   trace("me", escapeHtml(text));
   remember("me", text);
   say(text, { dim: true });
   clearCards();
   replyText = "";
+  tokenSeen = false;
   socket.send(JSON.stringify({ text }));
   setBusy(true);
   input.value = "";
@@ -2475,7 +2578,33 @@ function runOption(index) {
   send(item.label);
 }
 
-/* Suggestion chips next to the dock: click one to ask it verbatim. */
+/* Suggestion chips next to the dock: click one to ask it verbatim.
+   The list comes from /api/status so it follows the reply language; the
+   bilingual default is what shows before that answer arrives (or if it
+   never does). */
+const DEFAULT_CHIPS = [
+  "Recap my day",
+  "Wat heb ik vandaag gedaan",
+  "vink alles af in het fietsproject",
+  "brief me over de verbouwing",
+  "what's my wifi password",
+];
+function renderChips(list) {
+  const chips = $("chips");
+  if (!chips) return;
+  chips.textContent = "";
+  const items = Array.isArray(list) && list.length ? list : DEFAULT_CHIPS;
+  items.forEach((text) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chip";
+    button.setAttribute("data-send", text);
+    button.textContent = text;
+    chips.appendChild(button);
+  });
+}
+renderChips(null);                      // instant content before /api/status
+
 document.addEventListener("click", (event) => {
   const chip = event.target.closest && event.target.closest(".chip");
   if (chip) send(chip.getAttribute("data-send") || chip.textContent.trim());
@@ -2946,6 +3075,9 @@ addEventListener("keydown", (event) => {
     if ($("confirm").classList.contains("show")) { answerPermission(false); return; }
     if ($("palette").classList.contains("show")) return;    // its own handler
     if ($("keys").classList.contains("show")) { $("keys").classList.remove("show"); return; }
+    // Esc while the typewriter is running just skips ahead to the full
+    // answer — the turn itself is already finished at that point.
+    if (revealTimer) { finishReveal(); return; }
     if (socket && socket.readyState === 1) socket.send(JSON.stringify({ command: "cancel" }));
     setBusy(false); say("Stopped.", { dim: true, fade: 3000 });
     return;
@@ -3170,6 +3302,7 @@ setInterval(loadSystemStatus, 15000);
 setInterval(loadDashboard, 45000);
 fetch("/api/status" + auth).then((response) => response.json())
   .then((data) => {
+    renderChips(data.suggestions);
     if (!data.greeting) return;
     // Hold the greeting until the chrome has assembled, so it doesn't appear
     // on a caption that is still invisible. The pulse rides the settle, which

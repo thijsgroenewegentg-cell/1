@@ -3518,6 +3518,34 @@ class Brain:
                 "machine — never in notes, logs or the cloud.")
         return "\n".join(lines)
 
+    def suggestions(self) -> List[str]:
+        """Starter questions the web console shows as clickable chips.
+
+        The list follows the language JARVIS is answering in, so the first
+        thing a visitor can tap already speaks their language. Every entry
+        doubles as a working example of a wave-4 feature (recap, bulk
+        actions, topic dossiers, the local vault) plus one capability
+        question.
+
+        Returns:
+            Five short, ready-to-send utterances.
+        """
+        if self.current_language() == "nl":
+            return [
+                "Wat heb ik vandaag gedaan",
+                "vink alles af in het fietsproject",
+                "brief me over de verbouwing",
+                "wat is mijn wifi-wachtwoord",
+                "wat kun je allemaal",
+            ]
+        return [
+            "Recap my day",
+            "tick off everything in the bike project",
+            "fill me in on the renovation",
+            "what's my wifi password",
+            "what can you do?",
+        ]
+
     # ------------------------------------------------------------ read-aloud
     def _read_request(self, text: str) -> bool:
         """True when the utterance asks for text to be read out loud.

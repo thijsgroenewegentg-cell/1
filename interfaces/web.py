@@ -615,8 +615,10 @@ class WebInterface:
                             # Keep newest 180
                             files_sorted = sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
                             for old in files_sorted[180:]:
-                                try: old.unlink()
-                                except Exception: pass
+                                try:
+                                    old.unlink()
+                                except Exception:
+                                    pass
                             files = files_sorted[:180]
                         except Exception:
                             pass
@@ -644,6 +646,9 @@ class WebInterface:
                     "speech": await self.speech_available(),
                     "has_elevenlabs_key": has_eleven,
                     "tts_cache": tts_cache_info,
+                    # Language-aware starter questions; the console renders
+                    # them as chips next to the dock.
+                    "suggestions": self.brain.suggestions(),
                 }
             )
 
@@ -855,7 +860,7 @@ class WebInterface:
                 self.config.save()
             except Exception as exc:
                 logger.warning("Could not save voice config: %s", exc)
-                raise HTTPException(status_code=500, detail="could not save config")
+                raise HTTPException(status_code=500, detail="could not save config") from exc
             # Re-initialise the in-memory TTS so the next /api/tts uses it without restart
             try:
                 tts = await self._tts_engine()
@@ -950,7 +955,7 @@ class WebInterface:
                 raise
             except Exception as exc:
                 logger.warning("Vision upload failed: %s", exc)
-                raise HTTPException(status_code=500, detail="vision upload failed")
+                raise HTTPException(status_code=500, detail="vision upload failed") from exc
             try:
                 vision_mod = None
                 for mod in getattr(self.brain, "modules", {}).values():
@@ -973,7 +978,7 @@ class WebInterface:
                 raise
             except Exception as exc:
                 logger.warning("Vision describe failed: %s", exc)
-                raise HTTPException(status_code=500, detail="vision failed")
+                raise HTTPException(status_code=500, detail="vision failed") from exc
             finally:
                 try:
                     if tmp_path and tmp_path.exists() and str(tmp_path).startswith(str(Path(tempfile.gettempdir()))):
@@ -1046,7 +1051,7 @@ class WebInterface:
                     return JSONResponse({"ok": bool(ok)})
             except Exception as exc:
                 logger.warning("Memory manage failed: %s", exc)
-                raise HTTPException(status_code=500, detail="memory failed")
+                raise HTTPException(status_code=500, detail="memory failed") from exc
 
         @app.get("/api/doctor")
         async def doctor(token: str = Query(default="")) -> Any:
@@ -1059,7 +1064,7 @@ class WebInterface:
                 return JSONResponse(report.as_dict())
             except Exception as exc:
                 logger.warning("Doctor failed: %s", exc)
-                raise HTTPException(status_code=500, detail="doctor failed")
+                raise HTTPException(status_code=500, detail="doctor failed") from exc
 
         @app.get("/api/system/status")
         async def system_status(token: str = Query(default="")) -> Any:
@@ -1127,8 +1132,10 @@ class WebInterface:
                     return JSONResponse({"ok": True, "already": False, "voice": PIPER_VOICE_NAME})
                 # Cleanup partial
                 try:
-                    if not ok1: model.unlink(missing_ok=True)
-                    if not ok2: cfg.unlink(missing_ok=True)
+                    if not ok1:
+                        model.unlink(missing_ok=True)
+                    if not ok2:
+                        cfg.unlink(missing_ok=True)
                 except Exception:
                     pass
                 raise HTTPException(status_code=503, detail="download failed")
@@ -1136,7 +1143,7 @@ class WebInterface:
                 raise
             except Exception as exc:
                 logger.warning("Piper install failed: %s", exc)
-                raise HTTPException(status_code=500, detail="piper install failed")
+                raise HTTPException(status_code=500, detail="piper install failed") from exc
 
         @app.get("/api/tts")
         async def tts(text: str = Query(...), token: str = Query(default=""), voice: str = Query(default=""), engine: str = Query(default="")) -> Any:

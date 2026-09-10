@@ -63,9 +63,34 @@ def test_help_via_chat_answers_offline(brain):
     assert "never in notes, logs or the cloud" in reply
 
 
-def test_app_html_has_suggestion_chips():
+def test_suggestions_follow_the_reply_language(brain):
+    brain._user_language = "nl"
+    dutch = brain.suggestions()
+    brain._user_language = "en"
+    english = brain.suggestions()
+    assert len(dutch) == len(english) == 5
+    assert any("vandaag" in line for line in dutch)
+    assert any("wifi-wachtwoord" in line for line in dutch)
+    assert any("Recap my day" in line for line in english)
+    assert any("wifi password" in line for line in english)
+    assert dutch != english
+
+
+def test_status_endpoint_publishes_suggestions():
+    """The console reads the chip list off /api/status."""
+    web_py = (ROOT / "interfaces" / "web.py").read_text(encoding="utf-8")
+    assert '"suggestions": self.brain.suggestions()' in web_py
+
+
+def test_app_html_renders_language_aware_chips():
     html = APP_HTML.read_text(encoding="utf-8")
-    assert '<div id="chips"' in html
+    # The container starts empty; JS fills it from /api/status.
+    assert '<div id="chips" aria-label="Try asking"></div>' in html
+    assert "function renderChips(" in html
+    assert "renderChips(data.suggestions)" in html
+    # A bilingual fallback shows before (or without) a status answer.
+    assert "DEFAULT_CHIPS" in html
+    assert "renderChips(null)" in html
     for example in (
         "Recap my day",
         "Wat heb ik vandaag gedaan",
@@ -73,11 +98,36 @@ def test_app_html_has_suggestion_chips():
         "brief me over de verbouwing",
         "what's my wifi password",
     ):
-        assert f'data-send="{example}"' in html
+        assert f'"{example}"' in html
     # Chips disappear once the conversation starts.
     assert "body.talked #chips { display: none; }" in html
     assert 'classList.add("talked")' in html
-    assert 'querySelectorAll(".chip")' in html or 'closest(".chip")' in html
+    assert 'closest(".chip")' in html
+
+
+def test_app_html_reveals_one_shot_replies():
+    """Deterministic answers type themselves out; esc completes the reveal."""
+    html = APP_HTML.read_text(encoding="utf-8")
+    assert "function reveal(" in html
+    assert "function finishReveal(" in html
+    assert "tokenSeen = true;" in html
+    assert "else reveal(replyText);" in html
+    assert "if (revealTimer) { finishReveal(); return; }" in html
+
+
+def test_app_html_keeps_a_mobile_transcript():
+    """Narrow screens get a scrollable rail instead of none at all."""
+    html = APP_HTML.read_text(encoding="utf-8")
+    assert "#rail { display: none; }" not in html
+    assert "#rail .line { text-align: left;" in html
+    assert "overflow-y: auto; scrollbar-width: thin;" in html
+
+
+def test_app_html_renders_lists_and_links():
+    html = APP_HTML.read_text(encoding="utf-8")
+    assert "function inlineMd(" in html
+    assert 'rel="noopener noreferrer"' in html
+    assert "#caption ul, #caption ol" in html
 
 
 def test_app_html_command_palette_has_wave4_quick_entries():
