@@ -67,6 +67,9 @@ The first release meant for other people's machines.
 - **Audio devices.** List and switch sinks via `pactl` / SwitchAudioSource.
 - **Screen watch.** "watch my screen" glances on a timer; no webcam required.
   "look at the webcam" explains itself when there is no camera.
+- **Cinema console.** After boot the orb owns the field. Chrome (tiles,
+  chips, extra buttons, the side rail) waits until you move, type, or open
+  a panel; the mic stays. Escape returns to the quiet field.
 - **A local journal and a day recap.** Every turn is logged on this machine;
   "what did I do today" or "recap my day" sums up what got done and what
   still dangles.

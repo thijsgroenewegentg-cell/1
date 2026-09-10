@@ -96,6 +96,47 @@ body.awake #tiles { transition-delay: .15s; }
 body.awake #stage { transition-delay: .10s; }
 body.awake #dock  { transition-delay: .25s; }
 body.awake #rail  { transition-delay: .30s; }
+
+/* Cinema: after boot the field is the orb. Chrome waits until you reach
+   for it (mouse, keys, type, overlays). The mic stays; everything else
+   steps back so the sphere can fill the band above a dock at the bottom. */
+body.awake.quiet #tiles,
+body.awake.quiet #brand,
+body.awake.quiet #topRight,
+body.awake.quiet #rail,
+body.awake.quiet #chips,
+body.awake.quiet .hint {
+  opacity: 0;
+  pointer-events: none;
+}
+body.awake.quiet .controls .round:not(#mic) {
+  opacity: 0;
+  width: 0;
+  min-width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+body.awake.quiet .controls {
+  padding: 8px;
+  gap: 0;
+}
+body.awake.quiet #dock {
+  top: auto;
+  bottom: 7vh;
+  transform: translate(-50%, 0);
+}
+body.awake.quiet #caption.dim {
+  opacity: 0;
+  pointer-events: none;
+}
+body.awake.quiet #state.show {
+  font-size: 13px;
+  letter-spacing: .42em;
+}
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; }
 :focus-visible { outline: 2px solid var(--live); outline-offset: 3px; border-radius: var(--r-sm); }
@@ -3207,10 +3248,30 @@ async function loadAudit() {
 }
 
 /* -------------------------------------------------------------- wiring */
+function overlaysOpen() {
+  return document.body.classList.contains("panel-open")
+      || document.body.classList.contains("history-open")
+      || ($("palette") && $("palette").classList.contains("show"))
+      || ($("keys") && $("keys").classList.contains("show"))
+      || ($("typed") && $("typed").classList.contains("show"))
+      || ($("confirm") && $("confirm").classList.contains("show"));
+}
+let quietTimer = null;
+function setCinemaQuiet(on) {
+  if (on && overlaysOpen()) on = false;
+  document.body.classList.toggle("quiet", Boolean(on));
+}
+function reachChrome() {
+  setCinemaQuiet(false);
+  clearTimeout(quietTimer);
+  quietTimer = setTimeout(() => setCinemaQuiet(true), 3200);
+}
+
 function showTyped(show) {
   $("typed").classList.toggle("show", show);
   $("keyboard").classList.toggle("on", show);
-  if (show) input.focus();
+  if (show) { input.focus(); reachChrome(); }
+  else if (!overlaysOpen()) setCinemaQuiet(true);
 }
 
 $("keyboard").addEventListener("click", () => showTyped(!$("typed").classList.contains("show")));
@@ -3597,6 +3658,13 @@ requestAnimationFrame(() => document.body.classList.add("ready"));
 // tab is backgrounded rAF stops firing, and the chrome must never be left
 // invisible because the animation never ran.
 setTimeout(() => document.body.classList.add("awake"), CALM ? 0 : BOOT_MS * BEATS.rebound);
+setTimeout(() => setCinemaQuiet(true), CALM ? 400 : BOOT_MS * BEATS.rebound + 1400);
+document.addEventListener("mousemove", reachChrome, { passive: true });
+document.addEventListener("pointerdown", reachChrome);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !overlaysOpen()) setCinemaQuiet(true);
+  else reachChrome();
+});
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 
