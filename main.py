@@ -432,6 +432,7 @@ class LocalAssistant:
         self.ui.on_interrupt = self.interrupt
         self.ui.on_voice_change = self._on_voice_change
         self.ui.on_audio_device_change = self._on_audio_device_change
+        self.ui.on_plugin_install = self._on_plugin_install
         self.ui.on_remote_clicked = self._remote_clicked
         self.ui.request_say = self.say_async
 
@@ -522,6 +523,37 @@ class LocalAssistant:
         # The settings panel stores the friendly voice name in config.
         self._tts.replace_engine(EdgeTTSEngine(get_voice()))
         self.log(f"SYS: Voice set to {get_voice()}.")
+
+    def _on_plugin_install(self, source_path: str) -> None:
+        """Inspect a local plugin and put its copy behind the real UI gate."""
+        try:
+            from core.plugin_installer import inspect_plugin, install_plugin
+            inspection = inspect_plugin(source_path)
+        except Exception as exc:
+            self.log(f"ERR: Plugin inspection failed — {exc}")
+            return
+        if not inspection.valid:
+            self.log(f"ERR: Plugin rejected — {inspection.error}")
+            return
+
+        preview = inspection.source_preview.replace("\n", " ⏎ ")[:360]
+        detail = (
+            f"{inspection.name}\n{inspection.description[:220]}\n"
+            f"SHA-256: {inspection.sha256[:24]}…\n"
+            f"Preview: {preview}\n"
+            "The file will be copied into MARK's local plugins folder."
+        )
+
+        def install():
+            ok, message = install_plugin(source_path, root=BASE_DIR)
+            self.log(("SYS: " if ok else "ERR: ") + message)
+            return message
+
+        result = confirm_gate.request(
+            "plugin_install", "Install local plugin", detail, install
+        )
+        if result:
+            self.log(f"SYS: {result}")
 
     def _on_audio_device_change(self) -> None:
         """Reconnect the live microphone after the user picks a device."""

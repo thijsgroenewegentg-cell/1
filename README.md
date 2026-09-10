@@ -51,14 +51,29 @@ The **Remote Control** button in the HUD starts the optional LAN dashboard on de
 
 The remote dashboard needs the optional packages in `requirements.txt` (`fastapi`, `uvicorn`, `cryptography`, `python-multipart` and `qrcode[pil]`). If they were skipped during installation, run `pip install -r requirements.txt` and restart MARK. The dashboard is intended for a trusted local network; use the HTTPS certificate files in `config/certs/` if you need encrypted transport on the LAN.
 
+The main HUD uses a black, low-distraction particle-orb visualizer: a depth-shaded dotted sphere, restrained blue/indigo glow and compact instrument readouts. The orb keeps the existing microphone/TTS amplitude response, listening/thinking/speaking/muted states, confirmation overlays and accessibility controls, while the surrounding panels remain available for chat, logs and settings.
+
 ### Included plugins
 
-The `plugins/` folder now includes two safe, credential-free examples:
+The `plugins/` folder includes safe examples:
 
-- `git_helper.py` — read-only repository status, diff summary, log, branches, remotes and root lookup.
+- `git_helper.py` — read-only repository status, diff summary, log, branches, remotes and root lookup. It has a fixed Git argument allowlist and never commits, resets, checks out, pushes or pulls.
+- `project_helper.py` — fixed, shell-free project status, test, package-check and Docker-status helpers. It cannot accept arbitrary commands, install packages or mutate containers.
+- `local_calendar.py` — private local `calendar.ics` events with add, list, today, find and remove operations. It defaults to `Documents/MARK/calendar.ics`; set `MARK_CALENDAR_FILE` to use another local file.
+- `email_client.py` — optional IMAP/SMTP inbox, search, read and send support. It never stores credentials in the repository, requires `MARK_EMAIL_IMAP_HOST`, `MARK_EMAIL_SMTP_HOST`, `MARK_EMAIL_USERNAME` and `MARK_EMAIL_PASSWORD` in the launch environment, and puts every send behind MARK's on-screen confirmation gate.
 - `media_control.py` — open/search Spotify and control playback using the native player tools available on Windows, macOS or Linux.
 
-Plugins are discovered on the next launch and can be enabled or disabled from **⚙ → PLUGINS**. The upstream MARK repository only provides the template, so these are included directly in this Ollama build rather than downloaded from an unverified plugin marketplace.
+Plugins are discovered on the next launch and can be enabled or disabled from **⚙ → PLUGINS**. The new **INSTALL LOCAL PLUGIN** button and `core/plugin_installer.py` accept only a local Python file, inspect its literal metadata and syntax without importing it, show a source preview and its SHA-256, require a human confirmation, copy it into `plugins/`, and record the approved hash in the ignored local `config/plugin_trust.json`. No arbitrary URL download or silent third-party install is performed.
+
+For a terminal install, use the same approval flow:
+
+```bash
+python -m core.plugin_installer /path/to/plugin.py
+```
+
+Restart MARK after installation so the self-describing plugin loader can discover the new tool. Direct files dropped into `plugins/` remain supported for local development, but are not recorded as approved by the installer.
+
+The upstream MARK repository only provides the template, so these tools are included directly in this Ollama build rather than downloaded from an unverified plugin marketplace.
 
 ## Voice
 

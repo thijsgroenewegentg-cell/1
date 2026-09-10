@@ -6,6 +6,7 @@
 
 # ── Secrets. Committing any of these publishes them. ──────────────────────────
 config/api_keys.json          # local Ollama settings and per-plugin credentials
+config/plugin_trust.json      # local hashes of plugins approved on this machine
 config/certs/                 # the dashboard's TLS private key and certificate
 config/whatsapp_web/          # a LINKED WhatsApp session — committing it hands
                               # somebody your WhatsApp account, not just a key

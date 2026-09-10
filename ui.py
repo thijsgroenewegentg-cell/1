@@ -740,6 +740,166 @@ class HudCanvas(QWidget):
 
         p.end()   # end deterministically so the backing store never flushes an active painter
 
+
+class ParticleHudCanvas(HudCanvas):
+    """Minimal black particle-orb HUD inspired by the supplied reference.
+
+    The original HUD remains available in the source for easy rollback, but the
+    live window uses this canvas: a dense, depth-shaded point cloud reacts to
+    microphone/TTS amplitude while retaining the same state and Qt callbacks.
+    """
+
+    def __init__(self, face_path: str, assistant_name: str = "J.A.R.V.I.S", parent=None):
+        super().__init__(face_path, assistant_name, parent)
+        rng = random.Random(53)
+        self._orb_points: list[tuple[float, float, float, float, float]] = []
+        count = 920
+        golden = math.pi * (3.0 - math.sqrt(5.0))
+        for i in range(count):
+            y = 1.0 - (2.0 * (i + 0.5) / count)
+            ring = math.sqrt(max(0.0, 1.0 - y * y))
+            angle = golden * i
+            self._orb_points.append((
+                math.cos(angle) * ring,
+                y,
+                math.sin(angle) * ring,
+                rng.uniform(0.55, 1.35),
+                rng.uniform(0.0, math.tau),
+            ))
+        self._orb_rotation = 0.0
+        self._orb_tilt = -0.10
+        self._orb_spark: list[list[float]] = []
+
+    def _step(self):
+        self._tick += 1
+        self._live_amp *= 0.86
+        self._amp_disp += (self._live_amp - self._amp_disp) * 0.40
+        amp = self._amp_disp
+
+        speed = 0.0035 + amp * 0.012 + (0.004 if self.speaking else 0.0)
+        self._orb_rotation = (self._orb_rotation + speed) % math.tau
+        self._orb_tilt = -0.10 + math.sin(self._tick * 0.006) * 0.025
+
+        if self.speaking and random.random() < 0.20:
+            a = random.uniform(0.0, math.tau)
+            self._orb_spark.append([
+                math.cos(a), math.sin(a),
+                random.uniform(0.0, 1.0),
+                random.uniform(0.8, 2.4),
+            ])
+        for spark in self._orb_spark:
+            spark[2] += 0.016 + spark[3] * 0.006
+        self._orb_spark = [s for s in self._orb_spark if s[2] < 1.4]
+
+        self._paint_tick = (self._paint_tick + 1) % 2
+        self.update()
+
+    def _dot_color(self, depth: float, glow: float, alpha: int) -> QColor:
+        # White-blue points at the lit front, indigo points at the dark edge.
+        lit = max(0.0, min(1.0, (depth + 1.0) * 0.5))
+        r = int(44 + 190 * lit + 20 * glow)
+        g = int(62 + 195 * lit + 28 * glow)
+        b = int(124 + 131 * lit + 30 * glow)
+        return QColor(max(0, min(255, r)), max(0, min(255, g)),
+                      max(0, min(255, b)), max(0, min(255, alpha)))
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        if not p.isActive():
+            return
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor("#000106"))
+
+        W, H = self.width(), self.height()
+        if W < 2 or H < 2:
+            p.end()
+            return
+        cx = W * 0.50
+        cy = H * 0.43
+        radius = min(W, H) * (0.335 + self._amp_disp * 0.018)
+        amp = self._amp_disp
+
+        # Very restrained atmospheric glow, so the points—not a flat gradient—
+        # carry the visual weight.
+        for i in range(12, 0, -1):
+            rr = radius * (0.78 + i * 0.030)
+            alpha = int((4 + amp * 18) * (1.0 - i / 13.0))
+            p.setPen(QPen(QColor(28, 56, 150, max(0, alpha)), 1.0))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(QRectF(cx - rr, cy - rr, rr * 2, rr * 2))
+
+        # Fine orbital guides, intentionally incomplete like the reference.
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(60, 85, 196, 60 + int(amp * 80)), 1.0))
+        p.drawArc(QRectF(cx - radius * 1.18, cy - radius * 0.39,
+                         radius * 2.36, radius * 0.78), 18 * 16, 138 * 16)
+        p.setPen(QPen(QColor(75, 95, 220, 42 + int(amp * 70)), 1.0))
+        p.drawArc(QRectF(cx - radius * 1.09, cy - radius * 1.10,
+                         radius * 2.18, radius * 2.20), 208 * 16, 86 * 16)
+
+        cos_r, sin_r = math.cos(self._orb_rotation), math.sin(self._orb_rotation)
+        cos_t, sin_t = math.cos(self._orb_tilt), math.sin(self._orb_tilt)
+        projected = []
+        for x, y, z, size, phase in self._orb_points:
+            xr = x * cos_r + z * sin_r
+            zr = -x * sin_r + z * cos_r
+            yr = y * cos_t - zr * sin_t
+            depth = y * sin_t + zr * cos_t
+            shimmer = 0.78 + 0.22 * math.sin(self._tick * 0.035 + phase)
+            perspective = 0.88 + depth * 0.16
+            px = cx + xr * radius * perspective
+            py = cy - yr * radius * perspective
+            dot = max(0.65, size * (0.82 + depth * 0.26))
+            alpha = int((34 + 198 * max(0.0, depth + 0.15)) * shimmer
+                        + amp * 48)
+            if depth < -0.55:
+                alpha = int(alpha * 0.26)
+            projected.append((depth, px, py, dot, alpha))
+
+        # Back points first gives the orb natural depth without a texture.
+        projected.sort(key=lambda item: item[0])
+        for depth, px, py, dot, alpha in projected:
+            glow = max(0.0, depth) * 0.45 + amp * 0.7
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(self._dot_color(depth, glow, alpha)))
+            p.drawEllipse(QRectF(px - dot * 0.5, py - dot * 0.5, dot, dot))
+
+        # A few outward-moving particles when MARK is speaking.
+        if self._orb_spark:
+            p.setPen(Qt.PenStyle.NoPen)
+            for angle, tilt, distance, velocity in self._orb_spark:
+                rr = radius * (0.88 + distance * 0.55)
+                sx = cx + math.cos(angle) * rr
+                sy = cy + math.sin(angle) * rr * (0.42 + tilt * 0.08)
+                alpha = max(0, int(180 * (1.0 - distance / 1.4)))
+                p.setBrush(QBrush(QColor(136, 168, 255, alpha)))
+                p.drawEllipse(QRectF(sx - 1.2, sy - 1.2, 2.4, 2.4))
+
+        # Compact status readout beneath the orb.
+        if self.muted:
+            label, color = "MICROPHONE MUTED", QColor(255, 82, 142)
+        elif self.speaking:
+            label, color = "SPEAKING", QColor(255, 170, 72)
+        elif self.state == "THINKING":
+            label, color = "THINKING", QColor(150, 164, 255)
+        elif self.state == "LISTENING":
+            label, color = "LISTENING", QColor(116, 222, 255)
+        else:
+            label, color = self.state, QColor(126, 154, 240)
+        p.setPen(QPen(color, 1))
+        p.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        p.drawText(QRectF(0, cy + radius * 1.10, W, 22),
+                   Qt.AlignmentFlag.AlignCenter, f"●  {label}")
+
+        # Tiny machine readout gives the orb a purposeful, instrument-like base.
+        p.setPen(QPen(QColor(81, 113, 219, 155), 1))
+        p.setFont(QFont("Courier New", 7))
+        p.drawText(QRectF(0, cy + radius * 1.23, W, 18),
+                   Qt.AlignmentFlag.AlignCenter,
+                   f"{self._assistant_name.upper()}  ·  LOCAL CORE  ·  {int(amp * 100):02d}")
+        p.end()
+
+
 class MetricBar(QWidget):
 
     def __init__(self, label: str, color: str = C.PRI, parent=None):
@@ -1617,8 +1777,9 @@ class PluginManagerOverlay(QWidget):
 
     _OW = 420
 
-    def __init__(self, plugins: list[dict], parent=None):
+    def __init__(self, plugins: list[dict], parent=None, on_install=None):
         super().__init__(parent)
+        self._on_install = on_install
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             PluginManagerOverlay {{
@@ -1651,6 +1812,18 @@ class PluginManagerOverlay(QWidget):
             lay.addLayout(self._build_row(p))
 
         lay.addSpacing(4)
+        install_btn = QPushButton("＋  INSTALL LOCAL PLUGIN")
+        install_btn.setFixedHeight(30)
+        install_btn.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        install_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        install_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.ACC2};
+                border: 1px solid {C.BORDER}; border-radius: 3px; }}
+            QPushButton:hover {{ color: {C.TEXT}; border-color: {C.ACC2}; }}
+        """)
+        install_btn.clicked.connect(self._install_local)
+        lay.addWidget(install_btn)
+
         close_btn = QPushButton("CLOSE")
         close_btn.setFixedHeight(30)
         close_btn.setFont(QFont("Courier New", 9))
@@ -1665,6 +1838,15 @@ class PluginManagerOverlay(QWidget):
         close_btn.clicked.connect(self.hide)
         lay.addWidget(close_btn)
         self.adjustSize()
+
+    def _install_local(self):
+        if not self._on_install:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose a local MARK plugin", "", "Python plugin (*.py)"
+        )
+        if path:
+            self._on_install(path)
 
     def _build_row(self, p: dict) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(6)
@@ -2838,6 +3020,7 @@ class MainWindow(QMainWindow):
         self.on_interrupt      = None   # callable: () -> None — stop JARVIS mid-speech
         self.on_voice_change   = None   # callable: () -> None — rebuild session with new voice
         self.on_audio_device_change = None  # callable: () -> None — reopen audio streams
+        self.on_plugin_install = None   # callable: () -> None — inspect/install a local plugin
         self._confirm_overlay  = None   # live ConfirmBanner, if one is on screen
         self.get_plugins       = None   # callable: () -> list[dict], set by JarvisLive
         self.get_plugin_settings = None # callable: () -> list[dict] settings schemas, set by JarvisLive
@@ -2866,7 +3049,7 @@ class MainWindow(QMainWindow):
         body.addWidget(self._left_panel, stretch=0)
 
         # Center column: HUD + resizable content panel via QSplitter
-        self.hud = HudCanvas(face_path, _display)
+        self.hud = ParticleHudCanvas(face_path, _display)
         self.hud.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._content_panel = self._build_content_panel()
 
@@ -4440,7 +4623,7 @@ class MainWindow(QMainWindow):
     def _open_plugin_manager(self):
         plugins = self.get_plugins() if self.get_plugins else []
         cw = self.centralWidget()
-        ov = PluginManagerOverlay(plugins, parent=cw)
+        ov = PluginManagerOverlay(plugins, parent=cw, on_install=self.on_plugin_install)
         ov.adjustSize()
         ov.setGeometry(
             (cw.width()  - ov.width())  // 2,
