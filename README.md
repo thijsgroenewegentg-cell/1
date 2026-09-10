@@ -15,14 +15,17 @@ MARK is a PyQt6 desktop assistant with local tool calling, screen/webcam vision,
    ```
 
    `qwen2.5:14b` is a good default for a 16 GB RX 9070 XT. If you want lower memory use, use `llama3.1:8b` or `qwen2.5:7b-instruct`.
-3. Create a Python environment and install dependencies:
+3. Run the installer to create the private Python environment and desktop shortcut:
 
    ```bash
-   python -m venv .venv
-   # Windows: .venv\Scripts\activate
-   # macOS/Linux: source .venv/bin/activate
-   python -m pip install -r requirements.txt
+   # Windows PowerShell
+   powershell -ExecutionPolicy Bypass -File installer/install.ps1
+
+   # Linux/macOS
+   python3 installer/install.py
    ```
+
+   For a manual setup without the shortcut, use `python -m venv .venv` and `pip install -r requirements.txt`.
 4. Start Ollama if the desktop app did not start it automatically:
 
    ```bash
@@ -35,6 +38,10 @@ MARK is a PyQt6 desktop assistant with local tool calling, screen/webcam vision,
    ```
 
 The first-run panel asks for the Ollama URL, chat model and vision model. The defaults are `http://localhost:11434`, `qwen2.5:14b` and `qwen2.5vl:7b`.
+
+### Building the Windows installer
+
+Install [Inno Setup 6](https://jrsoftware.org/isinfo.php), open `installer/MARK.iss`, and build it. The generated installer copies MARK to a user-writable directory, creates a desktop/Start Menu icon, creates `.venv`, and installs the dependencies. Linux and macOS use the cross-platform `installer/install.py` script and create a desktop launcher or application bundle.
 
 ## Voice
 
@@ -64,6 +71,7 @@ ollama ps
 - `ui.py` — PyQt6 HUD and settings panels
 - `actions/` — auto-discovered built-in tools
 - `plugins/` — drop-in tools with a `PLUGIN` dictionary and `run()` function
+- `installer/` — cross-platform installer, launchers and Windows Inno Setup definition
 - `memory/` — persistent local memory and settings
 
 Runtime settings are stored in `config/api_keys.json`; despite the historical filename, this Ollama build stores no secrets there. Personal memory and other runtime data are ignored by Git.
