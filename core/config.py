@@ -73,6 +73,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "nightly_check_time": "03:15",
         "health_file": "data/health.json",
         "report_health_in_brief": True,
+        #: Time-of-day check-ins (morning / afternoon / evening) with a
+        #: one-line open-task count. Respects productivity.quiet_hours.
+        "check_ins": True,
+        "check_in_hours": [9, 14, 18],
+        #: Spoken/web alert when CPU or RAM crosses these percentages.
+        "hardware_alerts": True,
+        "cpu_alert": 90,
+        "ram_alert": 90,
         #: Persistent journal of completed turns (what we did, when). Written
         #: after every real turn; "what were we doing yesterday?" and the
         #: morning briefing's one-line recap read it back.
@@ -310,6 +318,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         #: Accent colour of the console (hex). Recolours the live HUD and the
         #: speaking state of the orb without a restart.
         "accent": "#ef4444",
+        #: First visit of the day in the console fetches the morning briefing.
+        "morning_brief": True,
     },
     "security": {
         "confirm_dangerous": True,

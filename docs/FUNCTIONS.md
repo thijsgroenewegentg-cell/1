@@ -12,7 +12,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`main.py`](#mainpy) — 26
 - [`install.py`](#installpy) — 56
 - [`core/autopilot.py`](#coreautopilotpy) — 4
-- [`core/brain.py`](#corebrainpy) — 131
+- [`core/brain.py`](#corebrainpy) — 132
 - [`core/bulk.py`](#corebulkpy) — 8
 - [`core/coach.py`](#corecoachpy) — 3
 - [`core/config.py`](#coreconfigpy) — 29
@@ -30,6 +30,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/personality.py`](#corepersonalitypy) — 5
 - [`core/planner.py`](#coreplannerpy) — 9
 - [`core/preferences.py`](#corepreferencespy) — 14
+- [`core/proactive.py`](#coreproactivepy) — 18
 - [`core/projects.py`](#coreprojectspy) — 15
 - [`core/recap.py`](#corerecappy) — 3
 - [`core/rules.py`](#corerulespy) — 13
@@ -40,7 +41,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`core/vault.py`](#corevaultpy) — 11
 - [`interfaces/cli.py`](#interfacesclipy) — 31
 - [`interfaces/voice.py`](#interfacesvoicepy) — 77
-- [`interfaces/web.py`](#interfaceswebpy) — 59
+- [`interfaces/web.py`](#interfaceswebpy) — 60
 - [`modules/base.py`](#modulesbasepy) — 32
 - [`modules/blender.py`](#modulesblenderpy) — 36
 - [`modules/code_assistant.py`](#modulescode_assistantpy) — 15
@@ -50,7 +51,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`modules/knowledge.py`](#modulesknowledgepy) — 20
 - [`modules/macros.py`](#modulesmacrospy) — 6
 - [`modules/models.py`](#modulesmodelspy) — 17
-- [`modules/productivity.py`](#modulesproductivitypy) — 78
+- [`modules/productivity.py`](#modulesproductivitypy) — 80
 - [`modules/self_improve.py`](#modulesself_improvepy) — 54
 - [`modules/smart_assistant.py`](#modulessmart_assistantpy) — 24
 - [`modules/system_control.py`](#modulessystem_controlpy) — 53
@@ -91,6 +92,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_orb_ui.py`](#teststest_orb_uipy) — 5
 - [`tests/test_plugins.py`](#teststest_pluginspy) — 18
 - [`tests/test_preferences.py`](#teststest_preferencespy) — 8
+- [`tests/test_proactive.py`](#teststest_proactivepy) — 7
 - [`tests/test_productivity.py`](#teststest_productivitypy) — 28
 - [`tests/test_qr.py`](#teststest_qrpy) — 5
 - [`tests/test_self_improve.py`](#teststest_self_improvepy) — 21
@@ -110,7 +112,7 @@ and marked with `·`; methods the intent router can call are marked
 - [`tests/test_wave3_features.py`](#teststest_wave3_featurespy) — 16
 - [`tests/test_wave4_features.py`](#teststest_wave4_featurespy) — 20
 - [`tests/test_wave4_ui.py`](#teststest_wave4_uipy) — 11
-- [`tests/test_web.py`](#teststest_webpy) — 74
+- [`tests/test_web.py`](#teststest_webpy) — 76
 - [`tests/test_web_search.py`](#teststest_web_searchpy) — 15
 - [`scripts/eval_function_calling.py`](#scriptseval_function_callingpy) — 5
 - [`scripts/list_functions.py`](#scriptslist_functionspy) — 8
@@ -231,7 +233,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `core/brain.py`
 
-*131 functions*
+*132 functions*
 
 > The central orchestrator: LLM connection, intent routing and the ReAct loop.
 
@@ -361,6 +363,7 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _wave4_bulk(self, text: str, dutch: bool) -> Optional[str]` — Preview-and-apply bulk actions (complete/delete/snooze).
 - `async def _wave4_dossier(self, text: str, dutch: bool) -> Optional[str]` — Assemble the compact 'fill me in on X' brief.
 - `async def _wave4_heal(self, text: str, dutch: bool) -> Optional[str]` — Suggest a corrected second try after a logged failure.
+- `def _proactive_dispatch(self, text: str, dutch: bool) -> Optional[str]` — Watch / unwatch news topics, list them. Model-free.
 - `async def _wave4_recap(self, text: str, dutch: bool) -> Optional[str]` — Short end-of-day recap, newest first, fully offline.
 - `async def _wave4_vault(self, text: str, dutch: bool) -> Optional[str]` — Local-only secret vault: remember / what is / forget.
 - `async def _resolve_pending(self, text: str) -> Optional[str]` — Handle a yes/no answer to a previously offered action.
@@ -751,6 +754,31 @@ and marked with `·`; methods the intent router can call are marked
 - `def _phrase(self, reference: str, params: Dict[str, Any]) -> str` — Turn one routine into a natural sentence about the user.
 - `def summary(self, limit: int = 4) -> str` — A short block for the system prompt, or empty when nothing learned.
 
+## `core/proactive.py`
+
+*18 functions*
+
+> Time-aware check-ins, topic watches and hardware alerts.
+
+- `def _path(config: Any) -> Path` — JSON file holding watches and 'already did this today' flags.
+- `def load_state(config: Any) -> Dict[str, Any]` — Read the proactive state, or an empty document.
+- `def save_state(config: Any, state: Dict[str, Any]) -> None` — Persist the proactive state. Never raises.
+- `def watches(config: Any) -> List[str]` — Topics currently being watched, oldest first.
+- `def add_watch(config: Any, topic: str) -> bool` — Start watching ``topic``. Returns False when it was already there.
+- `def remove_watch(config: Any, topic: str) -> bool` — Stop watching ``topic``. Returns False when it was not watched.
+- `def briefing_due(config: Any, today: str = '') -> bool` — True when today's morning briefing has not been delivered yet.
+- `def mark_briefing_delivered(config: Any, today: str = '') -> None` — Remember that today's briefing went out.
+- `def check_in_hours(config: Any) -> List[int]` — Hours (0-23) when a check-in may fire.
+- `def check_in_due(config: Any, now: Optional[datetime] = None) -> Optional[int]` — Return the current check-in hour if it has not fired today, else None.
+- `def mark_check_in(config: Any, hour: int, now: Optional[datetime] = None) -> None` — Remember that this hour's check-in went out.
+- `def check_in_line(hour: int, tasks: int = 0, dutch: bool = False) -> str` — One short, time-of-day check-in. Instant, no model.
+- `def watch_due(config: Any, now: Optional[datetime] = None) -> bool` — True once a day after 08:30, when there is at least one watch.
+- `def mark_watch_run(config: Any, now: Optional[datetime] = None) -> None` — Remember that today's topic-watch pass ran.
+- `def remember_headlines(config: Any, topic: str, titles: List[str]) -> List[str]` — Return titles not seen before for ``topic``, and store them.
+- `def read_hardware() -> Dict[str, float]` — CPU / RAM / temperature snapshot. Empty when psutil is missing.
+- `def hardware_messages(config: Any, reading: Optional[Dict[str, float]] = None) -> List[str]` — Voice-ready alerts for readings that just crossed a threshold.
+  · `def _cross(key: str, value: float, limit: float, label: str) -> None`
+
 ## `core/projects.py`
 
 *15 functions*
@@ -1031,7 +1059,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `interfaces/web.py`
 
-*59 functions*
+*60 functions*
 
 > Phone- and LAN-friendly web interface for JARVIS.
 
@@ -1059,6 +1087,7 @@ and marked with `·`; methods the intent router can call are marked
   · `async def boot_page(token: str = Query(default='')) -> Any` — Serve the boot-up sequence page (shown inside the console).
   · `async def pair_svg(token: str = Query(default='')) -> Any` — QR code that opens this console on a phone.
   · `async def save_identity(request: Request, token: str = Query(default='')) -> Any` — Persist the assistant name, your name and the HUD accent.
+  · `async def morning_briefing(token: str = Query(default='')) -> Any` — Today's briefing, once. Empty when already delivered.
   · `async def status(token: str = Query(default='')) -> Any` — Report assistant status and a greeting.
   · `async def dashboard(token: str = Query(default='')) -> Any` — Idle-home cards: tasks, reminders, weather, system, self-check.
   · `async def ask(request: Request, token: str = Query(default='')) -> Any` — Answer a single question over plain JSON (no streaming).
@@ -1391,7 +1420,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `modules/productivity.py`
 
-*78 functions*
+*80 functions*
 
 > Todos, reminders, timers, notes and the daily briefing — all SQLite backed.
 
@@ -1423,6 +1452,8 @@ and marked with `·`; methods the intent router can call are marked
 - `async def _announce(self, message: str) -> None` — Speak/print a notification and raise a desktop toast.
 - `async def _desktop_notify(title: str, message: str) -> None` *staticmethod* — Best-effort native desktop notification.
 - `async def _tick(self) -> None` — One scheduler pass: fire due reminders and jobs, flush held speech.
+- `async def _proactive_pass(self) -> None` — Check-ins, hardware alerts and daily topic-watch headlines.
+- `async def _watch_headlines(self, proactive: Any) -> None` — Fetch headlines for each watched topic and announce new ones.
 - `async def _nightly_check_if_due(self) -> None` — Run the quiet daily health probe at ``assistant.nightly_check_time``.
 - `async def _scheduler_loop(self) -> None` — Poll in a plain loop — used only if the Scheduler cannot start.
 - `def _pop_due_jobs(self) -> List[Dict[str, Any]]` — Return scheduled jobs that are due, and reschedule them.
@@ -2635,6 +2666,20 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_preferences_survive_a_restart(tmp_path)`
 - `def test_a_corrupt_file_starts_clean(tmp_path)`
 
+## `tests/test_proactive.py`
+
+*7 functions*
+
+> Check-ins, topic watches and hardware alerts — all model-free.
+
+- `def test_a_new_watch_is_listed_and_can_be_removed(config)`
+- `def test_the_briefing_is_due_once_a_day(config)`
+- `def test_a_check_in_fires_once_per_slot(config)`
+- `def test_check_in_line_mentions_open_tasks()`
+- `def test_hardware_alerts_use_hysteresis(config)`
+- `def test_new_headlines_are_reported_once(config)`
+- `def test_watch_phrases_are_answered_offline(config)`
+
 ## `tests/test_productivity.py`
 
 *28 functions*
@@ -3211,7 +3256,7 @@ and marked with `·`; methods the intent router can call are marked
 
 ## `tests/test_web.py`
 
-*74 functions*
+*76 functions*
 
 > Unit tests for interfaces/web.py (exported as interfaces/web_ui.py).
 
@@ -3285,6 +3330,8 @@ and marked with `·`; methods the intent router can call are marked
 - `def test_identity_can_be_saved(web)`
 - `def test_identity_requires_the_token(web)`
 - `def test_the_page_has_live_theming_and_a_clipboard_panel(web)`
+- `def test_briefing_endpoint_delivers_once(web)`
+- `def test_the_page_fetches_the_morning_briefing(web)`
 - `def test_parse_accent_accepts_short_hex()`
 
 ## `tests/test_web_search.py`
@@ -3350,5 +3397,5 @@ and marked with `·`; methods the intent router can call are marked
 
 ---
 
-**2297 functions across 106 files.**
+**2328 functions across 108 files.**
 

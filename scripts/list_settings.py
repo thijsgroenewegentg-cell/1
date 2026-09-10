@@ -74,6 +74,18 @@ DESCRIPTIONS: Dict[str, str] = {
         "Add the daily briefing (tasks, calendar, reminders, weather) to the "
         "start-up announcement."
     ),
+    "assistant.check_ins": (
+        "Time-of-day check-ins (see assistant.check_in_hours) with a short "
+        "open-task count. Held during productivity.quiet_hours."
+    ),
+    "assistant.check_in_hours": (
+        "Hours (0-23) when a check-in may fire, e.g. [9, 14, 18]."
+    ),
+    "assistant.hardware_alerts": (
+        "Announce when CPU or RAM crosses the configured percentage."
+    ),
+    "assistant.cpu_alert": "CPU percent that triggers a hardware alert.",
+    "assistant.ram_alert": "RAM percent that triggers a hardware alert.",
     "assistant.confirm_plan": (
         "Ask before the first tool call when the chosen action looks like a "
         "guess (a file or target the user never named)."
@@ -367,6 +379,9 @@ DESCRIPTIONS: Dict[str, str] = {
     "web_ui.accent": (
         "Accent colour of the console as #rrggbb. Recolours the HUD and the "
         "speaking orb live, from the status panel or this file."
+    ),
+    "web_ui.morning_brief": (
+        "Fetch the daily briefing on the first console visit of the day."
     ),
     # -- email --------------------------------------------------------------
     "email.enabled": "Turn the mail features on.",

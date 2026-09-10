@@ -849,6 +849,29 @@ def test_the_page_has_live_theming_and_a_clipboard_panel(web):
     assert 'id="youName"' in page
 
 
+def test_briefing_endpoint_delivers_once(web):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.app)
+    assert client.get("/api/briefing").status_code == 401
+    first = client.get("/api/briefing", params={"token": web.token})
+    assert first.status_code == 200
+    payload = first.json()
+    assert "briefing" in payload
+    assert payload["already"] is False
+    second = client.get("/api/briefing", params={"token": web.token}).json()
+    assert second["already"] is True
+    assert second["briefing"] == ""
+
+
+def test_the_page_fetches_the_morning_briefing(web):
+    from fastapi.testclient import TestClient
+
+    page = TestClient(web.app).get("/", params={"token": web.token}).text
+    assert "/api/briefing" in page
+    assert "jarvis-brief-" in page
+
+
 def test_parse_accent_accepts_short_hex():
     from interfaces.web import _parse_accent
 

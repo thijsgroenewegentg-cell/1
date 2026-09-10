@@ -3498,6 +3498,8 @@ class Brain:
                 "fietsproject', 'verwijder elke taak met tag X', 'stel alle "
                 "herinneringen uit tot morgen'. Eerst een voorvertoning "
                 "zodra er meer dan een paar rijen veranderen.")
+            lines.append("• Nieuws volgen — 'houd fusion in de gaten'; nieuwe "
+                         "koppen noem ik een keer per dag.")
             lines.append("• Topic-dossiers — 'brief me over X' maakt een "
                 "compact dossier uit dagboek, feiten, notities en "
                 "openstaande beloftes.")
@@ -3517,11 +3519,13 @@ class Brain:
                 "and hold macros: say 'when I say X, do Y' to teach me a "
                 "fixed command."
             )
-            lines.append("Plus five instant extras:")
+            lines.append("Plus extras that work instantly:")
             lines.append("• Bulk actions — 'tick off everything in the bike "
                 "project', 'delete every todo tagged X', 'snooze all "
                 "reminders until tomorrow'. A preview appears first "
                 "whenever more than a few rows are affected.")
+            lines.append("• News watches — 'watch the news about X'; I'll mention "
+                         "new headlines once a day.")
             lines.append("• Topic dossiers — 'fill me in on X' assembles a "
                 "compact brief from the journal, facts, notes and open "
                 "threads.")
@@ -4005,6 +4009,9 @@ class Brain:
             reply = await self._wave4_dossier(text, dutch)
             if reply is not None:
                 return reply
+            reply = self._proactive_dispatch(text, dutch)
+            if reply is not None:
+                return reply
             return await self._wave4_recap(text, dutch)
         except Exception as exc:  # pragma: no cover - defensive
             logger.debug("Wave-4 dispatch failed: %s", exc)
@@ -4349,6 +4356,64 @@ class Brain:
                 and not open_ask):
             return None
         return suggestion
+
+    def _proactive_dispatch(self, text: str, dutch: bool) -> Optional[str]:
+        """Watch / unwatch news topics, list them. Model-free.
+
+        Args:
+            text: The user's utterance.
+            dutch: Whether to answer in Dutch.
+
+        Returns:
+            A ready reply, or ``None`` when this is not a watch request.
+        """
+        from core import proactive
+
+        lowered = " ".join((text or "").lower().split())
+        if not lowered:
+            return None
+        listing = lowered in {
+            "what are you watching", "what do you watch", "wat volg je",
+            "wat houd je in de gaten", "wat volg je in het nieuws",
+        } or lowered.startswith(("what are you watching", "wat volg je"))
+        if listing:
+            topics = proactive.watches(self.config)
+            if not topics:
+                return ("Ik volg nog niets — zeg 'houd X in de gaten'."
+                        if dutch else
+                        "I'm not watching anything yet — say 'watch the news about X'.")
+            listed = ", ".join(topics)
+            return (f"Ik houd {listed} in de gaten." if dutch
+                    else f"Watching: {listed}.")
+        stop = None
+        for marker in ("stop watching ", "stop following ", "stop met kijken naar ",
+                       "volg niet langer ", "hou op met volgen van "):
+            if lowered.startswith(marker):
+                stop = lowered[len(marker):].strip(" .!?")
+                break
+        if stop:
+            if proactive.remove_watch(self.config, stop):
+                return (f"Ik volg '{stop}' niet meer." if dutch
+                        else f"No longer watching '{stop}'.")
+            return (f"Ik volgde '{stop}' niet." if dutch
+                    else f"I wasn't watching '{stop}'.")
+        topic = ""
+        for marker in ("watch the news about ", "watch news about ",
+                       "keep an eye on ", "houd in de gaten ",
+                       "volg het nieuws over "):
+            if lowered.startswith(marker):
+                topic = lowered[len(marker):].strip(" .!?")
+                break
+        if not topic or topic in {"me", "that", "this", "het", "dat"}:
+            return None
+        if topic.startswith("the "):
+            topic = topic[4:]
+        if not proactive.add_watch(self.config, topic):
+            return (f"Ik volgde '{topic}' al." if dutch
+                    else f"Already watching '{topic}'.")
+        return (f"Ik houd '{topic}' in de gaten — als er nieuws is, zeg ik het."
+                if dutch else
+                f"Watching '{topic}' — I'll mention it when headlines land.")
 
     # ----------------------------------------------------------------- recap
     async def _wave4_recap(self, text: str, dutch: bool) -> Optional[str]:

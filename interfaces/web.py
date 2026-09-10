@@ -641,6 +641,29 @@ class WebInterface:
                 },
             })
 
+        @app.get("/api/briefing")
+        async def morning_briefing(token: str = Query(default="")) -> Any:
+            """Today's briefing, once. Empty when already delivered."""
+            if not self._authorised(token):
+                raise HTTPException(status_code=401, detail="bad token")
+            if not self.config.get("web_ui.morning_brief", True):
+                return JSONResponse({"briefing": "", "already": True})
+            try:
+                from core import proactive
+            except Exception:
+                return JSONResponse({"briefing": "", "already": True})
+            if not proactive.briefing_due(self.config):
+                return JSONResponse({"briefing": "", "already": True})
+            text = ""
+            try:
+                text = str(await asyncio.wait_for(
+                    self.brain.morning_brief(timeout=8.0), timeout=10.0
+                ) or "").strip()
+            except Exception as exc:
+                logger.debug("Morning briefing failed: %s", exc)
+            proactive.mark_briefing_delivered(self.config)
+            return JSONResponse({"briefing": text, "already": False})
+
         @app.get("/api/status")
         async def status(token: str = Query(default="")) -> Any:
             """Report assistant status and a greeting."""

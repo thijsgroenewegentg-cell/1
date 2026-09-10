@@ -601,10 +601,80 @@ class Productivity(BaseModule):
                 await self._run_job(job)
             await self._flush_deferred()
             await self._nightly_check_if_due()
+            await self._proactive_pass()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self.log.debug("Scheduler hiccup: %s", exc)
+
+    async def _proactive_pass(self) -> None:
+        """Check-ins, hardware alerts and daily topic-watch headlines.
+
+        Never raises — a failure here must not kill the reminder tick.
+        """
+        try:
+            from core import proactive
+        except Exception:
+            return
+        dutch = False
+        try:
+            dutch = bool(self.brain and self.brain.current_language() == "nl")
+        except Exception:
+            dutch = False
+        try:
+            slot = proactive.check_in_due(self.config)
+            if slot is not None:
+                tasks = 0
+                try:
+                    listed = await self.list_todos(limit=8)
+                    tasks = len([
+                        row for row in (listed.data or {}).get("todos", [])
+                        if not row.get("done")
+                    ])
+                except Exception:
+                    tasks = 0
+                line = proactive.check_in_line(slot, tasks=tasks, dutch=dutch)
+                proactive.mark_check_in(self.config, slot)
+                await self._announce_proactive(line)
+        except Exception as exc:
+            self.log.debug("Check-in pass failed: %s", exc)
+        try:
+            for message in proactive.hardware_messages(self.config):
+                await self._announce_proactive(message)
+        except Exception as exc:
+            self.log.debug("Hardware-alert pass failed: %s", exc)
+        try:
+            if proactive.watch_due(self.config) and self.config.get("modules.web_search", True):
+                await self._watch_headlines(proactive)
+        except Exception as exc:
+            self.log.debug("Topic-watch pass failed: %s", exc)
+
+    async def _watch_headlines(self, proactive: Any) -> None:
+        """Fetch headlines for each watched topic and announce new ones."""
+        try:
+            from modules.web_search import WebSearch
+        except Exception:
+            return
+        web = WebSearch(self.config, llm=self.llm, security=self.security)
+        bits: List[str] = []
+        for topic in proactive.watches(self.config):
+            try:
+                result = await web.news(topic=topic, limit=3)
+            except Exception:
+                continue
+            titles = []
+            if result.success:
+                titles = [
+                    str(item.get("title") or "").strip()
+                    for item in (result.data or {}).get("headlines", [])
+                    if str(item.get("title") or "").strip()
+                ]
+            fresh = proactive.remember_headlines(self.config, topic, titles)
+            if fresh:
+                bits.append(f"{topic}: {fresh[0]}")
+        proactive.mark_watch_run(self.config)
+        if bits:
+            await self._announce_proactive("News on your watches — " + "; ".join(bits[:4]))
 
     async def _nightly_check_if_due(self) -> None:
         """Run the quiet daily health probe at ``assistant.nightly_check_time``.

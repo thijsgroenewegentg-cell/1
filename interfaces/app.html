@@ -2874,6 +2874,19 @@ async function loadStatus() {
       turns = data.turns;
       $("statTurns").textContent = turns;
     }
+    try {
+      const day = new Date().toISOString().slice(0, 10);
+      if (sessionStorage.getItem("jarvis-brief-" + day) !== "1") {
+        sessionStorage.setItem("jarvis-brief-" + day, "1");
+        fetch("/api/briefing" + auth).then((r) => r.json()).then((brief) => {
+          const text = (brief && brief.briefing) || "";
+          if (text) {
+            trace("sys", escapeHtml(text.slice(0, 180)));
+            say(text, { fade: 28000 });
+          }
+        }).catch(() => {});
+      }
+    } catch (err) { /* private mode / no sessionStorage */ }
     const pair = data.pair || {};
     if (pair.url) {
       const shown = String(pair.url).replace(/^https?:\/\//, "");

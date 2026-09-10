@@ -32,7 +32,7 @@ The first release meant for other people's machines.
   asking or with `/audit`.
 - **`install.py --everything`**: audio libraries, every model, every capability,
   and a closing diagnosis of whatever is still missing.
-- **`docs/CONFIGURATION.md`**: all 229 settings with their real defaults,
+- **`docs/CONFIGURATION.md`**: all 235 settings with their real defaults,
   generated from the code so they cannot drift.
 - **It speaks your language.** Replies follow the language you write in —
   Dutch, English and more — with `assistant.language` as a fixed override.
@@ -47,6 +47,16 @@ The first release meant for other people's machines.
 - **QR pairing.** The status panel shows a scannable code (and a copyable
   link) so a phone on the same network opens the console without typing a
   URL.
+- **Live theming and names.** A hue slider or hex recolours the HUD and the
+  speaking orb; your name and the assistant's name save from the status panel.
+- **Clipboard intelligence.** Copy text in the console and a floating panel
+  offers translate / summarise / explain / fix.
+- **Proactive check-ins.** Morning, afternoon and evening — a one-line
+  open-task count, held during quiet hours.
+- **Topic watches.** "watch the news about X"; new headlines are mentioned
+  once a day.
+- **Hardware alerts.** CPU and RAM crossing 90% get a spoken/web ping, with
+  hysteresis so a machine sitting on the line does not nag.
 - **A local journal and a day recap.** Every turn is logged on this machine;
   "what did I do today" or "recap my day" sums up what got done and what
   still dangles.
