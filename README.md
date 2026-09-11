@@ -39,6 +39,26 @@ The installer is idempotent and self-contained:
 
 On **macOS** you can also double-click **`install.command`** in Finder.
 
+### Windows (WSL2)
+
+Double-click **`install.bat`** (or run `install.ps1` in PowerShell). It:
+
+1. self-elevates once (UAC) and enables **WSL2** if needed (may ask for one reboot)
+2. installs **Ubuntu** if you have no distro yet (a one-time window asks for your Linux username)
+3. enables **systemd** in WSL so JARVIS and Ollama keep running between sessions
+4. runs the Linux one-click installer inside WSL (Ollama + models + daemon)
+5. opens `http://localhost:3142` in your Windows browser and drops a **JARVIS Dashboard** desktop shortcut
+
+```powershell
+.\install.ps1                                # one click
+.\install.ps1 -Model qwen2.5:7b -Port 4000   # custom model/port
+.\install.ps1 -Uninstall [-Purge]            # remove from WSL
+```
+
+Everyday commands afterwards: `wsl -d Ubuntu -- bash -lc 'jarvis status|stop|start -d'`.
+Note: `wsl --shutdown` stops the daemon too (it lives inside WSL); Windows
+firewall may ask once to allow the dashboard — it stays on `localhost`.
+
 | Flag | Effect |
 |---|---|
 | `--model` / `--fast-model` | choose other Ollama models (any tool-calling model works) |

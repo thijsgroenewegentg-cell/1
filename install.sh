@@ -31,6 +31,9 @@
 #   -h, --help        Show this help
 #
 # Env overrides: JARVIS_REF (git branch/tag), JARVIS_REPO, JARVIS_NODE_VERSION
+#
+# Windows: double-click install.bat (or run install.ps1) — it sets up WSL2
+# and runs this installer inside Ubuntu automatically.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -349,15 +352,19 @@ pull_models() {
 fetch_source() {
   rm -rf "$APP_DIR"; mkdir -p "$APP_DIR"
   if [ -n "$LOCAL_SRC" ]; then
-    [ "$LOCAL_SRC" = "__SELF__" ] && LOCAL_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    [ -f "$LOCAL_SRC/package.json" ] || die "--local: $LOCAL_SRC does not look like a JARVIS source dir"
+    if [ "$LOCAL_SRC" = "__SELF__" ]; then
+      # resolve the installer's own directory (works for direct run, ./install.sh, and absolute paths)
+      LOCAL_SRC="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
+      [ -n "$LOCAL_SRC" ] || LOCAL_SRC="$PWD"
+    fi
+    [ -f "$LOCAL_SRC/package.json" ] || die "--local: $LOCAL_SRC does not look like a JARVIS source dir (no package.json)"
     info "Installing from local source: $LOCAL_SRC"
     (cd "$LOCAL_SRC" && tar --exclude=node_modules --exclude=data --exclude=.git -cf - .) | (cd "$APP_DIR" && tar -xf -)
     return
   fi
   if have git; then
     info "Cloning ${JARVIS_REPO%.git} (ref: $JARVIS_REF)…"
-    git clone --depth 1 --branch "$JARVIS_REF" "$JARVIS_REPO" "$APP_DIR" \
+    git clone --depth 1 --branch "$JARVIS_REF" "$JARVIS_REPO" "$APP_DIR" </dev/null \
       || die "git clone failed — check the repo URL / ref (JARVIS_REF=$JARVIS_REF)"
   else
     info "Downloading source tarball…"
@@ -377,7 +384,7 @@ fetch_source() {
 install_deps() {
   export PATH="$(dirname "$NODE_BIN"):$PATH"
   info "Installing JS dependencies…"
-  (cd "$APP_DIR" && if [ -f package-lock.json ]; then npm ci --omit=dev --no-audit --no-fund; else npm install --omit=dev --no-audit --no-fund; fi) \
+  (cd "$APP_DIR" && if [ -f package-lock.json ]; then npm ci --omit=dev --no-audit --no-fund </dev/null; else npm install --omit=dev --no-audit --no-fund </dev/null; fi) \
     || die "npm install failed"
   ok "Dependencies installed"
 }
