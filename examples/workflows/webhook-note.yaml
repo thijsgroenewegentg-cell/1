@@ -1,0 +1,23 @@
+# JARVIS workflow — store anything POSTed to /api/hooks/webhook-note into
+# long-term memory. Try:
+#   curl -X POST localhost:3142/api/hooks/webhook-note \
+#        -H 'content-type: application/json' \
+#        -d '{"text":"parking garage P2, spot 41"}'
+id: webhook-note
+name: Webhook → memory
+enabled: true
+
+trigger:
+  type: webhook         # addressed by workflow id: POST /api/hooks/webhook-note
+
+steps:
+  - action: memory_remember
+    with:
+      kind: note
+      title: "Webhook note"
+      body: "{{trigger.body.text}}"
+      tags: [webhook]
+
+  - action: notify
+    with:
+      message: "Stored a note from the webhook"
