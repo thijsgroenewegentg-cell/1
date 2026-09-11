@@ -22,11 +22,14 @@ except Exception:  # PortAudio may be absent on a headless install
 
 
 _EDGE_VOICES = {
-    "Guy":   "en-US-GuyNeural",
-    "Jenny": "en-US-JennyNeural",
-    "Aria":  "en-US-AriaNeural",
-    "Sonia": "en-GB-SoniaNeural",
-    "Ryan":  "en-GB-RyanNeural",
+    "Guy":     "en-US-GuyNeural",
+    "Jenny":   "en-US-JennyNeural",
+    "Aria":    "en-US-AriaNeural",
+    "Sonia":   "en-GB-SoniaNeural",
+    "Ryan":    "en-GB-RyanNeural",
+    "Fenna":   "nl-NL-FennaNeural",
+    "Colette": "nl-NL-ColetteNeural",
+    "Maarten": "nl-NL-MaartenNeural",
 }
 
 
@@ -46,11 +49,25 @@ def _play_audio_bytes(audio_bytes: bytes) -> None:
 
 
 class EdgeTTSEngine:
-    """Microsoft Edge TTS — free and natural, but requires internet."""
+    """Microsoft Edge TTS with English and native Dutch neural voices."""
 
-    def __init__(self, voice: str = "Guy"):
-        self.voice = _EDGE_VOICES.get(voice, voice if "-" in voice else "en-US-GuyNeural")
+    def __init__(self, voice: str = "Guy", language: str = "auto"):
+        self.language = str(language or "auto").lower().replace("_", "-")
+        self._voice_label = str(voice or "Guy")
+        self.voice = self._resolve_voice(self._voice_label, self.language)
         self._stop_event = threading.Event()
+
+    @staticmethod
+    def _resolve_voice(voice: str, language: str) -> str:
+        if "-" in str(voice) and str(voice).lower().endswith("neural"):
+            return str(voice)
+        try:
+            from core.i18n import edge_voice
+            return edge_voice(language, voice)
+        except Exception:
+            if language.startswith("nl"):
+                return {"Fenna": "nl-NL-FennaNeural", "Colette": "nl-NL-ColetteNeural", "Maarten": "nl-NL-MaartenNeural"}.get(voice, "nl-NL-MaartenNeural")
+            return _EDGE_VOICES.get(voice, "en-US-GuyNeural")
 
     def speak(self, text: str) -> None:
         self._stop_event.clear()
@@ -73,6 +90,14 @@ class EdgeTTSEngine:
         if audio and not self._stop_event.is_set():
             _play_audio_bytes(audio)
 
+    def set_language(self, language: str) -> None:
+        self.language = str(language or "auto").lower().replace("_", "-")
+        self.voice = self._resolve_voice(self._voice_label, self.language)
+
+    def set_voice(self, voice: str) -> None:
+        self._voice_label = str(voice or "Guy")
+        self.voice = self._resolve_voice(self._voice_label, self.language)
+
     def stop(self) -> None:
         self._stop_event.set()
         if sd is not None:
@@ -80,14 +105,26 @@ class EdgeTTSEngine:
 
 
 class SystemTTSEngine:
-    """Offline fallback through pyttsx3."""
+    """Offline fallback through pyttsx3, with best-effort interruption."""
+
+    def __init__(self):
+        self._engine = None
 
     def speak(self, text: str) -> None:
         import pyttsx3
-        engine = pyttsx3.init()
-        engine.say(text)
-        engine.runAndWait()
-        engine.stop()
+        self._engine = pyttsx3.init()
+        self._engine.say(text)
+        self._engine.runAndWait()
+        self._engine.stop()
+        self._engine = None
+
+    def stop(self) -> None:
+        engine = self._engine
+        if engine is not None:
+            try:
+                engine.stop()
+            except Exception:
+                pass
 
 
 class TTSPlayer:
@@ -108,6 +145,12 @@ class TTSPlayer:
     def replace_engine(self, engine) -> None:
         with self._lock:
             self._engine = engine
+
+    def set_language(self, language: str) -> None:
+        with self._lock:
+            setter = getattr(self._engine, "set_language", None)
+            if callable(setter):
+                setter(language)
 
     def speak(self, text: str, on_start: Optional[Callable] = None,
               on_done: Optional[Callable] = None) -> None:
@@ -162,9 +205,10 @@ class TTSPlayer:
 def create_tts_player(config: dict | None = None) -> TTSPlayer:
     config = config or {}
     engine_name = str(config.get("tts_engine", "edgetts")).lower()
-    voice = str(config.get("tts_voice", "Guy"))
+    voice = str(config.get("tts_voice", config.get("voice_name", "Guy")))
+    language = str(config.get("language", "auto"))
     if engine_name in {"system", "pyttsx3", "offline"}:
         engine = SystemTTSEngine()
     else:
-        engine = EdgeTTSEngine(voice)
+        engine = EdgeTTSEngine(voice, language=language)
     return TTSPlayer(engine)

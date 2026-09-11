@@ -56,6 +56,8 @@ from PyQt6.QtWidgets import (
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QStackedWidget, QTabWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
 )
+from core.i18n import translate_widget_tree
+from memory.config_manager import get_language
 
 # ── Which Mark this is ───────────────────────────────────────────────────────
 # One constant, read by the window title, the header badge and the PROTOCOL
@@ -1644,11 +1646,11 @@ class HueWheel(QWidget):
 class CustomizeOverlay(QWidget):
     """Floating overlay — change assistant name, user name, UI colour and voice."""
 
-    saved = pyqtSignal(str, str, str, str, str)   # name, user, colour, voice, personality
-    _OW, _OH = 400, 640
+    saved = pyqtSignal(str, str, str, str, str, str)   # name, user, colour, voice, personality, language
+    _OW, _OH = 420, 700
 
     def __init__(self, assistant_name="JARVIS", user_name="",
-                 ui_color=DEFAULT_UI_COLOR, voice="", personality="professional", parent=None):
+                 ui_color=DEFAULT_UI_COLOR, voice="", personality="professional", language="auto", parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
@@ -1737,6 +1739,24 @@ class CustomizeOverlay(QWidget):
             QComboBox:focus {{ border: 1px solid {C.PRI}; }}
         """)
         lay.addWidget(self._personality_box)
+
+        # ── Conversation and interface language ─────────────────────────────
+        from core.i18n import LANGUAGE_OPTIONS, normalize_language
+        lay.addSpacing(4)
+        lay.addWidget(_lbl("LANGUAGE", 8, color=C.TEXT_DIM, align=Qt.AlignmentFlag.AlignLeft))
+        self._language_box = QComboBox()
+        self._language_box.setFont(QFont("Courier New", 9))
+        self._language_box.addItems(list(LANGUAGE_OPTIONS.values()))
+        language_key = normalize_language(language)
+        self._language_keys = list(LANGUAGE_OPTIONS)
+        self._language_box.setCurrentIndex(self._language_keys.index(language_key) if language_key in self._language_keys else 0)
+        self._language_box.setToolTip("Automatic follows the latest user message; Nederlands enables the complete Dutch voice and prompt path.")
+        self._language_box.setStyleSheet(f"""
+            QComboBox {{ background: #000d12; color: {C.TEXT}; border: 1px solid {C.BORDER};
+                border-radius: 3px; padding: 4px 8px; }}
+            QComboBox:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        lay.addWidget(self._language_box)
 
         # ── UI colour — colour wheel ─────────────────────────────────────────
         lay.addSpacing(4)
@@ -1873,8 +1893,9 @@ class CustomizeOverlay(QWidget):
     def _save(self):
         name = self._name_input.text().strip() or "JARVIS"
         user = self._user_input.text().strip()
+        language = self._language_keys[self._language_box.currentIndex()] if hasattr(self, "_language_keys") else "auto"
         self.saved.emit(name, user, self._sel_color or DEFAULT_UI_COLOR, self._sel_voice,
-                         self._personality_box.currentText())
+                         self._personality_box.currentText(), language)
         self.hide()
 
 
@@ -3659,6 +3680,7 @@ class MainWindow(QMainWindow):
         self.on_remote_clicked = None   # callable: () -> (url, key) | None
         self.on_interrupt      = None   # callable: () -> None — stop JARVIS mid-speech
         self.on_voice_change   = None   # callable: () -> None — rebuild session with new voice
+        self.on_language_change = None # callable: (language) -> None — refresh prompt and speech
         self.on_audio_device_change = None  # callable: () -> None — reopen audio streams
         self.on_plugin_install = None   # callable: (path) -> None — inspect/install a local plugin
         self.on_plugin_trust_toggle = None  # callable: (required: bool) -> None
@@ -5362,6 +5384,7 @@ class MainWindow(QMainWindow):
             cfg.get("ui_color", "") or DEFAULT_UI_COLOR,
             cfg.get("voice_name", ""),
             cfg.get("personality_profile", "professional"),
+            cfg.get("language", "auto"),
             parent=cw,
         )
         ow, oh = CustomizeOverlay._OW, CustomizeOverlay._OH
@@ -5372,6 +5395,7 @@ class MainWindow(QMainWindow):
             ow, oh,
         )
         ov.on_preview = self._preview_ui_color
+        translate_widget_tree(ov, get_language())
         ov.saved.connect(self._apply_name_update)
         ov.show()
         self._customize_overlay = ov
@@ -5383,8 +5407,8 @@ class MainWindow(QMainWindow):
             retheme_all_widgets(old, current_palette())
 
     def _apply_name_update(self, name: str, user_name: str, ui_color: str = "",
-                           voice: str = "", personality: str = ""):
-        """Update all name/theme-dependent UI elements and persist to config."""
+                           voice: str = "", personality: str = "", language: str = "auto"):
+        """Update identity, theme, voice and conversation language."""
         self._assistant_name = name.strip() or "JARVIS"
         display = self._assistant_name.upper()
         self.setWindowTitle(f"{display} — {APP_VERSION}")
@@ -5413,10 +5437,15 @@ class MainWindow(QMainWindow):
                 save_voice(voice)
                 voice_changed = True
 
+        from core.i18n import normalize_language
+        language = normalize_language(language)
+        language_changed = language != get_language()
+
         try:
             data = _read_full_config()
             data["assistant_name"] = self._assistant_name
             data["user_name"] = user_name.strip()
+            data["language"] = language
             if ui_color:
                 data["ui_color"] = ui_color.strip().lower()
             if personality:
@@ -5439,6 +5468,10 @@ class MainWindow(QMainWindow):
 
         if voice_changed and self.on_voice_change:
             self.on_voice_change()
+        if language_changed:
+            translate_widget_tree(self, language)
+            if self.on_language_change:
+                self.on_language_change(language)
 
     def _centre_overlay(self, ov) -> None:
         """Place a floating overlay in the middle of the HUD and show it."""
@@ -5449,6 +5482,7 @@ class MainWindow(QMainWindow):
             max(0, (cw.height() - ov.height()) // 2),
             ov.width(), ov.height(),
         )
+        translate_widget_tree(ov, get_language())
         ov.show()
         ov.raise_()
 
@@ -5589,6 +5623,7 @@ class MainWindow(QMainWindow):
             (cw.height() - ov.height()) // 2,
             ov.width(), ov.height(),
         )
+        translate_widget_tree(ov, get_language())
         ov.show()
         ov.raise_()
         self._plugin_manager_overlay = ov   # keep a reference so it isn't GC'd
@@ -5597,6 +5632,7 @@ class MainWindow(QMainWindow):
         sections = self.get_plugin_settings() if self.get_plugin_settings else []
         cw = self.centralWidget()
         ov = PluginSettingsOverlay(sections, parent=cw)
+        translate_widget_tree(ov, get_language())
         ow = PluginSettingsOverlay._OW
         oh = min(560, cw.height() - 16)
         ov.setGeometry(
@@ -5846,6 +5882,7 @@ class JarvisUI:
         """)
         self._win = MainWindow(face_path)
         self.root = _RootShim(self._app)
+        translate_widget_tree(self._win, get_language())
         self._win.show()
 
     @property
@@ -5906,6 +5943,14 @@ class JarvisUI:
         self._win.on_voice_change = cb
 
     @property
+    def on_language_change(self):
+        return self._win.on_language_change
+
+    @on_language_change.setter
+    def on_language_change(self, cb):
+        self._win.on_language_change = cb
+
+    @property
     def on_audio_device_change(self):
         return self._win.on_audio_device_change
 
@@ -5953,7 +5998,9 @@ class JarvisUI:
     def show_confirm(self, title: str, detail: str) -> None:
         """Thread-safe: raise the irreversible-action gate. Called from action
         handlers running in executor threads, so it goes through a signal."""
-        self._win._confirm_sig.emit(str(title)[:120], str(detail)[:300])
+        from core.i18n import tr
+        language = get_language()
+        self._win._confirm_sig.emit(tr(str(title)[:120], language), tr(str(detail)[:300], language))
 
     def hide_confirm(self) -> None:
         """Thread-safe: take the gate down."""

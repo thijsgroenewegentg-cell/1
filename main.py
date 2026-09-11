@@ -75,6 +75,7 @@ from memory.config_manager import (
     get_input_device,
     get_output_device,
     get_voice,
+    get_language,
     get_wake_word_enabled,
     get_plugin_trust_required,
     get_personality_profile,
@@ -84,10 +85,12 @@ from memory.config_manager import (
 )
 from core import confirm as confirm_gate
 from core import undo as undo_stack
+from core.agent_orchestrator import build_preview, get_dry_run, get_orchestrator
+from core.i18n import effective_language, language_instruction, localized_day_part, whisper_language
 from core.failure import explain as explain_failure, record as record_failure
 from core.workflow_recorder import record as record_workflow_step, set_executor as set_workflow_executor
 from core.operation_checkpoints import record as record_operation_checkpoint
-from core.task_planner import current as current_task_plan, render as render_task_plan, update as update_task_plan
+from core.task_planner import create as create_task_plan, current as current_task_plan, render as render_task_plan, update as update_task_plan
 from core.task_runtime import runtime as get_task_runtime
 from core.tool_contracts import normalize_result, ToolResult
 from core.approval_policy import (
@@ -379,6 +382,11 @@ class MicrophoneListener:
     def stop(self) -> None:
         self.stop_event.set()
 
+    def reset_transcriber(self) -> None:
+        """Reload Whisper on the next utterance after a language change."""
+        self._stt = None
+        self._stt_failed = False
+
     def feed_remote_audio(self, data: bytes) -> None:
         """Feed browser PCM16/16 kHz audio into the normal local VAD path."""
         if not data:
@@ -571,7 +579,7 @@ class MicrophoneListener:
         try:
             if self._stt is None:
                 self.owner.log(f"SYS: Loading Whisper '{get_stt_model()}' (first voice command)…")
-                self._stt = WhisperSTT(model_name=get_stt_model())
+                self._stt = WhisperSTT(model_name=get_stt_model(), language=whisper_language(get_language()))
             text = _clean_transcript(self._stt.transcribe(audio))
             if text:
                 self.owner.submit_command(text, already_logged=False)
@@ -589,6 +597,7 @@ class LocalAssistant:
         self._speaking = threading.Event()
         self._thinking = threading.Event()
         self._cancel_response = threading.Event()
+        self._pause_requested = threading.Event()
         self._active_speech_stop: threading.Event | None = None
         self._fast_model = get_fast_model()
         self._fast_model_ready = False
@@ -616,12 +625,16 @@ class LocalAssistant:
         self._project_context = describe_project_context(BASE_DIR)
         self._project_memory = project_context_prompt(BASE_DIR)
         self._blender_context = ""
+        self._orchestrator = get_orchestrator()
+        self._active_language = effective_language("", get_language())
+        self._last_request_profile = None
 
         # Wire UI callbacks before action discovery so a plugin can use the HUD.
         self.ui.on_text_command = self._on_ui_text
         self.ui.on_tool_action = self.execute_tool
         self.ui.on_interrupt = self.interrupt
         self.ui.on_voice_change = self._on_voice_change
+        self.ui.on_language_change = self._on_language_change
         self.ui.on_audio_device_change = self._on_audio_device_change
         self.ui.on_plugin_install = self._on_plugin_install
         self.ui.on_plugin_trust_toggle = self._on_plugin_trust_toggle
@@ -723,7 +736,7 @@ class LocalAssistant:
     def _make_tts(self) -> TTSPlayer:
         if get_tts_engine() in {"system", "pyttsx3", "offline"}:
             return TTSPlayer(SystemTTSEngine())
-        return TTSPlayer(EdgeTTSEngine(get_tts_voice() or get_voice()))
+        return TTSPlayer(EdgeTTSEngine(get_voice(), language=self._active_language))
 
     def _refresh_blender_mcp_tools(self) -> bool:
         """Discover safe external Blender MCP tools and expose them directly to Ollama.
@@ -807,8 +820,21 @@ class LocalAssistant:
 
     def _on_voice_change(self) -> None:
         # The settings panel stores the friendly voice name in config.
-        self._tts.replace_engine(EdgeTTSEngine(get_voice()))
+        self._tts.replace_engine(EdgeTTSEngine(get_voice(), language=self._active_language))
         self.log(f"SYS: Voice set to {get_voice()}.")
+
+    def _on_language_change(self, language: str = "auto") -> None:
+        from memory.config_manager import save_language
+        save_language(language)
+        self._active_language = effective_language("", language)
+        try:
+            self._tts.set_language(self._active_language)
+        except Exception:
+            pass
+        if self._audio is not None:
+            self._audio.reset_transcriber()
+        self._messages = []
+        self.log(f"SYS: Language preference set to {language}.")
 
     def _on_plugin_install(self, source_path: str) -> None:
         """Inspect a local plugin and put its copy behind the real UI gate."""
@@ -891,6 +917,7 @@ class LocalAssistant:
             dashboard.set_connect_callback(self._on_remote_connected)
             dashboard.set_audio_callback(self._on_remote_audio)
             dashboard.set_file_callback(self._on_remote_file)
+            dashboard.set_task_callback(self._on_remote_task_control)
             self._dashboard = dashboard
         except Exception as exc:
             # The desktop assistant remains fully usable without optional
@@ -921,7 +948,8 @@ class LocalAssistant:
         self.ui.notify_phone_connected()
         if self._dashboard is not None:
             state = "sleeping" if self._current_state == "SLEEPING" else "active"
-            self._dashboard.publish({"type": "status", "state": state})
+            self._dashboard.publish({"type": "status", "state": state, "language": self._active_language})
+            self._publish_remote_progress("task_state", self._task_runtime.render(include_history=False))
 
     def _on_remote_command(self, text: str) -> None:
         # The browser displays commands from the assistant's authenticated
@@ -961,20 +989,77 @@ class LocalAssistant:
         )
         self.submit_command(prompt, already_logged=True)
 
+    def _on_remote_task_control(self, action: str, body: dict | None = None) -> str:
+        """Handle remote task-center controls without executing a tool directly."""
+        body = body if isinstance(body, dict) else {}
+        action = str(action or "").lower().strip()
+        from core.task_planner import cancel as cancel_plan, pause as pause_plan, render as render_plan_state, resume as resume_plan, rollback as rollback_plan
+        if action == "pause":
+            self._pause_requested.set()
+            self._cancel_response.set()
+            if getattr(self, "_tts", None) is not None:
+                self._tts.stop()
+            result = render_plan_state(pause_plan())
+            self._task_runtime.hold("paused")
+        elif action == "resume":
+            self._pause_requested.clear()
+            self._cancel_response.clear()
+            result = render_plan_state(resume_plan())
+            self._task_runtime.resume()
+        elif action == "cancel":
+            self._pause_requested.clear()
+            self._cancel_response.set()
+            if getattr(self, "_tts", None) is not None:
+                self._tts.stop()
+            if confirm_gate.pending_title():
+                confirm_gate.resolve(False)
+            result = render_plan_state(cancel_plan())
+            self._task_runtime.end_turn("cancelled")
+        elif action == "rollback":
+            index = body.get("step", body.get("index", 1))
+            result = render_plan_state(rollback_plan(index))
+        elif action == "recovery":
+            result = self._task_runtime.render(include_history=True)
+        else:
+            return "Unsupported task control."
+        self._publish_remote_progress("task_control", result, step=body.get("step"), total=body.get("total"))
+        self.log(f"SYS: Remote task control {action}: {str(result)[:220]}")
+        return result
+
     def _publish_remote_log(self, speaker: str, text: str) -> None:
         if self._dashboard is not None:
-            self._dashboard.publish({"type": "log", "speaker": speaker, "text": str(text)})
+            self._dashboard.publish({"type": "log", "speaker": speaker, "text": str(text), "language": self._active_language})
 
     def _publish_remote_sys(self, text: str) -> None:
         if self._dashboard is not None:
-            self._dashboard.publish({"type": "sys", "text": str(text)})
+            self._dashboard.publish({"type": "sys", "text": str(text), "language": self._active_language})
+
+    def _publish_remote_progress(self, stage: str, detail: str = "", **extra) -> None:
+        if self._dashboard is not None:
+            payload = {"type": "progress", "stage": str(stage), "detail": str(detail)[:900], "language": self._active_language}
+            payload.update({key: value for key, value in extra.items() if key in {"tool", "ok", "changed", "step", "total", "verification", "recovery"}})
+            try:
+                current = self._task_runtime.snapshot().get("current") or {}
+                if current:
+                    operations = current.get("operations") or []
+                    active = next((item for item in reversed(operations) if item.get("status") in {"running", "waiting_confirmation"}), {})
+                    payload["task"] = {
+                        "id": str(current.get("id", ""))[:40],
+                        "title": str(current.get("title", "MARK task"))[:180],
+                        "status": str(current.get("status", "active"))[:40],
+                        "operation": str(active.get("tool", ""))[:100],
+                        "operation_status": str(active.get("status", ""))[:40],
+                    }
+            except Exception:
+                pass
+            self._dashboard.publish(payload)
 
     def _set_state(self, state: str) -> None:
         self._current_state = state
         self.ui.set_state(state)
         if self._dashboard is not None:
             remote_state = "sleeping" if state == "SLEEPING" else "active"
-            self._dashboard.publish({"type": "status", "state": remote_state})
+            self._dashboard.publish({"type": "status", "state": remote_state, "language": self._active_language})
 
     def _wake_state(self) -> dict:
         ready = bool(self._wake_detector and self._wake_detector.ready) or wake_is_ready()
@@ -1046,11 +1131,16 @@ class LocalAssistant:
         blender_context = f"[CURRENT BLENDER CONTEXT]\n{self._blender_context[:1800]}" if self._blender_context else ""
         active_plan = current_task_plan()
         task_context = f"[ACTIVE TASK PLAN]\n{render_task_plan(active_plan)}" if active_plan else ""
-        live_context = "\n\n".join(block for block in (project_context, project_memory, blender_context, task_context) if block)
+        orchestration_context = self._orchestrator.render()
+        if self._last_request_profile:
+            orchestration_context = f"[REQUEST PREFLIGHT]\n{orchestration_context}"
+        live_context = "\n\n".join(block for block in (project_context, project_memory, blender_context, task_context, orchestration_context) if block)
+        active_language = self._active_language or get_language()
         return (
             f"You are {name}, a capable local desktop assistant. {address}\n"
             f"Personality profile: {personality}\n"
-            f"Current local date and time: {now}.\n\n"
+            f"Current local date and time: {now}.\n"
+            f"{language_instruction(active_language)}\n\n"
             "You run through Ollama, not a cloud API. Answer in the language the user uses. "
             "Be concise and natural because your response is spoken aloud. "
             "Never claim a tool action succeeded until you have received its tool result. "
@@ -1118,6 +1208,7 @@ class LocalAssistant:
                         started = True
                         self._speaking.set()
                         self._set_state("SPEAKING")
+                    self._tts.set_language(self._active_language)
                     self._tts.speak(sentence)
                     if getattr(self._tts, "last_error", ""):
                         self.ui.set_service_status("TTS", "DEGRADED", self._tts.last_error)
@@ -1141,28 +1232,58 @@ class LocalAssistant:
     def _offline_command(self, text: str) -> str | None:
         """Small deterministic fallback for useful commands without Ollama."""
         lower = text.lower().strip()
-        if lower in {"mute", "mute yourself", "be quiet"}:
+        dutch = self._active_language == "nl"
+        if lower in ({"mute", "mute yourself", "be quiet"} | ({"dempen", "wees stil", "stilte"} if dutch else set())):
             self.ui.muted = True
-            return "Microphone and speech muted."
-        if lower in {"unmute", "speak", "resume speech"}:
+            return "Microfoon en spraak zijn gedempt." if dutch else "Microphone and speech muted."
+        if lower in ({"unmute", "speak", "resume speech"} | ({"opheffen", "spreek", "spraak hervatten"} if dutch else set())):
             self.ui.muted = False
-            return "Speech and microphone enabled."
-        if lower in {"stop", "stop speaking", "cancel", "interrupt"}:
+            return "Spraak en microfoon zijn ingeschakeld." if dutch else "Speech and microphone enabled."
+        if lower in ({"stop", "stop speaking", "cancel", "interrupt"} | ({"stop", "stop met praten", "annuleer", "onderbreek"} if dutch else set())):
             self.interrupt()
-            return "Response interrupted."
-        if lower in {"time", "what time is it", "what is the time"}:
-            return datetime.now().strftime("The local time is %H:%M.")
-        if lower in {"status", "system status", "computer status"}:
+            return "Antwoord onderbroken." if dutch else "Response interrupted."
+        if lower in ({"time", "what time is it", "what is the time"} | ({"tijd", "hoe laat is het"} if dutch else set())):
+            return ("De lokale tijd is " if dutch else "The local time is ") + datetime.now().strftime("%H:%M.")
+        if lower in ({"status", "system status", "computer status"} | ({"systeemstatus", "computerstatus", "status"} if dutch else set())):
             return str(get_system_status())
-        if lower in {"help", "what can you do"}:
-            return "Ollama is offline. I can still mute, unmute, interrupt, report the time and show system status. Start Ollama for conversation and tools."
-        return "Ollama is offline, so I did not send that request. Start Ollama and try again."
+        if lower in ({"help", "what can you do"} | ({"help", "wat kun je"} if dutch else set())):
+            return ("Ollama is offline. Ik kan nog steeds dempen, hervatten, onderbreken, de tijd geven en de systeemstatus tonen. Start Ollama voor gesprekken en tools." if dutch else "Ollama is offline. I can still mute, unmute, interrupt, report the time and show system status. Start Ollama for conversation and tools.")
+        return ("Ollama is offline, dus ik heb dit verzoek niet verstuurd. Start Ollama en probeer het opnieuw." if dutch else "Ollama is offline, so I did not send that request. Start Ollama and try again.")
 
     def process_command(self, text: str, already_logged: bool) -> None:
         if self._wake_enabled and not self._awake:
             self.log("SYS: Assistant is asleep — wake it from the settings drawer first.")
             return
 
+        # A new explicit user command is an intentional resume of a paused
+        # checklist; remote resume uses the same state transition without
+        # replaying any previous tool.
+        self._pause_requested.clear()
+        self._last_request_profile = self._orchestrator.begin(text, get_language())
+        self._active_language = self._last_request_profile.language
+        self._publish_remote_progress(
+            "preflight",
+            self._last_request_profile.as_text(),
+            step=0,
+            total=self._last_request_profile.estimated_steps,
+        )
+        try:
+            self._tts.set_language(self._active_language)
+        except Exception:
+            pass
+        if self._last_request_profile.requires_plan:
+            active = current_task_plan()
+            if not active or active.get("status") in {"completed", "cancelled", "failed"}:
+                try:
+                    auto_plan = create_task_plan(
+                        "MARK: " + self._last_request_profile.goal[:120],
+                        list(self._last_request_profile.suggested_steps),
+                        owner="orchestrator",
+                    )
+                    self.ui.show_content("TASK PLAN", render_task_plan(auto_plan))
+                    self.log("SYS: Created a bounded preflight plan for a multi-step request.")
+                except Exception as exc:
+                    self.log(f"WRN: Preflight plan was not created — {exc}")
         turn_id = self._task_runtime.begin_turn(text)
         begin_approval_task(turn_id)
         if not already_logged:
@@ -1293,13 +1414,16 @@ class LocalAssistant:
             if not self._speaking.is_set():
                 self._set_state("LISTENING")
             try:
-                if confirm_gate.pending_title():
+                if self._pause_requested.is_set():
+                    self._task_runtime.hold("paused")
+                elif confirm_gate.pending_title():
                     self._task_runtime.hold("waiting_confirmation")
                 else:
                     turn_status = "cancelled" if self._cancel_response.is_set() else "completed"
                     self._task_runtime.end_turn(turn_status)
             except Exception:
                 pass
+            self._publish_remote_progress("task_state", self._task_runtime.render(include_history=False))
 
     def speak(self, text: str) -> None:
         if not text or self.ui.muted:
@@ -1307,6 +1431,7 @@ class LocalAssistant:
         self._speaking.set()
         self._set_state("SPEAKING")
         try:
+            self._tts.set_language(self._active_language)
             self._tts.speak(text)
             if getattr(self._tts, "last_error", ""):
                 self.ui.set_service_status("TTS", "DEGRADED", f"Speech unavailable; text output remains available. {self._tts.last_error}")
@@ -1483,6 +1608,7 @@ class LocalAssistant:
         if not had_task:
             begin_approval_task("standalone")
         decision = assess_tool(name, args)
+        self._orchestrator.tool_started(name, args)
         approved_by_interface = args.get("_approved") is _APPROVAL_SENTINEL
         operation_id = self._task_runtime.begin_operation(
             name,
@@ -1490,6 +1616,21 @@ class LocalAssistant:
             risk=decision.risk,
             requires_confirmation=decision.requires_confirmation or self._action_needs_confirmation(name, args),
         )
+        self._publish_remote_progress("tool_started", f"Running {name}", tool=name)
+        if get_dry_run() and decision.risk != "read_only" and name not in {"agent_control", "task_planner", "task_runtime", "approval_policy"}:
+            preview = normalize_result(build_preview(name, args, self._last_request_profile), tool=name, args=args)
+            preview.ok = True
+            preview.changed = False
+            preview.status = "preview"
+            preview.risk = decision.risk
+            preview.reversible = True
+            preview.recovery = "Disable dry-run mode after reviewing this preview; no external action was executed."
+            self._task_runtime.finish_operation(operation_id, preview)
+            text_result = preview.as_text()
+            self._orchestrator.tool_finished(name, text_result, True)
+            self._publish_remote_progress("preview", text_result, tool=name, ok=True, changed=False)
+            self.log(f"[Agent] dry-run preview for {name}")
+            return text_result
         # Apply the selected policy before dispatch. The callback marker is
         # interface-issued, so the same call cannot be forged by model JSON.
         # A few tools own richer confirmation wording and are left to those
@@ -1520,7 +1661,10 @@ class LocalAssistant:
             self._task_runtime.finish_operation(operation_id, result)
             if result.status == "waiting_confirmation":
                 self._task_runtime.hold("waiting_confirmation")
-            return result.as_text()
+            text_result = result.as_text()
+            self._orchestrator.tool_finished(name, text_result, result.ok)
+            self._publish_remote_progress("confirmation", text_result, tool=name, ok=result.ok, changed=result.changed)
+            return text_result
         try:
             value = self._execute_tool_raw(name, args)
             result = normalize_result(value, tool=name, args=args)
@@ -1552,11 +1696,20 @@ class LocalAssistant:
             elif not had_task:
                 self._task_runtime.end_turn("completed" if result.ok else "failed")
             self.log(f"[Task runtime] {name}: {'ok' if result.ok else 'failed'}; changed={result.changed}; verification={'yes' if result.verification else 'no'}")
-            return result.as_text()
+            text_result = result.as_text()
+            self._orchestrator.tool_finished(name, text_result, result.ok)
+            self._publish_remote_progress("tool_finished", text_result, tool=name, ok=result.ok, changed=result.changed)
+            if result.verification:
+                self._publish_remote_progress("verified", str(result.verification), tool=name, ok=result.ok, changed=result.changed, verification=result.verification)
+            if result.recovery:
+                self._publish_remote_progress("recovery", str(result.recovery), tool=name, ok=result.ok, changed=result.changed, recovery=result.recovery)
+            return text_result
         except Exception as exc:
             result = normalize_result(f"Tool {name} failed: {exc}", tool=name, args=args)
             result.risk = decision.risk
             self._task_runtime.finish_operation(operation_id, result)
+            self._orchestrator.tool_finished(name, result.as_text(), False)
+            self._publish_remote_progress("tool_failed", result.as_text(), tool=name, ok=False, changed=False)
             raise
 
     def _execute_tool_raw(self, name: str, args: dict) -> str:
@@ -1886,11 +2039,17 @@ class LocalAssistant:
         lang = lang_entry.get("value", "") if isinstance(lang_entry, dict) else str(lang_entry)
         name_entry = identity.get("name", {}) if isinstance(identity, dict) else {}
         user_name = name_entry.get("value", "") if isinstance(name_entry, dict) else str(name_entry)
-        greeting = f"Good {self._day_part()}, sir. I’m online and ready."
-        if user_name:
-            greeting = f"Good {self._day_part()}, {user_name}. I’m online and ready."
-        if lang:
-            greeting += f" Continue in the language you prefer, currently remembered as {lang}."
+        active = effective_language("", lang or get_language())
+        part = localized_day_part(active)
+        if active == "nl":
+            greeting = f"Goedemiddag, ik ben online en klaar om te helpen." if part == "middag" else f"Goedemorgen, ik ben online en klaar om te helpen." if part == "ochtend" else f"Goedenavond, ik ben online en klaar om te helpen."
+            if user_name:
+                greeting = f"Goedemiddag, {user_name}. Ik ben online en klaar om te helpen." if part == "middag" else f"Goedemorgen, {user_name}. Ik ben online en klaar om te helpen." if part == "ochtend" else f"Goedenavond, {user_name}. Ik ben online en klaar om te helpen."
+        else:
+            greeting = f"Good {part}, sir. I’m online and ready."
+            if user_name:
+                greeting = f"Good {part}, {user_name}. I’m online and ready."
+        self._active_language = active
         self.speak(greeting)
 
     def _proactive_loop(self) -> None:
@@ -1971,7 +2130,7 @@ class LocalAssistant:
                 timeout=120,
             )
             if summary:
-                save_session_summary(summary, "English")
+                save_session_summary(summary, "Nederlands" if self._active_language == "nl" else "English")
                 record_project_event(
                     self._project_root,
                     "session",

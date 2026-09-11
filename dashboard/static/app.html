@@ -258,6 +258,10 @@
     .recovery-card { background: rgba(240,200,117,.06); border-color: rgba(240,200,117,.22); }
     .recovery-card .side-value { color: var(--warning); font-size: 11px; }
     .recovery-card .side-detail { color: #aaa17d; }
+    .task-controls { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+    .task-control { flex:1 1 42%; padding:7px 8px; border:1px solid var(--border); border-radius:7px; background:var(--surface-2); color:var(--subtle); font-size:10px; font-weight:700; cursor:pointer; }
+    .task-control:hover { border-color:var(--accent); color:var(--text); }
+    .task-control.danger:hover { border-color:var(--danger); color:var(--danger); }
     .activity-line { color: var(--subtle); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
     .activity-line.empty { color: var(--muted); }
 
@@ -306,12 +310,12 @@
     <div class="brand-mark" aria-hidden="true">M</div>
     <div class="brand-copy">
       <div class="logo"><em>J</em>ARVIS</div>
-      <div class="topbar-sub">LOCAL INTELLIGENT WORKSPACE</div>
+      <div class="topbar-sub" data-i18n="LOCAL INTELLIGENT WORKSPACE">LOCAL INTELLIGENT WORKSPACE</div>
     </div>
     <div class="pill" id="pill"><span class="dot"></span><span id="st">Connecting</span></div>
     <div class="enc-badge" id="enc">AES-256</div>
     <div class="spacer"></div>
-    <div class="topbar-session"><span class="status-dot" id="header-dot"></span><span id="header-session">REMOTE SESSION</span></div>
+    <div class="topbar-session"><span class="status-dot" id="header-dot"></span><span id="header-session" data-i18n="REMOTE SESSION">REMOTE SESSION</span></div>
     <div class="url">__IP__:__PORT__</div>
   </header>
 
@@ -322,21 +326,21 @@
         <p>Secure companion dashboard</p>
       </div>
       <nav class="rail-nav" aria-label="Workspace">
-        <div class="nav-heading">Workspace</div>
-        <button class="rail-item active" data-view="overview"><span class="rail-icon">⌂</span><span>Overview</span></button>
-        <button class="rail-item" data-view="conversation"><span class="rail-icon">✦</span><span>Conversation</span></button>
-        <button class="rail-item" data-view="tasks"><span class="rail-icon">✓</span><span>Tasks</span></button>
-        <button class="rail-item" data-view="blender"><span class="rail-icon">◇</span><span>Blender</span></button>
-        <button class="rail-item" data-view="vision"><span class="rail-icon">◌</span><span>Vision</span></button>
-        <button class="rail-item" data-view="memory"><span class="rail-icon">▣</span><span>Memory</span></button>
-        <button class="rail-item" data-view="workflows"><span class="rail-icon">⌁</span><span>Workflows</span></button>
-        <button class="rail-item" data-view="settings"><span class="rail-icon">⚙</span><span>Settings</span></button>
+        <div class="nav-heading" data-i18n="Workspace">Workspace</div>
+        <button class="rail-item active" data-view="overview"><span class="rail-icon">⌂</span><span data-i18n="Overview">Overview</span></button>
+        <button class="rail-item" data-view="conversation"><span class="rail-icon">✦</span><span data-i18n="Conversation">Conversation</span></button>
+        <button class="rail-item" data-view="tasks"><span class="rail-icon">✓</span><span data-i18n="Tasks">Tasks</span></button>
+        <button class="rail-item" data-view="blender"><span class="rail-icon">◇</span><span data-i18n="Blender">Blender</span></button>
+        <button class="rail-item" data-view="vision"><span class="rail-icon">◌</span><span data-i18n="Vision">Vision</span></button>
+        <button class="rail-item" data-view="memory"><span class="rail-icon">▣</span><span data-i18n="Memory">Memory</span></button>
+        <button class="rail-item" data-view="workflows"><span class="rail-icon">⌁</span><span data-i18n="Workflows">Workflows</span></button>
+        <button class="rail-item" data-view="settings"><span class="rail-icon">⚙</span><span data-i18n="Settings">Settings</span></button>
       </nav>
       <div class="rail-spacer"></div>
       <div class="rail-card">
-        <div class="card-kicker">Session</div>
+        <div class="card-kicker" data-i18n="Session">Session</div>
         <div class="rail-state"><strong id="rail-session">CONNECTING</strong><span class="state-dot" id="rail-dot"></span></div>
-        <p id="rail-session-detail">Waiting for the local relay.</p>
+        <p id="rail-session-detail" data-i18n="Waiting for the local relay.">Waiting for the local relay.</p>
       </div>
       <div class="rail-footer">Local-first controls · confirmation gates remain active</div>
     </aside>
@@ -344,22 +348,22 @@
     <section id="workspace" aria-label="Conversation workspace">
       <div class="workspace-toolbar">
         <div>
-          <div class="workspace-title">Conversation</div>
-          <div class="workspace-subtitle">Streamed responses, tool progress and secure file exchange</div>
+          <div class="workspace-title" data-i18n="Conversation">Conversation</div>
+          <div class="workspace-subtitle" data-i18n="Streamed responses, tool progress and secure file exchange">Streamed responses, tool progress and secure file exchange</div>
         </div>
         <div class="workspace-meta">
           <span class="meta-chip accent" id="event-count">0 EVENTS</span>
-          <span class="meta-chip">LOCAL RELAY</span>
+          <span class="meta-chip" data-i18n="LOCAL RELAY">LOCAL RELAY</span>
         </div>
       </div>
       <main id="feed">
         <section class="welcome-card" id="welcome-card">
-          <div class="eyebrow">Active session</div>
-          <h1>What would you like to work on?</h1>
-          <p>Use the command bar to talk to MARK, send a project file, or start a voice session. The desktop assistant remains the source of truth for tools and confirmations.</p>
+          <div class="eyebrow" data-i18n="Active session">Active session</div>
+          <h1 data-i18n="What would you like to work on?">What would you like to work on?</h1>
+          <p data-i18n="Use the command bar to talk to MARK, send a project file, or start a voice session. The desktop assistant remains the source of truth for tools and confirmations.">Use the command bar to talk to MARK, send a project file, or start a voice session. The desktop assistant remains the source of truth for tools and confirmations.</p>
           <div class="welcome-actions">
-            <button class="quick-prompt" data-prompt="Give me a concise status update">Ask for a status update</button>
-            <button class="quick-prompt" data-prompt="What can you help me with?">See what MARK can do</button>
+            <button class="quick-prompt" data-prompt="Give me a concise status update" data-i18n="Ask for a status update">Ask for a status update</button>
+            <button class="quick-prompt" data-prompt="What can you help me with?" data-i18n="See what MARK can do">See what MARK can do</button>
           </div>
         </section>
       </main>
@@ -368,41 +372,48 @@
         <label class="btn-attach" for="file-inp" title="Send file" aria-label="Send file">📎</label>
         <input type="file" id="file-inp" multiple accept="*/*" style="display:none">
         <button id="mic-btn" onclick="doMic()" title="Voice command" aria-label="Voice command">🎤</button>
-        <button class="btn btn-wake" id="wake" onclick="doWake()">WAKE</button>
-        <button class="btn btn-send" onclick="doSend()">SEND</button>
+        <button class="btn btn-wake" id="wake" onclick="doWake()" data-i18n="WAKE">WAKE</button>
+        <button class="btn btn-send" onclick="doSend()" data-i18n="SEND">SEND</button>
       </footer>
     </section>
 
     <aside id="context-rail" aria-label="Session context">
-      <div class="context-heading"><h2>Context</h2><span>LIVE</span></div>
+      <div class="context-heading"><h2 data-i18n="Context">Context</h2><span data-i18n="LIVE">LIVE</span></div>
       <section class="side-card">
-        <div class="card-kicker">Session state</div>
+        <div class="card-kicker" data-i18n="Session state">Session state</div>
         <div class="side-value" id="context-state">CONNECTING</div>
         <div class="side-detail" id="context-detail">Opening a secure connection to the local assistant.</div>
       </section>
       <section class="side-card">
-        <div class="card-kicker">Active task</div>
+        <div class="card-kicker" data-i18n="Active task">Active task</div>
         <div class="side-divider"></div>
-        <div class="task-row"><span class="task-icon">✓</span><span id="task-state">No active task</span></div>
-        <div class="side-detail">Task plans and confirmation requests will appear in the conversation.</div>
-      </section>
-      <section class="side-card">
-        <div class="card-kicker">Service health</div>
-        <div class="health-list">
-          <div class="health-row"><span class="health-name"><span class="health-dot" id="health-channel"></span>Secure channel</span><strong id="health-channel-text">CONNECTING</strong></div>
-          <div class="health-row"><span class="health-name"><span class="health-dot" id="health-encryption"></span>Message encryption</span><strong id="health-encryption-text">CHECKING</strong></div>
-          <div class="health-row"><span class="health-name"><span class="health-dot" id="health-voice"></span>Voice input</span><strong id="health-voice-text">READY</strong></div>
+        <div class="task-row"><span class="task-icon">✓</span><span id="task-state" data-i18n="No active task">No active task</span></div>
+        <div class="side-detail" id="task-detail" data-i18n="Task plans and confirmation requests will appear in the conversation.">Task plans and confirmation requests will appear in the conversation.</div>
+        <div class="task-controls" aria-label="Task controls">
+          <button class="task-control" data-task-control="pause" data-i18n="Pause">Pause</button>
+          <button class="task-control" data-task-control="resume" data-i18n="Resume">Resume</button>
+          <button class="task-control" data-task-control="recovery" data-i18n="Recovery">Recovery</button>
+          <button class="task-control" data-task-control="rollback" data-i18n="Rollback plan">Rollback plan</button>
+          <button class="task-control danger" data-task-control="cancel" data-i18n="Cancel">Cancel</button>
         </div>
       </section>
       <section class="side-card">
-        <div class="card-kicker">Recent activity</div>
+        <div class="card-kicker" data-i18n="Service health">Service health</div>
+        <div class="health-list">
+          <div class="health-row"><span class="health-name"><span class="health-dot" id="health-channel"></span><span data-i18n="Secure channel">Secure channel</span></span><strong id="health-channel-text">CONNECTING</strong></div>
+          <div class="health-row"><span class="health-name"><span class="health-dot" id="health-encryption"></span><span data-i18n="Message encryption">Message encryption</span></span><strong id="health-encryption-text">CHECKING</strong></div>
+          <div class="health-row"><span class="health-name"><span class="health-dot" id="health-voice"></span><span data-i18n="Voice input">Voice input</span></span><strong id="health-voice-text">READY</strong></div>
+        </div>
+      </section>
+      <section class="side-card">
+        <div class="card-kicker" data-i18n="Recent activity">Recent activity</div>
         <div class="side-divider"></div>
         <div class="activity-line empty" id="last-event">No events yet</div>
       </section>
       <section class="side-card recovery-card">
-        <div class="card-kicker">Recovery</div>
-        <div class="side-value">Confirmation gates enabled</div>
-        <div class="side-detail">Mutating actions remain reviewable. If the relay drops, reconnect from this page.</div>
+        <div class="card-kicker" data-i18n="Recovery">Recovery</div>
+        <div class="side-value" data-i18n="Confirmation gates enabled">Confirmation gates enabled</div>
+        <div class="side-detail" data-i18n="Mutating actions remain reviewable. If the relay drops, reconnect from this page.">Mutating actions remain reviewable. If the relay drops, reconnect from this page.</div>
       </section>
     </aside>
   </div>
@@ -420,6 +431,44 @@
     function _authFetch(url, opts = {}) {
       opts.headers = Object.assign({}, opts.headers, _authHeader());
       return fetch(url, opts);
+    }
+
+    // MARK sends the active language with progress events. The remote shell
+    // translates its fixed chrome locally so Dutch remains available even when
+    // the desktop assistant is running headless.
+    let _language = 'en';
+    const _nlDashboard = {
+      'LOCAL INTELLIGENT WORKSPACE': 'LOKALE INTELLIGENTE WERKPLEK',
+      'REMOTE SESSION': 'EXTERNE SESSIE', 'Connecting': 'Verbinden', 'Active': 'Actief',
+      'Sleeping': 'Slapen', 'Overview': 'Overzicht', 'Conversation': 'Gesprek',
+      'Tasks': 'Taken', 'Vision': 'Visie', 'Memory': 'Geheugen', 'Workflows': 'Werkstromen',
+      'Settings': 'Instellingen', 'Workspace': 'Werkruimte', 'Session': 'Sessie', 'LOCAL RELAY': 'LOKALE VERBINDING',
+      'Secure companion dashboard': 'Veilig begeleidend dashboard', 'Secure channel': 'Beveiligd kanaal',
+      'Message encryption': 'Berichtversleuteling', 'Voice input': 'Spraakinvoer',
+      'Context': 'Context', 'LIVE': 'LIVE', 'Session state': 'Sessiestatus', 'Secure channel': 'Beveiligd kanaal', 'Message encryption': 'Berichtversleuteling', 'Voice input': 'Spraakinvoer',
+      'Active task': 'Actieve taak', 'Service health': 'Servicegezondheid',
+      'Recent activity': 'Recente activiteit', 'Recovery': 'Herstel',
+      'Confirmation gates enabled': 'Bevestigingspoorten actief', 'Mutating actions remain reviewable. If the relay drops, reconnect from this page.': 'Wijzigingen blijven controleerbaar. Als de verbinding wegvalt, verbind dan opnieuw vanaf deze pagina.', 'No events yet': 'Nog geen gebeurtenissen',
+      'What would you like to work on?': 'Waar wil je aan werken?',
+      'Active session': 'Actieve sessie',
+      'Streamed responses, tool progress and secure file exchange': 'Gestreamde antwoorden, toolvoortgang en veilige bestandsoverdracht',
+      'Use the command bar to talk to MARK, send a project file, or start a voice session. The desktop assistant remains the source of truth for tools and confirmations.': 'Gebruik de opdrachtbalk om met MARK te praten, een projectbestand te sturen of een stemsessie te starten. De desktopassistent blijft de bron voor tools en bevestigingen.',
+      'Ask for a status update': 'Vraag om een statusupdate', 'See what MARK can do': 'Bekijk wat MARK kan',
+      'Ask MARK anything…': 'Vraag MARK iets…', 'SEND': 'VERSTUREN', 'WAKE': 'WEKKEN',
+      'No active task': 'Geen actieve taak', 'Task plans and confirmation requests will appear in the conversation.': 'Taakplannen en bevestigingsverzoeken verschijnen in het gesprek.',
+      'Pause': 'Pauzeren', 'Resume': 'Hervatten', 'Rollback plan': 'Plan terugdraaien', 'Cancel': 'Annuleren', 'Connecting to JARVIS': 'Verbinden met MARK',
+      'Connected to JARVIS': 'Verbonden met MARK', 'Connection lost — refresh to reconnect.': 'Verbinding verbroken — vernieuw om opnieuw te verbinden.',
+      'Waiting for the local relay.': 'Wachten op de lokale verbinding.',
+    };
+    function setLanguage(language) {
+      _language = String(language || 'en').toLowerCase().startsWith('nl') ? 'nl' : 'en';
+      document.documentElement.lang = _language === 'nl' ? 'nl' : 'en';
+      document.querySelectorAll('[data-i18n]').forEach(node => {
+        const source = node.getAttribute('data-i18n');
+        node.textContent = _language === 'nl' ? (_nlDashboard[source] || source) : source;
+      });
+      const input = document.getElementById('inp');
+      if (input) input.placeholder = _language === 'nl' ? 'Vraag MARK iets…' : 'Ask MARK anything…';
     }
 
     // ── AES-256-CBC encryption (CryptoJS) ────────────────────────────────────
@@ -464,6 +513,8 @@
     const contextDetail = document.getElementById('context-detail');
     const railSession = document.getElementById('rail-session');
     const railSessionDetail = document.getElementById('rail-session-detail');
+    const taskState = document.getElementById('task-state');
+    const taskDetail = document.getElementById('task-detail');
     const headerDot = document.getElementById('header-dot');
     const headerSession = document.getElementById('header-session');
     const channelDot = document.getElementById('health-channel');
@@ -485,14 +536,14 @@
     function _setConnection(online) {
       _setHealth(channelDot, channelText, online ? 'ONLINE' : 'OFFLINE', online);
       if (headerDot) headerDot.classList.toggle('on', Boolean(online));
-      if (headerSession) headerSession.textContent = online ? 'REMOTE SESSION' : 'RECONNECT REQUIRED';
-      if (railSession) railSession.textContent = online ? 'CONNECTED' : 'OFFLINE';
+      if (headerSession) headerSession.textContent = online ? (_language === 'nl' ? 'EXTERNE SESSIE' : 'REMOTE SESSION') : (_language === 'nl' ? 'OPNIEUW VERBINDEN' : 'RECONNECT REQUIRED');
+      if (railSession) railSession.textContent = online ? (_language === 'nl' ? 'VERBONDEN' : 'CONNECTED') : 'OFFLINE';
       if (railSessionDetail) railSessionDetail.textContent = online
-        ? 'Secure local relay is available.'
-        : 'Connection lost — refresh to reconnect.';
+        ? (_language === 'nl' ? 'Beveiligde lokale verbinding is beschikbaar.' : 'Secure local relay is available.')
+        : (_language === 'nl' ? 'Verbinding verbroken — vernieuw om opnieuw te verbinden.' : 'Connection lost — refresh to reconnect.');
       if (contextState && !online) contextState.textContent = 'OFFLINE';
-      if (contextDetail && !online) contextDetail.textContent = 'Reconnect to restore the local assistant session.';
-      if (contextState && online && contextState.textContent === 'OFFLINE') contextState.textContent = 'CONNECTED';
+      if (contextDetail && !online) contextDetail.textContent = _language === 'nl' ? 'Maak opnieuw verbinding om MARK te herstellen.' : 'Reconnect to restore the local assistant session.';
+      if (contextState && online && contextState.textContent === 'OFFLINE') contextState.textContent = _language === 'nl' ? 'VERBONDEN' : 'CONNECTED';
     }
 
     function _recordActivity(text) {
@@ -535,6 +586,22 @@
         input.focus();
       });
     });
+    document.querySelectorAll('[data-task-control]').forEach(button => {
+      button.addEventListener('click', () => _taskControl(button.dataset.taskControl));
+    });
+    async function _taskControl(action) {
+      const body = action === 'rollback' ? {step: 1} : {};
+      try {
+        const response = await _authFetch(`/api/task/${encodeURIComponent(action)}`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Task control failed');
+        toast(_language === 'nl' ? 'Taakcentrum bijgewerkt' : 'Task center updated');
+      } catch (error) {
+        toast(String(error.message || error));
+      }
+    }
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
     const _wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -546,10 +613,13 @@
     ws.onerror   = () => { _setConnection(false); sys('Connection error.'); };
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
+      if (m.language)                 setLanguage(m.language);
       if (m.type === 'log')           append(m.speaker, m.text);
       if (m.type === 'status')        setStatus(m.state);
-      if (m.type === 'wake')          sys('Wake word detected — connecting…');
+      if (m.type === 'wake')          sys(_language === 'nl' ? 'Wekwoord gedetecteerd — verbinden…' : 'Wake word detected — connecting…');
       if (m.type === 'sys')           sys(m.text);
+      if (m.type === 'progress')      progress(m);
+      if (m.type === 'task_control') progress({stage: 'task_control', detail: m.result, language: m.language || _language});
       if (m.type === 'file_received') _onFileReceived(m);
     };
 
@@ -560,10 +630,10 @@
       } else {
         pill.className = 'pill'; stTxt.textContent = 'Sleeping'; wake.classList.add('show');
       }
-      if (contextState) contextState.textContent = active ? 'ACTIVE' : 'SLEEPING';
+      if (contextState) contextState.textContent = active ? (_language === 'nl' ? 'ACTIEF' : 'ACTIVE') : (_language === 'nl' ? 'SLAPEND' : 'SLEEPING');
       if (contextDetail) contextDetail.textContent = active
-        ? 'MARK is ready for commands and tool progress.'
-        : 'Wake MARK from the command bar when you are ready.';
+        ? (_language === 'nl' ? 'MARK is klaar voor opdrachten en toolvoortgang.' : 'MARK is ready for commands and tool progress.')
+        : (_language === 'nl' ? 'Maak MARK wakker vanuit de opdrachtbalk.' : 'Wake MARK from the command bar when you are ready.');
       if (railSession) railSession.textContent = active ? 'ACTIVE' : 'SLEEPING';
       if (railSessionDetail) railSessionDetail.textContent = active
         ? 'Assistant state is active.'
@@ -590,6 +660,23 @@
       d.className = 'msg msg-sys'; d.textContent = text;
       feed.appendChild(d); feed.scrollTop = feed.scrollHeight;
       _recordActivity(text);
+    }
+
+    function progress(m) {
+      const prefix = _language === 'nl' ? 'Voortgang' : 'Progress';
+      const stage = String(m.stage || '').replaceAll('_', ' ');
+      const detail = String(m.detail || '').split('[TOOL_RESULT')[0].trim();
+      const task = m.task || {};
+      if (taskState && task.status) {
+        taskState.textContent = task.title ? `${task.title} · ${task.status}` : task.status;
+        taskDetail.textContent = task.operation ? `${task.operation} · ${task.operation_status || stage}` : detail.slice(0, 180);
+      } else if (taskState && String(m.stage) === 'task_state') {
+        taskState.textContent = _language === 'nl' ? 'Geen actieve taak' : 'No active task';
+        taskDetail.textContent = detail.slice(0, 180);
+      } else if (taskDetail && String(m.stage) === 'task_control') {
+        taskDetail.textContent = detail.slice(0, 180);
+      }
+      sys(`${prefix}: ${stage}${detail ? ' — ' + detail.slice(0, 260) : ''}`);
     }
 
     function esc(s) {

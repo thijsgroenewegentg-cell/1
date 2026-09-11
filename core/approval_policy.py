@@ -29,7 +29,7 @@ _READ_ONLY_TOOLS = {
     "system_status", "screen_process", "close_camera", "recall_memory", "memory_control",
     "undo", "task_runtime", "approval_policy", "recovery", "proactive", "web_search", "git_helper",
     "project_helper", "list_tools", "status", "list_objects", "inspect_object", "scene_summary",
-    "visual_review", "verify", "plan", "workflow_plan",
+    "visual_review", "verify", "plan", "workflow_plan", "connection_status",
 }
 _DESTRUCTIVE_WORDS = {
     "delete", "remove", "destroy", "shutdown", "wipe", "format", "send", "publish",
@@ -123,7 +123,7 @@ def assess_tool(tool: str, args: dict | None = None) -> PolicyDecision:
     tokens = _tokens(name, action, args)
     hard = bool(tokens & _DESTRUCTIVE_WORDS) or name in {"send_message", "email_client", "browser_control", "computer_control", "computer_settings"}
     read_only = ((name in _READ_ONLY_TOOLS and action not in _MUTATING_WORDS)
-                 or action in {"status", "list", "inspect", "info", "search", "show", "plan", "verify", "timeline", "failures", "operations", "task", "preferences", "influence"})
+                 or action in {"status", "connection_status", "list_tools", "list", "inspect", "inspect_object", "info", "search", "show", "plan", "workflow_plan", "scene_summary", "visual_review", "verify", "list_objects", "timeline", "failures", "operations", "task", "preferences", "influence"})
     if read_only and not hard:
         risk, reversible = "read_only", True
     elif hard:
@@ -136,6 +136,25 @@ def assess_tool(tool: str, args: dict | None = None) -> PolicyDecision:
         if not mutating:
             risk, reversible = "read_only", True
         else:
+            risk, reversible = "reversible_mutation", True
+
+    mcp_name = str(args.get("mcp_tool", "")).strip().lower()
+    mcp_read_only = name == "blender_control" and action == "mcp_call" and (
+        mcp_name.startswith(("get_", "list_", "inspect_", "search_", "find_", "describe_", "check_"))
+        or any(word in mcp_name for word in ("screenshot", "viewport", "scene_info", "object_info"))
+    )
+    if mcp_read_only and not hard:
+        risk, reversible = "read_only", True
+
+    dynamic_blender = name.startswith("blender_mcp_")
+    dynamic_name = name[len("blender_mcp_"):] if dynamic_blender else ""
+    dynamic_read_only = dynamic_blender and (
+        dynamic_name.startswith(("get_", "list_", "inspect_", "search_", "find_", "describe_", "check_"))
+        or any(word in dynamic_name for word in ("screenshot", "viewport", "scene_info", "object_info"))
+    )
+    if dynamic_blender:
+        read_only = dynamic_read_only and not hard
+        if not dynamic_read_only and not hard:
             risk, reversible = "reversible_mutation", True
 
     profile = get_profile()

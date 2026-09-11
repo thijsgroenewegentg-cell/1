@@ -27,6 +27,8 @@ DEFAULT_VISION_MODEL = "qwen2.5vl:7b"
 DEFAULT_FAST_MODEL   = "qwen2.5:7b-instruct"
 DEFAULT_RESPONSE_PROFILE = "dual"
 DEFAULT_PERSONALITY_PROFILE = "professional"
+DEFAULT_LANGUAGE = "auto"
+LANGUAGE_OPTIONS = {"auto": "Automatic / Automatisch", "en": "English", "nl": "Nederlands"}
 
 PERSONALITY_PROFILES = {
     "professional": "Be precise, calm, concise and dependable. Avoid theatrical language.",
@@ -111,6 +113,17 @@ def get_user_name() -> str:
     return load_api_keys().get("user_name", "") or ""
 
 
+def get_language() -> str:
+    """Return auto, en or nl for speech, prompts and the desktop shell."""
+    from core.i18n import normalize_language
+    return normalize_language(load_api_keys().get("language", DEFAULT_LANGUAGE))
+
+
+def save_language(language: str) -> None:
+    from core.i18n import normalize_language
+    _patch_config(language=normalize_language(language))
+
+
 def get_personality_profile() -> str:
     value = str(load_api_keys().get("personality_profile", DEFAULT_PERSONALITY_PROFILE) or DEFAULT_PERSONALITY_PROFILE).lower()
     return value if value in PERSONALITY_PROFILES else DEFAULT_PERSONALITY_PROFILE
@@ -130,7 +143,7 @@ def save_assistant_config(assistant_name: str, user_name: str) -> None:
 
 # ── Text-to-speech voice ─────────────────────────────────────────────────────
 # These are friendly labels. core.tts maps them to Microsoft Edge neural voices.
-AVAILABLE_VOICES = ["Guy", "Jenny", "Aria", "Sonia", "Ryan"]
+AVAILABLE_VOICES = ["Guy", "Jenny", "Aria", "Sonia", "Ryan", "Fenna", "Colette", "Maarten"]
 DEFAULT_VOICE    = "Guy"
 
 

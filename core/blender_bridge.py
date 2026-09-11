@@ -381,6 +381,31 @@ class _MCPProcess:
 _client_lock = threading.RLock()
 _client: _MCPProcess | None = None
 _client_signature: tuple | None = None
+_bridge_state = {
+    "state": "disconnected",
+    "host": "127.0.0.1",
+    "port": 9876,
+    "launcher": "uvx",
+    "tools": 0,
+    "last_error": "",
+    "last_check": "",
+}
+
+
+def _set_bridge_state(state: str, settings: dict | None = None, error: str = "", tools: int | None = None) -> None:
+    with _client_lock:
+        if settings:
+            _bridge_state.update({key: settings.get(key, _bridge_state.get(key)) for key in ("host", "port", "launcher")})
+        _bridge_state["state"] = str(state)
+        _bridge_state["last_error"] = str(error or "")[:500]
+        if tools is not None:
+            _bridge_state["tools"] = int(tools)
+        _bridge_state["last_check"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def connection_status() -> dict:
+    with _client_lock:
+        return dict(_bridge_state)
 
 
 def _get_client(settings: dict) -> _MCPProcess:
@@ -406,14 +431,20 @@ def _reset_client() -> None:
 
 def tool_definitions(overrides: dict | None = None) -> tuple[bool, list[dict] | str]:
     settings = _settings(overrides)
+    _set_bridge_state("connecting", settings)
     error = configuration_error(settings)
     if error:
+        _set_bridge_state("failed", settings, error=error)
         return False, error
     try:
-        return True, _get_client(settings).list_tools()
+        tools = _get_client(settings).list_tools()
+        _set_bridge_state("connected", settings, tools=len(tools))
+        return True, tools
     except Exception as exc:
         _reset_client()
-        return False, _explain_connection_error(settings, exc)
+        message = _explain_connection_error(settings, exc)
+        _set_bridge_state("failed", settings, error=message, tools=0)
+        return False, message
 
 
 def list_tools(overrides: dict | None = None) -> tuple[bool, str]:
@@ -443,12 +474,17 @@ def call_tool(name: str, arguments: dict | None = None,
     settings = _settings(overrides)
     error = configuration_error(settings)
     if error:
+        _set_bridge_state("failed", settings, error=error)
         return False, error
     try:
-        return _get_client(settings).call_tool(name, arguments, timeout=timeout)
+        result = _get_client(settings).call_tool(name, arguments, timeout=timeout)
+        _set_bridge_state("connected", settings)
+        return result
     except Exception as exc:
         _reset_client()
-        return False, _explain_connection_error(settings, exc)
+        message = _explain_connection_error(settings, exc)
+        _set_bridge_state("stale", settings, error=message)
+        return False, message
 
 
 def call_tool_with_images(name: str, arguments: dict | None = None,
@@ -457,12 +493,17 @@ def call_tool_with_images(name: str, arguments: dict | None = None,
     settings = _settings(overrides)
     error = configuration_error(settings)
     if error:
+        _set_bridge_state("failed", settings, error=error)
         return False, error, []
     try:
-        return _get_client(settings).call_tool_with_images(name, arguments, timeout=timeout)
+        result = _get_client(settings).call_tool_with_images(name, arguments, timeout=timeout)
+        _set_bridge_state("connected", settings)
+        return result
     except Exception as exc:
         _reset_client()
-        return False, _explain_connection_error(settings, exc), []
+        message = _explain_connection_error(settings, exc)
+        _set_bridge_state("stale", settings, error=message)
+        return False, message, []
 
 
 def _explain_connection_error(settings: dict, exc: Exception) -> str:
@@ -518,8 +559,12 @@ def test_connection(overrides: dict | None = None) -> tuple[bool, str]:
 
 
 def close() -> None:
-    global _client
+    global _client, _client_signature
     with _client_lock:
         if _client is not None:
             _client.close()
             _client = None
+        _client_signature = None
+        _bridge_state["state"] = "disconnected"
+        _bridge_state["tools"] = 0
+        _bridge_state["last_check"] = time.strftime("%Y-%m-%dT%H:%M:%S")

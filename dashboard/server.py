@@ -390,6 +390,7 @@ class DashboardServer:
         self._command_callback            = None
         self._audio_callback              = None
         self._file_callback               = None
+        self._task_callback               = None
         self._pending_keys: dict[str, float] = {}
         self._device_sessions: dict[str, dict] = {}  # device_token → {session_key}
         self._uploads_dir                 = UPLOADS_DIR
@@ -467,6 +468,10 @@ class DashboardServer:
     def set_file_callback(self, fn) -> None:
         """Receive the path of a file uploaded from the browser."""
         self._file_callback = fn
+
+    def set_task_callback(self, fn) -> None:
+        """Handle bounded task-center controls from an authenticated client."""
+        self._task_callback = fn
 
     @property
     def available(self) -> bool:
@@ -748,6 +753,28 @@ class DashboardServer:
             if self._wake_callback:
                 self._wake_callback()
             return JSONResponse({"ok": True})
+
+        @app.post("/api/task/{action}")
+        async def task_control(action: str, req: Request):
+            """Apply only visible checklist controls; never replay a tool."""
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            action = str(action or "").lower().strip()
+            if action not in {"pause", "resume", "cancel", "rollback", "recovery"}:
+                return JSONResponse({"error": "Unsupported task control"}, status_code=400)
+            if not self._task_callback:
+                return JSONResponse({"error": "Task controls are unavailable"}, status_code=503)
+            try:
+                body = await req.json()
+            except Exception:
+                body = {}
+            try:
+                result = self._task_callback(action, body if isinstance(body, dict) else {})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": str(exc)[:300]}, status_code=500)
+            payload = {"type": "task_control", "action": action, "result": str(result)[:1200]}
+            await self.broadcast(payload)
+            return JSONResponse({"ok": True, "action": action, "result": str(result)[:1200]})
 
         # ── Phone mic real-time audio → local voice relay ──────────────────────────
 

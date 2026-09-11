@@ -19,6 +19,7 @@ from core.blender_bridge import (
     call_tool_with_images,
     close as close_blender_bridge,
     configuration_error,
+    connection_status,
     list_tools,
     test_connection,
     validate_arguments,
@@ -47,7 +48,7 @@ PLUGIN = {
             "action": {
                 "type": "STRING",
                 "description": (
-                    "connect | status | list_tools | plan | workflow_plan | scene_summary | visual_review | verify | mcp_call | list_objects | inspect_object | "
+                    "connect | connection_status | status | list_tools | plan | workflow_plan | scene_summary | visual_review | verify | mcp_call | list_objects | inspect_object | "
                     "create_cube | create_sphere | create_cylinder | create_camera | "
                     "create_light | create_collection | duplicate_object | set_transform | "
                     "set_active_camera | look_at | set_material | add_modifier | delete_object | "
@@ -97,7 +98,7 @@ PLUGIN = {
     },
 }
 
-_READ_ONLY = {"status", "list_tools", "plan", "workflow_plan", "scene_summary", "visual_review", "verify", "list_objects", "inspect_object"}
+_READ_ONLY = {"connection_status", "status", "list_tools", "plan", "workflow_plan", "scene_summary", "visual_review", "verify", "list_objects", "inspect_object"}
 _MUTATING = {
     "connect",
     "create_cube", "create_sphere", "create_cylinder", "create_camera", "create_light",
@@ -168,8 +169,14 @@ def _run_confirmed_direct(action: str, params: dict, player=None) -> str:
     before_text, before_visual = _run_mcp_tool("get_viewport_screenshot", {})
     result = _run_direct(action, params)
     after_text, after_visual = _run_mcp_tool("get_viewport_screenshot", {})
-    if before_visual and after_visual and not any(marker in str(result).lower() for marker in ("failed", "could not", "does not expose")):
+    failed = any(marker in str(result).lower() for marker in ("failed", "could not", "does not expose", "unavailable"))
+    if before_visual and after_visual and not failed:
         result += f"\nVisual before/after verification:\n{_visual_before_after(before_visual, after_visual, action)}"
+    elif not failed:
+        result += (
+            "\nPostcondition check unavailable; do not claim the Blender change succeeded. "
+            "Recovery: inspect the scene and use the Blender undo/checkpoint path before retrying."
+        )
     return _finish_waiting_plan(result, player)
 
 
@@ -424,6 +431,16 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
             )
         return _connect_existing_blender(player=player)
 
+    if action == "connection_status":
+        status = connection_status()
+        result = "Blender MCP CONNECTION STATUS\n" + "\n".join(f"{key}: {value}" for key, value in status.items())
+        if player:
+            try:
+                player.write_log(f"[Blender MCP] connection_status: {status.get('state')}")
+            except Exception:
+                pass
+        return result
+
     error = configuration_error()
     if error:
         return error
@@ -500,8 +517,16 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
                 ok_verify, verify = call_tool("get_scene_info", {}, timeout=20.0)
                 if ok_verify:
                     result += f"\nVerification scene snapshot:\n{str(verify)[:900]}"
-            except Exception:
-                pass
+                else:
+                    result += (
+                        "\nPostcondition check unavailable; do not claim the Blender change succeeded. "
+                        "Recovery: inspect the scene and use the Blender undo/checkpoint path before retrying."
+                    )
+            except Exception as exc:
+                result += (
+                    f"\nPostcondition check unavailable ({str(exc)[:180]}); do not claim the Blender change succeeded. "
+                    "Recovery: inspect the scene and use the Blender undo/checkpoint path before retrying."
+                )
             if before_visual:
                 try:
                     _after_text, after_visual = _run_mcp_tool("get_viewport_screenshot", {})

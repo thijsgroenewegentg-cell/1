@@ -19,7 +19,9 @@ from core.evaluation import EvaluationCase, evaluate_trace
 from core.tool_contracts import normalize_result
 from memory.memory_manager import format_memory_for_prompt
 from plugins.blender_control import _blocked_tool
-from core.blender_bridge import configuration_error
+from core.blender_bridge import configuration_error, connection_status
+from core.agent_orchestrator import analyze_request, build_preview
+from core.i18n import detect_language, edge_voice
 
 
 @dataclass
@@ -53,6 +55,10 @@ def run_benchmark() -> list[BenchmarkResult]:
     rows.append(_check("blender", "high-level plan has confirmation and verification", lambda: bool(plan.confirmation_points and plan.verification and "confirmation" in render_plan(plan).lower())))
     rows.append(_check("hallucination", "failed tool cannot look successful", lambda: not normalize_result({"ok": False, "summary": "No changes were made"}, "tool").ok))
     rows.append(_check("hallucination", "evaluation harness catches forbidden calls", lambda: not evaluate_trace(EvaluationCase("safe", "safe", expected_tools=("inspect",), forbidden_tools=("shell",)), [{"tool": "shell"}]).passed))
+    rows.append(_check("orchestration", "Dutch multi-step preflight is bounded", lambda: analyze_request("Open Blender en maak daarna een productfoto", "auto").requires_plan))
+    rows.append(_check("orchestration", "dry-run preview is non-mutating", lambda: "no change was made" in build_preview("blender_control", {"action": "render"}, analyze_request("render", "en")).lower()))
+    rows.append(_check("language", "Dutch speech voice is native", lambda: detect_language("Verbind met Blender alsjeblieft") == "nl" and edge_voice("nl", "Fenna") == "nl-NL-FennaNeural"))
+    rows.append(_check("blender", "connection state remains loopback", lambda: connection_status().get("port") == 9876 and connection_status().get("host") in {"127.0.0.1", "localhost", "::1"}))
     return rows
 
 

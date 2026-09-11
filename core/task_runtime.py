@@ -188,6 +188,18 @@ class TaskRuntime:
             self._event("turn_held", "Task is waiting for an interface confirmation.", turn_id=current.get("id"), status=current["status"])
             self._save()
 
+    def resume(self) -> None:
+        """Resume a paused task trace; this never replays an operation."""
+        with self._lock:
+            current = self._current()
+            if current is None:
+                return
+            if current.get("status") in {"paused", "waiting_confirmation"}:
+                current["status"] = "active"
+                current["updated"] = _now()
+                self._event("turn_resumed", "Task resumed; no previous operation was replayed.", turn_id=current.get("id"))
+                self._save()
+
     def confirmation_resolved(self, key: str, result: str) -> None:
         """Attach an asynchronous confirmation callback result to the task trace."""
         normalized = normalize_result(result, tool=f"confirmation:{key}")

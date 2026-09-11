@@ -31,6 +31,10 @@ class ContractAndRuntimeTests(unittest.TestCase):
             snapshot = runtime.snapshot()
             self.assertEqual(snapshot["current"]["id"], turn)
             self.assertEqual(snapshot["current"]["operations"][0]["status"], "completed")
+            runtime.hold("paused")
+            self.assertEqual(runtime.snapshot()["current"]["status"], "paused")
+            runtime.resume()
+            self.assertEqual(runtime.snapshot()["current"]["status"], "active")
             runtime.end_turn()
             self.assertIsNone(runtime.snapshot()["current"])
 

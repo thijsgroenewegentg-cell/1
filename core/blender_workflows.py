@@ -57,6 +57,46 @@ _PLANS = {
         (),
         ("scene metadata", "viewport screenshot when available"),
     ),
+    "product": WorkflowPlan(
+        "product",
+        "Prepare a bounded product-shot scene",
+        (
+            "Inspect selected object, camera and current materials",
+            "Propose a camera angle, neutral backdrop and three-point lighting",
+            "Ask for confirmation before changing camera, lights or materials",
+            "Apply only exact advertised MCP operations",
+            "Render one bounded preview",
+            "Verify framing, object visibility and lighting from the returned image",
+        ),
+        ("camera, lighting or material changes", "render or save"),
+        ("scene metadata after changes", "returned render or viewport screenshot"),
+    ),
+    "turntable": WorkflowPlan(
+        "turntable",
+        "Prepare a safe object turntable",
+        (
+            "Inspect the selected object and existing animation state",
+            "Propose bounded frame range, camera and rotation settings",
+            "Ask for confirmation before animation changes",
+            "Apply the exact advertised animation operations",
+            "Render a small preview or inspect the timeline result",
+        ),
+        ("animation or scene changes", "render or save"),
+        ("object transform and frame range", "preview or scene snapshot"),
+    ),
+    "studio": WorkflowPlan(
+        "studio",
+        "Prepare a controlled studio lighting setup",
+        (
+            "Inspect current lights, world settings and active camera",
+            "Propose key, fill and rim light changes with bounded energy values",
+            "Ask for confirmation before adding or changing lights",
+            "Apply advertised light operations once",
+            "Render or inspect a viewport screenshot",
+        ),
+        ("light or world changes", "render or save"),
+        ("light inventory", "viewport screenshot or render"),
+    ),
 }
 
 
@@ -66,9 +106,15 @@ def _key(value: str) -> str:
 
 def build_plan(goal: str = "", workflow: str = "") -> WorkflowPlan:
     value = _key(workflow or goal)
-    if any(word in value for word in ("cinematic", "film", "dramatic", "lighting")):
+    if any(word in value for word in ("product", "product shot", "catalog", "ecommerce", "productfoto")):
+        return _PLANS["product"]
+    if any(word in value for word in ("turntable", "turn table", "360", "rotatie", "rotating")):
+        return _PLANS["turntable"]
+    if any(word in value for word in ("studio", "three point", "three-point", "key light", "fill light")):
+        return _PLANS["studio"]
+    if any(word in value for word in ("cinematic", "film", "dramatic", "lighting", "filmisch")):
         return _PLANS["cinematic"]
-    if any(word in value for word in ("render", "preview", "image")):
+    if any(word in value for word in ("render", "preview", "image", "afbeelding", "voorbeeld")):
         return _PLANS["preview"]
     return _PLANS["inspect"]
 
