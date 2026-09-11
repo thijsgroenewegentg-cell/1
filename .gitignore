@@ -1,0 +1,5 @@
+# Verification scratch space: cloned jarvis checkout, node_modules, logs.
+.workdir/
+
+# Local logs
+*.log

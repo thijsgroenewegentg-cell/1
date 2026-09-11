@@ -1,0 +1,88 @@
+== starting Ollama stand-in on port 11500 ==
+
+== BEFORE — jarvis at the pinned commit, unmodified ==
+target          : http://127.0.0.1:11500
+model           : qwen2.5:3b
+tools advertised: 28
+
+listModels()    : llama3.1:8b, qwen2.5:3b
+chat()          : "stand-in ok" model=qwen2.5:3b
+stream()        : "stand-in ok"
+tool call       : run_command({"probe":"stand-in","echoed":true})
+
+server-side request log (what the model really saw):
+  num_ctx_sent=MISSING limit=4096 prompt=7509 dropped=7499 system_prompt_intact=false
+  num_ctx_sent=MISSING limit=4096 prompt=7509 dropped=7499 system_prompt_intact=false
+  num_ctx_sent=MISSING limit=4096 prompt=4485 dropped=4480 system_prompt_intact=false
+
+  PASS  listModels
+  PASS  chat
+  PASS  stream
+  PASS  toolCalls
+  FAIL  systemPromptIntact
+
+VERDICT {"ok":false,"checks":{"listModels":true,"chat":true,"stream":true,"toolCalls":true,"systemPromptIntact":false}}
+[before] exit=1  server-side request log:
+    {"ts":"2026-09-11T19:06:34.243Z","model":"qwen2.5:3b","stream":false,"num_ctx_sent":null,"limit":4096,"prompt_tokens":7509,"dropped_tokens":7499,"truncated":true,"system_prompt_intact":false,"kept_messages":1,"sent_messages":2,"tools_advertised":28}
+    {"ts":"2026-09-11T19:06:34.246Z","model":"qwen2.5:3b","stream":true,"num_ctx_sent":null,"limit":4096,"prompt_tokens":7509,"dropped_tokens":7499,"truncated":true,"system_prompt_intact":false,"kept_messages":1,"sent_messages":2,"tools_advertised":28}
+    {"ts":"2026-09-11T19:06:34.248Z","model":"qwen2.5:3b","stream":false,"num_ctx_sent":null,"limit":4096,"prompt_tokens":4485,"dropped_tokens":4480,"truncated":true,"system_prompt_intact":false,"kept_messages":1,"sent_messages":2,"tools_advertised":28}
+
+== patch under test ==
+  diff --git a/src/llm/ollama.test.ts b/src/llm/ollama.test.ts
+  index 74d0540..8369f24 100644
+  --- a/src/llm/ollama.test.ts
+  +++ b/src/llm/ollama.test.ts
+  @@ -39,6 +39,75 @@ type OllamaWireMessage = {
+     tool_call_id?: string;
+   };
+   
+  +type OllamaWireBody = {
+  +  messages: OllamaWireMessage[];
+  +  options?: Record<string, unknown>;
+  +};
+  ... 89 changed lines across 2 files
+
+== AFTER — with patches/0001-ollama-context-window.patch ==
+  repo's own ollama unit tests:
+   10 pass
+   0 fail
+   23 expect() calls
+  Ran 10 tests across 1 file. [10.00ms]
+target          : http://127.0.0.1:11500
+model           : qwen2.5:3b
+tools advertised: 28
+
+listModels()    : llama3.1:8b, qwen2.5:3b
+chat()          : "stand-in ok" model=qwen2.5:3b
+stream()        : "stand-in ok"
+tool call       : run_command({"probe":"stand-in","echoed":true})
+
+server-side request log (what the model really saw):
+  num_ctx_sent=32000 limit=32000 prompt=7509 dropped=0 system_prompt_intact=true
+  num_ctx_sent=32000 limit=32000 prompt=7509 dropped=0 system_prompt_intact=true
+  num_ctx_sent=32000 limit=32000 prompt=4485 dropped=0 system_prompt_intact=true
+
+  PASS  listModels
+  PASS  chat
+  PASS  stream
+  PASS  toolCalls
+  PASS  systemPromptIntact
+
+VERDICT {"ok":true,"checks":{"listModels":true,"chat":true,"stream":true,"toolCalls":true,"systemPromptIntact":true}}
+[after] exit=0  server-side request log:
+    {"ts":"2026-09-11T19:06:34.299Z","model":"qwen2.5:3b","stream":false,"num_ctx_sent":32000,"limit":32000,"prompt_tokens":7509,"dropped_tokens":0,"truncated":false,"system_prompt_intact":true,"kept_messages":2,"sent_messages":2,"tools_advertised":28}
+    {"ts":"2026-09-11T19:06:34.302Z","model":"qwen2.5:3b","stream":true,"num_ctx_sent":32000,"limit":32000,"prompt_tokens":7509,"dropped_tokens":0,"truncated":false,"system_prompt_intact":true,"kept_messages":2,"sent_messages":2,"tools_advertised":28}
+    {"ts":"2026-09-11T19:06:34.303Z","model":"qwen2.5:3b","stream":false,"num_ctx_sent":32000,"limit":32000,"prompt_tokens":4485,"dropped_tokens":0,"truncated":false,"system_prompt_intact":true,"kept_messages":2,"sent_messages":2,"tools_advertised":28}
+
+== stand-in server log (Ollama's own view) ==
+  Ollama stand-in listening on http://0.0.0.0:11500
+  default num_ctx: 4096 (override with OLLAMA_STANDIN_DEFAULT_NUM_CTX)
+  request log: /home/user/1/.workdir/standin-requests.jsonl
+  level=WARN source=runner.go msg="truncating input prompt" limit=4096 prompt=7509 keep=10
+  level=WARN source=runner.go msg="truncating input prompt" limit=4096 prompt=7509 keep=10
+  level=WARN source=runner.go msg="truncating input prompt" limit=4096 prompt=4485 keep=5
+
+== result ==
+  before: FAIL (exit 1)
+  after : PASS (exit 0)
+  OK: unpatched jarvis loses its system prompt; patched jarvis keeps it.

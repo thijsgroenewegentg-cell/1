@@ -1,0 +1,158 @@
+diff --git a/src/llm/ollama.test.ts b/src/llm/ollama.test.ts
+index 74d0540..8369f24 100644
+--- a/src/llm/ollama.test.ts
++++ b/src/llm/ollama.test.ts
+@@ -39,6 +39,75 @@ type OllamaWireMessage = {
+   tool_call_id?: string;
+ };
+ 
++type OllamaWireBody = {
++  messages: OllamaWireMessage[];
++  options?: Record<string, unknown>;
++};
++
++describe('OllamaProvider context window', () => {
++  afterEach(() => {
++    globalThis.fetch = originalFetch;
++  });
++
++  /**
++   * Ollama loads 4096 tokens by default and answers anyway when the prompt is
++   * longer — it drops the FRONT, which is where jarvis keeps its system prompt
++   * (role instructions + ~4.3k tokens of tool schemas). Omitting num_ctx is
++   * therefore not a missing nicety: it silently deletes the instructions and
++   * the model looks broken instead of truncated.
++   */
++  it('asks for a window large enough for the prompt it budgets for (chat)', async () => {
++    const body = await captureChatBody([{ role: 'user', content: 'hi' }]) as OllamaWireBody;
++    expect(body.options?.num_ctx).toBe(32000);
++  });
++
++  it('asks for the same window when streaming', async () => {
++    let captured: string | undefined;
++    globalThis.fetch = (async (_url: string, init: RequestInit) => {
++      captured = init.body as string;
++      return new Response(
++        `${JSON.stringify({
++          model: 'qwen2.5:3b',
++          created_at: '',
++          message: { role: 'assistant', content: 'ok' },
++          done: true,
++        })}\n`,
++        { status: 200 },
++      );
++    }) as unknown as typeof fetch;
++
++    // Drain the stream so the request is guaranteed to have been issued.
++    for await (const _event of new OllamaProvider().stream([{ role: 'user', content: 'hi' }])) {
++      // no-op
++    }
++
++    expect(captured).toBeDefined();
++    const body = JSON.parse(captured!) as OllamaWireBody;
++    expect(body.options?.num_ctx).toBe(32000);
++  });
++
++  it('leaves temperature and max_tokens riding alongside num_ctx, not instead of it', async () => {
++    let captured: string | undefined;
++    globalThis.fetch = (async (_url: string, init: RequestInit) => {
++      captured = init.body as string;
++      return new Response(JSON.stringify({
++        model: 'qwen2.5:3b',
++        created_at: '',
++        message: { role: 'assistant', content: 'ok' },
++        done: true,
++      }), { status: 200 });
++    }) as unknown as typeof fetch;
++
++    await new OllamaProvider().chat([{ role: 'user', content: 'hi' }], {
++      temperature: 0.3,
++      max_tokens: 64,
++    });
++
++    const body = JSON.parse(captured!) as OllamaWireBody;
++    expect(body.options).toMatchObject({ num_ctx: 32000, temperature: 0.3, num_predict: 64 });
++  });
++});
++
+ describe('OllamaProvider.listModels', () => {
+   afterEach(() => {
+     globalThis.fetch = originalFetch;
+diff --git a/src/llm/ollama.ts b/src/llm/ollama.ts
+index fc91561..90e03b0 100644
+--- a/src/llm/ollama.ts
++++ b/src/llm/ollama.ts
+@@ -10,6 +10,21 @@ import type {
+ import { classifyHttpStatus } from './provider.ts';
+ import { compactHistory, calculateHistoryBudget } from './history.ts';
+ 
++/**
++ * Context window we ask Ollama to load, in tokens. Has to be the SAME number
++ * the history compaction below budgets against — otherwise the two disagree
++ * and the smaller one silently wins.
++ *
++ * Why it must be sent at all: Ollama's own default is 4096 tokens (4k when
++ * under 24 GiB of VRAM) and it does not reject an over-long prompt — it warns
++ * in its own log and drops the FRONT of it, keeping the tail. Jarvis leads
++ * with its system prompt (role instructions plus ~4.3k tokens of tool
++ * schemas), so on the default window the instructions are the first thing
++ * deleted and the model reads as broken rather than truncated. The native
++ * /api/chat accepts `options.num_ctx`, so we set it on every call.
++ */
++const CONTEXT_TOKENS = 32000;
++
+ type OllamaToolCall = {
+   function: {
+     name: string;
+@@ -102,7 +117,7 @@ export class OllamaProvider implements LLMProvider {
+     const { model = this.defaultModel, temperature, max_tokens, tools, tool_choice } = options;
+ 
+     // Compact history for Ollama's context limits
+-    const budget = calculateHistoryBudget(32000);
++    const budget = calculateHistoryBudget(CONTEXT_TOKENS);
+     const compactedMessages = compactHistory(messages, budget);
+ 
+     const body: Record<string, unknown> = {
+@@ -112,14 +127,16 @@ export class OllamaProvider implements LLMProvider {
+     };
+ 
+     // Map our cross-provider options to Ollama's `body.options` bag.
++    // `num_ctx` must ride along on every call: leaving it out lets Ollama's
++    // 4096-token default truncate the system prompt away (see CONTEXT_TOKENS).
+     // Ollama's default `num_predict` is 128 -- way too short for a JSON
+     // composer reply or any structured response. Callers that don't
+     // pass `max_tokens` still get the Ollama default; pass it
+     // explicitly to lift the cap.
+-    const ollamaOptions: Record<string, unknown> = {};
++    const ollamaOptions: Record<string, unknown> = { num_ctx: CONTEXT_TOKENS };
+     if (temperature !== undefined) ollamaOptions.temperature = temperature;
+     if (max_tokens !== undefined) ollamaOptions.num_predict = max_tokens;
+-    if (Object.keys(ollamaOptions).length > 0) body.options = ollamaOptions;
++    body.options = ollamaOptions;
+ 
+     if (tools && tools.length > 0) {
+       body.tools = this.convertTools(tools);
+@@ -146,7 +163,7 @@ export class OllamaProvider implements LLMProvider {
+     const { model = this.defaultModel, temperature, max_tokens, tools, tool_choice } = options;
+ 
+     // Compact history for Ollama's context limits
+-    const budget = calculateHistoryBudget(32000);
++    const budget = calculateHistoryBudget(CONTEXT_TOKENS);
+     const compactedMessages = compactHistory(messages, budget);
+ 
+     const body: Record<string, unknown> = {
+@@ -156,11 +173,12 @@ export class OllamaProvider implements LLMProvider {
+     };
+ 
+     // See chat(): map our cross-provider options to Ollama's bag.
++    // `num_ctx` keeps the loaded window in step with the compaction budget;
+     // `num_predict` lifts Ollama's 128-token default cap.
+-    const ollamaOptions: Record<string, unknown> = {};
++    const ollamaOptions: Record<string, unknown> = { num_ctx: CONTEXT_TOKENS };
+     if (temperature !== undefined) ollamaOptions.temperature = temperature;
+     if (max_tokens !== undefined) ollamaOptions.num_predict = max_tokens;
+-    if (Object.keys(ollamaOptions).length > 0) body.options = ollamaOptions;
++    body.options = ollamaOptions;
+ 
+     if (tools && tools.length > 0) {
+       body.tools = this.convertTools(tools);
