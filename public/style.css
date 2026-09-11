@@ -123,10 +123,18 @@ textarea { width: 100%; min-height: 60px; resize: vertical; margin-bottom: 8px; 
 
 /* lists */
 ul { list-style: none; margin: 0; padding: 0; }
-#memory-list li, #goal-list li {
+#memory-list li, #goal-list li, #wf-list li, #wf-runs li, #approval-list li {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
 }
+#approval-list li { border-color: rgba(255, 180, 84, 0.45); }
+.badge.ok { background: rgba(71, 214, 138, 0.15); color: var(--ok); }
+.badge.bad { background: rgba(255, 93, 93, 0.15); color: var(--bad); }
+button.danger { border-color: var(--bad); color: var(--bad); }
+button.danger:hover { border-color: var(--bad); color: var(--bad); opacity: 0.8; }
+.toast.approval { border-color: var(--warn); }
+.toast.approval b { color: var(--warn); display: block; margin-bottom: 4px; }
+.toast .actions button { padding: 3px 10px; font-size: 12px; margin-right: 6px; margin-top: 8px; }
 .badge {
   display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px;
   background: var(--accent-dim); color: var(--accent); margin-right: 8px;

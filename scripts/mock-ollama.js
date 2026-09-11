@@ -10,6 +10,26 @@ import http from 'node:http';
 
 const PORT = Number(process.argv[2] ?? process.env.PORT ?? 11434);
 
+/** Deterministic synonym-family vectors so the demo dashboard can show real
+ *  semantic search ("two-wheeler" finds the "fiets repair" memory). */
+const SYN_GROUPS = [
+  [['coffee', 'espresso', 'latte', 'flat', 'white', 'oat', 'cappuccino'], 0],
+  [['bike', 'fiets', 'cycle', 'two', 'wheeler', 'repair', 'cycling'], 1],
+  [['server', 'daemon', 'deploy', 'homelab'], 2],
+  [['goal', 'deadline', 'okr', 'plan'], 3],
+];
+function fakeEmbed(text) {
+  const v = new Array(SYN_GROUPS.length + 1).fill(0);
+  const words = text.toLowerCase().split(/[^a-z0-9]+/);
+  for (const [group, dim] of SYN_GROUPS) {
+    if (words.some((w) => group.includes(w))) v[dim] = 1;
+  }
+  let h = 0;
+  for (const c of text) h = (h * 31 + c.charCodeAt(0)) % 997;
+  v[v.length - 1] = (h % 10) / 30;
+  return v;
+}
+
 function reply(messages) {
   const lastUser = [...messages].reverse().find((m) => m.role === 'user');
   const text = String(lastUser?.content ?? '').toLowerCase();
@@ -88,7 +108,15 @@ const server = http.createServer((req, res) => {
 
     if (req.method === 'GET' && req.url === '/api/tags') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ models: [{ name: 'mock-llm', size: 42 }] }));
+      res.end(
+        JSON.stringify({
+          models: [
+            { name: 'mock-llm', size: 42 },
+            { name: 'mock-llm:1b', size: 7 },
+            { name: 'nomic-embed-text', size: 274_000_000 },
+          ],
+        }),
+      );
       return;
     }
     if (req.method === 'POST' && req.url === '/api/pull') {
@@ -97,8 +125,9 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (req.method === 'POST' && req.url === '/api/embed') {
+      const input = Array.isArray(body.input) ? body.input : [body.input];
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }));
+      res.end(JSON.stringify({ embeddings: input.map((t) => fakeEmbed(String(t))) }));
       return;
     }
     if (req.method === 'POST' && req.url === '/api/chat') {

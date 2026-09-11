@@ -12,14 +12,28 @@ ollama:
   base_url: http://localhost:11434
   model: llama3.2            # primary "smart" model
   fast_model: llama3.2:1b    # cheap/fast model for routing, summaries, observations
+  embed_model: nomic-embed-text   # embeddings for semantic memory search
   temperature: 0.7
   keep_alive: 30m            # keep weights hot between calls
 
-# Tool authority gate (mirrors JARVIS). Effective level = min(this, tool level).
-#   0 read-only  1 safe-writes  2 system-writes  3 network+notify
-#   4 shell execution. Tools requiring a higher level are refused + audited.
+# Tool authority gate (mirrors JARVIS).
+#   0 read-only  1 safe-writes  2 delegation  3 network+notify  4 shell
+# mode: ask  → tools above your level PAUSE and ask you in the dashboard
+# mode: gate → tools above your level are refused outright
 authority:
   level: 3
+  mode: ask
+  ask_timeout_ms: 300000     # give up waiting for approval after this long
+
+# Optional server-side voice. Both are plain binaries; when absent the
+# dashboard falls back to your browser's speech APIs.
+voice:
+  tts_provider: browser      # browser | piper
+  piper_path: piper
+  piper_voice: ""            # path to a piper .onnx voice model
+  stt_provider: browser      # browser | whisper
+  whisper_path: whisper-cli  # whisper.cpp CLI binary
+  whisper_model: ""          # path to a ggml model, e.g. ggml-base.en.bin
 
 agent:
   max_turns: 8               # tool-call loop budget per user message

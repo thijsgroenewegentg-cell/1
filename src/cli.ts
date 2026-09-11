@@ -120,9 +120,10 @@ async function cmdDoctor(): Promise<void> {
   if (up) {
     const models = await ollama.listModels();
     console.log(`  installed models: ${models.map((m) => m.name).join(', ') || '(none)'}`);
-    for (const wanted of [cfg.ollama.model, cfg.ollama.fast_model]) {
+    for (const wanted of [cfg.ollama.model, cfg.ollama.fast_model, cfg.ollama.embed_model]) {
       const have = ollama.hasModel(models, wanted);
-      console.log(`${have ? '✓' : '✗'} ${wanted}${have ? '' : ` — pull it with \`ollama pull ${wanted}\``}`);
+      const note = wanted === cfg.ollama.embed_model ? ' (semantic memory)' : '';
+      console.log(`${have ? '✓' : '✗'} ${wanted}${note}${have ? '' : ` — pull it with \`ollama pull ${wanted}\``}`);
     }
   }
 

@@ -8,10 +8,10 @@ import { GoalTracker } from '../src/goals/goals.ts';
 import { buildTools, executeTool, AUTHORITY_LEVELS, type ToolContext } from '../src/agent/tools.ts';
 import { tmpDir } from './helpers.ts';
 
-function makeCtx(authority: number): ToolContext {
+function makeCtx(authority: number, mode: 'ask' | 'gate' = 'gate'): ToolContext {
   const root = tmpDir();
   const db = new Db(path.join(root, 'db.sqlite'));
-  return { authority, rootDir: root, vault: new KnowledgeVault(db), goals: new GoalTracker(db) };
+  return { authority, authorityMode: mode, rootDir: root, vault: new KnowledgeVault(db), goals: new GoalTracker(db) };
 }
 
 const tools = buildTools();

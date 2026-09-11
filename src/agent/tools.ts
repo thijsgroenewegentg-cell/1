@@ -21,10 +21,17 @@ export const AUTHORITY_LEVELS = {
 
 export interface ToolContext {
   authority: number;
+  /** 'gate' = refuse over-authority tools outright; 'ask' = pause for human approval. */
+  authorityMode: 'ask' | 'gate';
   rootDir: string;
   vault: KnowledgeVault;
   goals: GoalTracker;
   delegate?: (role: string, task: string) => Promise<string>;
+  requestApproval?: (
+    tool: string,
+    args: Record<string, unknown>,
+    reason: string,
+  ) => Promise<'approved' | 'denied' | 'timeout'>;
 }
 
 export interface ToolResult {
@@ -142,8 +149,8 @@ export function buildTools(): Record<string, Tool> {
         },
         required: ['title', 'body'],
       },
-      run: (args, ctx) => {
-        const mem = ctx.vault.remember({
+      run: async (args, ctx) => {
+        const mem = await ctx.vault.remember({
           title: String(args.title),
           body: String(args.body),
           kind: (args.kind as string) ?? 'note',
@@ -162,8 +169,8 @@ export function buildTools(): Record<string, Tool> {
         properties: { query: { type: 'string' } },
         required: ['query'],
       },
-      run: (args, ctx) => {
-        const hits = ctx.vault.search(String(args.query), 8);
+      run: async (args, ctx) => {
+        const hits = await ctx.vault.search(String(args.query), 8);
         if (hits.length === 0) return ok('no matching memories found');
         return ok(
           hits.map((m) => `[${m.kind}] ${m.title} — ${m.body.slice(0, 300)} (${m.created_at})`).join('\n'),
@@ -308,7 +315,11 @@ export function toolSpecs(tools: Record<string, Tool>, allowed: string[]): ToolS
     }));
 }
 
-/** Authority gate: run the tool, or refuse and audit the refusal. */
+/**
+ * Authority gate. In 'gate' mode over-authority tools are refused outright;
+ * in 'ask' mode the agent parks and waits for a human decision (approve /
+ * deny / timeout). Every path is audited on the event bus.
+ */
 export async function executeTool(
   tools: Record<string, Tool>,
   name: string,
@@ -317,13 +328,41 @@ export async function executeTool(
 ): Promise<ToolResult> {
   const tool = tools[name];
   if (!tool) return fail(`unknown tool: ${name}`);
+
   if (tool.level > ctx.authority) {
-    publish('authority:denied', { tool: name, required: tool.level, allowed: ctx.authority });
-    return {
-      ok: false,
-      denied: true,
-      output: `DENIED: tool "${name}" requires authority level ${tool.level}, current level is ${ctx.authority}. Ask the user to raise authority.level.`,
-    };
+    if (ctx.authorityMode === 'ask' && ctx.requestApproval) {
+      publish('authority:approval-waiting', { tool: name, required: tool.level, allowed: ctx.authority });
+      const decision = await ctx.requestApproval(
+        name,
+        args ?? {},
+        `Tool "${name}" needs authority ${tool.level} (current level: ${ctx.authority}).`,
+      );
+      if (decision === 'approved') {
+        publish('authority:approved-run', { tool: name });
+      } else {
+        publish('authority:denied', {
+          tool: name,
+          required: tool.level,
+          allowed: ctx.authority,
+          reason: decision === 'timeout' ? 'approval timed out' : 'user declined',
+        });
+        return {
+          ok: false,
+          denied: true,
+          output:
+            decision === 'timeout'
+              ? `DENIED: approval for tool "${name}" timed out — the user did not respond.`
+              : `DENIED: the user declined to run tool "${name}". Do not retry it unchanged.`,
+        };
+      }
+    } else {
+      publish('authority:denied', { tool: name, required: tool.level, allowed: ctx.authority });
+      return {
+        ok: false,
+        denied: true,
+        output: `DENIED: tool "${name}" requires authority level ${tool.level}, current level is ${ctx.authority}. Ask the user to raise authority.level.`,
+      };
+    }
   }
   try {
     return await tool.run(args ?? {}, ctx);

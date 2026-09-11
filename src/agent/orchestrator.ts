@@ -5,6 +5,7 @@ import type { ChatMessage } from '../llm/ollama.ts';
 import type { KnowledgeVault } from '../memory/vault.ts';
 import type { GoalTracker } from '../goals/goals.ts';
 import { buildTools, executeTool, toolSpecs, type Tool, type ToolContext } from './tools.ts';
+import type { ApprovalManager } from './approvals.ts';
 import { roleFor } from './roles.ts';
 import { publish } from '../events.ts';
 import { jarvisHome } from '../config.ts';
@@ -18,6 +19,7 @@ export interface OrchestratorDeps {
   llm: LlmProvider;
   vault: KnowledgeVault;
   goals: GoalTracker;
+  approvals?: ApprovalManager;
 }
 
 export interface RunResult {
@@ -36,17 +38,22 @@ export class Orchestrator {
     this.deps = deps;
   }
 
-  private toolCtx(): ToolContext {
+  private toolCtx(conversationId: number | null): ToolContext {
+    const approvals = this.deps.approvals;
     return {
       authority: this.deps.cfg.authority.level,
+      authorityMode: this.deps.cfg.authority.mode,
       rootDir: jarvisHome(),
       vault: this.deps.vault,
       goals: this.deps.goals,
       delegate: async (role: string, task: string) => this.runSpecialist(role, task, 1),
+      requestApproval: approvals
+        ? (tool, args, reason) => approvals.request({ tool, args, conversationId, reason })
+        : undefined,
     };
   }
 
-  private systemPrompt(roleId: string, userQuery: string): string {
+  private async systemPrompt(roleId: string, userQuery: string): Promise<string> {
     const { cfg, vault, goals } = this.deps;
     const role = roleFor(roleId);
     const openGoals = goals.list();
@@ -56,7 +63,7 @@ export class Orchestrator {
             .map((g) => `- #${g.id} ${g.title}${g.deadline ? ` (deadline ${g.deadline})` : ''}`)
             .join('\n')}`
         : '';
-    const memoryBlock = vault.contextFor(userQuery);
+    const memoryBlock = await vault.contextFor(userQuery);
     return [
       `You are ${cfg.personality.name}, an always-on personal AI system running locally on the user's machine via Ollama. Core traits: ${cfg.personality.core_traits.join(', ')}.`,
       role.instructions,
@@ -127,7 +134,7 @@ export class Orchestrator {
 
     const roleId = opts.roleId ?? 'orchestrator';
     const role = roleFor(roleId);
-    const system = this.systemPrompt(roleId, opts.userInput);
+    const system = await this.systemPrompt(roleId, opts.userInput);
     const history = this.loadHistory(conversationId);
     const allowedTools = toolSpecs(this.tools, role.tools);
 
@@ -167,7 +174,7 @@ export class Orchestrator {
         const callId = `call_${++toolCallSeq}`;
         log.info(`tool ${name} ${JSON.stringify(args).slice(0, 160)}`);
         publish('agent:tool', { conversationId, tool: name, args });
-        const res = await executeTool(this.tools, name, args, this.toolCtx());
+        const res = await executeTool(this.tools, name, args, this.toolCtx(conversationId));
         const output = res.output || (res.ok ? 'ok' : 'failed');
         history.push({ role: 'tool', content: output, tool_call_id: callId, name });
         this.saveMessage(conversationId, 'tool', `[${name}] ${output}`, roleId);
@@ -181,6 +188,11 @@ export class Orchestrator {
     return { conversationId, answer, turns };
   }
 
+  /** Tool context for out-of-band automation (workflows): full authority rules, no conversation. */
+  workflowCtx(): ToolContext {
+    return this.toolCtx(null);
+  }
+
   /** Run a specialist on a subtask inside an ephemeral context (delegation). */
   async runSpecialist(roleId: string, task: string, depth: number): Promise<string> {
     if (depth >= this.deps.cfg.agent.max_delegation_depth) {
@@ -188,7 +200,7 @@ export class Orchestrator {
     }
     publish('agent:delegate', { role: roleId, task: task.slice(0, 200) });
     const role = roleFor(roleId);
-    const system = this.systemPrompt(roleId, task);
+    const system = await this.systemPrompt(roleId, task);
     const history: ChatMessage[] = [{ role: 'user', content: task }];
     const allowedTools = toolSpecs(
       this.tools,
@@ -210,7 +222,7 @@ export class Orchestrator {
             ? safeJson(tc.function.arguments)
             : ((tc.function?.arguments ?? {}) as Record<string, unknown>);
         publish('agent:tool', { specialist: roleId, tool: name, args });
-        const res = await executeTool(this.tools, name, args, this.toolCtx());
+        const res = await executeTool(this.tools, name, args, this.toolCtx(null));
         history.push({ role: 'tool', content: res.output, name });
       }
     }

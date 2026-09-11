@@ -35,7 +35,15 @@ export async function startMockOllama(): Promise<MockOllama> {
 
       if (req.method === 'GET' && req.url === '/api/tags') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ models: [{ name: 'llama3.2', size: 2_000_000_000 }, { name: 'llama3.2:1b', size: 1_000_000_000 }] }));
+        res.end(
+          JSON.stringify({
+            models: [
+              { name: 'llama3.2', size: 2_000_000_000 },
+              { name: 'llama3.2:1b', size: 1_000_000_000 },
+              { name: 'nomic-embed-text', size: 274_000_000 },
+            ],
+          }),
+        );
         return;
       }
       if (req.method === 'POST' && req.url === '/api/pull') {
@@ -45,8 +53,9 @@ export async function startMockOllama(): Promise<MockOllama> {
         return;
       }
       if (req.method === 'POST' && req.url === '/api/embed') {
+        const input = Array.isArray(body.input) ? body.input : [body.input];
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }));
+        res.end(JSON.stringify({ embeddings: input.map((t: string) => fakeEmbed(t)) }));
         return;
       }
       if (req.method === 'POST' && req.url === '/api/chat') {
@@ -90,6 +99,39 @@ export async function startMockOllama(): Promise<MockOllama> {
 
 export function tmpDir(): string {
   return mkdtempSync(path.join(os.tmpdir(), 'jarvis-test-'));
+}
+
+/**
+ * Deterministic "semantic" vectors for the mock: one dimension per synonym
+ * family, so tests can prove semantic recall without token overlap.
+ */
+const SYN_GROUPS: [string[], number][] = [
+  [['coffee', 'espresso', 'latte', 'flat', 'white', 'oat', 'cappuccino'], 0],
+  [['bike', 'fiets', 'cycle', 'two', 'wheeler', 'repair', 'cycling'], 1],
+  [['server', 'daemon', 'deploy', 'homelab'], 2],
+];
+
+export function fakeEmbed(text: string): number[] {
+  const v = [0, 0, 0, 0];
+  const words = text.toLowerCase().split(/[^a-z0-9]+/);
+  for (const [group, dim] of SYN_GROUPS) {
+    if (words.some((w) => group.includes(w))) v[dim] = 1;
+  }
+  let h = 0;
+  for (const c of text) h = (h * 31 + c.charCodeAt(0)) % 997;
+  v[3] = (h % 10) / 30; // tiny deterministic noise
+  return v;
+}
+
+/** Duck-typed stand-in for the real Embedder, backed by fakeEmbed. */
+export function fakeEmbedder() {
+  return {
+    model: 'mock-embed',
+    available: async () => true,
+    resetCache: () => {},
+    embed: async (texts: string[]) => texts.map((t) => fakeEmbed(t)),
+    embedOne: async (text: string) => fakeEmbed(text),
+  };
 }
 
 export function testConfig(home: string, ollamaUrl: string): JarvisConfig {

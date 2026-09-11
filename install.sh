@@ -18,6 +18,7 @@
 #   --home DIR        Install root            (default: ~/.jarvis)
 #   --model NAME      Smart model             (default: llama3.2)
 #   --fast-model NAME Fast model              (default: llama3.2:1b)
+#   --embed-model NAME Embedding model        (default: nomic-embed-text)
 #   --port N          Dashboard port          (default: 3142)
 #   --no-models       Skip pulling models
 #   --no-ollama       Skip Ollama install/start (it runs on another machine)
@@ -41,6 +42,7 @@ VERSION="0.1.0"
 JARVIS_HOME="${JARVIS_HOME:-$HOME/.jarvis}"
 MODEL="llama3.2"
 FAST_MODEL="llama3.2:1b"
+EMBED_MODEL="nomic-embed-text"
 PORT="3142"
 DO_MODELS=1
 DO_START=1
@@ -122,6 +124,7 @@ while [ $# -gt 0 ]; do
     --home)        JARVIS_HOME="$2"; shift 2 ;;
     --model)       MODEL="$2"; shift 2 ;;
     --fast-model)  FAST_MODEL="$2"; shift 2 ;;
+    --embed-model) EMBED_MODEL="$2"; shift 2 ;;
     --port)        PORT="$2"; shift 2 ;;
     --no-models)   DO_MODELS=0; shift ;;
     --no-ollama)   DO_OLLAMA=0; shift ;;
@@ -337,7 +340,7 @@ ensure_ollama() {
 pull_models() {
   [ -n "$OLLAMA_BIN" ] || { warn "Cannot pull models — Ollama not available."; return; }
   ollama_running || { warn "Cannot pull models — Ollama server not running."; return; }
-  for m in "$MODEL" "$FAST_MODEL"; do
+  for m in "$MODEL" "$FAST_MODEL" "$EMBED_MODEL"; do
     [ -n "$m" ] || continue
     if "$OLLAMA_BIN" list 2>/dev/null | awk '{print $1}' | grep -qx "$m"; then
       ok "Model already installed: $m"
@@ -405,11 +408,18 @@ ollama:
   base_url: http://localhost:11434
   model: $MODEL
   fast_model: $FAST_MODEL
+  embed_model: $EMBED_MODEL
   temperature: 0.7
   keep_alive: 30m
 
 authority:
   level: 3
+  mode: ask
+  ask_timeout_ms: 300000
+
+voice:
+  tts_provider: browser
+  stt_provider: browser
 
 observer:
   enabled: false
@@ -532,12 +542,21 @@ start_and_verify() {
   fi
 }
 
+seed_workflows() {
+  if [ ! -d "$JARVIS_HOME/workflows" ] && [ -d "$APP_DIR/examples/workflows" ]; then
+    mkdir -p "$JARVIS_HOME/workflows"
+    cp -R "$APP_DIR/examples/workflows/." "$JARVIS_HOME/workflows/"
+    ok "Example workflows copied → $JARVIS_HOME/workflows (edit or delete freely)"
+  fi
+}
+
 # ── go ───────────────────────────────────────────────────────────────────────
 ensure_node
 [ "$DO_OLLAMA" -eq 1 ] && ensure_ollama || true
 fetch_source
 install_deps
 write_config
+seed_workflows
 [ "$DO_MODELS" -eq 1 ] && pull_models || true
 write_launcher
 [ "$DO_SERVICE" -eq 1 ] && install_service

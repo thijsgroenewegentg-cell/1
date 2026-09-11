@@ -1,0 +1,33 @@
+# JARVIS workflow — drop any text file into data/inbox and JARVIS reads it,
+# summarizes it with the fast model, stores the summary in the knowledge
+# vault and notifies you. Copy to <jarvis home>/workflows/ to activate.
+id: inbox-notes
+name: Summarize dropped notes
+enabled: true
+
+trigger:
+  type: file
+  path: data/inbox      # relative to the JARVIS home directory
+
+steps:
+  - action: read_file
+    with:
+      path: "{{trigger.relpath}}"
+
+  - action: llm
+    with:
+      tier: fast
+      prompt: |
+        Summarize the following file in one or two factual sentences:
+        {{steps.0.output}}
+
+  - action: memory_remember
+    with:
+      kind: observation
+      title: "inbox: {{trigger.filename}}"
+      body: "{{steps.1.output}}"
+      tags: [inbox, workflow]
+
+  - action: notify
+    with:
+      message: "Inbox note processed: {{trigger.filename}}"

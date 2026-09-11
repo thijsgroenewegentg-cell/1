@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { App } from '../app.ts';
 import { bus, recentEvents, publish } from '../events.ts';
+import { voiceStatus, piperTts, whisperStt } from './voice.ts';
 import { createLogger } from '../logger.ts';
 
 const log = createLogger('http');
@@ -54,8 +55,20 @@ async function readBody(req: http.IncomingMessage): Promise<Record<string, unkno
   }
 }
 
+/** Raw binary body reader (audio uploads). */
+async function readRawBody(req: http.IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > maxBytes) throw new Error('body too large');
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
+
 export function createServer(app: App): http.Server {
-  const { cfg, ollama, vault, goals, orchestrator, routines } = app;
+  const { cfg, ollama, vault, goals, orchestrator, routines, approvals, workflows } = app;
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
@@ -80,7 +93,10 @@ export function createServer(app: App): http.Server {
           ollama: { base_url: cfg.ollama.base_url, reachable },
           model: cfg.ollama.model,
           fast_model: cfg.ollama.fast_model,
+          embed_model: cfg.ollama.embed_model,
           authority: cfg.authority.level,
+          authority_mode: cfg.authority.mode,
+          pending_approvals: approvals.pending().length,
           deadline_alerts: alerts.length,
           memories: vault.list(1000).length,
           open_goals: goals.list().length,
@@ -120,6 +136,19 @@ export function createServer(app: App): http.Server {
         cfg.authority.level = level;
         publish('authority:changed', { level });
         return json(res, 200, { level });
+      }
+
+      // ── approvals ──
+      if (method === 'GET' && p === '/api/approvals') {
+        return json(res, 200, { pending: approvals.pending(), recent: approvals.recent(20) });
+      }
+      const approvalMatch = p.match(/^\/api\/approvals\/(\d+)$/);
+      if (method === 'POST' && approvalMatch) {
+        const body = await readBody(req);
+        const decision = body.decision === 'approved' || body.decision === 'denied' ? body.decision : null;
+        if (!decision) return json(res, 400, { error: 'decision must be "approved" or "denied"' });
+        const resolved = approvals.resolve(Number(approvalMatch[1]), decision);
+        return json(res, resolved ? 200 : 404, resolved ? { id: Number(approvalMatch[1]), decision } : { error: 'approval not found or already resolved' });
       }
 
       // ── chat ──
@@ -177,13 +206,18 @@ export function createServer(app: App): http.Server {
       // ── knowledge vault ──
       if (method === 'GET' && p === '/api/memories') {
         const q = url.searchParams.get('q');
-        const items = q ? vault.search(q, 30) : vault.list(50);
+        const items = q ? await vault.search(q, 30) : vault.list(50);
         return json(res, 200, { memories: items });
+      }
+      if (method === 'POST' && p === '/api/memories/reindex') {
+        const body = await readBody(req);
+        const count = await vault.backfill(body.all === true);
+        return json(res, 200, { embedded: count });
       }
       if (method === 'POST' && p === '/api/memories') {
         const body = await readBody(req);
         if (!body.title) return json(res, 400, { error: 'title is required' });
-        const mem = vault.remember({
+        const mem = await vault.remember({
           title: String(body.title),
           body: String(body.body ?? ''),
           kind: String(body.kind ?? 'note'),
@@ -240,6 +274,104 @@ export function createServer(app: App): http.Server {
         const body = await readBody(req);
         const kr = goals.advanceKeyResult(Number(krAdvMatch[1]), Number(body.delta ?? 1));
         return json(res, 200, kr);
+      }
+
+      // ── workflows ──
+      if (method === 'GET' && p === '/api/workflows') {
+        return json(res, 200, {
+          dir: workflows.dir,
+          workflows: workflows.list().map((w) => ({
+            id: w.id,
+            name: w.name,
+            enabled: w.enabled,
+            trigger: w.trigger,
+            steps: w.steps.map((s) => s.action),
+          })),
+        });
+      }
+      if (method === 'POST' && p === '/api/workflows/reload') {
+        const list = workflows.start();
+        return json(res, 200, { loaded: list.length });
+      }
+      if (method === 'GET' && p === '/api/workflows/runs') {
+        return json(res, 200, { runs: workflows.runs(Number(url.searchParams.get('limit') ?? 30)) });
+      }
+      const wfRunMatch = p.match(/^\/api\/workflows\/([\w-]+)\/run$/);
+      if (method === 'POST' && wfRunMatch) {
+        const wf = workflows.get(wfRunMatch[1]);
+        if (!wf) return json(res, 404, { error: `workflow "${wfRunMatch[1]}" not found` });
+        const run = await workflows.run(wf, { type: 'manual' });
+        return json(res, 200, run);
+      }
+      const hookMatch = p.match(/^\/api\/hooks\/([\w-]+)$/);
+      if (method === 'POST' && hookMatch) {
+        const body = await readBody(req).catch(() => ({}));
+        const result = await workflows.webhook(hookMatch[1], body);
+        return json(res, result.ok ? 200 : 404, result);
+      }
+
+      // ── voice ──
+      if (method === 'GET' && p === '/api/voice/config') {
+        return json(res, 200, voiceStatus(cfg));
+      }
+      if (method === 'POST' && p === '/api/tts') {
+        const body = await readBody(req);
+        const text = String(body.text ?? '').slice(0, 2000);
+        if (!text) return json(res, 400, { error: 'text is required' });
+        try {
+          const wav = await piperTts(cfg, text);
+          res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': wav.length });
+          res.end(wav);
+        } catch (err) {
+          json(res, 503, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+      if (method === 'POST' && p === '/api/stt') {
+        const wav = await readRawBody(req, 10_000_000);
+        if (wav.length < 44) return json(res, 400, { error: 'empty audio' });
+        try {
+          const text = await whisperStt(cfg, wav);
+          json(res, 200, { text });
+        } catch (err) {
+          json(res, 503, { error: err instanceof Error ? err.message : String(err) });
+        }
+        return;
+      }
+
+      // ── conversation archive ──
+      const archiveMatch = p.match(/^\/api\/conversations\/(\d+)\/archive$/);
+      if (method === 'POST' && archiveMatch) {
+        const id = Number(archiveMatch[1]);
+        const messages = app.db.db
+          .prepare(`SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id`)
+          .all(id) as { role: string; content: string }[];
+        if (messages.length === 0) return json(res, 404, { error: 'conversation not found' });
+        const convo = messages
+          .filter((m) => m.role === 'user' || m.role === 'assistant')
+          .map((m) => `${m.role}: ${m.content}`)
+          .join('\n')
+          .slice(0, 6000);
+        const title = (
+          app.db.db.prepare(`SELECT title FROM conversations WHERE id = ?`).get(id) as { title?: string } | undefined
+        )?.title;
+        try {
+          const res2 = await app.llm.complete(
+            'Summarize this conversation in 2-4 factual sentences, keeping any durable facts, decisions or commitments.',
+            [{ role: 'user', content: convo }],
+            { tier: 'fast', temperature: 0.3 },
+          );
+          const mem = await vault.remember({
+            kind: 'observation',
+            title: `Conversation archived: ${title ?? `#${id}`}`,
+            body: res2.content.trim() || convo.slice(0, 400),
+            tags: ['conversation', `conv-${id}`],
+            source: 'archive',
+          });
+          return json(res, 200, { memory_id: mem.id, summary: mem.body.slice(0, 300) });
+        } catch (err) {
+          return json(res, 502, { error: err instanceof Error ? err.message : String(err) });
+        }
       }
 
       // ── routines ──

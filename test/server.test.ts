@@ -1,13 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { createApp } from '../src/app.ts';
 import { createServer } from '../src/server/http.ts';
 import { startMockOllama, testConfig, tmpDir } from './helpers.ts';
 
 async function boot() {
   const mock = await startMockOllama();
-  const cfg = testConfig(tmpDir(), mock.url);
+  const home = tmpDir();
+  const prevHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = home; // isolate workflows dir from the repo
+  mkdirSync(path.join(home, 'workflows'), { recursive: true });
+  const cfg = testConfig(home, mock.url);
   const app = createApp(cfg);
   const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -17,8 +23,10 @@ async function boot() {
     await new Promise((resolve) => server.close(resolve));
     app.stop();
     await mock.close();
+    if (prevHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = prevHome;
   };
-  return { mock, app, base, close };
+  return { mock, app, home, base, close };
 }
 
 async function get(base: string, path: string): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -148,6 +156,104 @@ test('event stream replays recent events', async () => {
   try {
     const { json } = await get(base, '/api/events');
     assert.ok(Array.isArray(json.events));
+  } finally {
+    await close();
+  }
+});
+
+test('workflow endpoints: list, reload, webhook, runs', async () => {
+  const { home, app, base, close } = await boot();
+  try {
+    writeFileSync(
+      path.join(home, 'workflows/hook.yaml'),
+      [
+        'id: hook',
+        'trigger:',
+        '  type: webhook',
+        'steps:',
+        '  - action: memory_remember',
+        '    with: { title: "from hook", body: "{{trigger.body.text}}" }',
+      ].join('\n'),
+    );
+    app.workflows.start();
+
+    const list = await get(base, '/api/workflows');
+    assert.equal((list.json.workflows as unknown[]).length, 1);
+
+    const hook = await post(base, '/api/hooks/hook', { text: 'remember the milk' });
+    assert.equal(hook.status, 200);
+    assert.equal(hook.json.ok, true);
+
+    const mems = await get(base, '/api/memories?q=milk');
+    assert.equal((mems.json.memories as unknown[]).length, 1);
+
+    const runs = await get(base, '/api/workflows/runs');
+    assert.equal((runs.json.runs as unknown[]).length, 1);
+
+    const missing = await post(base, '/api/hooks/ghost', {});
+    assert.equal(missing.status, 404);
+  } finally {
+    await close();
+  }
+});
+
+test('approval endpoints', async () => {
+  const { base, close } = await boot();
+  try {
+    const list = await get(base, '/api/approvals');
+    assert.deepEqual(list.json.pending, []);
+    const bogus = await post(base, '/api/approvals/999', { decision: 'approved' });
+    assert.equal(bogus.status, 404);
+    const bad = await post(base, '/api/approvals/1', { decision: 'maybe' });
+    assert.equal(bad.status, 400);
+  } finally {
+    await close();
+  }
+});
+
+test('voice endpoints report providers and degrade gracefully', async () => {
+  const { base, close } = await boot();
+  try {
+    const cfg = await get(base, '/api/voice/config');
+    assert.equal(cfg.status, 200);
+    assert.equal((cfg.json.tts as { provider: string }).provider, 'browser');
+    assert.equal((cfg.json.stt as { provider: string }).provider, 'browser');
+
+    const tts = await post(base, '/api/tts', { text: 'hello' });
+    assert.equal(tts.status, 503); // piper not configured
+    const stt = await fetch(`${base}/api/stt`, { method: 'POST', body: Buffer.alloc(100) });
+    assert.equal(stt.status, 503); // whisper not configured
+  } finally {
+    await close();
+  }
+});
+
+test('conversation archive summarizes into the vault', async () => {
+  const { mock, base, close } = await boot();
+  try {
+    mock.enqueue({ content: 'First reply' }, { content: 'A short summary of the chat.' });
+    const chat = await post(base, '/api/chat', { message: 'hello jarvis', stream: false });
+    const convId = Number(chat.json.conversation_id);
+    const arch = await post(base, `/api/conversations/${convId}/archive`, {});
+    assert.equal(arch.status, 200);
+    assert.ok(Number(arch.json.memory_id) > 0);
+    const mems = await get(base, '/api/memories?q=summary');
+    assert.ok((mems.json.memories as unknown[]).length >= 1);
+  } finally {
+    await close();
+  }
+});
+
+test('memory reindex endpoint', async () => {
+  const { app, base, close } = await boot();
+  try {
+    // simulate a memory that predates the embedder (no vector yet)
+    app.db.db
+      .prepare(`INSERT INTO memories (kind, title, body) VALUES ('note', 'pre-embedding fact', 'old but gold')`)
+      .run();
+    const re = await post(base, '/api/memories/reindex', {});
+    assert.equal(re.status, 200);
+    assert.ok(Number(re.json.embedded) >= 1); // embed model present in the mock
   } finally {
     await close();
   }

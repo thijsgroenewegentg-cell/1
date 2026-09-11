@@ -8,14 +8,23 @@ export interface JarvisConfig {
     base_url: string;
     model: string;
     fast_model: string;
+    embed_model: string;
     temperature: number;
     keep_alive: string;
   };
-  authority: { level: number };
+  authority: { level: number; mode: 'ask' | 'gate'; ask_timeout_ms: number };
   agent: { max_turns: number; max_delegation_depth: number };
   observer: { enabled: boolean; paths: string[]; interval_ms: number; debounce_ms: number };
   cron: { morning: string; evening: string; hourly: string };
   personality: { name: string; core_traits: string[] };
+  voice: {
+    tts_provider: 'browser' | 'piper';
+    piper_path: string;
+    piper_voice: string;
+    stt_provider: 'browser' | 'whisper';
+    whisper_path: string;
+    whisper_model: string;
+  };
 }
 
 export const DEFAULT_CONFIG: JarvisConfig = {
@@ -24,14 +33,23 @@ export const DEFAULT_CONFIG: JarvisConfig = {
     base_url: 'http://localhost:11434',
     model: 'llama3.2',
     fast_model: 'llama3.2:1b',
+    embed_model: 'nomic-embed-text',
     temperature: 0.7,
     keep_alive: '30m',
   },
-  authority: { level: 3 },
+  authority: { level: 3, mode: 'ask', ask_timeout_ms: 300_000 },
   agent: { max_turns: 8, max_delegation_depth: 2 },
   observer: { enabled: false, paths: [], interval_ms: 2000, debounce_ms: 800 },
   cron: { morning: '0 7 * * *', evening: '0 20 * * *', hourly: '37 * * * *' },
   personality: { name: 'Jarvis', core_traits: ['loyal', 'efficient', 'proactive', 'respectful'] },
+  voice: {
+    tts_provider: 'browser',
+    piper_path: 'piper',
+    piper_voice: '',
+    stt_provider: 'browser',
+    whisper_path: 'whisper-cli',
+    whisper_model: '',
+  },
 };
 
 /** JARVIS_HOME is where config.yaml + the sqlite db live. Defaults to ./data-less repo dir. */

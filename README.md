@@ -4,13 +4,16 @@
 
 An always-on autonomous AI daemon in the spirit of [vierisid/jarvis](https://github.com/vierisid/jarvis) — a persistent process that remembers, pursues goals, watches folders, delegates to specialist agents, and acts within the authority limits you set — but with **no cloud LLM providers and no API keys**: the brain is your local [Ollama](https://ollama.com) server.
 
-- 🧠 **LLM layer** — Ollama only: a *smart* model for reasoning, a *fast* model for background work, streaming responses, tool calling, model pulls from the dashboard
+- 🧠 **LLM layer** — Ollama only: a *smart* model for reasoning, a *fast* model for background work, an *embedding* model for memory, streaming responses, tool calling, model pulls from the dashboard
 - 🤖 **Multi-agent hierarchy** — an orchestrator plus 5 specialist roles (researcher, coder, writer, planner, system-operator) with delegation and depth limits
-- 🧠 **Knowledge vault** — durable memories (notes, entities, observations, commitments) in SQLite, searchable by the agent before it answers
+- 🧠 **Semantic knowledge vault** — durable memories in SQLite with **embedding-based search** (Ollama `nomic-embed-text` + keyword + recency hybrid); "where's my two-wheeler?" finds the *Fiets repair shop* memory with zero shared words
+- ✅ **Approval flow** — tools above your authority level don't just fail: the agent **pauses and asks you** (approve/deny toast in the dashboard), with timeouts and a full audit trail
+- ⚡ **Workflows** — YAML automations: `file` / `cron` / `event` / `webhook` triggers → sequential steps (any agent tool or an LLM call) with templating, run history, manual runs
 - 🎯 **Goal pursuit** — OKR-style goals + key results, deadlines, morning plans, evening reviews, hourly heartbeat alerts
+- 🗣️ **Voice** — mic + spoken replies in the dashboard; optional server-side **Piper TTS** / **whisper.cpp STT** binaries, browser Web Speech fallback; conversations can be archived into long-term memory
 - 👁️ **Observer** — watch folders; new/changed files get summarized by the fast model into the vault
-- 🔐 **Authority gating** — runtime-enforced levels 0–4 (read-only → shell), every refusal audited
-- 🖥️ **Dashboard** — live web UI at `http://localhost:3142`: streaming chat, memory, goals, system, live event feed, browser-based voice in/out (Web Speech API)
+- 🔐 **Authority gating** — runtime levels 0–4 (read-only → shell) in `ask` (pause + approve) or `gate` (refuse) mode, every decision audited
+- 🖥️ **Dashboard** — live web UI at `http://localhost:3142`: streaming chat, memory, goals, workflows, approvals, system, live event feed
 - ⌨️ **CLI** — `jarvis start|stop|status|doctor|chat|logs|pull`
 
 Zero native dependencies: Node ≥ 22.13 built-ins only (`node:sqlite`, fetch, fs.watch) plus one pure-JS YAML parser.
@@ -79,8 +82,9 @@ Prefer to run it yourself?
 
 ```bash
 # 1. Ollama — https://ollama.com/download
-ollama pull llama3.2        # smart model (tool-calling capable)
-ollama pull llama3.2:1b     # fast model for background work
+ollama pull llama3.2          # smart model (tool-calling capable)
+ollama pull llama3.2:1b       # fast model for background work
+ollama pull nomic-embed-text  # embeddings for semantic memory (~275 MB)
 
 # 2. JARVIS
 npm install
@@ -159,7 +163,7 @@ Env overrides: `JARVIS_PORT`, `JARVIS_HOST`, `JARVIS_DATA_DIR`, `JARVIS_HOME`,
 ## Authority model
 
 Tools are gated at runtime; effective rule is `tool.level ≤ authority.level`.
-Every refusal is reported to the model *and* audited in the event feed.
+Every decision is reported to the model *and* audited in the event feed.
 
 | Level | Grants |
 |---|---|
@@ -169,8 +173,25 @@ Every refusal is reported to the model *and* audited in the event feed.
 | 3 | network + user reach: `web_fetch`, `notify` |
 | 4 | `shell` execution (60s timeout) |
 
+Two enforcement modes (`authority.mode`):
+
+- **`ask`** (default) — a tool above your level pauses the agent and pops an
+  **approve / deny** card in the dashboard (also via `POST /api/approvals/:id`).
+  No answer within `ask_timeout_ms` → treated as denial.
+- **`gate`** — over-level tools are refused outright.
+
 File tools are sandboxed to the JARVIS home directory; `shell` is the only
-tool that can leave it — keep it at level 4 unless you trust the models.
+tool that can leave it — approvals make level 4 practical without blind trust.
+
+## Workflows
+
+Drop YAML files into `<jarvis home>/workflows/` (two examples ship in
+`examples/workflows/`). Triggers: **file** (a path appears/changes), **cron**
+(5-field expression), **event** (any internal event-bus type), **webhook**
+(`POST /api/hooks/<workflow id>`). Steps run sequentially; each step is any
+agent tool or an `llm` call, with `{{trigger.*}}` / `{{steps.N.output}}`
+templating. Runs, logs and statuses are kept in the database and shown in the
+dashboard's ⚡ Workflows tab.
 
 ## Architecture
 
@@ -186,12 +207,17 @@ src/
   llm/provider.ts      tier routing (smart vs fast model)
   agent/roles.ts       role definitions + tailored system prompts + tool subsets
   agent/tools.ts       tool registry, JSON schemas, authority gate, sandboxing
+  agent/approvals.ts   pause-and-ask approvals for over-authority tools
   agent/orchestrator.ts  tool-calling agent loop, persistence, delegation
-  memory/vault.ts      knowledge vault + keyword/recency search + prompt context
+  memory/embedder.ts   Ollama embeddings + cosine/vector utilities
+  memory/vault.ts      knowledge vault, hybrid semantic+keyword search, backfill
   goals/goals.ts       OKR goals, key results, deadline alerts
   goals/routines.ts    morning plan / evening review / hourly heartbeat
   observer/watcher.ts  fs.watch → fast-model summaries → vault observations
+  workflows/loader.ts  YAML workflow definitions + templating
+  workflows/engine.ts  file/cron/event/webhook triggers + step runner
   server/http.ts       REST API + SSE + static dashboard
+  server/voice.ts      optional Piper TTS / whisper.cpp STT bridges
 public/                dashboard (vanilla JS, no build step)
 scripts/mock-ollama.js scripted fake Ollama for demos/tests
 test/                  node:test suite incl. a scripted mock Ollama
@@ -210,8 +236,12 @@ is hit → every message is persisted, every step is published to the event bus.
 | `GET /api/health` | daemon + ollama status, counters |
 | `GET /api/models` · `POST /api/models/pull` | installed models / pull (progress on the event stream) |
 | `POST /api/chat` | `{message, conversation_id?, stream?}` — SSE tokens or JSON |
-| `GET /api/conversations[/:id]` | conversation list / messages |
-| `GET/POST /api/memories` · `DELETE /api/memories/:id` | knowledge vault (search with `?q=`) |
+| `GET /api/conversations[/:id]` · `POST /api/conversations/:id/archive` | conversation list / messages / summarize into vault |
+| `GET/POST /api/memories` · `DELETE /api/memories/:id` · `POST /api/memories/reindex` | knowledge vault (hybrid search with `?q=`) / embed un-embedded rows |
+| `GET /api/approvals` · `POST /api/approvals/:id` | pending approvals / decide (`{"decision":"approved"\|"denied"}`) |
+| `GET /api/workflows` · `POST /api/workflows/reload` · `POST /api/workflows/:id/run` · `GET /api/workflows/runs` | workflow management |
+| `POST /api/hooks/:id` | fire a webhook-triggered workflow |
+| `GET /api/voice/config` · `POST /api/tts` · `POST /api/stt` | voice provider status / Piper speech / whisper transcription |
 | `GET/POST /api/goals` · `PATCH /api/goals/:id` | goals with key results |
 | `POST /api/goals/:id/key-results` · `POST /api/key-results/:id/advance` | key-result CRUD/progress |
 | `POST /api/routines/morning|evening|heartbeat` | run a routine on demand |
@@ -230,11 +260,11 @@ Requires Node ≥ 22.13 (`node:sqlite` + TypeScript type-stripping; no build ste
 
 ## Roadmap (not built yet)
 
-Deliberately scoped to the core daemon first. Candidates next, roughly in
-order of value: embedding-based memory search (`/api/embed` is already
-client-supported), a visual workflow runner, channel adapters (Telegram/
-Discord), wake-word voice, and a sidecar protocol for desktop awareness —
-the parts of the original JARVIS that need more than a single machine's daemon.
+Semantic memory, approvals, workflows and (optional-binary) voice are in.
+Candidates next: wake-word always-on listening (openwakeword), channel
+adapters (Telegram/Discord), a visual drag-drop workflow builder, and a
+sidecar protocol for desktop awareness — the parts of the original JARVIS
+that need more than a single machine's daemon.
 
 ## License
 

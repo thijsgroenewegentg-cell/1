@@ -21,6 +21,7 @@
       <button class="nav active" data-tab="chat">💬 Chat</button>
       <button class="nav" data-tab="memory">🧠 Memory</button>
       <button class="nav" data-tab="goals">🎯 Goals</button>
+      <button class="nav" data-tab="workflows">⚡ Workflows</button>
       <button class="nav" data-tab="system">⚙️ System</button>
     </nav>
     <div id="status-pill" title="daemon status">connecting…</div>
@@ -31,7 +32,10 @@
     <section id="tab-chat" class="tab active">
       <div id="chat-header">
         <span class="small" id="conv-label">new conversation</span>
-        <button id="new-chat">＋ New chat</button>
+        <span>
+          <button id="archive-chat" title="Summarize this conversation into long-term memory">🗂 Archive</button>
+          <button id="new-chat">＋ New chat</button>
+        </span>
       </div>
       <div id="messages"></div>
       <form id="chat-form">
@@ -46,8 +50,9 @@
     <section id="tab-memory" class="tab">
       <h2>Knowledge vault</h2>
       <div class="row">
-        <input id="memory-search" placeholder="Search memories…">
+        <input id="memory-search" placeholder="Search memories… (now semantic)">
         <button id="memory-refresh">Refresh</button>
+        <button id="memory-reindex" title="Compute embeddings for memories that lack them">Re-index</button>
       </div>
       <form id="memory-form" class="card">
         <h3>Remember something</h3>
@@ -79,9 +84,26 @@
       <ul id="goal-list"></ul>
     </section>
 
+    <!-- ── WORKFLOWS ── -->
+    <section id="tab-workflows" class="tab">
+      <h2>Workflows</h2>
+      <p class="small" id="wf-dir"></p>
+      <div class="row">
+        <button id="wf-reload">Reload definitions</button>
+      </div>
+      <ul id="wf-list"></ul>
+      <h3 style="margin-top:18px">Recent runs</h3>
+      <ul id="wf-runs"></ul>
+    </section>
+
     <!-- ── SYSTEM ── -->
     <section id="tab-system" class="tab">
       <h2>System</h2>
+      <div class="card" id="approvals-card">
+        <h3>Pending approvals <span id="approval-count" class="badge">0</span></h3>
+        <ul id="approval-list"></ul>
+        <p class="small">When authority mode is "ask", tools above your authority level pause here for your decision.</p>
+      </div>
       <div class="grid2">
         <div class="card">
           <h3>Health</h3>
@@ -104,6 +126,15 @@
           <input type="range" id="authority" min="0" max="4" step="1">
           <p class="small">0 read-only · 1 safe writes · 2 delegation · 3 network · 4 shell</p>
         </div>
+      </div>
+      <div class="card">
+        <h3>Voice</h3>
+        <div id="voice-status" class="small">…</div>
+        <div class="row" style="margin-top:8px">
+          <button id="btn-tts-test">🔊 Test server speech</button>
+        </div>
+        <p class="small">Server TTS uses <b>piper</b>, server STT uses <b>whisper.cpp</b> — both optional binaries
+        (set in config.yaml under <code>voice:</code>). Without them the dashboard uses your browser's speech APIs.</p>
       </div>
       <div class="card">
         <h3>Live event feed</h3>

@@ -42,7 +42,29 @@ export class Db {
         body TEXT NOT NULL DEFAULT '',
         tags TEXT NOT NULL DEFAULT '',     -- comma separated
         source TEXT NOT NULL DEFAULT '',
+        embedding BLOB,                    -- Float32 vector, set by the embedder
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS approvals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tool TEXT NOT NULL,
+        args TEXT NOT NULL DEFAULT '{}',
+        conversation_id INTEGER,
+        reason TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending', -- pending | approved | denied | timeout
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        resolved_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS workflow_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow TEXT NOT NULL,
+        trigger TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'running', -- running | done | failed
+        log TEXT NOT NULL DEFAULT '',
+        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at TEXT
       );
 
       CREATE TABLE IF NOT EXISTS goals (
@@ -75,6 +97,15 @@ export class Db {
       CREATE INDEX IF NOT EXISTS idx_kr_goal ON key_results(goal_id);
       CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
     `);
+    this.addColumnIfMissing('memories', 'embedding', 'BLOB');
+  }
+
+  /** Tiny forward-only migration helper for pre-existing databases. */
+  private addColumnIfMissing(table: string, column: string, type: string): void {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === column)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    }
   }
 
   close(): void {

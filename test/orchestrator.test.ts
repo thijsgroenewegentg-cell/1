@@ -57,7 +57,7 @@ test('tool loop: model calls memory_remember then answers', async () => {
     const result = await orchestrator.run({ userInput: 'Remember: I like Earl Grey tea, hot.' });
     assert.match(result.answer, /Earl Grey/);
     assert.equal(result.turns, 2);
-    const hits = vault.search('tea');
+    const hits = await vault.search('tea');
     assert.equal(hits.length, 1);
     assert.match(hits[0].body, /Earl Grey/);
 

@@ -123,13 +123,101 @@ $('#new-chat').addEventListener('click', () => {
   $('#conv-label').textContent = 'new conversation';
 });
 
-/* ── voice (browser Web Speech API — free, no keys) ── */
-function speak(text) {
-  if (!('speechSynthesis' in window) || !text) return;
-  const u = new SpeechSynthesisUtterance(text.replace(/[#*_`]/g, '').slice(0, 600));
+/* ── voice: server-side (piper/whisper) with browser fallback ── */
+let voiceStatus = null;
+
+async function loadVoiceStatus() {
+  try {
+    voiceStatus = await api('/api/voice/config');
+    const el = $('#voice-status');
+    if (el) {
+      el.innerHTML =
+        `TTS: <b>${voiceStatus.tts.detail}</b> · STT: <b>${voiceStatus.stt.detail}</b>`;
+    }
+  } catch { voiceStatus = null; }
+}
+
+async function speak(text) {
+  if (!text) return;
+  const clean = text.replace(/[#*_`]/g, '').slice(0, 600);
+  if (voiceStatus && voiceStatus.tts.available) {
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: clean }),
+      });
+      if (res.ok) {
+        const buf = await res.arrayBuffer();
+        const audio = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
+        audio.play();
+        return;
+      }
+    } catch { /* fall through to browser TTS */ }
+  }
+  if (!('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(clean);
   u.rate = 1.05;
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
+}
+
+/** Record the mic and transcribe via server whisper (with browser fallback). */
+async function recordAndTranscribe(onText) {
+  if (!(voiceStatus && voiceStatus.stt.available)) return false; // caller falls back
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const rec = new MediaRecorder(stream);
+    const chunks = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      try {
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        const wav = await audioBlobToWav16k(blob);
+        const res = await fetch('/api/stt', { method: 'POST', body: wav });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.text) onText(data.text);
+          else toast('Heard nothing — try again closer to the mic.');
+        } else {
+          toast('Server STT failed — check whisper config.');
+        }
+      } catch (err) { toast(`STT error: ${err.message}`); }
+    };
+    rec.start();
+    setTimeout(() => rec.state !== 'inactive' && rec.stop(), 20000); // max 20s
+    return true;
+  } catch { return false; }
+}
+
+/** Decode any browser audio blob → 16 kHz mono 16-bit WAV (for whisper.cpp). */
+async function audioBlobToWav16k(blob) {
+  const arr = await blob.arrayBuffer();
+  const ac = new AudioContext();
+  const decoded = await ac.decodeAudioData(arr);
+  const rate = 16000;
+  const off = new OfflineAudioContext(1, Math.ceil(decoded.duration * rate), rate);
+  const src = off.createBufferSource();
+  src.buffer = decoded;
+  src.connect(off.destination);
+  src.start();
+  const rendered = await off.startRendering();
+  await ac.close();
+  const samples = rendered.getChannelData(0);
+  const pcm = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  const header = new DataView(new ArrayBuffer(44));
+  const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) header.setUint8(o + i, s.charCodeAt(i)); };
+  writeStr(0, 'RIFF'); header.setUint32(4, 36 + pcm.byteLength, true); writeStr(8, 'WAVE');
+  writeStr(12, 'fmt '); header.setUint32(16, 16, true); header.setUint16(20, 1, true);
+  header.setUint16(22, 1, true); header.setUint32(24, rate, true);
+  header.setUint32(28, rate * 2, true); header.setUint16(32, 2, true); header.setUint16(34, 16, true);
+  writeStr(36, 'data'); header.setUint32(40, pcm.byteLength, true);
+  return new Blob([header.buffer, pcm.buffer], { type: 'audio/wav' });
 }
 
 $('#speak-toggle').addEventListener('click', (e) => {
@@ -139,24 +227,35 @@ $('#speak-toggle').addEventListener('click', (e) => {
 });
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (SR) {
-  const rec = new SR();
-  rec.lang = navigator.language || 'en-US';
-  rec.interimResults = false;
-  rec.onresult = (e) => {
-    const text = e.results[0][0].transcript;
+let listening = false;
+
+async function startListening() {
+  if (listening) return;
+  listening = true;
+  $('#mic').classList.add('listening');
+  const finish = (text) => {
+    listening = false;
     $('#mic').classList.remove('listening');
-    sendChat(text);
+    if (text) sendChat(text);
   };
-  rec.onerror = () => $('#mic').classList.remove('listening');
-  rec.onend = () => $('#mic').classList.remove('listening');
-  $('#mic').addEventListener('click', () => {
-    $('#mic').classList.add('listening');
-    try { rec.start(); } catch { /* already started */ }
-  });
-} else {
-  $('#mic').style.display = 'none';
+  // preferred: record → server whisper
+  const usedServer = await recordAndTranscribe(finish);
+  if (usedServer) return;
+  // fallback: browser SpeechRecognition
+  if (SR) {
+    const rec = new SR();
+    rec.lang = navigator.language || 'en-US';
+    rec.interimResults = false;
+    rec.onresult = (e) => finish(e.results[0][0].transcript);
+    rec.onerror = () => finish(null);
+    rec.onend = () => finish(null);
+    try { rec.start(); } catch { finish(null); }
+  } else {
+    finish(null);
+    toast('No speech input available (no whisper config, no browser SpeechRecognition).');
+  }
 }
+$('#mic').addEventListener('click', startListening);
 
 /* ── memory ── */
 async function loadMemories() {
@@ -193,6 +292,10 @@ async function loadMemories() {
   if (!data.memories.length) list.innerHTML = '<li class="small">No memories yet — teach JARVIS something.</li>';
 }
 $('#memory-refresh').addEventListener('click', loadMemories);
+$('#memory-reindex').addEventListener('click', async () => {
+  const data = await api('/api/memories/reindex', { method: 'POST', body: {} });
+  toast(`Embedded ${data.embedded ?? 0} memories`);
+});
 $('#memory-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); loadMemories(); } });
 $('#memory-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -341,6 +444,134 @@ $('#btn-heartbeat').addEventListener('click', async () => {
   $('#routine-out').textContent = JSON.stringify(data.alerts, null, 2);
 });
 
+/* ── approvals ── */
+function approvalButtons(id, compact) {
+  const wrap = document.createElement('span');
+  wrap.className = 'actions';
+  for (const [label, decision, cls] of [['✔ allow', 'approved', 'ok'], ['✖ deny', 'denied', 'bad']]) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    if (!compact) b.classList.add(cls === 'ok' ? 'primary' : 'danger');
+    b.onclick = async () => {
+      await api(`/api/approvals/${id}`, { method: 'POST', body: { decision } });
+      loadApprovals();
+    };
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+
+async function loadApprovals() {
+  try {
+    const data = await api('/api/approvals');
+    $('#approval-count').textContent = data.pending.length;
+    const list = $('#approval-list');
+    list.innerHTML = '';
+    for (const a of data.pending) {
+      const li = document.createElement('li');
+      li.appendChild(approvalButtons(a.id, false));
+      const t = document.createElement('b');
+      t.textContent = `#${a.id} ${a.tool}`;
+      li.appendChild(t);
+      const d = document.createElement('div');
+      d.className = 'small';
+      let args = '';
+      try { args = JSON.stringify(JSON.parse(a.args)); } catch { args = a.args; }
+      d.textContent = `${a.reason} · args: ${args.slice(0, 160)}`;
+      li.appendChild(d);
+      list.appendChild(li);
+    }
+    if (!data.pending.length) list.innerHTML = '<li class="small">Nothing waiting for approval.</li>';
+  } catch { /* daemon offline */ }
+}
+
+function approvalToast(payload) {
+  const el = document.createElement('div');
+  el.className = 'toast approval';
+  const title = document.createElement('b');
+  title.textContent = `🔐 JARVIS needs permission: ${payload.tool}`;
+  el.appendChild(title);
+  const body = document.createElement('div');
+  body.className = 'small';
+  body.textContent = payload.reason;
+  el.appendChild(body);
+  el.appendChild(approvalButtons(payload.id, true));
+  $('#toasts').appendChild(el);
+  // approval toasts stay until resolved
+}
+
+/* ── workflows ── */
+async function loadWorkflows() {
+  try {
+    const data = await api('/api/workflows');
+    $('#wf-dir').textContent = `Definitions live in ${data.dir} (*.yaml) — reload after editing.`;
+    const list = $('#wf-list');
+    list.innerHTML = '';
+    for (const w of data.workflows) {
+      const li = document.createElement('li');
+      const actions = document.createElement('span');
+      actions.className = 'actions';
+      const run = document.createElement('button');
+      run.textContent = '▶ run';
+      run.onclick = async () => {
+        const r = await api(`/api/workflows/${w.id}/run`, { method: 'POST', body: {} });
+        toast(`Workflow "${w.id}" → ${r.status}`);
+        loadRuns();
+      };
+      actions.appendChild(run);
+      li.appendChild(actions);
+      const t = document.createElement('b');
+      t.textContent = `${w.name}${w.enabled ? '' : ' (disabled)'}`;
+      li.appendChild(t);
+      const meta = document.createElement('div');
+      meta.className = 'small';
+      meta.textContent = `trigger: ${w.trigger.type}${w.trigger.expr ? ` ${w.trigger.expr}` : ''}${w.trigger.path ? ` ${w.trigger.path}` : ''}${w.trigger.event ? ` ${w.trigger.event}` : ''} · steps: ${w.steps.join(' → ')}`;
+      li.appendChild(meta);
+      list.appendChild(li);
+    }
+    if (!data.workflows.length) list.innerHTML = '<li class="small">No workflows yet — drop a .yaml file in the workflows folder (see examples/workflows).</li>';
+    loadRuns();
+  } catch { /* offline */ }
+}
+
+async function loadRuns() {
+  try {
+    const data = await api('/api/workflows/runs');
+    const list = $('#wf-runs');
+    list.innerHTML = '';
+    for (const r of data.runs) {
+      const li = document.createElement('li');
+      const badge = document.createElement('span');
+      badge.className = `badge ${r.status === 'done' ? 'ok' : r.status === 'failed' ? 'bad' : ''}`;
+      badge.textContent = r.status;
+      li.appendChild(badge);
+      li.appendChild(document.createTextNode(` ${r.workflow} · ${r.started_at}`));
+      if (r.log) {
+        const logEl = document.createElement('div');
+        logEl.className = 'small mono';
+        logEl.textContent = r.log.split('\n').map((l) => l.slice(0, 140)).join('\n');
+        li.appendChild(logEl);
+      }
+      list.appendChild(li);
+    }
+    if (!data.runs.length) list.innerHTML = '<li class="small">No runs yet.</li>';
+  } catch { /* offline */ }
+}
+
+$('#wf-reload').addEventListener('click', async () => {
+  const data = await api('/api/workflows/reload', { method: 'POST', body: {} });
+  toast(`Loaded ${data.loaded} workflow(s)`);
+  loadWorkflows();
+});
+
+/* ── conversation archive ── */
+$('#archive-chat').addEventListener('click', async () => {
+  if (!conversationId) { toast('Nothing to archive yet — have a conversation first.'); return; }
+  const data = await api(`/api/conversations/${conversationId}/archive`, { method: 'POST', body: {} });
+  if (data.error) toast(`Archive failed: ${data.error}`);
+  else toast(`Archived into memory: ${(data.summary || '').slice(0, 140)}…`);
+});
+
 /* ── live event feed ── */
 const evtList = $('#events');
 function feedEvent(evt) {
@@ -366,6 +597,13 @@ function connectEvents() {
     feedEvent(evt);
     if (evt.type === 'notify') toast(evt.payload.message);
     if (evt.type === 'agent:tool') addToolNote(evt.payload.tool);
+    if (evt.type === 'approval:requested') { approvalToast(evt.payload); loadApprovals(); }
+    if (evt.type === 'approval:resolved') { loadApprovals(); toast(`Approval #${evt.payload.id} → ${evt.payload.status}`, 3000); }
+    if (evt.type === 'authority:approval-waiting') addToolNote(`${evt.payload.tool} (waiting for your approval…)`);
+    if (evt.type === 'workflow:done' || evt.type === 'workflow:failed') {
+      toast(`⚡ workflow "${evt.payload.id}" ${evt.type === 'workflow:done' ? 'finished' : 'FAILED'}`);
+      loadRuns();
+    }
     if (evt.type === 'goal:deadline') {
       toast(`⏰ Goal "${evt.payload.title}" ${evt.payload.overdue ? 'is OVERDUE' : `due in ${evt.payload.days_left}d`}`);
     }
@@ -380,5 +618,9 @@ loadHealth();
 loadModels();
 loadMemories();
 loadGoals();
+loadApprovals();
+loadWorkflows();
+loadVoiceStatus();
 connectEvents();
 setInterval(loadHealth, 8000);
+setInterval(loadApprovals, 15000);
