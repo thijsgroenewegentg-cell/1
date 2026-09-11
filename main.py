@@ -1778,7 +1778,7 @@ class LocalAssistant:
                         str(result)[-1800:]
                         if not failed else f"Last Blender operation failed: {str(result)[-1600:]}"
                     )
-                    if str(args.get("action", "")).strip().lower() in {"list_tools", "status", "mcp_call"} and not failed:
+                    if str(args.get("action", "")).strip().lower() in {"connect", "list_tools", "status", "mcp_call"} and not failed:
                         self._refresh_blender_mcp_tools()
                 if name == "comfyui_image":
                     lower_result = str(result).lower()

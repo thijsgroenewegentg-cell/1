@@ -9,6 +9,7 @@ unknown/mutating calls require the normal on-screen confirmation.
 from __future__ import annotations
 
 import json
+import time
 
 from core import confirm as confirm_gate
 from core.task_planner import current as current_task_plan, render as render_task_plan, update as update_task_plan
@@ -30,7 +31,10 @@ PLUGIN = {
     "name": "blender_control",
     "description": (
         "Connect to the user's existing BlenderMCP add-on through the local MCP "
-        "server. The Blender panel normally uses port 9876. First use action "
+        "server. For the explicit phrase 'connect to Blender', use action connect: "
+        "open/focus Blender, open the N sidebar, select the existing Blender MCP "
+        "panel, click its connection control, then verify the local MCP tools. "
+        "The Blender panel normally uses port 9876. First use action "
         "list_tools when the available MCP capabilities are unknown, then use "
         "action mcp_call with the exact advertised mcp_tool and JSON arguments. "
         "Read-only scene inspection is immediate; all scene changes, asset downloads, "
@@ -43,7 +47,7 @@ PLUGIN = {
             "action": {
                 "type": "STRING",
                 "description": (
-                    "status | list_tools | plan | workflow_plan | scene_summary | visual_review | verify | mcp_call | list_objects | inspect_object | "
+                    "connect | status | list_tools | plan | workflow_plan | scene_summary | visual_review | verify | mcp_call | list_objects | inspect_object | "
                     "create_cube | create_sphere | create_cylinder | create_camera | "
                     "create_light | create_collection | duplicate_object | set_transform | "
                     "set_active_camera | look_at | set_material | add_modifier | delete_object | "
@@ -95,6 +99,7 @@ PLUGIN = {
 
 _READ_ONLY = {"status", "list_tools", "plan", "workflow_plan", "scene_summary", "visual_review", "verify", "list_objects", "inspect_object"}
 _MUTATING = {
+    "connect",
     "create_cube", "create_sphere", "create_cylinder", "create_camera", "create_light",
     "create_collection", "duplicate_object", "set_transform", "set_active_camera", "look_at",
     "set_material", "add_modifier", "delete_object", "set_render_settings", "render",
@@ -243,6 +248,154 @@ def _visual_before_after(before: list[dict], after: list[dict], operation: str) 
     return feedback or "Visual before/after verification returned no feedback."
 
 
+_UI_FAILURE_MARKERS = (
+    "failed",
+    "failure",
+    "not found",
+    "not installed",
+    "not available",
+    "requires ",
+    "unknown os",
+    "unknown action",
+)
+
+
+def _ui_failed(result: str) -> bool:
+    text = str(result or "").strip().lower()
+    return any(marker in text for marker in _UI_FAILURE_MARKERS)
+
+
+def _computer_step(parameters: dict, player=None) -> str:
+    """Run one of the existing bounded computer-control actions.
+
+    This intentionally imports the action lazily. Plugin discovery should not
+    require a desktop session or PyAutoGUI, while an explicit connect request
+    should still use the same allowlisted computer-control implementation as
+    every other UI action.
+    """
+    try:
+        from actions.computer_control import computer_control
+        return str(computer_control(parameters, player=player))
+    except Exception as exc:
+        return f"computer_control step failed: {exc}"
+
+
+def _blender_is_running() -> bool:
+    """Best-effort local process check so an existing Blender is not reopened."""
+    try:
+        import psutil
+    except Exception:
+        return False
+    try:
+        processes = psutil.process_iter(["name", "exe"])
+    except Exception:
+        return False
+    for process in processes:
+        try:
+            info = getattr(process, "info", {}) or {}
+            values = (str(info.get("name") or ""), str(info.get("exe") or ""))
+            for value in values:
+                basename = value.lower().replace("\\", "/").rsplit("/", 1)[-1]
+                if basename.split(".", 1)[0] == "blender":
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+def _connect_existing_blender(player=None) -> str:
+    """Open the existing Blender MCP panel, then verify the local MCP session.
+
+    The sequence is deliberately fixed and bounded: MARK can launch the
+    allowlisted Blender application, focus its window, press N, locate the
+    existing panel and click only its connection control. It never types code,
+    opens a terminal, or forwards arbitrary desktop/MCP commands.
+    """
+    from actions.open_app import open_app
+
+    if _blender_is_running():
+        launch = "Blender is already running; launch skipped."
+    else:
+        launch = str(open_app({"app_name": "Blender"}, player=player))
+    if any(marker in launch.lower() for marker in ("not on mark's allowlist", "failed to open", "unsupported operating system")):
+        return "Blender connection failed before the UI sequence: " + launch
+
+    # Whether Blender was already running or had to be launched, the focus
+    # step makes the target window deterministic before key input.
+    time.sleep(2.0)
+    focus = _computer_step({"action": "focus_window", "title": "Blender"}, player=player)
+    if _ui_failed(focus):
+        return "Blender connection failed: Blender could not be focused. " + focus
+
+    press_n = _computer_step({"action": "press", "key": "n"}, player=player)
+    if _ui_failed(press_n):
+        return "Blender connection failed while opening the 3D View sidebar: " + press_n
+
+    wait_sidebar = _computer_step({"action": "wait", "seconds": 0.7}, player=player)
+    if _ui_failed(wait_sidebar):
+        return "Blender connection failed while waiting for the sidebar: " + wait_sidebar
+
+    panel = _computer_step(
+        {
+            "action": "screen_click",
+            "description": "the existing Blender MCP panel tab in Blender's right N sidebar",
+        },
+        player=player,
+    )
+    if _ui_failed(panel):
+        return (
+            "Blender connection failed: could not locate the existing Blender MCP panel "
+            "in the N sidebar. Leave Blender focused with the add-on enabled and retry. "
+            + panel
+        )
+
+    wait_panel = _computer_step({"action": "wait", "seconds": 0.7}, player=player)
+    if _ui_failed(wait_panel):
+        return "Blender connection failed while waiting for the Blender MCP panel: " + wait_panel
+
+    connect_button = _computer_step(
+        {
+            "action": "screen_click",
+            "description": (
+                "the Blender MCP add-on connection control labeled Connect to MCP server "
+                "or Start MCP server"
+            ),
+        },
+        player=player,
+    )
+    if _ui_failed(connect_button):
+        return (
+            "Blender connection failed: the existing Blender MCP panel was found, but "
+            "its Connect to MCP server control was not located. " + connect_button
+        )
+
+    wait_connection = _computer_step({"action": "wait", "seconds": 1.0}, player=player)
+    if _ui_failed(wait_connection):
+        return "Blender connection failed while waiting for the add-on: " + wait_connection
+
+    # This starts the known stdio MCP server (uvx blender-mcp), connects it to
+    # the configured loopback add-on at 127.0.0.1:9876, and performs tools/list.
+    ok, verification = test_connection()
+    if not ok:
+        return (
+            "Blender UI setup ran, but MARK could not verify the existing MCP "
+            "connection on 127.0.0.1:9876. " + str(verification)
+        )
+
+    result = (
+        "Blender MCP connected successfully on 127.0.0.1:9876. The existing add-on "
+        "connection was activated and MARK verified the advertised tools.\n"
+        + str(verification)
+    )
+    if player:
+        try:
+            player.write_log("[Blender MCP] connect: UI sequence and tools/list verified")
+            player.show_content("BLENDER MCP — CONNECTED", result)
+        except Exception:
+            pass
+    return result
+
+
 def run(parameters: dict, player=None, session_memory=None) -> str:
     params = dict(parameters or {})
     action = str(params.get("action", "status")).strip().lower().replace("-", "_")
@@ -258,6 +411,18 @@ def run(parameters: dict, player=None, session_memory=None) -> str:
             except Exception:
                 pass
         return result
+
+    if action == "connect":
+        if not approved:
+            if confirm_gate.pending_title():
+                return "There is already a confirmation waiting on screen. Answer it before connecting Blender."
+            return confirm_gate.request(
+                "blender_mcp_connect",
+                "Connect MARK to Blender MCP",
+                "Allow MARK to open or focus Blender, press N, select the existing Blender MCP panel, and start the local connection on port 9876?",
+                lambda: run({**params, "action": "connect", "_approved": True}, player=player, session_memory=session_memory),
+            )
+        return _connect_existing_blender(player=player)
 
     error = configuration_error()
     if error:
