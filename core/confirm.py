@@ -80,7 +80,15 @@ def _log(msg: str) -> None:
             pass
 
 
-def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
+def request(
+    key: str,
+    title: str,
+    detail: str,
+    run: Callable[[], str],
+    *,
+    execution_mode: str = "inline",
+    task_id: str = "",
+) -> str:
     """Park an irreversible action behind the on-screen gate.
 
     Returns the sentence the tool should hand back to the model — phrased as an
@@ -105,6 +113,15 @@ def request(key: str, title: str, detail: str, run: Callable[[], str]) -> str:
             _pending = None
         return f"Could not ask for confirmation: {e}. Nothing was done."
 
+    try:
+        from core.authority import get_authority
+        parts = str(key or "").split(":")
+        resolved_task_id = task_id or (parts[1] if str(key or "").startswith("runtime:") and len(parts) > 1 else "")
+        get_authority().approval_requested(
+            key, title, task_id=resolved_task_id, execution_mode=execution_mode, detail=detail,
+        )
+    except Exception:
+        pass
     _log(f"SYS: Awaiting confirmation — {title}")
     return (
         f"[CONFIRMATION_PENDING] I have put a confirmation on screen for: {title}. "
@@ -134,16 +151,28 @@ def resolve(accepted: bool) -> None:
         return
 
     if time.monotonic() - p.at > TIMEOUT_SECONDS:
+        outcome = "expired"
         if _result_cb:
             try: _result_cb(p.key, "Confirmation expired; nothing was done.")
             except Exception: pass
+        try:
+            from core.authority import get_authority
+            get_authority().approval_resolved(p.key, outcome, detail="Confirmation timed out; no action executed.")
+        except Exception:
+            pass
         _log(f"SYS: Confirmation expired — {p.title}")
         return
 
     if not accepted:
+        outcome = "cancelled"
         if _result_cb:
             try: _result_cb(p.key, "Confirmation cancelled; nothing was done.")
             except Exception: pass
+        try:
+            from core.authority import get_authority
+            get_authority().approval_resolved(p.key, outcome, detail="User declined; no action executed.")
+        except Exception:
+            pass
         _log(f"SYS: Cancelled — {p.title}")
         return
 
@@ -155,11 +184,21 @@ def resolve(accepted: bool) -> None:
                     _result_cb(p.key, str(result))
                 except Exception:
                     pass
+            try:
+                from core.authority import get_authority
+                get_authority().approval_resolved(p.key, "accepted", detail=str(result))
+            except Exception:
+                pass
             _log(f"SYS: Confirmed — {p.title}. {result}")
         except Exception as e:
             if _result_cb:
                 try: _result_cb(p.key, f"Confirmation action failed: {e}")
                 except Exception: pass
+            try:
+                from core.authority import get_authority
+                get_authority().approval_resolved(p.key, "failed", detail=str(e))
+            except Exception:
+                pass
             _log(f"ERR: {p.title} failed — {e}")
 
     threading.Thread(target=_worker, daemon=True,
@@ -168,9 +207,22 @@ def resolve(accepted: bool) -> None:
 
 def pending_title() -> str:
     """'' when nothing is waiting. Lets an action avoid stacking two banners."""
+    global _pending
     with _lock:
         if _pending is None:
             return ""
         if time.monotonic() - _pending.at > TIMEOUT_SECONDS:
+            key = _pending.key
+            _pending = None
+            if _hide_cb:
+                try:
+                    _hide_cb()
+                except Exception:
+                    pass
+            try:
+                from core.authority import get_authority
+                get_authority().approval_resolved(key, "expired", detail="Pending confirmation expired while being inspected.")
+            except Exception:
+                pass
             return ""
         return _pending.title

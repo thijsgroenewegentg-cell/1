@@ -57,5 +57,6 @@ screenshots/
 
 # ── Runtime task traces and local evaluation output ───────────────────────────
 memory/task_runtime.json
+memory/authority_state.json
 memory/evaluations/
 memory/proactive_alerts.json

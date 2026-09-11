@@ -29,7 +29,7 @@ _READ_ONLY_TOOLS = {
     "system_status", "screen_process", "close_camera", "recall_memory", "memory_control",
     "undo", "task_runtime", "approval_policy", "recovery", "proactive", "web_search", "git_helper",
     "project_helper", "list_tools", "status", "list_objects", "inspect_object", "scene_summary",
-    "visual_review", "verify", "plan", "workflow_plan", "connection_status",
+    "visual_review", "verify", "plan", "workflow_plan", "connection_status", "authority_control",
 }
 _DESTRUCTIVE_WORDS = {
     "delete", "remove", "destroy", "shutdown", "wipe", "format", "send", "publish",
@@ -39,7 +39,8 @@ _MUTATING_WORDS = {
     "add", "apply", "build", "complete", "copy", "create", "download", "edit", "generate",
     "move", "organize", "rename", "render", "replay", "restore", "run", "save", "set",
     "skip", "type", "update", "upload", "write", "start", "forget", "dismiss",
-    "clear_history", "clear_sessions", "set_profile",
+    "clear_history", "clear_sessions", "set_profile", "pause", "kill", "resume", "clear_kill",
+    "emergency_stop", "safety_pause",
 }
 _task_lock = threading.RLock()
 _task_id = ""
@@ -123,7 +124,7 @@ def assess_tool(tool: str, args: dict | None = None) -> PolicyDecision:
     tokens = _tokens(name, action, args)
     hard = bool(tokens & _DESTRUCTIVE_WORDS) or name in {"send_message", "email_client", "browser_control", "computer_control", "computer_settings"}
     read_only = ((name in _READ_ONLY_TOOLS and action not in _MUTATING_WORDS)
-                 or action in {"status", "connection_status", "list_tools", "list", "inspect", "inspect_object", "info", "search", "show", "plan", "workflow_plan", "scene_summary", "visual_review", "verify", "list_objects", "timeline", "failures", "operations", "task", "preferences", "influence"})
+                 or action in {"status", "connection_status", "list_tools", "list", "inspect", "inspect_object", "info", "search", "show", "plan", "workflow_plan", "scene_summary", "visual_review", "verify", "list_objects", "timeline", "failures", "operations", "task", "preferences", "influence", "audit", "emergency_status"})
     if read_only and not hard:
         risk, reversible = "read_only", True
     elif hard:

@@ -93,6 +93,7 @@ from core.operation_checkpoints import record as record_operation_checkpoint
 from core.task_planner import create as create_task_plan, current as current_task_plan, render as render_task_plan, update as update_task_plan
 from core.task_runtime import runtime as get_task_runtime
 from core.tool_contracts import normalize_result, ToolResult
+from core.authority import get_authority
 from core.approval_policy import (
     assess_tool,
     begin_task as begin_approval_task,
@@ -119,6 +120,7 @@ from core.llm_client import (
     get_vision_model,
     ensure_ollama_running,
     to_ollama_tools,
+    tool_scaffolding,
 )
 from core.plugin_loader import discover_plugins
 try:
@@ -611,6 +613,7 @@ class LocalAssistant:
         self._system_monitor = SystemMonitor()
         self._proactive = ProactiveEngine()
         self._task_runtime = get_task_runtime()
+        self._authority = get_authority()
         self._wake_enabled = bool(get_wake_word_enabled())
         self._awake = not self._wake_enabled
         self._wake_detector: WakeWordDetector | None = None
@@ -918,6 +921,7 @@ class LocalAssistant:
             dashboard.set_audio_callback(self._on_remote_audio)
             dashboard.set_file_callback(self._on_remote_file)
             dashboard.set_task_callback(self._on_remote_task_control)
+            dashboard.set_safety_callback(self._on_remote_safety_control)
             self._dashboard = dashboard
         except Exception as exc:
             # The desktop assistant remains fully usable without optional
@@ -949,6 +953,8 @@ class LocalAssistant:
         if self._dashboard is not None:
             state = "sleeping" if self._current_state == "SLEEPING" else "active"
             self._dashboard.publish({"type": "status", "state": state, "language": self._active_language})
+            safety = self._authority.emergency_status()
+            self._dashboard.publish({"type": "safety", "mode": safety.get("mode", "normal"), "reason": safety.get("reason", ""), "language": self._active_language})
             self._publish_remote_progress("task_state", self._task_runtime.render(include_history=False))
 
     def _on_remote_command(self, text: str) -> None:
@@ -1026,6 +1032,45 @@ class LocalAssistant:
         self.log(f"SYS: Remote task control {action}: {str(result)[:220]}")
         return result
 
+    def _on_remote_safety_control(self, action: str, body: dict | None = None) -> str:
+        """Apply an authenticated, fail-safe emergency gate from the dashboard."""
+        body = body if isinstance(body, dict) else {}
+        action = str(action or "").lower().strip()
+        reason = str(body.get("reason") or "Remote safety control requested.")[:240]
+        if action in {"pause", "safety_pause"}:
+            mode = "pause"
+            self._pause_requested.set()
+            self._cancel_response.set()
+        elif action in {"kill", "emergency_stop"}:
+            mode = "kill"
+            self._pause_requested.set()
+            self._cancel_response.set()
+        elif action in {"resume", "clear", "clear_kill"}:
+            mode = "normal"
+            self._pause_requested.clear()
+            self._cancel_response.clear()
+        elif action == "status":
+            return json.dumps(self._authority.emergency_status(), ensure_ascii=False)
+        else:
+            return "Unsupported safety control."
+        if getattr(self, "_tts", None) is not None and mode != "normal":
+            self._tts.stop()
+        if mode != "normal" and confirm_gate.pending_title():
+            # Emergency controls fail safe: cancel a parked approval rather than
+            # allowing it to execute after the user believes the stop is active.
+            confirm_gate.resolve(False)
+        status = self._authority.set_emergency(mode, reason, actor="remote_interface")
+        if mode != "normal":
+            self._task_runtime.hold("paused", detail=f"Emergency {mode} gate active; no new tool execution will start.")
+        else:
+            self._task_runtime.resume()
+        result = f"Emergency mode={status.get('mode')}; reason={status.get('reason') or 'none'}."
+        if self._dashboard is not None:
+            self._dashboard.publish({"type": "safety", "mode": status.get("mode"), "reason": status.get("reason", ""), "language": self._active_language})
+        self._publish_remote_progress("safety", result)
+        self.log(f"SYS: {result}")
+        return result
+
     def _publish_remote_log(self, speaker: str, text: str) -> None:
         if self._dashboard is not None:
             self._dashboard.publish({"type": "log", "speaker": speaker, "text": str(text), "language": self._active_language})
@@ -1037,7 +1082,7 @@ class LocalAssistant:
     def _publish_remote_progress(self, stage: str, detail: str = "", **extra) -> None:
         if self._dashboard is not None:
             payload = {"type": "progress", "stage": str(stage), "detail": str(detail)[:900], "language": self._active_language}
-            payload.update({key: value for key, value in extra.items() if key in {"tool", "ok", "changed", "step", "total", "verification", "recovery"}})
+            payload.update({key: value for key, value in extra.items() if key in {"tool", "ok", "changed", "step", "total", "verification", "recovery", "question", "execution_mode", "task_id", "operation_id", "status"}})
             try:
                 current = self._task_runtime.snapshot().get("current") or {}
                 if current:
@@ -1048,7 +1093,11 @@ class LocalAssistant:
                         "title": str(current.get("title", "MARK task"))[:180],
                         "status": str(current.get("status", "active"))[:40],
                         "operation": str(active.get("tool", ""))[:100],
+                        "operation_id": str(active.get("id", ""))[:40],
                         "operation_status": str(active.get("status", ""))[:40],
+                        "task_type": str(current.get("task_type", "general"))[:50],
+                        "question": str(current.get("question", ""))[:600],
+                        "resume_count": int(current.get("resume_count", 0) or 0),
                     }
             except Exception:
                 pass
@@ -1131,10 +1180,18 @@ class LocalAssistant:
         blender_context = f"[CURRENT BLENDER CONTEXT]\n{self._blender_context[:1800]}" if self._blender_context else ""
         active_plan = current_task_plan()
         task_context = f"[ACTIVE TASK PLAN]\n{render_task_plan(active_plan)}" if active_plan else ""
+        runtime_task = self._task_runtime.render(include_history=False)
+        runtime_context = f"[DURABLE TASK ENVELOPE]\n{runtime_task}" if runtime_task else ""
         orchestration_context = self._orchestrator.render()
         if self._last_request_profile:
             orchestration_context = f"[REQUEST PREFLIGHT]\n{orchestration_context}"
-        live_context = "\n\n".join(block for block in (project_context, project_memory, blender_context, task_context, orchestration_context) if block)
+        authority = self._authority.emergency_status()
+        authority_context = (
+            f"[AUTHORITY]\nmode={authority.get('mode', 'normal')}; "
+            f"pending_approvals={authority.get('pending_approvals', 0)}; "
+            "Never claim a blocked or awaiting approval action was executed."
+        )
+        live_context = "\n\n".join(block for block in (project_context, project_memory, blender_context, task_context, runtime_context, orchestration_context, authority_context) if block)
         active_language = self._active_language or get_language()
         return (
             f"You are {name}, a capable local desktop assistant. {address}\n"
@@ -1152,6 +1209,31 @@ class LocalAssistant:
 
     def _reset_messages(self) -> None:
         self._messages = [{"role": "system", "content": self._build_system_prompt()}]
+
+    def _restore_pending_messages(self) -> bool:
+        """Hydrate only resumable clarification/paused buffers after restart."""
+        snapshot = self._task_runtime.snapshot().get("current") or {}
+        if snapshot.get("status") not in {"needs_input", "paused", "waiting_confirmation"}:
+            return False
+        buffered = snapshot.get("conversation") or []
+        if not isinstance(buffered, list):
+            buffered = []
+        if not buffered:
+            request = snapshot.get("request") or {}
+            original = str(request.get("original_message") or snapshot.get("title") or "").strip()
+            question = str(snapshot.get("question") or "").strip()
+            if original:
+                buffered = [{"role": "user", "content": original}]
+                if question:
+                    buffered.append({"role": "assistant", "content": question})
+            else:
+                return False
+        self._active_language = str(snapshot.get("language") or self._active_language or "en")
+        self._messages = [{"role": "system", "content": self._build_system_prompt()}]
+        self._messages.extend(item for item in buffered if isinstance(item, dict))
+        self._trim_messages()
+        self.log(f"SYS: Restored resumable task {snapshot.get('id', '')} ({snapshot.get('status', '')}); no tool operation was replayed.")
+        return True
 
     def _trim_messages(self) -> None:
         # Keep the system prompt and the last 24 messages. Tool results can be
@@ -1227,7 +1309,7 @@ class LocalAssistant:
         if not value or value.startswith(("{", "[", "```")):
             return False
         lower = value.lower()
-        return not any(marker in lower for marker in ("\"tool_calls\"", "<tool_call>", "function_call"))
+        return not tool_scaffolding(value, ()) and not any(marker in lower for marker in ("\"tool_calls\"", "<tool_call>", "function_call", "<function_call>", "\"arguments\""))
 
     def _offline_command(self, text: str) -> str | None:
         """Small deterministic fallback for useful commands without Ollama."""
@@ -1259,8 +1341,10 @@ class LocalAssistant:
         # checklist; remote resume uses the same state transition without
         # replaying any previous tool.
         self._pause_requested.clear()
+        existing_task = (self._task_runtime.snapshot().get("current") or {})
+        resuming_clarification = existing_task.get("status") == "needs_input"
         self._last_request_profile = self._orchestrator.begin(text, get_language())
-        self._active_language = self._last_request_profile.language
+        self._active_language = existing_task.get("language", self._last_request_profile.language) if resuming_clarification else self._last_request_profile.language
         self._publish_remote_progress(
             "preflight",
             self._last_request_profile.as_text(),
@@ -1284,8 +1368,27 @@ class LocalAssistant:
                     self.log("SYS: Created a bounded preflight plan for a multi-step request.")
                 except Exception as exc:
                     self.log(f"WRN: Preflight plan was not created — {exc}")
-        turn_id = self._task_runtime.begin_turn(text)
+        if resuming_clarification:
+            turn_id = str(existing_task.get("id", ""))
+            self._task_runtime.answer_clarification(text)
+            self.log("SYS: Resuming the clarification task without replaying previous operations.")
+        else:
+            turn_id = self._task_runtime.begin_turn(
+                text,
+                request={
+                    "original_message": text,
+                    "intent": self._last_request_profile.goal,
+                    "domains": list(self._last_request_profile.domains),
+                    "estimated_steps": self._last_request_profile.estimated_steps,
+                    "requires_plan": self._last_request_profile.requires_plan,
+                    "mutating": self._last_request_profile.mutating,
+                },
+                language=self._active_language,
+                task_type="multi_step" if self._last_request_profile.requires_plan else "general",
+                intent=self._last_request_profile.goal,
+            )
         begin_approval_task(turn_id)
+        self._authority.begin_task(turn_id)
         if not already_logged:
             self.log(f"You: {text}")
         self._session_log.append(f"User: {text}")
@@ -1297,7 +1400,13 @@ class LocalAssistant:
                 self.log(f"{get_assistant_name()}: {result}")
                 self._session_log.append(f"{get_assistant_name()}: {result}")
                 self.speak(result)
-                self._task_runtime.end_turn("completed")
+                if resuming_clarification:
+                    self._task_runtime.request_clarification(
+                        existing_task.get("question") or "Please repeat the clarification when Ollama is available.",
+                        conversation=self._task_runtime.conversation(),
+                    )
+                else:
+                    self._task_runtime.end_turn("completed")
                 return
         self._cancel_response.clear()
         self._thinking.set()
@@ -1310,8 +1419,10 @@ class LocalAssistant:
             self._messages[0] = {"role": "system", "content": self._build_system_prompt()}
         self._messages.append({"role": "user", "content": text})
         self._trim_messages()
+        self._task_runtime.set_conversation(self._messages[1:])
 
         active_speaker = None
+        turn_failed = False
         try:
             final_text = ""
             response_model = self._choose_response_model(text)
@@ -1360,6 +1471,7 @@ class LocalAssistant:
                     spoke_response = bool(queued_sentences)
                     final_text = content or "I’m ready."
                     self._messages.append({"role": "assistant", "content": final_text})
+                    self._task_runtime.set_conversation(self._messages[1:])
                     break
 
                 # Tool-call rounds should normally contain no prose. If a model
@@ -1382,18 +1494,26 @@ class LocalAssistant:
                         "content": str(result),
                     })
                 self._trim_messages()
+                self._task_runtime.set_conversation(self._messages[1:])
             else:
                 final_text = "I reached the tool-call limit for that request."
 
             final_text = re.sub(r"<\|.*?\|>", "", final_text, flags=re.DOTALL).strip()
             if self._cancel_response.is_set():
                 return
+            needs_input = bool(final_text and final_text.rstrip().endswith("?") and len(final_text) <= 1200)
+            if needs_input:
+                self._task_runtime.request_clarification(final_text, conversation=self._messages[1:])
+                self._publish_remote_progress("needs_input", final_text, question=final_text)
+            else:
+                self._task_runtime.set_result({"summary": final_text, "spoke": bool(final_text)}, status="completed")
             if final_text:
                 self.log(f"{get_assistant_name()}: {final_text}")
                 self._session_log.append(f"{get_assistant_name()}: {final_text}")
                 if not spoke_response:
                     self.speak(final_text)
         except Exception as e:
+            turn_failed = True
             traceback.print_exc()
             message = explain_failure("Ollama response", e, changed=False)
             self.log(f"ERR: {message}")
@@ -1418,8 +1538,10 @@ class LocalAssistant:
                     self._task_runtime.hold("paused")
                 elif confirm_gate.pending_title():
                     self._task_runtime.hold("waiting_confirmation")
+                elif (self._task_runtime.snapshot().get("current") or {}).get("status") == "needs_input":
+                    self._task_runtime.hold("needs_input", detail="Waiting for the user's clarification answer; previous operations will not be replayed.")
                 else:
-                    turn_status = "cancelled" if self._cancel_response.is_set() else "completed"
+                    turn_status = "cancelled" if self._cancel_response.is_set() else ("failed" if turn_failed else "completed")
                     self._task_runtime.end_turn(turn_status)
             except Exception:
                 pass
@@ -1479,6 +1601,10 @@ class LocalAssistant:
         if approved_by_interface:
             # This marker only arrives from a confirmation callback. The hard
             # destructive gates below are still retained by the called tool.
+            return False
+        if name == "authority_control" and action in {"pause", "safety_pause", "kill", "emergency_stop"}:
+            # A fail-safe stop must remain available even when a confirmation
+            # banner is stale or the model is mid-stream.
             return False
         if name == "dev_agent":
             return True
@@ -1607,17 +1733,51 @@ class LocalAssistant:
         had_task = bool(self._task_runtime.snapshot().get("current"))
         if not had_task:
             begin_approval_task("standalone")
+            self._authority.begin_task("standalone")
         decision = assess_tool(name, args)
-        self._orchestrator.tool_started(name, args)
         approved_by_interface = args.get("_approved") is _APPROVAL_SENTINEL
+        task_id = self._task_runtime.task_id()
+        authority_decision = self._authority.decide(
+            name,
+            args,
+            task_id=task_id,
+            interface_approved=approved_by_interface,
+        )
+        self._orchestrator.tool_started(name, args)
+        if not authority_decision.allowed:
+            self._authority.record_denied(name, authority_decision.reason, task_id=task_id)
+            operation_id = self._task_runtime.begin_operation(
+                name, args, risk=authority_decision.risk, requires_confirmation=False, execution_mode="blocked",
+            )
+            blocked = normalize_result(
+                f"Tool {name} was blocked safely: {authority_decision.reason}", tool=name, args=args,
+            )
+            blocked.ok = False
+            blocked.changed = False
+            blocked.status = "blocked"
+            blocked.risk = authority_decision.risk
+            self._task_runtime.finish_operation(operation_id, blocked)
+            self._publish_remote_progress("safety_block", blocked.as_text(), tool=name, ok=False, changed=False)
+            self._orchestrator.tool_finished(name, blocked.as_text(), False)
+            return blocked.as_text()
         operation_id = self._task_runtime.begin_operation(
             name,
             args,
-            risk=decision.risk,
-            requires_confirmation=decision.requires_confirmation or self._action_needs_confirmation(name, args),
+            risk=authority_decision.risk,
+            requires_confirmation=authority_decision.requires_approval or self._action_needs_confirmation(name, args),
+            execution_mode=authority_decision.execution_mode,
         )
-        self._publish_remote_progress("tool_started", f"Running {name}", tool=name)
-        if get_dry_run() and decision.risk != "read_only" and name not in {"agent_control", "task_planner", "task_runtime", "approval_policy"}:
+        self._authority.record_tool_started(name, task_id=task_id, decision=authority_decision)
+        self._publish_remote_progress(
+            "tool_started",
+            f"Running {name} ({authority_decision.execution_mode})",
+            tool=name,
+            task_id=task_id,
+            operation_id=operation_id,
+            status="running",
+            execution_mode=authority_decision.execution_mode,
+        )
+        if get_dry_run() and decision.risk != "read_only" and name not in {"agent_control", "task_planner", "task_runtime", "approval_policy", "authority_control"}:
             preview = normalize_result(build_preview(name, args, self._last_request_profile), tool=name, args=args)
             preview.ok = True
             preview.changed = False
@@ -1626,6 +1786,7 @@ class LocalAssistant:
             preview.reversible = True
             preview.recovery = "Disable dry-run mode after reviewing this preview; no external action was executed."
             self._task_runtime.finish_operation(operation_id, preview)
+            self._authority.record_tool_finished(name, preview.status, task_id=task_id, changed=False, ok=True, detail=preview.summary)
             text_result = preview.as_text()
             self._orchestrator.tool_finished(name, text_result, True)
             self._publish_remote_progress("preview", text_result, tool=name, ok=True, changed=False)
@@ -1641,7 +1802,8 @@ class LocalAssistant:
             or (name == "memory_control" and action_name == "clear_sessions")
             or (name == "approval_policy" and action_name == "set_profile")
         )
-        if (decision.requires_confirmation and not approved_by_interface and not owns_specific_gate):
+        requires_approval = authority_decision.requires_approval or self._action_needs_confirmation(name, args)
+        if (requires_approval and not approved_by_interface and not owns_specific_gate):
             if confirm_gate.pending_title():
                 pending = "[CONFIRMATION_PENDING] Another confirmation is already waiting on the HUD; do not start this operation yet."
             else:
@@ -1649,7 +1811,9 @@ class LocalAssistant:
                     f"runtime:{operation_id}:{name}",
                     f"Approve {name}",
                     f"Approval profile '{get_approval_profile()}' requires confirmation before calling {name}.",
-                    lambda: (grant_task_approval(), self.execute_tool(name, {**args, "_approved": _APPROVAL_SENTINEL}))[1],
+                    lambda: (grant_task_approval(), self._authority.grant_task(task_id, category="reversible"), self.execute_tool(name, {**args, "_approved": _APPROVAL_SENTINEL}))[2],
+                    execution_mode=authority_decision.execution_mode,
+                    task_id=task_id,
                 )
             result = normalize_result(pending, tool=name, args=args)
             result.risk = decision.risk
@@ -1659,11 +1823,15 @@ class LocalAssistant:
                 if target:
                     result.changed_items = [str(target)]
             self._task_runtime.finish_operation(operation_id, result)
+            self._authority.record_tool_finished(
+                name, result.status, task_id=task_id, changed=result.changed,
+                ok=result.ok, detail=result.summary,
+            )
             if result.status == "waiting_confirmation":
                 self._task_runtime.hold("waiting_confirmation")
             text_result = result.as_text()
             self._orchestrator.tool_finished(name, text_result, result.ok)
-            self._publish_remote_progress("confirmation", text_result, tool=name, ok=result.ok, changed=result.changed)
+            self._publish_remote_progress("confirmation", text_result, tool=name, task_id=task_id, operation_id=operation_id, status=result.status, ok=result.ok, changed=result.changed)
             return text_result
         try:
             value = self._execute_tool_raw(name, args)
@@ -1691,6 +1859,10 @@ class LocalAssistant:
                 if target:
                     result.changed_items = [str(target)]
             self._task_runtime.finish_operation(operation_id, result)
+            self._authority.record_tool_finished(
+                name, result.status, task_id=task_id, changed=result.changed,
+                ok=result.ok, detail=result.summary,
+            )
             if result.status == "waiting_confirmation":
                 self._task_runtime.hold("waiting_confirmation")
             elif not had_task:
@@ -1698,7 +1870,7 @@ class LocalAssistant:
             self.log(f"[Task runtime] {name}: {'ok' if result.ok else 'failed'}; changed={result.changed}; verification={'yes' if result.verification else 'no'}")
             text_result = result.as_text()
             self._orchestrator.tool_finished(name, text_result, result.ok)
-            self._publish_remote_progress("tool_finished", text_result, tool=name, ok=result.ok, changed=result.changed)
+            self._publish_remote_progress("tool_finished", text_result, tool=name, task_id=task_id, operation_id=operation_id, status=result.status, ok=result.ok, changed=result.changed)
             if result.verification:
                 self._publish_remote_progress("verified", str(result.verification), tool=name, ok=result.ok, changed=result.changed, verification=result.verification)
             if result.recovery:
@@ -1708,8 +1880,9 @@ class LocalAssistant:
             result = normalize_result(f"Tool {name} failed: {exc}", tool=name, args=args)
             result.risk = decision.risk
             self._task_runtime.finish_operation(operation_id, result)
+            self._authority.record_tool_finished(name, result.status, task_id=task_id, changed=False, ok=False, detail=result.summary)
             self._orchestrator.tool_finished(name, result.as_text(), False)
-            self._publish_remote_progress("tool_failed", result.as_text(), tool=name, ok=False, changed=False)
+            self._publish_remote_progress("tool_failed", result.as_text(), tool=name, task_id=task_id, operation_id=operation_id, status=result.status, ok=False, changed=False)
             raise
 
     def _execute_tool_raw(self, name: str, args: dict) -> str:
@@ -2146,7 +2319,8 @@ class LocalAssistant:
         self._set_state("THINKING")
         configure_audio_devices(SEND_SAMPLE_RATE, RECEIVE_SAMPLE_RATE)
         server_ok = self._check_server()
-        self._reset_messages()
+        if not self._restore_pending_messages():
+            self._reset_messages()
         threading.Thread(target=self._proactive_loop, daemon=True, name="mark-proactive-loop").start()
         if self._wake_enabled:
             if self._ensure_wake_detector():

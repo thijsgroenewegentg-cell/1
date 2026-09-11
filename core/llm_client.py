@@ -500,16 +500,48 @@ def parse_tool_calls(text: str, known_names) -> list[dict]:
     Rescue tool calls that a model wrote as JSON in its prose instead of
     emitting real tool_calls. Returns Ollama-shaped tool-call dicts.
 
-    Recognised shapes:
-        {"name": "volume", "arguments": {...}}
-        {"tool": "volume", "arguments": {...}}
-        {"function": "volume", "parameters": {...}}
-        {"tool_calls": [{"name": ..., "arguments": {...}}]}
-        {"action": "volume", ...}   (remaining keys become the arguments)
+    Recognised shapes include JSON objects, fenced ``<tool_call>`` blocks and
+    compact ``/tool_name{...}`` markers used by some local model templates.
     """
     names = set(known_names or ())
     if not names or not text:
         return []
+
+    # A few instruct templates serialize their request as /tool_name{json}.
+    # Parse only names already advertised by MARK; this is not an arbitrary
+    # command parser and cannot create a new tool capability.
+    for name in sorted(names, key=len, reverse=True):
+        for marker in re.finditer(r"/" + re.escape(name) + r"\s*\{", text or ""):
+            start = marker.end() - 1
+            depth, quote, escaped = 0, False, False
+            end = None
+            for index in range(start, len(text)):
+                char = text[index]
+                if quote:
+                    if escaped:
+                        escaped = False
+                    elif char == "\\":
+                        escaped = True
+                    elif char == '"':
+                        quote = False
+                    continue
+                if char == '"':
+                    quote = True
+                elif char == "{":
+                    depth += 1
+                elif char == "}" and depth:
+                    depth -= 1
+                    if depth == 0:
+                        end = index + 1
+                        break
+            if end is None:
+                continue
+            try:
+                args = json.loads(text[start:end])
+            except Exception:
+                continue
+            if isinstance(args, dict):
+                return [{"function": {"name": name, "arguments": args}}]
 
     for obj in _json_blobs(text):
         if "tool_calls" in obj and isinstance(obj["tool_calls"], list):
@@ -527,16 +559,19 @@ def parse_tool_calls(text: str, known_names) -> list[dict]:
 def _one_tool_call(obj: dict, names: set) -> list[dict]:
     for key in ("name", "tool", "function", "tool_name"):
         cand = obj.get(key)
-        if isinstance(cand, str) and cand.strip() in names:
-            name = cand.strip()
+        nested = cand if isinstance(cand, dict) else None
+        candidate_name = (nested or {}).get("name") if nested else cand
+        if isinstance(candidate_name, str) and candidate_name.strip() in names:
+            name = candidate_name.strip()
             args = None
+            source = nested or obj
             for akey in ("arguments", "parameters", "args", "params"):
-                if isinstance(obj.get(akey), dict):
-                    args = obj[akey]
+                if isinstance(source.get(akey), dict):
+                    args = source[akey]
                     break
-                if isinstance(obj.get(akey), str):
+                if isinstance(source.get(akey), str):
                     try:
-                        args = json.loads(obj[akey])
+                        args = json.loads(source[akey])
                     except Exception:
                         args = None
                     break
@@ -551,6 +586,20 @@ def _one_tool_call(obj: dict, names: set) -> list[dict]:
             args = val if isinstance(val, dict) else {}
             return [{"function": {"name": key, "arguments": args}}]
     return []
+
+
+def recover_tool_output(text: str, known_names) -> tuple[str, list[dict]]:
+    """Strip model-visible tool scaffolding while preserving natural prose."""
+    from core.tool_output_recovery import recover_tool_output as _recover
+    return _recover(text, known_names, parse_tool_calls)
+
+
+def tool_scaffolding(text: str, known_names=None) -> bool:
+    """True when a streamed sentence should not be sent to TTS."""
+    value = str(text or "").lower()
+    if any(marker in value for marker in ("<tool_call>", "</tool_call>", "<function_call>", '"tool_calls"', '"arguments"')):
+        return True
+    return bool(parse_tool_calls(str(text or ""), known_names or []))
 
 
 # ── Images ───────────────────────────────────────────────────────────────────
@@ -625,11 +674,12 @@ def call_llm(
         msg = resp.json().get("message", {})
         content = clean_text(msg.get("content") or "")
         tool_calls = msg.get("tool_calls") or []
-        if not tool_calls and tools:
+        if tools:
             names = [t.get("function", {}).get("name") for t in tools]
-            tool_calls = parse_tool_calls(content, names)
-            if tool_calls:
-                content = ""
+            recovered_content, recovered_calls = recover_tool_output(content, names)
+            if not tool_calls:
+                tool_calls = recovered_calls
+            content = "" if tool_calls and not recovered_content else recovered_content
         return {"content": content, "tool_calls": tool_calls}
     except requests.exceptions.ConnectionError as e:
         print(f"[LLM] ConnectionError — trying to restart Ollama… ({e})")
@@ -640,11 +690,12 @@ def call_llm(
                 msg = resp.json().get("message", {})
                 content = clean_text(msg.get("content") or "")
                 tool_calls = msg.get("tool_calls") or []
-                if not tool_calls and tools:
+                if tools:
                     names = [t.get("function", {}).get("name") for t in tools]
-                    tool_calls = parse_tool_calls(content, names)
-                    if tool_calls:
-                        content = ""
+                    recovered_content, recovered_calls = recover_tool_output(content, names)
+                    if not tool_calls:
+                        tool_calls = recovered_calls
+                    content = "" if tool_calls and not recovered_content else recovered_content
                 return {"content": content, "tool_calls": tool_calls}
             except Exception:
                 pass
@@ -720,7 +771,7 @@ def call_llm_stream(
                         break
                     sentence = clean_text(buf[: m.start() + 1])
                     buf      = buf[m.end():]
-                    if sentence:
+                    if sentence and not tool_scaffolding(sentence, tool_names):
                         yield {"type": "sentence", "text": sentence}
 
                 tc = msg.get("tool_calls")
@@ -730,14 +781,15 @@ def call_llm_stream(
                 if chunk.get("done"):
                     if buf.strip():
                         tail = clean_text(buf)
-                        if tail:
+                        if tail and not tool_scaffolding(tail, tool_names):
                             yield {"type": "sentence", "text": tail}
+                    recovered_content, recovered_calls = recover_tool_output(full_content, tool_names)
                     if not tool_calls:
-                        tool_calls = parse_tool_calls(full_content, tool_names)
-                        if tool_calls:
-                            # the text was the model's way of asking for a tool —
-                            # don't speak the JSON it wrapped the call in.
-                            full_content = ""
+                        tool_calls = recovered_calls
+                    # The text may contain a natural preamble plus a serialized
+                    # call. Strip only the structured payload; never speak it.
+                    if tool_calls:
+                        full_content = recovered_content
                     yield {
                         "type":       "done",
                         "content":    clean_text(full_content),

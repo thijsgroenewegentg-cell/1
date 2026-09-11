@@ -394,6 +394,9 @@
           <button class="task-control" data-task-control="resume" data-i18n="Resume">Resume</button>
           <button class="task-control" data-task-control="recovery" data-i18n="Recovery">Recovery</button>
           <button class="task-control" data-task-control="rollback" data-i18n="Rollback plan">Rollback plan</button>
+          <button class="task-control" data-safety-control="pause" data-i18n="Safety pause">Safety pause</button>
+          <button class="task-control" data-safety-control="resume" data-i18n="Clear safety gate">Clear safety gate</button>
+          <button class="task-control danger" data-safety-control="kill" data-i18n="Emergency stop">Emergency stop</button>
           <button class="task-control danger" data-task-control="cancel" data-i18n="Cancel">Cancel</button>
         </div>
       </section>
@@ -456,7 +459,7 @@
       'Ask for a status update': 'Vraag om een statusupdate', 'See what MARK can do': 'Bekijk wat MARK kan',
       'Ask MARK anything…': 'Vraag MARK iets…', 'SEND': 'VERSTUREN', 'WAKE': 'WEKKEN',
       'No active task': 'Geen actieve taak', 'Task plans and confirmation requests will appear in the conversation.': 'Taakplannen en bevestigingsverzoeken verschijnen in het gesprek.',
-      'Pause': 'Pauzeren', 'Resume': 'Hervatten', 'Rollback plan': 'Plan terugdraaien', 'Cancel': 'Annuleren', 'Connecting to JARVIS': 'Verbinden met MARK',
+      'Pause': 'Pauzeren', 'Resume': 'Hervatten', 'Rollback plan': 'Plan terugdraaien', 'Safety pause': 'Veiligheidspauze', 'Clear safety gate': 'Veiligheid vrijgeven', 'Emergency stop': 'Noodstop', 'Cancel': 'Annuleren', 'Connecting to JARVIS': 'Verbinden met MARK',
       'Connected to JARVIS': 'Verbonden met MARK', 'Connection lost — refresh to reconnect.': 'Verbinding verbroken — vernieuw om opnieuw te verbinden.',
       'Waiting for the local relay.': 'Wachten op de lokale verbinding.',
     };
@@ -589,6 +592,9 @@
     document.querySelectorAll('[data-task-control]').forEach(button => {
       button.addEventListener('click', () => _taskControl(button.dataset.taskControl));
     });
+    document.querySelectorAll('[data-safety-control]').forEach(button => {
+      button.addEventListener('click', () => _safetyControl(button.dataset.safetyControl));
+    });
     async function _taskControl(action) {
       const body = action === 'rollback' ? {step: 1} : {};
       try {
@@ -598,6 +604,20 @@
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Task control failed');
         toast(_language === 'nl' ? 'Taakcentrum bijgewerkt' : 'Task center updated');
+      } catch (error) {
+        toast(String(error.message || error));
+      }
+    }
+    async function _safetyControl(action) {
+      const emergency = action === 'kill' ? 'Emergency stop' : action === 'pause' ? 'Safety pause' : 'Clear safety gate';
+      if (action === 'kill' && !window.confirm(_language === 'nl' ? 'Noodstop activeren? Alle tooluitvoering wordt geblokkeerd.' : 'Activate emergency stop? All tool execution will be blocked.')) return;
+      try {
+        const response = await _authFetch(`/api/safety/${encodeURIComponent(action)}`, {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({reason: emergency})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Safety control failed');
+        toast(_language === 'nl' ? 'Veiligheidsstatus bijgewerkt' : 'Safety state updated');
       } catch (error) {
         toast(String(error.message || error));
       }
@@ -620,6 +640,7 @@
       if (m.type === 'sys')           sys(m.text);
       if (m.type === 'progress')      progress(m);
       if (m.type === 'task_control') progress({stage: 'task_control', detail: m.result, language: m.language || _language});
+      if (m.type === 'safety')         sys((_language === 'nl' ? 'Veiligheid: ' : 'Safety: ') + (m.result || m.mode || 'updated'));
       if (m.type === 'file_received') _onFileReceived(m);
     };
 
@@ -669,7 +690,7 @@
       const task = m.task || {};
       if (taskState && task.status) {
         taskState.textContent = task.title ? `${task.title} · ${task.status}` : task.status;
-        taskDetail.textContent = task.operation ? `${task.operation} · ${task.operation_status || stage}` : detail.slice(0, 180);
+        taskDetail.textContent = task.question ? task.question.slice(0, 240) : (task.operation ? `${task.operation} · ${task.operation_status || stage}` : detail.slice(0, 180));
       } else if (taskState && String(m.stage) === 'task_state') {
         taskState.textContent = _language === 'nl' ? 'Geen actieve taak' : 'No active task';
         taskDetail.textContent = detail.slice(0, 180);

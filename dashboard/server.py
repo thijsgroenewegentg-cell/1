@@ -391,6 +391,7 @@ class DashboardServer:
         self._audio_callback              = None
         self._file_callback               = None
         self._task_callback               = None
+        self._safety_callback             = None
         self._pending_keys: dict[str, float] = {}
         self._device_sessions: dict[str, dict] = {}  # device_token → {session_key}
         self._uploads_dir                 = UPLOADS_DIR
@@ -472,6 +473,10 @@ class DashboardServer:
     def set_task_callback(self, fn) -> None:
         """Handle bounded task-center controls from an authenticated client."""
         self._task_callback = fn
+
+    def set_safety_callback(self, fn) -> None:
+        """Handle authenticated emergency pause/kill/resume controls."""
+        self._safety_callback = fn
 
     @property
     def available(self) -> bool:
@@ -773,6 +778,28 @@ class DashboardServer:
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": str(exc)[:300]}, status_code=500)
             payload = {"type": "task_control", "action": action, "result": str(result)[:1200]}
+            await self.broadcast(payload)
+            return JSONResponse({"ok": True, "action": action, "result": str(result)[:1200]})
+
+        @app.post("/api/safety/{action}")
+        async def safety_control(action: str, req: Request):
+            """Authenticated emergency gate; it never executes or replays a tool."""
+            if not _auth(req):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            action = str(action or "").lower().strip()
+            if action not in {"status", "pause", "safety_pause", "kill", "emergency_stop", "resume", "clear", "clear_kill"}:
+                return JSONResponse({"error": "Unsupported safety control"}, status_code=400)
+            if not self._safety_callback:
+                return JSONResponse({"error": "Safety controls are unavailable"}, status_code=503)
+            try:
+                body = await req.json()
+            except Exception:
+                body = {}
+            try:
+                result = self._safety_callback(action, body if isinstance(body, dict) else {})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": str(exc)[:300]}, status_code=500)
+            payload = {"type": "safety", "action": action, "result": str(result)[:1200]}
             await self.broadcast(payload)
             return JSONResponse({"ok": True, "action": action, "result": str(result)[:1200]})
 
