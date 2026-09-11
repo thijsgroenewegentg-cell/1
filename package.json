@@ -1,0 +1,32 @@
+{
+  "name": "jarvis-ollama",
+  "version": "0.1.0",
+  "description": "JARVIS — Just A Rather Very Intelligent System, powered by local Ollama models. An always-on autonomous AI daemon with agents, memory, goals and a live dashboard.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "bin": {
+    "jarvis": "./bin/jarvis.js"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/daemon.ts",
+    "dev": "JARVIS_LOG_LEVEL=debug node --disable-warning=ExperimentalWarning src/daemon.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test 'test/*.test.ts'",
+    "doctor": "node --disable-warning=ExperimentalWarning bin/jarvis.js doctor",
+    "ollama:pull": "node --disable-warning=ExperimentalWarning scripts/pull-models.js",
+    "mock-ollama": "node scripts/mock-ollama.js"
+  },
+  "keywords": [
+    "jarvis",
+    "ollama",
+    "ai-agent",
+    "assistant",
+    "local-llm",
+    "daemon"
+  ],
+  "dependencies": {
+    "yaml": "^2.9.0"
+  }
+}

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J.A.R.V.I.S. — Ollama Edition</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%2339d5ff'/></svg>">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div id="brand">
+      <div id="core" class="idle"><div class="ring"></div><div class="dot"></div></div>
+      <div>
+        <h1>J.A.R.V.I.S.</h1>
+        <p class="sub">Ollama Edition · local</p>
+      </div>
+    </div>
+    <nav>
+      <button class="nav active" data-tab="chat">💬 Chat</button>
+      <button class="nav" data-tab="memory">🧠 Memory</button>
+      <button class="nav" data-tab="goals">🎯 Goals</button>
+      <button class="nav" data-tab="system">⚙️ System</button>
+    </nav>
+    <div id="status-pill" title="daemon status">connecting…</div>
+  </aside>
+
+  <main>
+    <!-- ── CHAT ── -->
+    <section id="tab-chat" class="tab active">
+      <div id="chat-header">
+        <span class="small" id="conv-label">new conversation</span>
+        <button id="new-chat">＋ New chat</button>
+      </div>
+      <div id="messages"></div>
+      <form id="chat-form">
+        <button type="button" id="mic" title="Voice input (browser speech recognition)">🎤</button>
+        <input id="chat-input" placeholder="Talk to JARVIS… (Enter to send)" autocomplete="off">
+        <button type="button" id="speak-toggle" title="Toggle spoken replies" class="off">🔊</button>
+        <button type="submit">Send</button>
+      </form>
+    </section>
+
+    <!-- ── MEMORY ── -->
+    <section id="tab-memory" class="tab">
+      <h2>Knowledge vault</h2>
+      <div class="row">
+        <input id="memory-search" placeholder="Search memories…">
+        <button id="memory-refresh">Refresh</button>
+      </div>
+      <form id="memory-form" class="card">
+        <h3>Remember something</h3>
+        <div class="row">
+          <input id="memory-title" placeholder="Title" required>
+          <select id="memory-kind">
+            <option>note</option><option>entity</option>
+            <option>observation</option><option>commitment</option>
+          </select>
+        </div>
+        <textarea id="memory-body" placeholder="Details…"></textarea>
+        <button type="submit">Store</button>
+      </form>
+      <ul id="memory-list"></ul>
+    </section>
+
+    <!-- ── GOALS ── -->
+    <section id="tab-goals" class="tab">
+      <h2>Goals</h2>
+      <form id="goal-form" class="card">
+        <h3>New goal</h3>
+        <div class="row">
+          <input id="goal-title" placeholder="What do you want to achieve?" required>
+          <input id="goal-deadline" type="date" title="Deadline">
+        </div>
+        <input id="goal-krs" placeholder="Key results, comma separated (optional)">
+        <button type="submit">Create goal</button>
+      </form>
+      <ul id="goal-list"></ul>
+    </section>
+
+    <!-- ── SYSTEM ── -->
+    <section id="tab-system" class="tab">
+      <h2>System</h2>
+      <div class="grid2">
+        <div class="card">
+          <h3>Health</h3>
+          <pre id="health" class="mono">…</pre>
+          <div class="row">
+            <button id="btn-morning">Run morning plan</button>
+            <button id="btn-evening">Run evening review</button>
+            <button id="btn-heartbeat">Heartbeat</button>
+          </div>
+          <pre id="routine-out" class="mono small"></pre>
+        </div>
+        <div class="card">
+          <h3>Models (Ollama)</h3>
+          <div id="models">…</div>
+          <div class="row">
+            <input id="pull-model" placeholder="model name, e.g. qwen2.5:7b">
+            <button id="btn-pull">Pull</button>
+          </div>
+          <h3>Authority level <span id="auth-value"></span></h3>
+          <input type="range" id="authority" min="0" max="4" step="1">
+          <p class="small">0 read-only · 1 safe writes · 2 delegation · 3 network · 4 shell</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Live event feed</h3>
+        <ul id="events" class="mono small"></ul>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>

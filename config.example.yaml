@@ -1,0 +1,41 @@
+# JARVIS (Ollama Edition) — configuration
+# Copy to config.yaml (or set JARVIS_HOME to a directory containing config.yaml).
+# Every key can also be set via env vars, e.g. JARVIS_PORT, JARVIS_OLLAMA_MODEL.
+
+daemon:
+  host: 0.0.0.0
+  port: 3142
+  data_dir: ./data          # sqlite db + memory vault live here
+  log_level: info
+
+ollama:
+  base_url: http://localhost:11434
+  model: llama3.2            # primary "smart" model
+  fast_model: llama3.2:1b    # cheap/fast model for routing, summaries, observations
+  temperature: 0.7
+  keep_alive: 30m            # keep weights hot between calls
+
+# Tool authority gate (mirrors JARVIS). Effective level = min(this, tool level).
+#   0 read-only  1 safe-writes  2 system-writes  3 network+notify
+#   4 shell execution. Tools requiring a higher level are refused + audited.
+authority:
+  level: 3
+
+agent:
+  max_turns: 8               # tool-call loop budget per user message
+  max_delegation_depth: 2    # orchestrator -> specialist -> specialist
+
+observer:
+  enabled: false
+  paths: []                  # e.g. ["./data/inbox"] — watched dirs feed the knowledge vault
+  interval_ms: 2000
+  debounce_ms: 800
+
+cron:
+  morning: "0 7 * * *"       # daily planning: goals -> today's plan
+  evening: "0 20 * * *"      # end-of-day review
+  hourly: "37 * * * *"       # heartbeat: check goal deadlines, stalled tasks
+
+personality:
+  name: Jarvis
+  core_traits: [loyal, efficient, proactive, respectful]
