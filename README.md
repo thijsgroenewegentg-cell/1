@@ -17,35 +17,60 @@ Zero native dependencies: Node ≥ 22.13 built-ins only (`node:sqlite`, fetch, f
 
 ---
 
-## Quick start
+## One-click install
 
-**1. Install Ollama and pull models**
+**macOS / Linux / WSL2** — paste one line:
 
 ```bash
-# https://ollama.com/download
-ollama pull llama3.2        # smart model (tool-calling capable)
-ollama pull llama3.2:1b     # fast model for background work
-ollama serve                # usually already running as a service
+curl -fsSL https://raw.githubusercontent.com/thijsgroenewegentg-cell/1/main/install.sh | bash
 ```
 
-Any Ollama model with tool-calling support works (llama3.1+, qwen2.5, mistral-nemo…).
+> Until the installer lands on `main`, use the branch:
+> `curl -fsSL .../arena/01a08f29-1/install.sh | JARVIS_REF=arena/01a08f29-1 bash`
 
-**2. Run JARVIS**
+The installer is idempotent and self-contained:
+
+1. installs **Node ≥ 22** if needed (portable, into `~/.jarvis/runtime` — no root, no system changes)
+2. installs **Ollama** if missing and starts it
+3. fetches JARVIS into `~/.jarvis/app` and installs dependencies
+4. writes `~/.jarvis/config.yaml`, pulls `llama3.2` + `llama3.2:1b`
+5. installs the `jarvis` launcher (and optionally a systemd user / launchd service)
+6. starts the daemon → dashboard at `http://localhost:3142`
+
+On **macOS** you can also double-click **`install.command`** in Finder.
+
+| Flag | Effect |
+|---|---|
+| `--model` / `--fast-model` | choose other Ollama models (any tool-calling model works) |
+| `--port N` | dashboard port (default 3142) |
+| `--service` | auto-start on login (systemd user unit / launchd agent) |
+| `--no-models` · `--no-ollama` · `--no-start` | skip a step (e.g. Ollama on another machine) |
+| `--open` | open the dashboard in your browser when ready |
+| `--local [dir]` | install from a local checkout instead of cloning |
+| `--uninstall` · `--uninstall --purge` | remove (keeps `~/.jarvis/data` unless `--purge`) |
+| `-y` | non-interactive |
+
+Downloads are retried and Node checksums verified; mirrors are tried in order
+(nodejs.org → npmmirror → unofficial-builds, override with `JARVIS_NODE_MIRROR`).
+
+## Manual quick start
+
+Prefer to run it yourself?
 
 ```bash
+# 1. Ollama — https://ollama.com/download
+ollama pull llama3.2        # smart model (tool-calling capable)
+ollama pull llama3.2:1b     # fast model for background work
+
+# 2. JARVIS
 npm install
 npm start                   # foreground, Ctrl+C to stop
 # or as a background daemon:
 node bin/jarvis.js start -d
 ```
 
-**3. Open the dashboard** → `http://localhost:3142`
-
-First run? Verify your environment anytime with:
-
-```bash
-node bin/jarvis.js doctor
-```
+Open `http://localhost:3142`, and sanity-check the environment anytime with
+`node bin/jarvis.js doctor`.
 
 > **Try it without a GPU:** `npm run mock-ollama` starts a scripted fake Ollama
 > server so you can explore the full dashboard (streaming, tool calls, memory,
